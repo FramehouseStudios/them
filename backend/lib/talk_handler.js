@@ -3531,7 +3531,7 @@ EVOLVING SELF-AWARENESS:
       `low_usefulness:${memoryGuardrailsNow.lowUsefulnessCount}/${memoryGuardrailsNow.totalThemes}`;
     const userPrimaryName = normalizeUserPersonName(sessionMemory?.userPrimaryName);
     const screenplayQuestionSummary = screenplayQuestionPlan?.active
-      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} score=${screenplayQuestionPlan.selectionScore || 0} reason=${screenplayQuestionPlan.reason || "none"}`
+      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} score=${screenplayQuestionPlan.selectionScore || 0} learned_bonus=${screenplayQuestionPlan.effectivenessBonus || 0} reason=${screenplayQuestionPlan.reason || "none"}`
       : "inactive";
     const screenplayQuestionRule = screenplayQuestionPlan?.shouldAsk
       ? `First execute this turn's useful story work. Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`

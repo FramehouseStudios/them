@@ -36,6 +36,8 @@ const CHARACTER_BIBLE_AUTHORITATIVE_FIELDS_MAX = 8;
 const CHARACTER_BIBLE_LEARNED_FIELDS_MAX = 8;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
+const QUESTION_EFFECTIVENESS_MAX = 24;
+const QUESTION_EFFECTIVENESS_ATTRIBUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 const PROJECT_CORRECTED_TERMS_MAX = 64;
 const ACCEPTED_SCENES_MAX = 96;
 const ACCEPTED_SCENE_PROMPT_MAX = 3;
@@ -185,6 +187,18 @@ const PROJECT_CONTINUITY_INTEGER_FIELDS = Object.freeze([
   ["pageCount", 1_000],
   ["targetPages", 1_000],
 ]);
+const SCREENPLAY_QUESTION_SEQUENCE_KEYS = new Set([
+  "opening",
+  "commitment",
+  "premise",
+  "midpoint",
+  "fallout",
+  "crisis",
+  "final_plan",
+  "climax",
+  "resolution",
+]);
+const STORY_BLOCK_RESOLVED_SIGNAL = /\b(?:(?:that|this|it)\s+(?:solved|fixed|cleared|broke)\s+(?:the\s+)?(?:block|problem)|i(?:'m| am)\s+(?:unstuck|not\s+stuck)|the\s+(?:writer'?s\s+)?block(?:'s| is)\s+gone|now\s+i\s+(?:know|see)\s+(?:what\s+happens|where\s+(?:the\s+)?story\s+goes|the\s+next\s+(?:beat|scene|move)))\b/i;
 const ACCEPTED_SCENE_SCALAR_FIELDS = Object.freeze([
   ["writeId", "write_id", 80],
   ["anchorSceneId", "anchor_scene_id", 120],
@@ -943,6 +957,116 @@ function mergeWriterCanonFacts(incoming = [], existing = [], correction = null) 
     .slice(0, WRITER_CANON_FACTS_MAX);
 }
 
+function sanitizeQuestionEffectivenessRecord(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const questionId = cleanText(source.questionId ?? source.question_id, 120);
+  const targetField = cleanText(source.targetField ?? source.target_field, 64).toLowerCase();
+  const answeredAt = Math.max(0, Number(source.answeredAt ?? source.answered_at ?? 0));
+  if (!questionId || !targetField || !answeredAt) return null;
+  const actKeyRaw = cleanText(source.actKey ?? source.act_key, 24).toLowerCase();
+  const sequenceKeyRaw = cleanText(source.sequenceKey ?? source.sequence_key, 32).toLowerCase();
+  const acceptedPageAt = Math.max(
+    0,
+    Number(source.acceptedPageAt ?? source.accepted_page_at ?? 0)
+  );
+  const blockResolvedAt = Math.max(
+    0,
+    Number(source.blockResolvedAt ?? source.block_resolved_at ?? 0)
+  );
+  const acceptedPageCount = acceptedPageAt
+    ? Math.max(1, Math.min(8, Math.floor(Number(
+      source.acceptedPageCount ?? source.accepted_page_count ?? 1
+    ) || 1)))
+    : 0;
+  const blockResolutionCount = blockResolvedAt
+    ? Math.max(1, Math.min(8, Math.floor(Number(
+      source.blockResolutionCount ?? source.block_resolution_count ?? 1
+    ) || 1)))
+    : 0;
+  const outcome = acceptedPageAt && blockResolvedAt
+    ? "accepted_pages_and_block_resolved"
+    : acceptedPageAt
+      ? "accepted_pages"
+      : blockResolvedAt
+        ? "block_resolved"
+        : "awaiting_outcome";
+  return Object.fromEntries(Object.entries({
+    questionId,
+    targetField,
+    targetLabel: cleanText(source.targetLabel ?? source.target_label, 120),
+    question: cleanText(source.question, 260),
+    anchor: cleanText(source.anchor, 180),
+    actKey: ["act1", "act2", "act3"].includes(actKeyRaw) ? actKeyRaw : "",
+    sequenceKey: SCREENPLAY_QUESTION_SEQUENCE_KEYS.has(sequenceKeyRaw) ? sequenceKeyRaw : "",
+    writerBlocked: Boolean(source.writerBlocked ?? source.writer_blocked),
+    answeredAt,
+    acceptedPageAt,
+    acceptedPageCount,
+    blockResolvedAt,
+    blockResolutionCount,
+    outcome,
+    updatedAt: Math.max(
+      answeredAt,
+      acceptedPageAt,
+      blockResolvedAt,
+      Number(source.updatedAt ?? source.updated_at ?? 0)
+    ),
+  }).filter(([, fieldValue]) => (
+    typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue)
+  )));
+}
+
+function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
+  const byQuestionId = new Map();
+  for (const raw of [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ]) {
+    const item = sanitizeQuestionEffectivenessRecord(raw);
+    if (!item) continue;
+    const previous = byQuestionId.get(item.questionId);
+    if (!previous) {
+      byQuestionId.set(item.questionId, item);
+      continue;
+    }
+    byQuestionId.set(item.questionId, sanitizeQuestionEffectivenessRecord({
+      ...previous,
+      ...item,
+      writerBlocked: Boolean(previous.writerBlocked || item.writerBlocked),
+      answeredAt: Math.min(previous.answeredAt, item.answeredAt),
+      acceptedPageAt: Math.max(previous.acceptedPageAt || 0, item.acceptedPageAt || 0),
+      acceptedPageCount: Math.max(
+        previous.acceptedPageCount || 0,
+        item.acceptedPageCount || 0
+      ),
+      blockResolvedAt: Math.max(previous.blockResolvedAt || 0, item.blockResolvedAt || 0),
+      blockResolutionCount: Math.max(
+        previous.blockResolutionCount || 0,
+        item.blockResolutionCount || 0
+      ),
+    }));
+  }
+  return [...byQuestionId.values()]
+    .filter(Boolean)
+    .sort((left, right) => Number(right.answeredAt || 0) - Number(left.answeredAt || 0))
+    .slice(0, QUESTION_EFFECTIVENESS_MAX);
+}
+
+function buildAnsweredQuestionEffectivenessRecord(learningContext, answeredAt = nowMs()) {
+  return sanitizeQuestionEffectivenessRecord({
+    questionId: learningContext?.questionId,
+    targetField: learningContext?.targetField,
+    targetLabel: learningContext?.targetLabel,
+    question: learningContext?.question,
+    anchor: learningContext?.anchor,
+    actKey: learningContext?.actKey,
+    sequenceKey: learningContext?.sequenceKey,
+    writerBlocked: learningContext?.writerBlocked,
+    answeredAt,
+    updatedAt: answeredAt,
+  });
+}
+
 function sanitizeProjectContinuity(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const projectId = cleanText(source.projectId ?? source.project_id, 96);
@@ -1013,6 +1137,10 @@ function sanitizeProjectContinuity(value = {}) {
   const acceptedScenes = value.acceptedScenes ?? value.accepted_scenes;
   if (Array.isArray(acceptedScenes)) {
     out.acceptedScenes = mergeAcceptedSceneContinuity(acceptedScenes, [], correction);
+  }
+  const questionEffectiveness = value.questionEffectiveness ?? value.question_effectiveness;
+  if (Array.isArray(questionEffectiveness)) {
+    out.questionEffectiveness = mergeQuestionEffectivenessRecords(questionEffectiveness, []);
   }
   return out;
 }
@@ -3133,6 +3261,17 @@ function sanitizeScreenplayLearningContext(value, {
     anchor: cleanText(value.anchor, 180),
     question,
     authority: "writer_clarification",
+    actKey: ["act1", "act2", "act3"].includes(
+      cleanText(value.actKey ?? value.act_key, 24).toLowerCase()
+    )
+      ? cleanText(value.actKey ?? value.act_key, 24).toLowerCase()
+      : "",
+    sequenceKey: SCREENPLAY_QUESTION_SEQUENCE_KEYS.has(
+      cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
+    )
+      ? cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
+      : "",
+    writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
   };
 }
 
@@ -3189,6 +3328,9 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
       question: cleanText(learningContext.question, 260),
       targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
       anchor: cleanText(learningContext.anchor, 180),
+      actKey: cleanText(learningContext.actKey ?? learningContext.act_key, 24),
+      sequenceKey: cleanText(learningContext.sequenceKey ?? learningContext.sequence_key, 32),
+      writerBlocked: Boolean(learningContext.writerBlocked ?? learningContext.writer_blocked),
     };
   }
 
@@ -3208,6 +3350,9 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
     question: cleanText(learningContext.question, 260),
     targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
     anchor: cleanText(learningContext.anchor, 180),
+    actKey: cleanText(learningContext.actKey ?? learningContext.act_key, 24),
+    sequenceKey: cleanText(learningContext.sequenceKey ?? learningContext.sequence_key, 32),
+    writerBlocked: Boolean(learningContext.writerBlocked ?? learningContext.writer_blocked),
   };
 }
 
@@ -4719,6 +4864,12 @@ function createCreativeMemoryStore({
             }
           );
         }
+        if (Object.prototype.hasOwnProperty.call(incoming, "questionEffectiveness")) {
+          next.questionEffectiveness = mergeQuestionEffectivenessRecords(
+            incoming.questionEffectiveness,
+            existing.questionEffectiveness
+          );
+        }
         projects[existingIdx] = sanitizeProjectContinuity(next);
       } else {
         projects.push({ ...incoming, updatedAt: nowMs() });
@@ -4734,6 +4885,95 @@ function createCreativeMemoryStore({
       projectId: incoming.projectId,
       projectTitle: incoming.projectTitle,
     };
+  }
+
+  async function recordQuestionEffectivenessOutcome({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    acceptedPage = false,
+    blockResolved = false,
+    at = nowMs(),
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanProjectId = cleanText(projectId, 96).toLowerCase();
+    const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+    const outcomeAt = Math.max(0, Number(at) || nowMs());
+    if (!cleanUserId || (!cleanProjectId && !cleanProjectTitle)) {
+      return { ok: false, acceptedPages: 0, blockResolutions: 0 };
+    }
+    if (!acceptedPage && !blockResolved) {
+      return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+    }
+
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+      const projects = (Array.isArray(current.projects) ? current.projects : [])
+        .map(sanitizeProjectContinuity)
+        .filter(Boolean);
+      let projectIndex = -1;
+      if (cleanProjectId) {
+        projectIndex = projects.findIndex((project) => (
+          projectIdentity(project).projectId === cleanProjectId
+        ));
+      }
+      if (projectIndex < 0 && cleanProjectTitle) {
+        projectIndex = projects.findIndex((project) => {
+          const identity = projectIdentity(project);
+          return identity.projectTitle === cleanProjectTitle &&
+            (!cleanProjectId || !identity.projectId);
+        });
+      }
+      if (projectIndex < 0) {
+        return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+      }
+
+      const project = projects[projectIndex];
+      const outcomes = mergeQuestionEffectivenessRecords(
+        project.questionEffectiveness,
+        []
+      );
+      const recent = outcomes.filter((item) => (
+        outcomeAt >= Number(item.answeredAt || 0) &&
+        outcomeAt - Number(item.answeredAt || 0) <= QUESTION_EFFECTIVENESS_ATTRIBUTION_WINDOW_MS
+      ));
+      let acceptedPages = 0;
+      let blockResolutions = 0;
+      if (acceptedPage) {
+        const latest = recent[0];
+        if (latest && !latest.acceptedPageAt) {
+          latest.acceptedPageAt = outcomeAt;
+          latest.acceptedPageCount = 1;
+          latest.updatedAt = outcomeAt;
+          acceptedPages = 1;
+        }
+      }
+      if (blockResolved) {
+        const latestBlocked = recent.find((item) => item.writerBlocked);
+        if (latestBlocked && !latestBlocked.blockResolvedAt) {
+          latestBlocked.blockResolvedAt = outcomeAt;
+          latestBlocked.blockResolutionCount = 1;
+          latestBlocked.updatedAt = outcomeAt;
+          blockResolutions = 1;
+        }
+      }
+      if (!acceptedPages && !blockResolutions) {
+        return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+      }
+
+      projects[projectIndex] = sanitizeProjectContinuity({
+        ...project,
+        questionEffectiveness: outcomes,
+        updatedAt: outcomeAt,
+      });
+      current.projects = projects
+        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+        .slice(0, PROJECT_CONTINUITY_MAX);
+      current.updatedAt = outcomeAt;
+      await writeUser(cleanUserId, current);
+      return { ok: true, acceptedPages, blockResolutions };
+    });
   }
 
   // T30: optional `source` and `metadata` thread through so callers can
@@ -5495,6 +5735,9 @@ function createCreativeMemoryStore({
       learningAnswersRecorded: 0,
       learningAnswersPromoted: 0,
       learningAnswersCorrectionProtected: 0,
+      questionOutcomesRecorded: 0,
+      questionAcceptedPageOutcomes: 0,
+      questionBlockResolutions: 0,
       lexicalPhrases: 0,
       projectContinuityRecorded: false,
       sessionRecorded: false,
@@ -5864,11 +6107,48 @@ function createCreativeMemoryStore({
           } else {
             summary.projectContinuityRecorded = true;
           }
+          const questionOutcome = buildAnsweredQuestionEffectivenessRecord(
+            cleanLearningContext
+          );
+          if (questionOutcome && (resolvedProjectId || resolvedProjectTitle)) {
+            const outcomeReceipt = await recordProjectContinuity({
+              userId,
+              continuity: {
+                projectId: resolvedProjectId,
+                projectTitle: resolvedProjectTitle,
+                questionEffectiveness: [questionOutcome],
+              },
+            });
+            if (outcomeReceipt?.ok) {
+              summary.questionOutcomesRecorded += 1;
+              summary.projectContinuityRecorded = true;
+            }
+          }
         } else if (promotionReceipt?.protectedByCorrection) {
           summary.learningAnswersCorrectionProtected += 1;
           learningPromotionProtected = true;
         }
       } catch (_e) { /* never block the response on structured learning promotion */ }
+    }
+
+    if (cleanAcceptedPageText || STORY_BLOCK_RESOLVED_SIGNAL.test(userText)) {
+      try {
+        const outcomeReceipt = await recordQuestionEffectivenessOutcome({
+          userId,
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+          acceptedPage: Boolean(cleanAcceptedPageText),
+          blockResolved: STORY_BLOCK_RESOLVED_SIGNAL.test(userText),
+        });
+        summary.questionAcceptedPageOutcomes = Math.max(
+          0,
+          Number(outcomeReceipt?.acceptedPages || 0)
+        );
+        summary.questionBlockResolutions = Math.max(
+          0,
+          Number(outcomeReceipt?.blockResolutions || 0)
+        );
+      } catch (_e) { /* never block the response on outcome attribution */ }
     }
 
     const sceneHeading = firstScreenplaySceneHeading(storyMemoryText);

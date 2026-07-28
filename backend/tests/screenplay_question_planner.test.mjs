@@ -652,16 +652,82 @@ test("fully resolved Story Spine and Character Bible fields produce no intake qu
   assert.match(plan.reason, /already resolved/i);
 });
 
+test("accepted-page and unblock outcomes improve future sequence-specific ranking", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "I'm stuck in the promise-of-the-premise sequence. What happens next?",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      characters: [{
+        name: "Mara",
+        arc: {
+          want: "Save Eli",
+          need: "Trust Eli with the route",
+          wound: "She once abandoned June",
+          false_belief: "Control keeps everyone safe",
+          next_emotional_turn: "Let Eli choose the crossing",
+        },
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        protagonist_need: "Trust Eli with the route",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        ending_image: "Mara lets Eli steer the ferry into dawn",
+        theme_argument: "Love without trust becomes possession",
+        scene_objective: "Reach the quarantine gate",
+        question_effectiveness: [{
+          question_id: "screenplay-learning-14-story.next_irreversible_choice",
+          target_field: "story.next_irreversible_choice",
+          act_key: "act2",
+          sequence_key: "premise",
+          writer_blocked: true,
+          answered_at: 1_000,
+          accepted_page_count: 1,
+          block_resolution_count: 1,
+          outcome: "accepted_pages_and_block_resolved",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Promise of the Premise",
+      screenplayCharacterFocus: ["Mara"],
+    },
+    turnPlanner: { intent: "momentum_rescue" },
+  });
+
+  assert.equal(plan.targetField, "story.next_irreversible_choice");
+  assert.equal(plan.sequenceContext.key, "premise");
+  assert.equal(plan.effectivenessBonus, 42);
+  assert.equal(plan.successfulQuestionOutcomes, 1);
+  assert.equal(
+    plan.candidateScores.find((item) => item.field === "story.next_irreversible_choice")
+      ?.effectiveness_bonus,
+    42
+  );
+  assert.ok(
+    plan.selectionScore >
+    plan.candidateScores.find((item) => item.field === "character.current_tactic")?.score
+  );
+});
+
 test("a pending learning question turns the writer's next short answer into context", () => {
   const plan = {
     active: true,
     shouldAsk: true,
+    mode: "rescue_then_decide",
     projectId: "split-ferries",
     projectTitle: "Split Ferries",
     targetField: "character.want",
     targetLabel: "Mara's dramatic want",
     anchor: "Mara",
     question: "What does Mara want badly enough to keep choosing danger instead of safety?",
+    actContext: { key: "act2" },
+    sequenceContext: { key: "premise" },
+    writerBlocked: true,
   };
   const pending = createPendingScreenplayLearningQuestion(plan, { askedAtTurn: 8, now: 1000 });
   const resolution = resolvePendingScreenplayLearningAnswer({
@@ -675,6 +741,9 @@ test("a pending learning question turns the writer's next short answer into cont
   assert.equal(resolution.shouldClear, true);
   assert.equal(resolution.learningContext.targetField, "character.want");
   assert.equal(resolution.learningContext.authority, "writer_clarification");
+  assert.equal(resolution.learningContext.actKey, "act2");
+  assert.equal(resolution.learningContext.sequenceKey, "premise");
+  assert.equal(resolution.learningContext.writerBlocked, true);
 });
 
 test("a central dramatic question remains a valid structured learning answer", () => {

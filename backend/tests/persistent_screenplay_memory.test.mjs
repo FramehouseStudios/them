@@ -1712,6 +1712,49 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.ok(trace.query_chars > 0);
 });
 
+test("[persistent-screenplay-memory] exposes question outcomes to planner trace without answer text", () => {
+  const trace = buildCreativeMemoryPromptTrace({
+    projectContinuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act II",
+      questionEffectiveness: [{
+        questionId: "screenplay-learning-14-story.next_irreversible_choice",
+        targetField: "story.next_irreversible_choice",
+        targetLabel: "the next irreversible choice",
+        question: "Which safe option should Mara lose?",
+        actKey: "act2",
+        sequenceKey: "premise",
+        writerBlocked: true,
+        answeredAt: 1_000,
+        acceptedPageCount: 1,
+        blockResolutionCount: 1,
+        outcome: "accepted_pages_and_block_resolved",
+      }],
+    },
+  }, {
+    projectId: "split-ferries",
+    query: "I'm stuck in Act II.",
+  });
+
+  assert.deepEqual(trace.screenplay_project_memory.question_effectiveness, [{
+    question_id: "screenplay-learning-14-story.next_irreversible_choice",
+    target_field: "story.next_irreversible_choice",
+    act_key: "act2",
+    sequence_key: "premise",
+    writer_blocked: true,
+    answered_at: 1_000,
+    accepted_page_count: 1,
+    block_resolution_count: 1,
+    outcome: "accepted_pages_and_block_resolved",
+  }]);
+  assert.equal(
+    JSON.stringify(trace.screenplay_project_memory.question_effectiveness)
+      .includes("Which safe option"),
+    false
+  );
+});
+
 test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {
   const memory = {
     ...createEmptyEmotionMemory(),

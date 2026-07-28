@@ -3589,7 +3589,40 @@ function mergeScreenplayProjectMemoryForPromptTrace(
   };
 }
 
+function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => {
+      const questionId = normalizeSnippet(item?.questionId ?? item?.question_id, 120);
+      const targetField = normalizeSnippet(item?.targetField ?? item?.target_field, 64).toLowerCase();
+      const answeredAt = Math.max(0, Number(item?.answeredAt ?? item?.answered_at ?? 0));
+      if (!questionId || !targetField || !answeredAt) return null;
+      return Object.fromEntries(Object.entries({
+        question_id: questionId,
+        target_field: targetField,
+        act_key: normalizeSnippet(item?.actKey ?? item?.act_key, 24).toLowerCase(),
+        sequence_key: normalizeSnippet(item?.sequenceKey ?? item?.sequence_key, 32).toLowerCase(),
+        writer_blocked: Boolean(item?.writerBlocked ?? item?.writer_blocked),
+        answered_at: answeredAt,
+        accepted_page_count: Math.max(
+          0,
+          Math.floor(Number(item?.acceptedPageCount ?? item?.accepted_page_count ?? 0))
+        ),
+        block_resolution_count: Math.max(
+          0,
+          Math.floor(Number(item?.blockResolutionCount ?? item?.block_resolution_count ?? 0))
+        ),
+        outcome: normalizeSnippet(item?.outcome, 48).toLowerCase(),
+      }).filter(([, fieldValue]) => (
+        typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue)
+      )));
+    })
+    .filter(Boolean)
+    .sort((left, right) => Number(right.answered_at || 0) - Number(left.answered_at || 0))
+    .slice(0, Math.max(1, Math.min(24, Number(maxItems) || 12)));
+}
+
 function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance = []) {
+  const questionEffectiveness = project?.questionEffectiveness ?? project?.question_effectiveness;
   project = repairScreenplayProjectMemoryForPrompt(project);
   if (!project || typeof project !== "object") return null;
   const correctedTerms = normalizeScreenplayStringList(project.correctedTerms, 8, 120);
@@ -3630,6 +3663,9 @@ function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance
     correction_replacements: correctionReplacements,
     correction_contract: correctionContract,
     field_provenance: learnedFieldProvenance,
+    question_effectiveness: buildScreenplayQuestionEffectivenessPromptTrace(
+      questionEffectiveness
+    ),
   };
   return Object.fromEntries(
     Object.entries(trace).filter(([, value]) => {

@@ -231,6 +231,85 @@ test("confirmed story questions populate Story Spine fields across store restart
   )));
 });
 
+test("confirmed questions learn from committed pages and explicit writer-block recovery", async () => {
+  const persistence = freshPersistence();
+  const userId = "u-question-effectiveness";
+  let store = createCreativeMemoryStore({ persistence });
+  const answer = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Mara burns the private route and asks Eli to steer.",
+    reply: "That choice can turn the premise into a consequence.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-14-story.next_irreversible_choice",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "story.next_irreversible_choice",
+      targetLabel: "the next irreversible choice",
+      anchor: "Mara",
+      question: "Which safe option should Mara lose in the next scene?",
+      authority: "writer_clarification",
+      actKey: "act2",
+      sequenceKey: "premise",
+      writerBlocked: true,
+    },
+  });
+
+  assert.equal(answer.questionOutcomesRecorded, 1);
+  let memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  assert.equal(memory.projectContinuity.questionEffectiveness.length, 1);
+  assert.equal(memory.projectContinuity.questionEffectiveness[0].outcome, "awaiting_outcome");
+  assert.equal(memory.projectContinuity.questionEffectiveness[0].sequenceKey, "premise");
+  assert.equal(memory.projectContinuity.questionEffectiveness[0].writerBlocked, true);
+
+  const page = `INT. FERRY WHEELHOUSE - NIGHT
+
+Mara strikes a match under the private route map.
+
+MARA
+Your turn.
+
+Eli takes the wheel as the map burns between them.`;
+  const accepted = await store.recordTriggersFromTalkTurn({
+    userId,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    acceptedPageText: page,
+  });
+  assert.equal(accepted.questionAcceptedPageOutcomes, 1);
+
+  const recovered = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "That solved the block. Now I know what happens next.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+  });
+  assert.equal(recovered.questionBlockResolutions, 1);
+
+  store = createCreativeMemoryStore({ persistence });
+  memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  const [outcome] = memory.projectContinuity.questionEffectiveness;
+  assert.equal(outcome.questionId, "screenplay-learning-14-story.next_irreversible_choice");
+  assert.equal(outcome.acceptedPageCount, 1);
+  assert.equal(outcome.blockResolutionCount, 1);
+  assert.equal(outcome.outcome, "accepted_pages_and_block_resolved");
+
+  const repeated = await store.recordTriggersFromTalkTurn({
+    userId,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    acceptedPageText: page,
+  });
+  assert.equal(repeated.questionAcceptedPageOutcomes, 0);
+});
+
 test("authoritative corrections block stale clarification replay across sessions", async () => {
   const persistence = freshPersistence();
   const userId = "u-trig-learning-correction-safe";

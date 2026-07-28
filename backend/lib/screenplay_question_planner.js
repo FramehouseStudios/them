@@ -340,6 +340,82 @@ function summarizeFieldStates(states) {
   return summary;
 }
 
+function questionFieldLane(field) {
+  const normalized = clean(field, 64).toLowerCase();
+  if (!normalized) return "";
+  if (normalized.startsWith("story_thread.")) return "story_thread";
+  if (normalized.startsWith("story.")) return "story";
+  return normalized.split(".")[0] || "";
+}
+
+function normalizeQuestionEffectiveness(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const targetField = clean(row?.target_field ?? row?.targetField, 64).toLowerCase();
+      const answeredAt = Math.max(0, Number(row?.answered_at ?? row?.answeredAt ?? 0));
+      if (!targetField || !answeredAt) return null;
+      const acceptedPageCount = Math.max(
+        0,
+        Math.floor(Number(row?.accepted_page_count ?? row?.acceptedPageCount ?? 0))
+      );
+      const blockResolutionCount = Math.max(
+        0,
+        Math.floor(Number(row?.block_resolution_count ?? row?.blockResolutionCount ?? 0))
+      );
+      return {
+        targetField,
+        lane: questionFieldLane(targetField),
+        actKey: clean(row?.act_key ?? row?.actKey, 24).toLowerCase(),
+        sequenceKey: clean(row?.sequence_key ?? row?.sequenceKey, 32).toLowerCase(),
+        writerBlocked: Boolean(row?.writer_blocked ?? row?.writerBlocked),
+        answeredAt,
+        acceptedPageCount,
+        blockResolutionCount,
+        successful: acceptedPageCount > 0 || blockResolutionCount > 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.answeredAt - left.answeredAt)
+    .slice(0, 24);
+}
+
+function questionEffectivenessBonus(field, {
+  actKey,
+  sequenceKey,
+  writerBlocked,
+  questionEffectiveness = [],
+}) {
+  const targetField = clean(field, 64).toLowerCase();
+  const targetLane = questionFieldLane(targetField);
+  let bonus = 0;
+  let matched = 0;
+  for (const outcome of questionEffectiveness) {
+    if (!outcome?.successful) continue;
+    const exactField = outcome.targetField === targetField;
+    const sameLane = Boolean(targetLane && outcome.lane === targetLane);
+    const sameSequence = Boolean(sequenceKey && outcome.sequenceKey === sequenceKey);
+    const sameAct = Boolean(actKey && outcome.actKey === actKey);
+    if (!exactField && !sameLane && !sameSequence) continue;
+    let outcomeBonus = exactField ? 18 : sameLane ? 4 : 0;
+    if (sameSequence) outcomeBonus += 5;
+    if (sameAct) outcomeBonus += 2;
+    if (outcome.acceptedPageCount > 0) {
+      outcomeBonus += exactField ? 12 : sameLane ? 4 : 2;
+    }
+    if (
+      writerBlocked &&
+      outcome.writerBlocked &&
+      outcome.blockResolutionCount > 0
+    ) {
+      outcomeBonus += exactField ? 10 : 4;
+    }
+    bonus += outcomeBonus;
+    matched += 1;
+    if (matched >= 2 || bonus >= 42) break;
+  }
+  return Math.min(42, Math.max(0, Math.round(bonus)));
+}
+
 function normalizedAnchor(value) {
   return clean(value, 240)
     .toLowerCase()
@@ -562,6 +638,7 @@ function scoreGap(gap, {
   sequenceKey,
   writerBlocked,
   transcript,
+  questionEffectiveness = [],
 }) {
   const field = gap?.field || "";
   const actScores = ACT_GAP_SCORES[actKey] || {};
@@ -574,6 +651,12 @@ function scoreGap(gap, {
     if (field === "story.next_irreversible_choice") score += 28;
   }
   if (FIELD_TRANSCRIPT_SIGNALS[field]?.test(transcript)) score += 80;
+  score += questionEffectivenessBonus(field, {
+    actKey,
+    sequenceKey,
+    writerBlocked,
+    questionEffectiveness,
+  });
   return Math.round(score);
 }
 
@@ -582,6 +665,7 @@ function selectHighestValueGap(candidates, context) {
     .map((gap, order) => ({
       ...gap,
       score: scoreGap(gap, context),
+      effectivenessBonus: questionEffectivenessBonus(gap?.field, context),
       order,
     }))
     .sort((left, right) => right.score - left.score || left.order - right.order)[0] || null;
@@ -813,6 +897,9 @@ export function buildScreenplayQuestionPlan({
   const projectMemory = trace.screenplay_project_memory && typeof trace.screenplay_project_memory === "object"
     ? trace.screenplay_project_memory
     : {};
+  const questionEffectiveness = normalizeQuestionEffectiveness(
+    projectMemory.question_effectiveness ?? projectMemory.questionEffectiveness
+  );
   const target = clean(studioMeta?.screenplayTarget, 32).toLowerCase();
   const projectId = firstValue(
     studioMeta?.screenplayProjectId,
@@ -935,6 +1022,7 @@ export function buildScreenplayQuestionPlan({
     sequenceKey: sequenceContext.key,
     writerBlocked,
     transcript: text,
+    questionEffectiveness,
   });
   const gap = contextualizeGapForSequence(selectedGap, sequenceContext);
 
@@ -974,19 +1062,29 @@ export function buildScreenplayQuestionPlan({
     question: gap.question,
     reason: gap.reason,
     memoryAuthority: "writer_clarification",
+    writerBlocked,
     targetFieldStatus: fieldStates[gap.field]?.status || "unknown",
     fieldStates: fieldStateSummary,
     actContext,
     sequenceContext,
     selectionScore: gap.score,
+    effectivenessBonus: gap.effectivenessBonus || 0,
+    successfulQuestionOutcomes: questionEffectiveness.filter((item) => item.successful).length,
     candidateScores: candidateGaps
       .map((candidate) => ({
         field: candidate.field,
+        effectiveness_bonus: questionEffectivenessBonus(candidate.field, {
+          actKey: actContext.key,
+          sequenceKey: sequenceContext.key,
+          writerBlocked,
+          questionEffectiveness,
+        }),
         score: scoreGap(candidate, {
           actKey: actContext.key,
           sequenceKey: sequenceContext.key,
           writerBlocked,
           transcript: text,
+          questionEffectiveness,
         }),
       }))
       .sort((left, right) => right.score - left.score || left.field.localeCompare(right.field))
@@ -1009,6 +1107,9 @@ export function createPendingScreenplayLearningQuestion(plan, {
     targetLabel: clean(plan.targetLabel, 120),
     anchor: clean(plan.anchor, 180),
     question: clean(plan.question, 260),
+    actKey: clean(plan.actContext?.key, 24),
+    sequenceKey: clean(plan.sequenceContext?.key, 32),
+    writerBlocked: Boolean(plan.writerBlocked || plan.mode === "rescue_then_decide"),
     askedAtTurn: turn,
     expiresAfterTurn: turn + 2,
     askedAt: Math.max(0, Number(now) || Date.now()),
@@ -1068,6 +1169,9 @@ export function resolvePendingScreenplayLearningAnswer({
       targetLabel: clean(pending.targetLabel, 120),
       anchor: clean(pending.anchor, 180),
       question: clean(pending.question, 260),
+      actKey: clean(pending.actKey, 24),
+      sequenceKey: clean(pending.sequenceKey, 32),
+      writerBlocked: Boolean(pending.writerBlocked),
       authority: "writer_clarification",
     },
   };
