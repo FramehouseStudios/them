@@ -19823,6 +19823,8 @@ function renderRealtimeBridgeHtml() {
         transportLossReported: false,
         userTranscript: '',
         userTranscriptIsFinal: false,
+        pendingGroundingRevision: '',
+        pendingGroundingEventID: '',
       };
 
       function post(type, payload) {
@@ -20150,6 +20152,8 @@ function renderRealtimeBridgeHtml() {
         state.localLoudFrames = 0;
         state.userTranscript = '';
         state.userTranscriptIsFinal = false;
+        state.pendingGroundingRevision = '';
+        state.pendingGroundingEventID = '';
         if (remoteAudio) {
           try {
           remoteAudio.pause();
@@ -20255,6 +20259,15 @@ function renderRealtimeBridgeHtml() {
         if (!type) return;
 
         switch (type) {
+          case 'session.updated': {
+            const revision = state.pendingGroundingRevision;
+            state.pendingGroundingRevision = '';
+            state.pendingGroundingEventID = '';
+            if (revision) {
+              post('project_grounding_updated', { revision: revision });
+            }
+            break;
+          }
           case 'input_audio_buffer.speech_started':
             state.userSpeechActive = true;
             state.userTranscript = '';
@@ -20419,6 +20432,22 @@ function renderRealtimeBridgeHtml() {
               safeText(event.error && event.error.message) ||
               safeText(event.message) ||
               'Realtime event error.';
+            const failedEventID =
+              safeText(event.event_id) ||
+              safeText(event.error && event.error.event_id);
+            if (
+              state.pendingGroundingEventID &&
+              failedEventID === state.pendingGroundingEventID
+            ) {
+              const revision = state.pendingGroundingRevision;
+              state.pendingGroundingRevision = '';
+              state.pendingGroundingEventID = '';
+              post('project_grounding_update_failed', {
+                revision: revision,
+                message: message,
+              });
+              break;
+            }
             const cancellationRace = state.interruptionStartedAt && (
               code.includes('cancel') ||
               code.includes('not_active') ||
@@ -20637,6 +20666,48 @@ function renderRealtimeBridgeHtml() {
         return true;
       }
 
+      function updateInstructions(update) {
+        const details = update && typeof update === 'object' ? update : {};
+        const instructions = safeText(details.instructions);
+        const revision = safeText(details.revision);
+        if (!instructions) {
+          post('project_grounding_update_failed', {
+            revision: revision,
+            message: 'Realtime project grounding was empty.',
+          });
+          return false;
+        }
+        if (!state.dc || state.dc.readyState !== 'open') {
+          post('project_grounding_update_failed', {
+            revision: revision,
+            message: 'Realtime project grounding could not reach the event channel.',
+          });
+          return false;
+        }
+        const eventID = 'grounding-' + String(Date.now()) + '-' + String(state.connectionGeneration);
+        state.pendingGroundingRevision = revision;
+        state.pendingGroundingEventID = eventID;
+        const sent = sendClientEvent({
+          event_id: eventID,
+          type: 'session.update',
+          session: {
+            type: 'realtime',
+            instructions: instructions,
+          },
+        });
+        if (!sent) {
+          state.pendingGroundingRevision = '';
+          state.pendingGroundingEventID = '';
+          post('project_grounding_update_failed', {
+            revision: revision,
+            message: 'Realtime project grounding could not be sent.',
+          });
+          return false;
+        }
+        post('project_grounding_update_submitted', { revision: revision });
+        return true;
+      }
+
       function stop() {
         resetConnection({ intentional: true });
         post('disconnected', {
@@ -20650,6 +20721,7 @@ function renderRealtimeBridgeHtml() {
         start: start,
         interrupt: interrupt,
         resumeTurn: resumeTurn,
+        updateInstructions: updateInstructions,
         stop: stop,
       };
 

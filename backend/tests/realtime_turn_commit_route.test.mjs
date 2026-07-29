@@ -229,6 +229,8 @@ test("[turn-commit] 201 with canonical envelope on happy path", async () => {
     assert.equal(r.body.schema_version, 1);
     assert.equal(r.body.backend_build, "test-build");
     assert.equal(r.body.backend_boot_id, "test-boot");
+    assert.equal(r.body.memory_grounding_changed, false);
+    assert.equal(r.body.memory_grounding_reason, null);
   });
 });
 
@@ -443,6 +445,10 @@ test("[turn-commit] promotes a spoken screenplay answer before clearing its pend
       learning_promoted: true,
       correction_protected: false,
     });
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "screenplay_question_resolved");
+    assert.equal(r.body.memory_grounding_project_id, "split-ferries");
+    assert.equal(r.body.memory_grounding_project_title, "Split Ferries");
     assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
     assert.equal(
       deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext.targetField,
@@ -457,6 +463,68 @@ test("[turn-commit] promotes a spoken screenplay answer before clearing its pend
       deps._calls.persistWritableMemoryContext.at(-1).nextMem.pendingScreenplayLearningQuestions,
       [],
     );
+  });
+});
+
+test("[turn-commit] marks authoritative canon corrections for live grounding refresh", async () => {
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return {
+        skipped: false,
+        corrections: 1,
+        acceptedCanonFactsRetired: 1,
+        writerCanonFactsRecorded: 1,
+        canonCorrectionReceiptId: "canon-correction-1",
+        canonCorrectionAmbiguityId: "",
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Actually, Mara returns for both sisters.",
+      reply: "Then the choice costs her the evidence.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "canon_correction");
+    assert.equal(r.body.memory_grounding_project_id, "split-ferries");
+    assert.equal(r.body.memory_grounding_project_title, "Split Ferries");
+  });
+});
+
+test("[turn-commit] does not apply an ambiguous correction before the writer resolves it", async () => {
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return {
+        skipped: false,
+        corrections: 1,
+        acceptedCanonFactsAmbiguous: 2,
+        canonCorrectionAmbiguityId: "canon-ambiguity-1",
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Actually, Mara goes back for both of them.",
+      reply: "Tell me which ferry fact that replaces.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.memory_grounding_changed, false);
+    assert.equal(r.body.memory_grounding_reason, null);
   });
 });
 

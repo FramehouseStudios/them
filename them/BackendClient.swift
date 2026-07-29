@@ -1558,6 +1558,42 @@ struct BackendRealtimeBootstrapPayload: Decodable {
     }
 }
 
+struct BackendRealtimeProjectGroundingMetadataPayload: Decodable {
+    let projectId: String?
+    let projectTitle: String?
+    let memoryApplied: Bool
+    let pendingQuestionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case memoryApplied = "memory_applied"
+        case pendingQuestionId = "pending_question_id"
+    }
+}
+
+struct BackendRealtimeProjectGroundingPayload: Decodable {
+    let ok: Bool
+    let action: String
+    let instructions: String
+    let memoryGrounding: BackendRealtimeProjectGroundingMetadataPayload?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case instructions
+        case memoryGrounding = "memory_grounding"
+    }
+}
+
+struct BackendRealtimeProjectGrounding: Equatable {
+    let instructions: String
+    let projectId: String
+    let projectTitle: String
+    let memoryApplied: Bool
+    let pendingQuestionId: String
+}
+
 struct BackendRealtimeUnavailable: Equatable {
     let statusCode: Int
     let stage: String
@@ -2968,6 +3004,111 @@ final class BackendClient {
             body["realtime_provider"] = provider
         }
         return body
+    }
+
+    static func realtimeProjectGroundingBody(
+        systemPrompt: String,
+        screenplayProjectId: String,
+        screenplayProjectTitle: String
+    ) -> [String: Any] {
+        [
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            "is_screenplay_mode": true,
+            "screenplay_project_id": screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines),
+            "screenplay_project_title": screenplayProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+    }
+
+    func fetchRealtimeProjectGrounding(
+        systemPrompt: String,
+        screenplayProjectId: String,
+        screenplayProjectTitle: String,
+        allowAuthTokenRefresh: Bool = true
+    ) async throws -> BackendRealtimeProjectGrounding {
+        let cleanProjectId = screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = screenplayProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectId.isEmpty || !cleanProjectTitle.isEmpty else {
+            throw BackendError.stage(
+                "realtime_project_grounding",
+                "A screenplay project is required."
+            )
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        var request = URLRequest(
+            url: resolvedBaseURL
+                .appendingPathComponent("realtime")
+                .appendingPathComponent("project_grounding")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        attachAuthorizationHeader(to: &request)
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: Self.realtimeProjectGroundingBody(
+                systemPrompt: systemPrompt,
+                screenplayProjectId: cleanProjectId,
+                screenplayProjectTitle: cleanProjectTitle
+            ),
+            options: []
+        )
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid realtime grounding response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await fetchRealtimeProjectGrounding(
+                        systemPrompt: systemPrompt,
+                        screenplayProjectId: cleanProjectId,
+                        screenplayProjectTitle: cleanProjectTitle,
+                        allowAuthTokenRefresh: false
+                    )
+                }
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        let payload: BackendRealtimeProjectGroundingPayload
+        do {
+            payload = try JSONDecoder().decode(BackendRealtimeProjectGroundingPayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(
+                502,
+                raw.isEmpty ? "Invalid realtime grounding payload." : raw
+            )
+        }
+        let instructions = payload.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard payload.ok, !instructions.isEmpty else {
+            throw BackendError.stage(
+                "realtime_project_grounding",
+                "Realtime project memory refresh returned no instructions."
+            )
+        }
+        return BackendRealtimeProjectGrounding(
+            instructions: instructions,
+            projectId: payload.memoryGrounding?.projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanProjectId,
+            projectTitle: payload.memoryGrounding?.projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanProjectTitle,
+            memoryApplied: payload.memoryGrounding?.memoryApplied ?? false,
+            pendingQuestionId: payload.memoryGrounding?.pendingQuestionId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        )
     }
 
     func fetchRealtimeClientSecret(

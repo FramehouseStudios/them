@@ -45,6 +45,10 @@ test("[realtime-bridge] runtime reports first output latency and provider-confir
     "credentialRefreshRecommended",
     "resumeTurn",
     "turn_repair_submitted",
+    "updateInstructions",
+    "session.update",
+    "project_grounding_updated",
+    "project_grounding_update_failed",
   ]) {
     assert.match(html, new RegExp(marker.replaceAll(".", "\\.")), marker);
   }

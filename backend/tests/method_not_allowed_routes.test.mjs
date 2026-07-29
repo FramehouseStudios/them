@@ -61,6 +61,7 @@ const EXPECTED = [
   ["/secretary/calendar", "POST"],
   ["/session", "POST, PATCH"],
   ["/realtime/client_secret", "POST"],
+  ["/realtime/project_grounding", "POST"],
   ["/realtime/studio_render", "POST"],
   ["/realtime/studio_render_stream", "POST"],
   ["/visual/context", "POST"],

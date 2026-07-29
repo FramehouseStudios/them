@@ -874,6 +874,10 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let backendBootId: String?
     let canonClarification: BackendCanonCorrectionAmbiguity?
     let screenplayQuestionResolution: BackendRealtimeScreenplayQuestionResolution?
+    let memoryGroundingChanged: Bool?
+    let memoryGroundingReason: String?
+    let memoryGroundingProjectId: String?
+    let memoryGroundingProjectTitle: String?
 }
 
 nonisolated struct BackendRealtimeScreenplayQuestionResolution: Decodable, Equatable {

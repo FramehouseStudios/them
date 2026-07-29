@@ -158,6 +158,24 @@ test("[exposure-lock] POST /realtime/client_secret rejects unauthenticated reque
   }
 });
 
+test("[exposure-lock] POST /realtime/project_grounding rejects unauthenticated requests with 401", async () => {
+  const server = await startBackend();
+  try {
+    const r = await apiRequest(server, "/realtime/project_grounding", {
+      method: "POST",
+      json: {
+        system_prompt: "test",
+        is_screenplay_mode: true,
+        screenplay_project_id: "project-a",
+      },
+    });
+    assert.equal(r.status, 401);
+    assert.equal(r.json?.stage, "auth_user");
+  } finally {
+    await server.stop();
+  }
+});
+
 test("[exposure-lock] POST /realtime/studio_render rejects unauthenticated requests with 401", async () => {
   const server = await startBackend();
   try {

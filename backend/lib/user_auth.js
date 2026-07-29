@@ -40,12 +40,13 @@ const USER_PROTECTED_PATTERNS = [
   /^\/visual\/context(?:\/|$)/,
 ];
 
-// Day 1 Backend Exposure Lock: cost-attached realtime + visual endpoints
-// must require authenticated identity *regardless* of the global
+// Day 1 Backend Exposure Lock: cost-attached or identity-sensitive realtime
+// + visual endpoints must require authenticated identity *regardless* of the global
 // REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
 // intentionally excluded — they are unauth health/proxy surfaces.
 const PAID_PROVIDER_PATTERNS = [
   /^\/realtime\/client_secret(?:\/|$)/,
+  /^\/realtime\/project_grounding(?:\/|$)/,
   /^\/realtime\/turn_commit(?:\/|$)/,
   /^\/realtime\/call(?:\/|$)/,
   /^\/realtime\/studio_render(?:\/|$)/,

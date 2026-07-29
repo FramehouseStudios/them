@@ -313,6 +313,21 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         ) > 0,
       }
       : null;
+    const canonClarificationPending = Boolean(
+      creativeMemoryWriteSummary?.canonCorrectionAmbiguityId,
+    );
+    const canonGroundingChanged = !canonClarificationPending && Boolean(
+      Math.max(0, Number(creativeMemoryWriteSummary?.corrections || 0)) > 0 ||
+      Math.max(0, Number(creativeMemoryWriteSummary?.acceptedCanonFactsRetired || 0)) > 0 ||
+      Math.max(0, Number(creativeMemoryWriteSummary?.writerCanonFactsRecorded || 0)) > 0 ||
+      String(creativeMemoryWriteSummary?.canonCorrectionReceiptId || "").trim(),
+    );
+    const memoryGroundingChanged = screenplayQuestionResolved || canonGroundingChanged;
+    const memoryGroundingReason = screenplayQuestionResolved
+      ? "screenplay_question_resolved"
+      : canonGroundingChanged
+        ? "canon_correction"
+        : null;
 
     return res.status(201).json({
       ok: true,
@@ -332,6 +347,10 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       backend_boot_id: readMeta.backendBootId,
       canon_clarification: canonClarification,
       screenplay_question_resolution: screenplayQuestionResolution,
+      memory_grounding_changed: memoryGroundingChanged,
+      memory_grounding_reason: memoryGroundingReason,
+      memory_grounding_project_id: memoryGroundingChanged ? screenplayProjectId || null : null,
+      memory_grounding_project_title: memoryGroundingChanged ? screenplayProjectTitle || null : null,
     });
   };
 

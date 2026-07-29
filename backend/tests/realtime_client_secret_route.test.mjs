@@ -9,6 +9,7 @@ import express from "express";
 import {
   mountRealtimeClientSecretRoute,
   CLIENT_SECRET_BODY_LIMIT,
+  PROJECT_GROUNDING_BODY_LIMIT,
   buildRealtimeProjectGroundedInstructions,
 } from "../lib/realtime_client_secret_route.js";
 
@@ -78,6 +79,7 @@ async function postJson(baseURL, path, body) {
 
 test("[realtime-client-secret] CLIENT_SECRET_BODY_LIMIT exported as 512kb", () => {
   assert.equal(CLIENT_SECRET_BODY_LIMIT, "512kb");
+  assert.equal(PROJECT_GROUNDING_BODY_LIMIT, "512kb");
 });
 
 test("[realtime-client-secret] oversized memory stays bounded without losing question or closing contracts", () => {
@@ -223,6 +225,83 @@ test("[realtime-client-secret] grounds screenplay sessions in authenticated proj
     assert.equal(r.body.memory_grounding.pending_question_id, "question-wound");
     assert.equal(r.body.memory_grounding.memory_applied, true);
     assert.equal(r.body.session.instructions, capturedMintParams.instructions);
+  });
+});
+
+test("[realtime-project-grounding] refreshes instructions without minting another credential", async () => {
+  let mintCalls = 0;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => ({
+      pendingScreenplayLearningQuestions: [
+        {
+          id: "question-ending",
+          projectId: "project-a",
+          projectTitle: "Ferry Light",
+          targetField: "project.ending_image",
+          targetLabel: "the ending image",
+          question: "What final image proves Mara changed?",
+          askedAtTurn: 9,
+          expiresAfterTurn: 11,
+          askedAt: 1_800_000_000_000,
+        },
+      ],
+    }),
+    getCreativeMemoryForPrompt: async () => ({
+      projectContinuity: {
+        projectId: "project-a",
+        correctedTerms: ["Mara returns for Eli and June."],
+      },
+    }),
+    buildCreativeMemoryBlock: () => [
+      "<memory>",
+      "authoritative_corrections: Mara returns for Eli and June.",
+      "</memory>",
+    ].join("\n"),
+    mintWithFailover: async (args) => {
+      mintCalls += 1;
+      return defaultDeps().mintWithFailover(args);
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/project_grounding", {
+      system_prompt: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+      screenplay_project_title: "Ferry Light",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.action, "realtime_project_grounding");
+    assert.equal(r.body.client_secret, undefined);
+    assert.equal(mintCalls, 0);
+    assert.match(r.body.instructions, /Mara returns for Eli and June/);
+    assert.match(r.body.instructions, /question_id: question-ending/);
+    assert.equal(r.body.memory_grounding.project_id, "project-a");
+    assert.equal(r.body.memory_grounding.pending_question_id, "question-ending");
+  });
+});
+
+test("[realtime-project-grounding] fails closed when authenticated memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => {
+      throw new Error("memory unavailable");
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/project_grounding", {
+      system_prompt: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+    });
+
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_project_grounding");
+    assert.equal(r.body.code, "realtime_project_grounding_failed");
   });
 });
 

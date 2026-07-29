@@ -186,6 +186,43 @@ test("[realtime-simulator] a fresh session can resume an interrupted text turn",
   assert.equal(simulator.eventsOfType("turn_repair_submitted")[0].turnID, "recovered-turn-1");
 });
 
+test("[realtime-simulator] updates project grounding without reconnecting", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+  const peer = simulator.currentPeerConnection;
+
+  assert.equal(
+    simulator.updateInstructions(
+      "Mara now returns for both sisters. Never repeat the resolved question.",
+      "memory-v12|screenplay_question_resolved|split-ferries"
+    ),
+    true
+  );
+  assert.equal(simulator.currentPeerConnection, peer);
+  assert.deepEqual(simulator.currentDataChannel.sent.at(-1), {
+    event_id: simulator.currentDataChannel.sent.at(-1).event_id,
+    type: "session.update",
+    session: {
+      type: "realtime",
+      instructions: "Mara now returns for both sisters. Never repeat the resolved question.",
+    },
+  });
+  assert.equal(
+    simulator.eventsOfType("project_grounding_update_submitted")[0].revision,
+    "memory-v12|screenplay_question_resolved|split-ferries"
+  );
+
+  simulator.providerEvent({ type: "session.updated", session: { type: "realtime" } });
+
+  assert.equal(simulator.currentPeerConnection, peer);
+  assert.equal(
+    simulator.eventsOfType("project_grounding_updated")[0].revision,
+    "memory-v12|screenplay_question_resolved|split-ferries"
+  );
+  assert.equal(simulator.eventsOfType("transport_lost").length, 0);
+});
+
 test("[realtime-simulator] intentional stop never emits a transport loss", async () => {
   const simulator = createSimulator();
   await simulator.start();

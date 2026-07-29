@@ -102,6 +102,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     var onLatencyEvent: ((ClementineRealtimeLatencyEvent) -> Void)?
     var onConnected: (() -> Void)?
     var onConnectionLost: ((ClementineRealtimeConnectionLoss) -> Void)?
+    var onProjectGroundingUpdated: ((String) -> Void)?
+    var onProjectGroundingUpdateFailed: ((String, String) -> Void)?
 
     private weak var webView: WKWebView?
     private var bridgeRequest: URLRequest?
@@ -221,6 +223,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         onLatencyEvent = nil
         onConnected = nil
         onConnectionLost = nil
+        onProjectGroundingUpdated = nil
+        onProjectGroundingUpdateFailed = nil
         status = .idle
         activity = .idle
         cancelledResponseOrdinal = 0
@@ -253,6 +257,25 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         evaluate(
             script: "window.clementineRealtime && window.clementineRealtime.resumeTurn && window.clementineRealtime.resumeTurn(\(json));"
         )
+    }
+
+    @discardableResult
+    func updateInstructions(_ instructions: String, revision: String) -> Bool {
+        let cleanInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isLive, !cleanInstructions.isEmpty else { return false }
+        let payload: [String: Any] = [
+            "instructions": cleanInstructions,
+            "revision": revision.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            return false
+        }
+        evaluate(
+            script: "window.clementineRealtime && window.clementineRealtime.updateInstructions && window.clementineRealtime.updateInstructions(\(json));",
+            reportFailure: false
+        )
+        return true
     }
 
     private func startIfPossible() {
@@ -421,6 +444,17 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         case "transport_lost":
             intentionalDisconnectPending = false
             publishConnectionLoss(ClementineRealtimeConnectionLoss.parse(payload))
+        case "project_grounding_updated":
+            let revision = String(describing: payload["revision"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            onProjectGroundingUpdated?(revision)
+        case "project_grounding_update_failed":
+            let revision = String(describing: payload["revision"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            onProjectGroundingUpdateFailed?(
+                revision,
+                message.isEmpty ? "Realtime project memory refresh failed." : message
+            )
         case "assistant_thinking":
             guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
             activity = .thinking

@@ -769,6 +769,9 @@ struct RootExperienceView: View {
     @StateObject private var voice = HerVoiceController()
     @StateObject private var realtimeVoice = ClementineRealtimeCoordinator()
     @StateObject private var realtimeTransport = ClementineRealtimeWebViewBridge()
+    @State private var realtimeGroundingRefreshTask: Task<Void, Never>?
+    @State private var pendingRealtimeGroundingRevision = ""
+    @State private var lastRealtimeGroundingRevision = ""
     @StateObject private var clientLatency = ClementineLatencyTelemetryStore.shared
     @StateObject private var evolution = HerEvolutionStore.shared
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
@@ -2682,6 +2685,23 @@ struct RootExperienceView: View {
         realtimeTransport.onConnectionLost = { loss in
             handleRealtimeConnectionLoss(loss)
         }
+        realtimeTransport.onProjectGroundingUpdated = { revision in
+            let cleanRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanRevision.isEmpty else { return }
+            lastRealtimeGroundingRevision = cleanRevision
+            if pendingRealtimeGroundingRevision == cleanRevision {
+                pendingRealtimeGroundingRevision = ""
+            }
+        }
+        realtimeTransport.onProjectGroundingUpdateFailed = { revision, message in
+            let cleanRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+            if pendingRealtimeGroundingRevision == cleanRevision {
+                pendingRealtimeGroundingRevision = ""
+            }
+            HerLog.talk.error(
+                "realtime project grounding refresh failed revision=\(cleanRevision, privacy: .public) error=\(message, privacy: .public)"
+            )
+        }
         realtimeTransport.onUserSpeechStarted = { turnID in
             realtimeAssistantTranscriptFallbackTask?.cancel()
             realtimeAssistantTranscriptFallbackTask = nil
@@ -2875,6 +2895,11 @@ struct RootExperienceView: View {
         realtimeTransport.onLatencyEvent = nil
         realtimeTransport.onConnected = nil
         realtimeTransport.onConnectionLost = nil
+        realtimeTransport.onProjectGroundingUpdated = nil
+        realtimeTransport.onProjectGroundingUpdateFailed = nil
+        realtimeGroundingRefreshTask?.cancel()
+        realtimeGroundingRefreshTask = nil
+        pendingRealtimeGroundingRevision = ""
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         cancelRealtimeRecovery(clearTurn: true)
@@ -4660,6 +4685,14 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
                 let count = retiredFacts.count
                 showStudioCommandNotice(
                     "Canon updated across \(count) \(count == 1 ? "fact" : "facts"). Clementine will use your correction from here forward."
+                )
+                scheduleRealtimeProjectGroundingRefresh(
+                    reason: "canon_clarification_resolved",
+                    stateVersion: result.sync.stateVersion,
+                    projectId: result.payload.correctionReceipt?.projectId ??
+                        clarification.projectId ?? "",
+                    projectTitle: result.payload.correctionReceipt?.projectTitle ??
+                        clarification.projectTitle ?? ""
                 )
             } catch {
                 isResolvingCanonClarification = false
@@ -10786,27 +10819,141 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeBridgeRequest = nil
         }
         let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: isScreenplayMode)
-        let screenplayProjectId = isScreenplayMode
-            ? screenplayDraftBridge.committedWriteProjectIDSnapshot()
-            : ""
-        let boundProjectId = screenplayDraftBridge.projectBinding.projectID
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let screenplayProjectTitle = isScreenplayMode &&
-            !screenplayProjectId.isEmpty &&
-            boundProjectId.caseInsensitiveCompare(screenplayProjectId) == .orderedSame
-            ? screenplayDraftBridge.projectBinding.projectTitle
-            : ""
+        let projectIdentity = isScreenplayMode
+            ? activeRealtimeScreenplayProjectIdentity()
+            : (id: "", title: "")
         let bootstrap = await realtimeVoice.prepareIfNeeded(
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
             isScreenplayMode: isScreenplayMode,
-            screenplayProjectId: screenplayProjectId,
-            screenplayProjectTitle: screenplayProjectTitle,
+            screenplayProjectId: projectIdentity.id,
+            screenplayProjectTitle: projectIdentity.title,
             supplierMode: realtimeSupplierMode,
             forceRefresh: forceCredentialRefresh
         )
         return bootstrap
+    }
+
+    @MainActor
+    private func activeRealtimeScreenplayProjectIdentity() -> (id: String, title: String) {
+        let projectId = screenplayDraftBridge.committedWriteProjectIDSnapshot()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let boundProjectId = screenplayDraftBridge.projectBinding.projectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectTitle = !projectId.isEmpty &&
+            boundProjectId.caseInsensitiveCompare(projectId) == .orderedSame
+            ? screenplayDraftBridge.projectBinding.projectTitle
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        return (projectId, projectTitle)
+    }
+
+    @MainActor
+    private func scheduleRealtimeProjectGroundingRefresh(
+        reason: String,
+        stateVersion: String,
+        projectId: String,
+        projectTitle: String
+    ) {
+        guard voiceTransportMode == .realtimePreview,
+              isStudioSurfaceActive,
+              realtimeTransport.isLive else {
+            return
+        }
+        let activeProject = activeRealtimeScreenplayProjectIdentity()
+        let expectedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !expectedProjectId.isEmpty,
+           !activeProject.id.isEmpty,
+           expectedProjectId.caseInsensitiveCompare(activeProject.id) != .orderedSame {
+            return
+        }
+        let resolvedProjectId = activeProject.id.isEmpty ? expectedProjectId : activeProject.id
+        let resolvedProjectTitle = activeProject.title.isEmpty
+            ? projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            : activeProject.title
+        guard !resolvedProjectId.isEmpty || !resolvedProjectTitle.isEmpty else { return }
+
+        let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanStateVersion = stateVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let revision = [
+            cleanStateVersion.isEmpty ? String(Date().timeIntervalSince1970) : cleanStateVersion,
+            cleanReason.isEmpty ? "project_memory_changed" : cleanReason,
+            resolvedProjectId.lowercased(),
+        ].joined(separator: "|")
+        guard revision != lastRealtimeGroundingRevision,
+              revision != pendingRealtimeGroundingRevision else {
+            return
+        }
+
+        pendingRealtimeGroundingRevision = revision
+        realtimeGroundingRefreshTask?.cancel()
+        realtimeGroundingRefreshTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 120_000_000)
+            } catch {
+                return
+            }
+            guard pendingRealtimeGroundingRevision == revision,
+                  realtimeTransport.isLive,
+                  voiceTransportMode == .realtimePreview,
+                  isStudioSurfaceActive else {
+                return
+            }
+
+            let currentProject = activeRealtimeScreenplayProjectIdentity()
+            if !resolvedProjectId.isEmpty,
+               !currentProject.id.isEmpty,
+               resolvedProjectId.caseInsensitiveCompare(currentProject.id) != .orderedSame {
+                pendingRealtimeGroundingRevision = ""
+                return
+            }
+
+            do {
+                let baseInstructions = await buildRealtimeBootstrapSystemPrompt(
+                    isScreenplayMode: true
+                )
+                let grounding = try await backend.fetchRealtimeProjectGrounding(
+                    systemPrompt: baseInstructions,
+                    screenplayProjectId: currentProject.id.isEmpty
+                        ? resolvedProjectId
+                        : currentProject.id,
+                    screenplayProjectTitle: currentProject.title.isEmpty
+                        ? resolvedProjectTitle
+                        : currentProject.title
+                )
+                guard !Task.isCancelled,
+                      pendingRealtimeGroundingRevision == revision,
+                      realtimeTransport.isLive else {
+                    return
+                }
+                let latestProject = activeRealtimeScreenplayProjectIdentity()
+                if !grounding.projectId.isEmpty,
+                   !latestProject.id.isEmpty,
+                   grounding.projectId.caseInsensitiveCompare(latestProject.id) != .orderedSame {
+                    pendingRealtimeGroundingRevision = ""
+                    return
+                }
+                guard realtimeTransport.updateInstructions(
+                    grounding.instructions,
+                    revision: revision
+                ) else {
+                    pendingRealtimeGroundingRevision = ""
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if pendingRealtimeGroundingRevision == revision {
+                    pendingRealtimeGroundingRevision = ""
+                }
+            } catch {
+                if pendingRealtimeGroundingRevision == revision {
+                    pendingRealtimeGroundingRevision = ""
+                }
+                HerLog.talk.error(
+                    "realtime project grounding fetch failed revision=\(revision, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     private func buildRealtimeBootstrapSystemPrompt(isScreenplayMode: Bool) async -> String {
@@ -12231,6 +12378,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastRealtimeCommitError = ""
             if !result.sync.stateVersion.isEmpty {
                 localStateVersion = result.sync.stateVersion
+            }
+            if result.payload.memoryGroundingChanged == true {
+                let activeProject = activeRealtimeScreenplayProjectIdentity()
+                scheduleRealtimeProjectGroundingRefresh(
+                    reason: result.payload.memoryGroundingReason ?? "project_memory_changed",
+                    stateVersion: result.sync.stateVersion,
+                    projectId: result.payload.memoryGroundingProjectId ??
+                        studioMetadata?.screenplayProjectId ?? "",
+                    projectTitle: result.payload.memoryGroundingProjectTitle ??
+                        activeProject.title
+                )
             }
             await syncEvolutionForMemoryDomain(
                 userMessage: cleanUser,

@@ -71,6 +71,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/secretary/calendar", methodNotAllowed("POST"));
   app.all("/session", methodNotAllowed("POST, PATCH"));
   app.all("/realtime/client_secret", methodNotAllowed("POST"));
+  app.all("/realtime/project_grounding", methodNotAllowed("POST"));
   app.all("/realtime/studio_render", methodNotAllowed("POST"));
   app.all("/realtime/studio_render_stream", methodNotAllowed("POST"));
   app.all("/visual/context", methodNotAllowed("POST"));

@@ -53,7 +53,11 @@ final class BackendClientCraftAPITests: XCTestCase {
             "target_field": "project.theme_argument",
             "learning_promoted": true,
             "correction_protected": false
-          }
+          },
+          "memory_grounding_changed": true,
+          "memory_grounding_reason": "screenplay_question_resolved",
+          "memory_grounding_project_id": "split-ferries",
+          "memory_grounding_project_title": "Split Ferries"
         }
         """#.utf8)
         let decoder = JSONDecoder()
@@ -70,6 +74,10 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(resolution.targetField, "project.theme_argument")
         XCTAssertEqual(resolution.learningPromoted, true)
         XCTAssertEqual(resolution.correctionProtected, false)
+        XCTAssertEqual(response.memoryGroundingChanged, true)
+        XCTAssertEqual(response.memoryGroundingReason, "screenplay_question_resolved")
+        XCTAssertEqual(response.memoryGroundingProjectId, "split-ferries")
+        XCTAssertEqual(response.memoryGroundingProjectTitle, "Split Ferries")
     }
 
     func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
@@ -1321,6 +1329,65 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(ClementineRealtimeSupplierMode.serverDefault.providerParameter, "")
         XCTAssertEqual(ClementineRealtimeSupplierMode.openAI.providerParameter, "openai")
         XCTAssertEqual(ClementineRealtimeSupplierMode.stub.providerParameter, "stub")
+    }
+
+    func testRealtimeProjectGroundingBodyIsProjectScoped() throws {
+        let body = BackendClient.realtimeProjectGroundingBody(
+            systemPrompt: "  Stay cinematic.  ",
+            screenplayProjectId: "  project-1  ",
+            screenplayProjectTitle: "  Ferry Light  "
+        )
+
+        XCTAssertEqual(body["system_prompt"] as? String, "Stay cinematic.")
+        XCTAssertEqual(body["is_screenplay_mode"] as? Bool, true)
+        XCTAssertEqual(body["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(body["screenplay_project_title"] as? String, "Ferry Light")
+    }
+
+    func testRealtimeProjectGroundingRefreshUsesNoClientSecret() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/project_grounding"):
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "realtime_project_grounding",
+                  "instructions": "Fresh canon: Mara returns for both sisters.",
+                  "memory_grounding": {
+                    "project_id": "project-1",
+                    "project_title": "Ferry Light",
+                    "memory_applied": true,
+                    "pending_question_id": null
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let grounding = try await client.fetchRealtimeProjectGrounding(
+            systemPrompt: "Stay cinematic.",
+            screenplayProjectId: "project-1",
+            screenplayProjectTitle: "Ferry Light"
+        )
+
+        XCTAssertEqual(grounding.instructions, "Fresh canon: Mara returns for both sisters.")
+        XCTAssertEqual(grounding.projectId, "project-1")
+        XCTAssertEqual(grounding.projectTitle, "Ferry Light")
+        XCTAssertTrue(grounding.memoryApplied)
+        XCTAssertEqual(grounding.pendingQuestionId, "")
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/project_grounding" }.count,
+            1
+        )
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
+            0
+        )
     }
 
     func testRealtimeBootstrapPayloadDecodesProvider() throws {

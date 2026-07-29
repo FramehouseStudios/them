@@ -266,6 +266,10 @@ class RealtimeBridgeRuntimeSimulator {
     return this.window.clementineRealtime.resumeTurn({ userTranscript, turnID });
   }
 
+  updateInstructions(instructions, revision = "") {
+    return this.window.clementineRealtime.updateInstructions({ instructions, revision });
+  }
+
   closeDataChannel() {
     const channel = this.currentDataChannel;
     if (!channel) throw new Error("No simulated provider data channel is active.");

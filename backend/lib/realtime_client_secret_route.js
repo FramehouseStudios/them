@@ -40,6 +40,7 @@ import express from "express";
 import { selectPendingScreenplayLearningQuestion } from "./screenplay_question_planner.js";
 
 const CLIENT_SECRET_BODY_LIMIT = "512kb";
+const PROJECT_GROUNDING_BODY_LIMIT = "512kb";
 const REALTIME_PROJECT_GROUNDING_MAX_CHARS = 8_000;
 
 function boundedMultilinePreservingEnds(value, maxChars) {
@@ -99,6 +100,32 @@ function buildRealtimeProjectGroundedInstructions({
   return [String(baseInstructions || "").trim(), grounding]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function parseProjectGroundingRequest(req, normalizeSnippet) {
+  return {
+    requestedPrompt: normalizeSnippet(
+      req.body?.system_prompt ?? req.body?.instructions ?? "",
+      16_000,
+    ),
+    isScreenplayMode:
+      req.body?.is_screenplay_mode === true ||
+      req.body?.isScreenplayMode === true,
+    screenplayProjectId: normalizeSnippet(
+      req.body?.screenplay_project_id ??
+        req.body?.screenplayProjectId ??
+        req.body?.project_id ??
+        req.body?.projectId,
+      96,
+    ),
+    screenplayProjectTitle: normalizeSnippet(
+      req.body?.screenplay_project_title ??
+        req.body?.screenplayProjectTitle ??
+        req.body?.project_title ??
+        req.body?.projectTitle,
+      160,
+    ),
+  };
 }
 
 function mountRealtimeClientSecretRoute(app, deps = {}) {
@@ -174,88 +201,152 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     return String(value?.kind || value || "unknown").trim().toLowerCase();
   }
 
-  app.post("/realtime/client_secret", express.json({ limit: CLIENT_SECRET_BODY_LIMIT }), async (req, res) => {
-    const rid = req.requestId || createRequestId();
-    const requesterIp = clientIp(req);
-    const assistantSelfName = getAssistantSelfNameForIp(requesterIp);
-    const requestedPrompt = normalizeSnippet(
-      req.body?.system_prompt ?? req.body?.instructions ?? "",
-      16_000,
-    );
-    const isScreenplayMode = req.body?.is_screenplay_mode === true || req.body?.isScreenplayMode === true;
-    const screenplayProjectId = normalizeSnippet(
-      req.body?.screenplay_project_id ??
-        req.body?.screenplayProjectId ??
-        req.body?.project_id ??
-        req.body?.projectId,
-      96
-    );
-    const screenplayProjectTitle = normalizeSnippet(
-      req.body?.screenplay_project_title ??
-        req.body?.screenplayProjectTitle ??
-        req.body?.project_title ??
-        req.body?.projectTitle,
-      160
-    );
-    const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
-    const requestedModel = String(req.body?.model || "").trim();
-    const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
-    const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
-    let sessionPrompt = requestedPrompt;
-    let projectGrounding = null;
+  async function resolveProjectGrounding({
+    req,
+    rid,
+    requestedPrompt,
+    isScreenplayMode,
+    screenplayProjectId,
+    screenplayProjectTitle,
+    failOnReadError = false,
+  }) {
+    const emptyResult = {
+      instructions: requestedPrompt,
+      memoryGrounding: null,
+    };
+    if (!isScreenplayMode || (!screenplayProjectId && !screenplayProjectTitle)) {
+      return emptyResult;
+    }
 
-    if (isScreenplayMode && (screenplayProjectId || screenplayProjectTitle)) {
-      const userId = String(resolveUserId(req) || "").trim();
-      if (userId) {
-        try {
-          const sessionMemory = getPersistedUserMemoryForUserId(userId) || {};
-          const pendingQuestion = selectPendingScreenplayLearningQuestion(
-            sessionMemory.pendingScreenplayLearningQuestions,
-            {
-              projectId: screenplayProjectId,
-              projectTitle: screenplayProjectTitle,
-            }
-          );
-          const recallQuery = [
-            screenplayProjectTitle,
-            pendingQuestion?.question,
-            "active screenplay story spine character bible corrected canon unresolved setups",
-          ].filter(Boolean).join(" ");
-          const creativeMemory = typeof getCreativeMemoryForPrompt === "function"
-            ? await getCreativeMemoryForPrompt({
-              userId,
-              projectId: screenplayProjectId,
-              projectTitle: screenplayProjectTitle,
-              query: recallQuery,
-              maxEpisodicMemories: 2,
-              recordEpisodicRecall: false,
-            })
-            : null;
-          const creativeMemoryBlock = creativeMemory && typeof buildCreativeMemoryBlock === "function"
-            ? buildCreativeMemoryBlock(creativeMemory)
-            : "";
-          if (pendingQuestion || creativeMemoryBlock) {
-            sessionPrompt = buildRealtimeProjectGroundedInstructions({
+    const userId = String(resolveUserId(req) || "").trim();
+    if (!userId) {
+      if (failOnReadError) {
+        throw new Error("Authenticated user identity was unavailable.");
+      }
+      return emptyResult;
+    }
+
+    try {
+      const sessionMemory = getPersistedUserMemoryForUserId(userId) || {};
+      const pendingQuestion = selectPendingScreenplayLearningQuestion(
+        sessionMemory.pendingScreenplayLearningQuestions,
+        {
+          projectId: screenplayProjectId,
+          projectTitle: screenplayProjectTitle,
+        },
+      );
+      const recallQuery = [
+        screenplayProjectTitle,
+        pendingQuestion?.question,
+        "active screenplay story spine character bible corrected canon unresolved setups",
+      ].filter(Boolean).join(" ");
+      const creativeMemory = typeof getCreativeMemoryForPrompt === "function"
+        ? await getCreativeMemoryForPrompt({
+          userId,
+          projectId: screenplayProjectId,
+          projectTitle: screenplayProjectTitle,
+          query: recallQuery,
+          maxEpisodicMemories: 2,
+          recordEpisodicRecall: false,
+        })
+        : null;
+      const creativeMemoryBlock =
+        creativeMemory && typeof buildCreativeMemoryBlock === "function"
+          ? buildCreativeMemoryBlock(creativeMemory)
+          : "";
+      const memoryGrounding = {
+        project_id: screenplayProjectId || null,
+        project_title: screenplayProjectTitle || null,
+        memory_applied: Boolean(creativeMemoryBlock),
+        pending_question_id: pendingQuestion?.id || null,
+      };
+      return {
+        instructions:
+          pendingQuestion || creativeMemoryBlock
+            ? buildRealtimeProjectGroundedInstructions({
               baseInstructions: requestedPrompt,
               creativeMemoryBlock,
               pendingQuestion,
               projectId: screenplayProjectId,
               projectTitle: screenplayProjectTitle,
-            });
-            projectGrounding = {
-              project_id: screenplayProjectId || null,
-              project_title: screenplayProjectTitle || null,
-              memory_applied: Boolean(creativeMemoryBlock),
-              pending_question_id: pendingQuestion?.id || null,
-            };
-          }
-        } catch (error) {
-          logger.warn?.(
-            `[${rid}] realtime_client_secret memory_grounding_failed error=${String(error?.message || error)}`
-          );
-        }
-      }
+            })
+            : requestedPrompt,
+        memoryGrounding,
+      };
+    } catch (error) {
+      logger.warn?.(
+        `[${rid}] realtime_project_grounding_failed error=${String(error?.message || error)}`,
+      );
+      if (failOnReadError) throw error;
+      return emptyResult;
     }
+  }
+
+  app.post(
+    "/realtime/project_grounding",
+    express.json({ limit: PROJECT_GROUNDING_BODY_LIMIT }),
+    async (req, res) => {
+      const rid = req.requestId || createRequestId();
+      const parsed = parseProjectGroundingRequest(req, normalizeSnippet);
+      if (
+        !parsed.isScreenplayMode ||
+        (!parsed.screenplayProjectId && !parsed.screenplayProjectTitle)
+      ) {
+        return res.status(400).json({
+          stage: "realtime_project_grounding",
+          error: "A screenplay project is required.",
+        });
+      }
+
+      try {
+        const grounded = await resolveProjectGrounding({
+          req,
+          rid,
+          ...parsed,
+          failOnReadError: true,
+        });
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(200).json({
+          ok: true,
+          action: "realtime_project_grounding",
+          instructions: grounded.instructions,
+          memory_grounding: grounded.memoryGrounding,
+        });
+      } catch (_error) {
+        incrementErrorCounter("realtime_project_grounding_failed");
+        return res.status(503).json({
+          stage: "realtime_project_grounding",
+          code: "realtime_project_grounding_failed",
+          error: "Realtime project memory could not be refreshed.",
+        });
+      }
+    },
+  );
+
+  app.post("/realtime/client_secret", express.json({ limit: CLIENT_SECRET_BODY_LIMIT }), async (req, res) => {
+    const rid = req.requestId || createRequestId();
+    const requesterIp = clientIp(req);
+    const assistantSelfName = getAssistantSelfNameForIp(requesterIp);
+    const {
+      requestedPrompt,
+      isScreenplayMode,
+      screenplayProjectId,
+      screenplayProjectTitle,
+    } = parseProjectGroundingRequest(req, normalizeSnippet);
+    const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
+    const requestedModel = String(req.body?.model || "").trim();
+    const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
+    const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
+    const grounded = await resolveProjectGrounding({
+      req,
+      rid,
+      requestedPrompt,
+      isScreenplayMode,
+      screenplayProjectId,
+      screenplayProjectTitle,
+    });
+    const sessionPrompt = grounded.instructions;
+    const projectGrounding = grounded.memoryGrounding;
 
     let supplier = getRealtimeSupplier();
     if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
@@ -403,5 +494,6 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
 export {
   mountRealtimeClientSecretRoute,
   CLIENT_SECRET_BODY_LIMIT,
+  PROJECT_GROUNDING_BODY_LIMIT,
   buildRealtimeProjectGroundedInstructions,
 };
