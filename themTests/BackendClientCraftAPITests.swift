@@ -1293,6 +1293,8 @@ final class BackendClientCraftAPITests: XCTestCase {
             systemPrompt: "  write in screenplay mode  ",
             userName: "  June  ",
             isScreenplayMode: true,
+            screenplayProjectId: "  project-1  ",
+            screenplayProjectTitle: "  Ferry Light  ",
             voice: "  marin  ",
             model: "  gpt-realtime-1.5  ",
             realtimeProvider: ""
@@ -1303,6 +1305,8 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(serverDefault["voice"] as? String, "marin")
         XCTAssertEqual(serverDefault["model"] as? String, "gpt-realtime-1.5")
         XCTAssertEqual(serverDefault["is_screenplay_mode"] as? Bool, true)
+        XCTAssertEqual(serverDefault["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(serverDefault["screenplay_project_title"] as? String, "Ferry Light")
 
         let openAI = BackendClient.realtimeClientSecretBody(realtimeProvider: " openai ")
         let stub = BackendClient.realtimeClientSecretBody(realtimeProvider: " stub ")
@@ -1428,29 +1432,48 @@ final class BackendClientCraftAPITests: XCTestCase {
             backend: client,
             systemPrompt: "Stay cinematic.",
             userName: "June",
-            isScreenplayMode: true
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1"
         )
         let cached = await coordinator.prepareIfNeeded(
             backend: client,
             systemPrompt: "Stay cinematic.",
             userName: "June",
-            isScreenplayMode: true
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1"
+        )
+        let differentProject = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-2"
         )
         let refreshed = await coordinator.prepareIfNeeded(
             backend: client,
             systemPrompt: "Stay cinematic.",
             userName: "June",
             isScreenplayMode: true,
+            screenplayProjectId: "project-2",
             forceRefresh: true
         )
 
         XCTAssertEqual(first?.clientSecret.value, "ephemeral-1")
         XCTAssertEqual(cached?.clientSecret.value, "ephemeral-1")
-        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-2")
+        XCTAssertEqual(differentProject?.clientSecret.value, "ephemeral-2")
+        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-3")
         XCTAssertEqual(
             recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
-            2
+            3
         )
+        let realtimeBodies = recorder.requests
+            .filter { $0.path == "/realtime/client_secret" }
+            .compactMap(\.bodyObject)
+        XCTAssertEqual(realtimeBodies.map { $0["screenplay_project_id"] as? String }, [
+            "project-1",
+            "project-2",
+            "project-2",
+        ])
     }
 
     func testRealtimeDegradedErrorUsesTypedUnavailableEnvelope() async throws {

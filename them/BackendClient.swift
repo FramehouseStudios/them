@@ -2942,6 +2942,8 @@ final class BackendClient {
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
         voice: String? = nil,
         model: String? = nil,
         realtimeProvider: String? = nil
@@ -2954,6 +2956,14 @@ final class BackendClient {
             "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
         ]
         let provider = realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let projectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let projectTitle = screenplayProjectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !projectId.isEmpty {
+            body["screenplay_project_id"] = projectId
+        }
+        if !projectTitle.isEmpty {
+            body["screenplay_project_title"] = projectTitle
+        }
         if !provider.isEmpty {
             body["realtime_provider"] = provider
         }
@@ -2964,6 +2974,8 @@ final class BackendClient {
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
         voice: String? = nil,
         model: String? = nil,
         realtimeProvider: String? = nil,
@@ -2991,6 +3003,8 @@ final class BackendClient {
             systemPrompt: systemPrompt,
             userName: userName,
             isScreenplayMode: isScreenplayMode,
+            screenplayProjectId: screenplayProjectId,
+            screenplayProjectTitle: screenplayProjectTitle,
             voice: voice,
             model: model,
             realtimeProvider: realtimeProvider
@@ -3011,6 +3025,8 @@ final class BackendClient {
                         systemPrompt: systemPrompt,
                         userName: userName,
                         isScreenplayMode: isScreenplayMode,
+                        screenplayProjectId: screenplayProjectId,
+                        screenplayProjectTitle: screenplayProjectTitle,
                         voice: voice,
                         model: model,
                         realtimeProvider: realtimeProvider,

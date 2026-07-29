@@ -10786,11 +10786,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeBridgeRequest = nil
         }
         let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: isScreenplayMode)
+        let screenplayProjectId = isScreenplayMode
+            ? screenplayDraftBridge.committedWriteProjectIDSnapshot()
+            : ""
+        let boundProjectId = screenplayDraftBridge.projectBinding.projectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let screenplayProjectTitle = isScreenplayMode &&
+            !screenplayProjectId.isEmpty &&
+            boundProjectId.caseInsensitiveCompare(screenplayProjectId) == .orderedSame
+            ? screenplayDraftBridge.projectBinding.projectTitle
+            : ""
         let bootstrap = await realtimeVoice.prepareIfNeeded(
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
             isScreenplayMode: isScreenplayMode,
+            screenplayProjectId: screenplayProjectId,
+            screenplayProjectTitle: screenplayProjectTitle,
             supplierMode: realtimeSupplierMode,
             forceRefresh: forceCredentialRefresh
         )

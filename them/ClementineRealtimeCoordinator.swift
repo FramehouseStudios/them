@@ -221,6 +221,8 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         systemPrompt: String?,
         userName: String?,
         isScreenplayMode: Bool,
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
         supplierMode: ClementineRealtimeSupplierMode = .serverDefault,
         forceRefresh: Bool = false
     ) async -> BackendRealtimeBootstrap? {
@@ -230,6 +232,8 @@ final class ClementineRealtimeCoordinator: ObservableObject {
             systemPrompt: systemPrompt,
             userName: userName,
             isScreenplayMode: isScreenplayMode,
+            screenplayProjectId: screenplayProjectId,
+            screenplayProjectTitle: screenplayProjectTitle,
             supplierMode: supplierMode
         )
 
@@ -252,6 +256,8 @@ final class ClementineRealtimeCoordinator: ObservableObject {
                 systemPrompt: systemPrompt,
                 userName: userName,
                 isScreenplayMode: isScreenplayMode,
+                screenplayProjectId: screenplayProjectId,
+                screenplayProjectTitle: screenplayProjectTitle,
                 realtimeProvider: supplierMode.providerParameter
             )
             guard generation == preparationGeneration else { return nil }
@@ -270,10 +276,14 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         systemPrompt: String?,
         userName: String?,
         isScreenplayMode: Bool,
+        screenplayProjectId: String?,
+        screenplayProjectTitle: String?,
         supplierMode: ClementineRealtimeSupplierMode
     ) -> String {
         let cleanPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanUser = userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanUser)|\(cleanPrompt)"
+        let cleanProjectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = screenplayProjectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanProjectId)|\(cleanProjectTitle)|\(cleanUser)|\(cleanPrompt)"
     }
 }

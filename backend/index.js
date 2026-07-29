@@ -115,7 +115,12 @@ import { mountTasksRoutes } from "./lib/tasks_routes.js";
 import { createReadStateHelpers } from "./lib/read_state.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
-import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
+import {
+  buildModelPrompt,
+  buildModelPromptParts,
+  inferScreenplayTask,
+  MEMORY_BLOCK_OPEN,
+} from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
 import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase } from "./lib/system_prompt_trim.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -33255,6 +33260,12 @@ mountRealtimeClientSecretRoute(app, {
   clientIp,
   getAssistantSelfNameForIp,
   normalizeSnippet,
+  resolveUserId: (req) => String(req?.authUser?.id || req?.userId || "").trim(),
+  getPersistedUserMemoryForUserId,
+  getCreativeMemoryForPrompt: (options) => creativeMemoryStore.getCreativeMemoryForPrompt(options),
+  buildCreativeMemoryBlock: (memory) => buildModelPromptParts({
+    creativeMemory: memory,
+  }).memoryBlock,
   OPENAI_API_KEY,
   OPENAI_REALTIME_MODEL,
   OPENAI_REALTIME_VOICE,

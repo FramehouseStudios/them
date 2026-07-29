@@ -1431,6 +1431,7 @@ private struct StorySpineMemoryLinks: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(item.title)
                 }
             }
         }

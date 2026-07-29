@@ -37,8 +37,69 @@
 // + voice, never the client secret value.
 
 import express from "express";
+import { selectPendingScreenplayLearningQuestion } from "./screenplay_question_planner.js";
 
 const CLIENT_SECRET_BODY_LIMIT = "512kb";
+const REALTIME_PROJECT_GROUNDING_MAX_CHARS = 8_000;
+
+function boundedMultilinePreservingEnds(value, maxChars) {
+  const clean = String(value || "").trim();
+  if (!clean || maxChars <= 0) return "";
+  if (clean.length <= maxChars) return clean;
+  const marker = "\n…\n";
+  const available = Math.max(2, maxChars - marker.length);
+  const headLength = Math.ceil(available * 0.72);
+  const tailLength = available - headLength;
+  return [
+    clean.slice(0, headLength).trimEnd(),
+    clean.slice(-tailLength).trimStart(),
+  ].join(marker);
+}
+
+function buildPendingScreenplayQuestionBlock(pending) {
+  if (!pending) return "";
+  const lines = [
+    "<realtime_screenplay_question>",
+    "authority: this is the single project-scoped screenplay question already planned for the writer.",
+    `question_id: ${pending.id}`,
+    `target_field: ${pending.targetField}`,
+  ];
+  if (pending.targetLabel) lines.push(`target_label: ${pending.targetLabel}`);
+  if (pending.anchor) lines.push(`anchor: ${pending.anchor}`);
+  lines.push(`question: ${pending.question}`);
+  lines.push(
+    "directive: Treat the writer's next relevant statement as a possible answer to this exact question. Do not re-ask any resolved or corrected fact. If an answer arrives, acknowledge it briefly, use it as project truth, and continue without asking another intake question in the same turn."
+  );
+  lines.push("</realtime_screenplay_question>");
+  return lines.join("\n");
+}
+
+function buildRealtimeProjectGroundedInstructions({
+  baseInstructions = "",
+  creativeMemoryBlock = "",
+  pendingQuestion = null,
+  projectId = "",
+  projectTitle = "",
+} = {}) {
+  const headParts = [
+    "<realtime_project_grounding>",
+    "authority: server-retrieved account memory for the active screenplay. This block overrides older or conflicting project details elsewhere in the prompt. Never invent a remembered fact.",
+    projectId ? `project_id: ${projectId}` : "",
+    projectTitle ? `project_title: ${projectTitle}` : "",
+    buildPendingScreenplayQuestionBlock(pendingQuestion),
+  ].filter(Boolean);
+  const head = headParts.join("\n");
+  const tail = "</realtime_project_grounding>";
+  const memoryBudget = Math.max(
+    0,
+    REALTIME_PROJECT_GROUNDING_MAX_CHARS - head.length - tail.length - 2
+  );
+  const memory = boundedMultilinePreservingEnds(creativeMemoryBlock, memoryBudget);
+  const grounding = [head, memory, tail].filter(Boolean).join("\n");
+  return [String(baseInstructions || "").trim(), grounding]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
 function mountRealtimeClientSecretRoute(app, deps = {}) {
   if (!app || typeof app.post !== "function") {
@@ -59,6 +120,11 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     clientIp,
     getAssistantSelfNameForIp,
     normalizeSnippet,
+    resolveUserId = () => "",
+    getPersistedUserMemoryForUserId = () => null,
+    getCreativeMemoryForPrompt = null,
+    buildCreativeMemoryBlock = null,
+    logger = console,
     isProduction = () => false,
     // Constants
     OPENAI_API_KEY,
@@ -116,10 +182,80 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       req.body?.system_prompt ?? req.body?.instructions ?? "",
       16_000,
     );
+    const isScreenplayMode = req.body?.is_screenplay_mode === true || req.body?.isScreenplayMode === true;
+    const screenplayProjectId = normalizeSnippet(
+      req.body?.screenplay_project_id ??
+        req.body?.screenplayProjectId ??
+        req.body?.project_id ??
+        req.body?.projectId,
+      96
+    );
+    const screenplayProjectTitle = normalizeSnippet(
+      req.body?.screenplay_project_title ??
+        req.body?.screenplayProjectTitle ??
+        req.body?.project_title ??
+        req.body?.projectTitle,
+      160
+    );
     const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
     const requestedModel = String(req.body?.model || "").trim();
     const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
     const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
+    let sessionPrompt = requestedPrompt;
+    let projectGrounding = null;
+
+    if (isScreenplayMode && (screenplayProjectId || screenplayProjectTitle)) {
+      const userId = String(resolveUserId(req) || "").trim();
+      if (userId) {
+        try {
+          const sessionMemory = getPersistedUserMemoryForUserId(userId) || {};
+          const pendingQuestion = selectPendingScreenplayLearningQuestion(
+            sessionMemory.pendingScreenplayLearningQuestions,
+            {
+              projectId: screenplayProjectId,
+              projectTitle: screenplayProjectTitle,
+            }
+          );
+          const recallQuery = [
+            screenplayProjectTitle,
+            pendingQuestion?.question,
+            "active screenplay story spine character bible corrected canon unresolved setups",
+          ].filter(Boolean).join(" ");
+          const creativeMemory = typeof getCreativeMemoryForPrompt === "function"
+            ? await getCreativeMemoryForPrompt({
+              userId,
+              projectId: screenplayProjectId,
+              projectTitle: screenplayProjectTitle,
+              query: recallQuery,
+              maxEpisodicMemories: 2,
+              recordEpisodicRecall: false,
+            })
+            : null;
+          const creativeMemoryBlock = creativeMemory && typeof buildCreativeMemoryBlock === "function"
+            ? buildCreativeMemoryBlock(creativeMemory)
+            : "";
+          if (pendingQuestion || creativeMemoryBlock) {
+            sessionPrompt = buildRealtimeProjectGroundedInstructions({
+              baseInstructions: requestedPrompt,
+              creativeMemoryBlock,
+              pendingQuestion,
+              projectId: screenplayProjectId,
+              projectTitle: screenplayProjectTitle,
+            });
+            projectGrounding = {
+              project_id: screenplayProjectId || null,
+              project_title: screenplayProjectTitle || null,
+              memory_applied: Boolean(creativeMemoryBlock),
+              pending_question_id: pendingQuestion?.id || null,
+            };
+          }
+        } catch (error) {
+          logger.warn?.(
+            `[${rid}] realtime_client_secret memory_grounding_failed error=${String(error?.message || error)}`
+          );
+        }
+      }
+    }
 
     let supplier = getRealtimeSupplier();
     if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
@@ -164,7 +300,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       && !requestedProvider
       && currentSupplierKind !== "stub";
     const mintParams = {
-      instructions: requestedPrompt,
+      instructions: sessionPrompt,
       voice: requestedVoice || OPENAI_REALTIME_VOICE,
       model: requestedModel || OPENAI_REALTIME_MODEL,
       ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
@@ -215,7 +351,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     // module header for the #238 review-blocker history.
 
     const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
-      instructions: requestedPrompt,
+      instructions: sessionPrompt,
       model: requestedModel || OPENAI_REALTIME_MODEL,
       voice: requestedVoice || OPENAI_REALTIME_VOICE,
     });
@@ -243,11 +379,12 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       ...(fallbackReason ? { fallback: true, fallback_reason: fallbackReason, primary_supplier: primarySupplierKind } : {}),
       model: sessionModel,
       voice: sessionVoice,
+      ...(projectGrounding ? { memory_grounding: projectGrounding } : {}),
       session: {
         type: sessionConfig.type || "realtime",
         model: sessionModel,
         voice: sessionVoice,
-        instructions: sessionConfig.instructions || requestedPrompt,
+        instructions: sessionConfig.instructions || sessionPrompt,
         output_modalities: Array.isArray(sessionConfig.output_modalities) ? sessionConfig.output_modalities : ["audio"],
         input_transcription_model: String(
           sessionConfig.audio?.input?.transcription?.model || ""
@@ -263,4 +400,8 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
   });
 }
 
-export { mountRealtimeClientSecretRoute, CLIENT_SECRET_BODY_LIMIT };
+export {
+  mountRealtimeClientSecretRoute,
+  CLIENT_SECRET_BODY_LIMIT,
+  buildRealtimeProjectGroundedInstructions,
+};

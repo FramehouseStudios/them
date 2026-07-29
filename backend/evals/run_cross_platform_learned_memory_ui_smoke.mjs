@@ -38,30 +38,94 @@ function requireString(value, message) {
   return clean;
 }
 
-async function teachCharacterAnswerFromIPhone(server, identity) {
-  const persistence = createPersistence({
-    jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
-  });
-  const store = createCreativeMemoryStore({ persistence });
-  try {
-    const summary = await store.recordTriggersFromTalkTurn({
-      userId: identity.userID,
-      transcript: "Free Eli without becoming her father.",
-      projectId: PROJECT_ID,
-      projectTitle: PROJECT_TITLE,
-      source: "talk_turn",
-      learningContext: {
-        questionId: "iphone-screenplay-learning-character-want",
+async function seedPendingIPhoneQuestion(server, identity) {
+  const now = Date.now();
+  const memory = {
+    turns: 1,
+    pendingScreenplayLearningQuestions: [
+      {
+        id: "iphone-screenplay-learning-character-want",
         projectId: PROJECT_ID,
         projectTitle: PROJECT_TITLE,
         targetField: "character.want",
         targetLabel: "Mara's dramatic want",
         anchor: "Mara",
         question: "What does Mara want enough to risk becoming her father?",
-        authority: "writer_clarification",
+        askedAtTurn: 1,
+        expiresAfterTurn: 3,
+        askedAt: now,
       },
+    ],
+  };
+  const userRecord = {
+    userId: identity.userID,
+    updatedAt: now,
+    memory,
+  };
+  writeFileSync(
+    server.env.USER_MEMORY_STORE_PATH,
+    JSON.stringify({
+      version: 3,
+      updatedAt: now,
+      entries: [],
+      users: [userRecord],
+    }, null, 2),
+    { encoding: "utf8", mode: 0o600 }
+  );
+  const persistence = createPersistence({
+    jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
+  });
+  try {
+    await persistence.put({
+      domain: "user_memory",
+      key: `byUserId:${identity.userID}`,
+      value: userRecord,
     });
-    assert(summary.learningAnswersPromoted === 1, "The iPhone answer was not promoted.");
+  } finally {
+    await persistence.close();
+  }
+}
+
+async function teachCharacterAnswerFromIPhone(server, identity) {
+  const answer = "Free Eli without becoming her father.";
+  const committed = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: "/realtime/turn_commit",
+    method: "POST",
+    headers: {
+      "X-APP-TOKEN": identity.appToken,
+      "X-CLIENT-TOKEN": identity.clientToken,
+      Authorization: `Bearer ${identity.accessToken}`,
+      "X-Idempotency-Key": "iphone-screenplay-learning-character-want-answer",
+    },
+    body: {
+      transcript: answer,
+      reply: "That gives Mara's want a real moral cost.",
+      request_id: "iphone-screenplay-learning-character-want-answer",
+      studio: {
+        screenplayProjectId: PROJECT_ID,
+        screenplayProjectTitle: PROJECT_TITLE,
+      },
+    },
+  });
+  assert(
+    committed.status === 201,
+    `The iPhone realtime turn failed: ${committed.status} ${JSON.stringify(committed.payload)}`
+  );
+  assert(
+    committed.payload?.screenplay_question_resolution?.response_status === "answered",
+    "The iPhone realtime answer did not resolve its pending screenplay question."
+  );
+  assert(
+    committed.payload?.screenplay_question_resolution?.learning_promoted === true,
+    "The iPhone realtime answer was not promoted."
+  );
+
+  const persistence = createPersistence({
+    jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
+  });
+  const store = createCreativeMemoryStore({ persistence });
+  try {
     const memory = await store.getCreativeMemoryForPrompt({
       userId: identity.userID,
       projectId: PROJECT_ID,
@@ -80,7 +144,7 @@ async function teachCharacterAnswerFromIPhone(server, identity) {
     return {
       character: "Mara",
       field: "want",
-      value: requireString(provenance.value, "The promoted answer has no value."),
+      value: requireString(provenance.value, "The realtime-promoted answer has no value."),
       status: "Current",
       source: "Learned from your answer",
       questionId: provenance.questionId,
@@ -219,25 +283,31 @@ try {
     appToken: APP_TOKEN,
     emailPrefix: "learned-memory-ui",
   });
-  const learned = await teachCharacterAnswerFromIPhone(server, identity);
+  const dataDir = server.dataDir;
+  const initialServer = server;
+  await server.stop();
+  server = null;
+  await seedPendingIPhoneQuestion(initialServer, identity);
+  server = await startBackend({ port: PORT, dataDir, env: backendEnv });
+  const iphoneIdentity = await refreshClientIdentity(server.baseUrl, identity);
+  const learned = await teachCharacterAnswerFromIPhone(server, iphoneIdentity);
 
   if (PLATFORM !== "macos") {
     runUITest({
       platform: "ios",
       baseURL: server.baseUrl,
-      identity,
+      identity: iphoneIdentity,
       learned,
     });
   }
 
-  let macIdentity = identity;
+  let macIdentity = iphoneIdentity;
   let survivedBackendRestart = false;
   if (PLATFORM !== "ios") {
-    const dataDir = server.dataDir;
     await server.stop();
     server = null;
     server = await startBackend({ port: PORT, dataDir, env: backendEnv });
-    macIdentity = await refreshClientIdentity(server.baseUrl, identity);
+    macIdentity = await refreshClientIdentity(server.baseUrl, iphoneIdentity);
     survivedBackendRestart = true;
 
     runUITest({

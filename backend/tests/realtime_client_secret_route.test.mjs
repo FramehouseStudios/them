@@ -6,7 +6,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
 
-import { mountRealtimeClientSecretRoute, CLIENT_SECRET_BODY_LIMIT } from "../lib/realtime_client_secret_route.js";
+import {
+  mountRealtimeClientSecretRoute,
+  CLIENT_SECRET_BODY_LIMIT,
+  buildRealtimeProjectGroundedInstructions,
+} from "../lib/realtime_client_secret_route.js";
 
 function fakeSupplier({ kind = "openai", mintImpl, shouldThrow = null, sessionConfig = null } = {}) {
   return {
@@ -76,6 +80,25 @@ test("[realtime-client-secret] CLIENT_SECRET_BODY_LIMIT exported as 512kb", () =
   assert.equal(CLIENT_SECRET_BODY_LIMIT, "512kb");
 });
 
+test("[realtime-client-secret] oversized memory stays bounded without losing question or closing contracts", () => {
+  const instructions = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    creativeMemoryBlock: `<memory>\n${"canon ".repeat(4_000)}\n</memory>`,
+    pendingQuestion: {
+      id: "question-ending",
+      targetField: "project.ending_image",
+      question: "What final image proves Mara changed?",
+    },
+    projectId: "project-a",
+  });
+
+  assert.ok(instructions.length <= "Base voice contract.".length + 2 + 8_000);
+  assert.match(instructions, /question_id: question-ending/);
+  assert.match(instructions, /<memory>/);
+  assert.match(instructions, /<\/memory>/);
+  assert.match(instructions, /<\/realtime_project_grounding>$/);
+});
+
 test("[realtime-client-secret] mount fails without Express app", () => {
   assert.throws(() => mountRealtimeClientSecretRoute(null, defaultDeps()));
 });
@@ -119,6 +142,121 @@ test("[realtime-client-secret] primary_ok: 201 with canonical envelope", async (
     assert.ok(Array.isArray(r.body.session.output_modalities));
     assert.equal(typeof r.body.session.input_transcription_model, "string");
     assert.ok(r.body.issued_at);
+  });
+});
+
+test("[realtime-client-secret] grounds screenplay sessions in authenticated project memory and one pending question", async () => {
+  let capturedMintParams = null;
+  let capturedRecallOptions = null;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: (userId) => {
+      assert.equal(userId, "user-a");
+      return {
+        pendingScreenplayLearningQuestions: [
+          {
+            id: "question-wound",
+            projectId: "project-a",
+            projectTitle: "Ferry Light",
+            targetField: "character.wound",
+            targetLabel: "Mara's wound",
+            anchor: "MARA",
+            question: "What old wound makes Mara leave before she can be left?",
+            askedAtTurn: 7,
+            expiresAfterTurn: 9,
+            askedAt: 1_800_000_000_000,
+          },
+          {
+            id: "question-other",
+            projectId: "project-b",
+            projectTitle: "Other Film",
+            targetField: "project.theme_argument",
+            question: "What does the other film argue?",
+            askedAtTurn: 8,
+            expiresAfterTurn: 10,
+            askedAt: 1_800_000_001_000,
+          },
+        ],
+      };
+    },
+    getCreativeMemoryForPrompt: async (options) => {
+      capturedRecallOptions = options;
+      return {
+        projectContinuity: {
+          projectId: "project-a",
+          protagonistWant: "Mara wants to save both sisters.",
+        },
+      };
+    },
+    buildCreativeMemoryBlock: () => [
+      "<memory>",
+      "project-continuity:",
+      "  protagonist_want: Mara wants to save both sisters.",
+      "  authoritative_corrections: Mara returns for Eli and June.",
+      "</memory>",
+    ].join("\n"),
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+      screenplay_project_title: "Ferry Light",
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(capturedRecallOptions.userId, "user-a");
+    assert.equal(capturedRecallOptions.projectId, "project-a");
+    assert.equal(capturedRecallOptions.projectTitle, "Ferry Light");
+    assert.match(capturedRecallOptions.query, /old wound makes Mara/i);
+    assert.match(capturedMintParams.instructions, /<realtime_project_grounding>/);
+    assert.match(capturedMintParams.instructions, /question_id: question-wound/);
+    assert.match(capturedMintParams.instructions, /Mara returns for Eli and June/);
+    assert.doesNotMatch(capturedMintParams.instructions, /question-other|other film argue/i);
+    assert.equal(r.body.memory_grounding.project_id, "project-a");
+    assert.equal(r.body.memory_grounding.pending_question_id, "question-wound");
+    assert.equal(r.body.memory_grounding.memory_applied, true);
+    assert.equal(r.body.session.instructions, capturedMintParams.instructions);
+  });
+});
+
+test("[realtime-client-secret] never applies project memory outside screenplay mode", async () => {
+  let memoryReads = 0;
+  let capturedInstructions = "";
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => {
+      memoryReads += 1;
+      return {};
+    },
+    getCreativeMemoryForPrompt: async () => {
+      memoryReads += 1;
+      return {};
+    },
+    buildCreativeMemoryBlock: () => "<memory>private screenplay</memory>",
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedInstructions = mintParams.instructions;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Companion conversation.",
+      is_screenplay_mode: false,
+      screenplay_project_id: "project-a",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(memoryReads, 0);
+    assert.equal(capturedInstructions, "Companion conversation.");
+    assert.equal(r.body.memory_grounding, undefined);
   });
 });
 
