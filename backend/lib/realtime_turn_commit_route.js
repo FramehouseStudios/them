@@ -42,6 +42,12 @@
 
 import express from "express";
 import { buildCanonClarificationPayload } from "./canon_clarification.js";
+import { withIdempotency } from "./idempotency_envelope.js";
+import {
+  removePendingScreenplayLearningQuestion,
+  resolvePendingScreenplayLearningAnswer,
+  selectPendingScreenplayLearningQuestion,
+} from "./screenplay_question_planner.js";
 
 const TURN_COMMIT_BODY_LIMIT = "256kb";
 
@@ -110,7 +116,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     throw new Error("mountRealtimeTurnCommitRoute: DEEP_TURN_SCORE_THRESHOLD must be a number");
   }
 
-  app.post("/realtime/turn_commit", express.json({ limit: TURN_COMMIT_BODY_LIMIT }), async (req, res) => {
+  const handleRealtimeTurnCommit = async (req, res) => {
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const transcript = normalizeSnippet(
@@ -143,6 +149,37 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
 
     const context = resolveWritableMemoryContext(req, nowTs);
     const previousMemory = sanitizePersistedSessionMemory(context.memory);
+    const screenplayProjectId = normalizeSnippet(
+      studioMeta?.screenplayProjectId ??
+        rawStudioInput?.screenplayProjectId ??
+        rawStudioInput?.screenplay_project_id ??
+        "",
+      96,
+    );
+    const screenplayProjectTitle = normalizeSnippet(
+      studioMeta?.screenplayProjectTitle ??
+        rawStudioInput?.screenplayProjectTitle ??
+        rawStudioInput?.screenplay_project_title ??
+        rawStudioInput?.projectTitle ??
+        rawStudioInput?.project_title ??
+        "",
+      160,
+    );
+    const pendingScreenplayQuestion = selectPendingScreenplayLearningQuestion(
+      previousMemory.pendingScreenplayLearningQuestions,
+      {
+        projectId: screenplayProjectId,
+        projectTitle: screenplayProjectTitle,
+      },
+    );
+    const pendingScreenplayResolution = resolvePendingScreenplayLearningAnswer({
+      pending: pendingScreenplayQuestion,
+      transcript,
+      projectId: screenplayProjectId,
+      projectTitle: screenplayProjectTitle,
+      currentTurn: previousMemory.turns,
+      now: nowTs,
+    });
     const requesterIp = normalizeClientIp(context.requesterIp || clientIp(req));
     const flags = directorFlagsFromTranscript(transcript);
     const metricStateBeforeTurn = getUserMetricState(requesterIp, nowTs);
@@ -195,7 +232,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         }
       });
 
-    const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
+    let persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
     const creativeMemoryWritePromise = Promise.resolve()
       .then(() => recordCreativeMemoryTriggersForRequest(req, {
         transcript,
@@ -203,6 +240,8 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         acceptedPageText,
         studioMeta,
         source: acceptedPageText ? "talk_screenplay_output" : "realtime_turn_commit",
+        learningContext: pendingScreenplayResolution.learningContext,
+        questionInteraction: pendingScreenplayResolution.interaction,
       }))
       .catch((error) => {
         console.error(
@@ -210,6 +249,22 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         );
         return null;
       });
+    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
+    const screenplayQuestionResolved = Boolean(
+      pendingScreenplayQuestion &&
+      pendingScreenplayResolution.shouldClear &&
+      creativeMemoryWriteSummary &&
+      creativeMemoryWriteSummary.skipped !== true
+    );
+    if (screenplayQuestionResolved) {
+      nextMemory.pendingScreenplayLearningQuestions =
+        removePendingScreenplayLearningQuestion(
+          nextMemory.pendingScreenplayLearningQuestions,
+          pendingScreenplayQuestion,
+        );
+      persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
+    }
+
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);
     if (readMeta.lastTurnId) {
       storeTalkTurnMeta({
@@ -242,8 +297,22 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       `[${rid}] realtime_turn_commit turn=${readMeta.lastTurnId || "none"} session=${readMeta.sessionId || "unknown"} chars_u=${transcript.length} chars_a=${reply.length}`,
     );
 
-    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
     const canonClarification = buildCanonClarificationPayload(creativeMemoryWriteSummary);
+    const screenplayQuestionResolution = screenplayQuestionResolved
+      ? {
+        question_id: pendingScreenplayQuestion.id,
+        response_status: pendingScreenplayResolution.status,
+        target_field: pendingScreenplayQuestion.targetField,
+        learning_promoted: Math.max(
+          0,
+          Number(creativeMemoryWriteSummary?.learningAnswersPromoted || 0),
+        ) > 0,
+        correction_protected: Math.max(
+          0,
+          Number(creativeMemoryWriteSummary?.learningAnswersCorrectionProtected || 0),
+        ) > 0,
+      }
+      : null;
 
     return res.status(201).json({
       ok: true,
@@ -262,8 +331,28 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       backend_build: readMeta.backendBuild,
       backend_boot_id: readMeta.backendBootId,
       canon_clarification: canonClarification,
+      screenplay_question_resolution: screenplayQuestionResolution,
     });
-  });
+  };
+
+  app.post(
+    "/realtime/turn_commit",
+    express.json({ limit: TURN_COMMIT_BODY_LIMIT }),
+    (req, _res, next) => {
+      const headerKey = String(req.header?.("x-idempotency-key") || "").trim();
+      const requestId = normalizeSnippet(
+        req.body?.request_id ?? req.body?.requestId ?? "",
+        128,
+      );
+      if (!headerKey && requestId) {
+        req.headers["x-idempotency-key"] = requestId;
+      }
+      next();
+    },
+    withIdempotency(handleRealtimeTurnCommit, {
+      resolveUserId: (req) => req?.authUser?.id || req?.user?.id || req?.userId || null,
+    }),
+  );
 }
 
 export { mountRealtimeTurnCommitRoute, TURN_COMMIT_BODY_LIMIT };

@@ -391,6 +391,147 @@ test("[turn-commit] memory write pipeline: emotion → afterReply → persist (i
   });
 });
 
+test("[turn-commit] promotes a spoken screenplay answer before clearing its pending question", async () => {
+  const pending = {
+    id: "screenplay-learning-4-project.theme_argument",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.theme_argument",
+    targetLabel: "the theme argument",
+    anchor: "Split Ferries",
+    question: "What does Split Ferries argue about how a person should live?",
+    actKey: "act2",
+    sequenceKey: "midpoint",
+    askedAtTurn: 4,
+    expiresAfterTurn: 6,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveWritableMemoryContext = () => ({
+    memory: {
+      turns: 5,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+  deps.recordCreativeMemoryTriggersForRequest = async (_req, args) => {
+    deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+    return {
+      skipped: false,
+      learningAnswersPromoted: args.learningContext ? 1 : 0,
+      learningAnswersCorrectionProtected: 0,
+    };
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Love without trust becomes possession.",
+      reply: "That gives the midpoint a moral cost.",
+      request_id: "rt-spoken-answer-1",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.deepEqual(r.body.screenplay_question_resolution, {
+      question_id: pending.id,
+      response_status: "answered",
+      target_field: "project.theme_argument",
+      learning_promoted: true,
+      correction_protected: false,
+    });
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext.targetField,
+      "project.theme_argument",
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
+      "answered",
+    );
+    assert.equal(deps._calls.persistWritableMemoryContext.length, 2);
+    assert.deepEqual(
+      deps._calls.persistWritableMemoryContext.at(-1).nextMem.pendingScreenplayLearningQuestions,
+      [],
+    );
+  });
+});
+
+test("[turn-commit] never mislearns a spoken page command as a screenplay answer", async () => {
+  const pending = {
+    id: "screenplay-learning-5-project.ending_image",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.ending_image",
+    targetLabel: "the ending image",
+    anchor: "Split Ferries",
+    question: "What final image proves Mara has changed?",
+    askedAtTurn: 5,
+    expiresAfterTurn: 7,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveWritableMemoryContext = () => ({
+    memory: {
+      turns: 6,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Write the next scene.",
+      reply: "INT. EAST FERRY - NIGHT",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.screenplay_question_resolution.response_status, "declined");
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, false);
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext,
+      null,
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
+      "declined",
+    );
+  });
+});
+
+test("[turn-commit] request_id replay executes the realtime memory pipeline exactly once", async () => {
+  const deps = defaultDeps();
+  const body = {
+    transcript: "Mara chooses June over the evidence.",
+    reply: "That choice now drives the climax.",
+    request_id: "rt-reconnect-replay-1",
+    studio: {
+      screenplayProjectId: "split-ferries",
+    },
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, body);
+    const replay = await postJson(baseURL, body);
+
+    assert.equal(first.status, 201);
+    assert.equal(replay.status, 201);
+    assert.equal(replay.headers.get("x-idempotency-replayed"), "1");
+    assert.deepEqual(replay.body, first.body);
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
+    assert.equal(deps._calls.storeTalkTurnMeta.length, 1);
+  });
+});
+
 test("[turn-commit] queues durable project memory with accepted page text and structured arc metadata", async () => {
   const deps = defaultDeps();
   const acceptedPage = "INT. ARCHIVE - NIGHT\n\nMARA opens the sealed affidavit.";

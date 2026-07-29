@@ -758,6 +758,11 @@ struct MemoriesScreen: View {
         ) { _ in
             Task { await vm.refreshPendingScreenplayQuestion(force: true) }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .themScreenplayQuestionResolved)
+        ) { _ in
+            Task { await vm.refreshPendingScreenplayQuestion(force: true) }
+        }
     }
 
     private var header: some View {

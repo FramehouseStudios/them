@@ -41,6 +41,37 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertTrue(clarification.resolvedFacts.isEmpty)
     }
 
+    func testRealtimeTurnCommitDecodesScreenplayQuestionResolution() throws {
+        let data = Data(#"""
+        {
+          "ok": true,
+          "action": "realtime_turn_commit",
+          "status": "committed",
+          "screenplay_question_resolution": {
+            "question_id": "screenplay-learning-4-project.theme_argument",
+            "response_status": "answered",
+            "target_field": "project.theme_argument",
+            "learning_promoted": true,
+            "correction_protected": false
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let resolution = try XCTUnwrap(response.screenplayQuestionResolution)
+
+        XCTAssertEqual(
+            resolution.questionId,
+            "screenplay-learning-4-project.theme_argument"
+        )
+        XCTAssertEqual(resolution.responseStatus, "answered")
+        XCTAssertEqual(resolution.targetField, "project.theme_argument")
+        XCTAssertEqual(resolution.learningPromoted, true)
+        XCTAssertEqual(resolution.correctionProtected, false)
+    }
+
     func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
         let data = Data(#"""
         {

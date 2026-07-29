@@ -5995,6 +5995,11 @@ struct ScreenplayStudioScreen: View {
             ) { _ in
                 Task { await vm.refreshPendingScreenplayQuestion() }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayQuestionResolved)
+            ) { _ in
+                Task { await vm.refreshPendingScreenplayQuestion() }
+            }
             .overlay(alignment: .topLeading) {
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests {

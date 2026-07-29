@@ -4,6 +4,7 @@ import Security
 nonisolated extension Notification.Name {
     static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
     static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
+    static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
 }
 
 nonisolated private struct BackendNotificationPayload: @unchecked Sendable {
@@ -872,6 +873,15 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let canonClarification: BackendCanonCorrectionAmbiguity?
+    let screenplayQuestionResolution: BackendRealtimeScreenplayQuestionResolution?
+}
+
+nonisolated struct BackendRealtimeScreenplayQuestionResolution: Decodable, Equatable {
+    let questionId: String
+    let responseStatus: String
+    let targetField: String?
+    let learningPromoted: Bool?
+    let correctionProtected: Bool?
 }
 
 nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
@@ -6202,10 +6212,17 @@ actor BackendMemoryAPI {
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: "/realtime/turn_commit")
+        let normalizedRequestId = requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedRequestId.isEmpty {
+            request.setValue(
+                String(normalizedRequestId.prefix(128)),
+                forHTTPHeaderField: "X-Idempotency-Key"
+            )
+        }
         var payload: [String: Any] = [
             "transcript": userMessage,
             "reply": assistantMessage,
-            "request_id": requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            "request_id": normalizedRequestId
         ]
         if let studioMetadata, studioMetadata.isMeaningful {
             payload["studio"] = Self.studioTurnPayload(studioMetadata)
@@ -6223,6 +6240,20 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        if let resolution = parsed.screenplayQuestionResolution {
+            cachedSession = nil
+            cachedSessionAt = nil
+            postBackendNotificationOnMain(
+                name: .themScreenplayQuestionResolved,
+                userInfo: [
+                    "questionId": resolution.questionId,
+                    "responseStatus": resolution.responseStatus,
+                    "targetField": resolution.targetField ?? "",
+                    "learningPromoted": resolution.learningPromoted ?? false,
+                    "correctionProtected": resolution.correctionProtected ?? false,
+                ]
+            )
+        }
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
