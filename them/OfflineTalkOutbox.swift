@@ -140,7 +140,12 @@ actor OfflineTalkOutbox {
 
     private static let maxBodyBytes = 25 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [5, 15, 60, 300, 1_800]
-    private static let endpoint = "/talk"
+    private static let talkEndpoint = "/talk"
+    private static let screenplayQuestionResolutionEndpoint = "/memory/screenplay-question/resolve"
+    private static let supportedEndpoints: Set<String> = [
+        talkEndpoint,
+        screenplayQuestionResolutionEndpoint,
+    ]
 
     private let storageDirectory: URL
     private let manifestURL: URL
@@ -206,6 +211,24 @@ actor OfflineTalkOutbox {
         }
     }
 
+    func pendingScreenplayQuestionResolutionIDs() -> Set<String> {
+        do {
+            try loadIfNeeded()
+        } catch {
+            return []
+        }
+        return Set(entries.compactMap { entry in
+            guard entry.endpoint == Self.screenplayQuestionResolutionEndpoint,
+                  entry.status == .pending || entry.status == .inflight else {
+                return nil
+            }
+            return headerValue(
+                named: "X-Screenplay-Question-ID",
+                in: entry.headers
+            )
+        })
+    }
+
     func enqueue(
         request: URLRequest,
         body: Data,
@@ -215,8 +238,9 @@ actor OfflineTalkOutbox {
         try ensureStorageExists()
 
         guard request.httpMethod?.uppercased() == "POST",
-              request.url?.path == Self.endpoint else {
-            throw BackendError.stage("offline_outbox", "Only POST /talk can be queued.")
+              let endpoint = request.url?.path,
+              Self.supportedEndpoints.contains(endpoint) else {
+            throw BackendError.stage("offline_outbox", "This action cannot be queued.")
         }
         guard body.count <= Self.maxBodyBytes else {
             throw BackendError.stage("offline_outbox", "Queued talk turn is too large.")
@@ -243,7 +267,7 @@ actor OfflineTalkOutbox {
             id: id,
             createdAt: now,
             updatedAt: now,
-            endpoint: Self.endpoint,
+            endpoint: endpoint,
             method: "POST",
             urlString: urlString,
             headers: normalizedHeaders(request.allHTTPHeaderFields ?? [:], idempotencyKey: idempotencyKey),
@@ -429,6 +453,21 @@ actor OfflineTalkOutbox {
         for (key, value) in entry.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
+        let queuedUserID = headerValue(named: "X-User-Id", in: entry.headers) ?? ""
+        let currentAuth = BackendAuthClient.currentAuthSessionState()
+        let currentUserID = currentAuth.user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !queuedUserID.isEmpty {
+            guard !currentUserID.isEmpty, queuedUserID == currentUserID else {
+                throw BackendError.stage(
+                    "offline_outbox",
+                    "Queued action belongs to a different signed-in account."
+                )
+            }
+            if let authorization = BackendAuthClient.authorizationHeaderValue() {
+                request.setValue(authorization, forHTTPHeaderField: "Authorization")
+            }
+        }
         request.httpBody = body
         return request
     }
@@ -534,6 +573,14 @@ actor OfflineTalkOutbox {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String((clean.isEmpty ? "Queued for retry." : clean).prefix(280))
+    }
+
+    private func headerValue(named name: String, in headers: [String: String]) -> String? {
+        let match = headers.first { key, _ in
+            key.caseInsensitiveCompare(name) == .orderedSame
+        }?.value
+        let normalized = match?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func normalizedHeaders(

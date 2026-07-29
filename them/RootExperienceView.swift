@@ -18,6 +18,17 @@ import ScreenCaptureKit
 import UIKit
 #endif
 
+private extension View {
+    @ViewBuilder
+    func themDesktopSheetFrame(minWidth: CGFloat, minHeight: CGFloat) -> some View {
+        #if os(macOS)
+        frame(minWidth: minWidth, minHeight: minHeight)
+        #else
+        self
+        #endif
+    }
+}
+
 private enum BackendConnectionState: String {
     case checking
     case up
@@ -2467,8 +2478,12 @@ struct RootExperienceView: View {
         let arguments = ProcessInfo.processInfo.arguments
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             if arguments.contains("--ui-open-memories") {
+                uiTestForceStudioSurface = false
+                primarySurface = .home
                 openMemories()
             } else if arguments.contains("--ui-open-data-controls") {
+                uiTestForceStudioSurface = false
+                primarySurface = .home
                 showingDataControls = true
             } else if arguments.contains("--ui-open-studio") {
                 uiTestForceStudioSurface = true
@@ -2944,8 +2959,13 @@ struct RootExperienceView: View {
                                 guard !evolution.needsOnboardingName else { return }
                                 startConversationLoopIfNeeded()
                             }
+                        }, openStudioAction: {
+                            showingMemories = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                                openStudio()
+                            }
                         })
-                        .frame(minWidth: 1100, minHeight: 760)
+                        .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
                 .sheet(isPresented: $showingConversationHistory) {
                     ConversationHistoryScreen(openConversation: {
@@ -2955,7 +2975,7 @@ struct RootExperienceView: View {
                                 startConversationLoopIfNeeded()
                             }
                         })
-                        .frame(minWidth: 1100, minHeight: 760)
+                        .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
                 .sheet(isPresented: $showingNotes) {
                     NotesPanel(onDone: {
@@ -2965,7 +2985,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 920, minHeight: 700)
+                    .themDesktopSheetFrame(minWidth: 920, minHeight: 700)
                 }
                 .sheet(isPresented: $showingTasks) {
                     TasksPanel(onDone: {
@@ -2975,7 +2995,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 680)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingEmailComposer) {
                     QuickEmailPanel(onDone: {
@@ -2985,7 +3005,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 920, minHeight: 720)
+                    .themDesktopSheetFrame(minWidth: 920, minHeight: 720)
                 }
                 .sheet(isPresented: $showingRecap) {
                     RecapPanel(onDone: {
@@ -2995,7 +3015,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 700)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 700)
                 }
                 .sheet(isPresented: $showingVoiceSettings) {
                     VoiceSettingsScreen(onDone: {
@@ -3005,7 +3025,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 960, minHeight: 760)
+                    .themDesktopSheetFrame(minWidth: 960, minHeight: 760)
                 }
                 .sheet(isPresented: $showingCompanionControls) {
                     CompanionControlsPanel(
@@ -3018,7 +3038,7 @@ struct RootExperienceView: View {
                             }
                         }
                     )
-                    .frame(minWidth: 920, minHeight: 720)
+                    .themDesktopSheetFrame(minWidth: 920, minHeight: 720)
                 }
                 .sheet(isPresented: $showingDataControls) {
                     DataControlsScreen(onDone: {
@@ -3028,7 +3048,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 680)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingTrustCenter) {
                     TrustCenterScreen(
@@ -3045,7 +3065,7 @@ struct RootExperienceView: View {
                             openURL(privacyPolicyURL)
                         }
                     )
-                    .frame(minWidth: 900, minHeight: 680)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingProfileAccount) {
                     ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)

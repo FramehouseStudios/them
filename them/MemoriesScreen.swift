@@ -101,6 +101,7 @@ final class MemoriesViewModel: ObservableObject {
     @Published var subtitle: String = "Moments I have remembered about you."
     @Published var qualitySnapshot: BackendMemoryQualitySnapshot?
     @Published var recentActionReceipts: [BackendActionReceipt] = []
+    @Published var pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
 
     private var isLoading = false
     private var lastLoadedAt: Date?
@@ -154,7 +155,9 @@ final class MemoriesViewModel: ObservableObject {
         }
 
         do {
-            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+            if let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: force) {
+                await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+            }
             var result = try await BackendMemoryAPI.shared.fetchMemories(
                 limit: 72,
                 force: force,
@@ -250,12 +253,55 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func refreshCrossDeviceMemoriesIfNeeded() async {
+        await refreshPendingScreenplayQuestion(force: true)
         let sinceVersion = latestSeenStateVersion
             .trimmingCharacters(in: .whitespacesAndNewlines)
         await load(
             force: false,
             sinceVersion: sinceVersion.isEmpty ? nil : sinceVersion
         )
+    }
+
+    func refreshPendingScreenplayQuestion(force: Bool) async {
+        do {
+            let session = try await BackendMemoryAPI.shared.bootstrapSession(force: force)
+            await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+        } catch {
+            // Preserve the last known question while the backend reconnects.
+        }
+    }
+
+    func installPendingScreenplayQuestionUITestFixtureIfNeeded() -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains(
+                "--ui-show-pending-screenplay-question"
+              ) else {
+            return false
+        }
+        pendingScreenplayQuestion = BackendPendingScreenplayQuestion(
+            id: "ui-pending-theme-question",
+            projectId: "ui-project",
+            projectTitle: "The Last Crossing",
+            targetField: "project.theme_argument",
+            targetLabel: "Theme argument",
+            question: "What does Mara learn about love when control can no longer keep June safe?",
+            askedAt: Date().timeIntervalSince1970 * 1_000
+        )
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private func adoptPendingScreenplayQuestion(
+        _ pending: BackendPendingScreenplayQuestion?
+    ) async {
+        let queuedQuestionIDs = await OfflineTalkOutbox.shared
+            .pendingScreenplayQuestionResolutionIDs()
+        pendingScreenplayQuestion = pending.flatMap { question in
+            queuedQuestionIDs.contains(question.id) ? nil : question
+        }
     }
 
     func updateMemory(
@@ -656,6 +702,7 @@ struct MemoriesScreen: View {
 
     @StateObject private var vm = MemoriesViewModel()
     var startTalkingAction: () -> Void = {}
+    var openStudioAction: () -> Void = {}
 
     var body: some View {
         NavigationStack {
@@ -698,10 +745,18 @@ struct MemoriesScreen: View {
             }
         }
         .accessibilityIdentifier("memories.screen")
-        .task { await vm.load() }
+        .task {
+            guard !vm.installPendingScreenplayQuestionUITestFixtureIfNeeded() else { return }
+            await vm.load()
+        }
         .onReceive(Self.crossDeviceRefreshTimer) { _ in
             guard !IOThemRuntime.isRunningTests else { return }
             Task { await vm.refreshCrossDeviceMemoriesIfNeeded() }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)
+        ) { _ in
+            Task { await vm.refreshPendingScreenplayQuestion(force: true) }
         }
     }
 
@@ -741,6 +796,12 @@ struct MemoriesScreen: View {
     @ViewBuilder
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let pending = vm.pendingScreenplayQuestion {
+                PendingScreenplayQuestionMemoryCard(
+                    pending: pending,
+                    openStudioAction: openStudioAction
+                )
+            }
             if let snapshot = vm.qualitySnapshot {
                 MemoryQualityOverviewCard(snapshot: snapshot)
             }
@@ -816,6 +877,63 @@ struct MemoriesScreen: View {
                 }
             }
         }
+    }
+}
+
+private struct PendingScreenplayQuestionMemoryCard: View {
+    let pending: BackendPendingScreenplayQuestion
+    let openStudioAction: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(MemoriesTheme.focusAccent)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(projectLine)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(MemoriesTheme.textSecondary)
+                    .lineLimit(1)
+
+                Text(pending.question)
+                    .font(.system(size: 15, weight: .medium, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.pending-question.text")
+            }
+
+            Spacer(minLength: 12)
+
+            Button {
+                openStudioAction()
+            } label: {
+                Label("Open Studio", systemImage: "arrow.up.right")
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("memories.pending-question.open-studio")
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(MemoriesTheme.focusAccent.opacity(0.34), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("memories.pending-question")
+    }
+
+    private var projectLine: String {
+        let title = pending.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = pending.targetLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let project = title.isEmpty ? "Screenplay" : title
+        return target.isEmpty ? project : "\(project) · \(target)"
     }
 }
 

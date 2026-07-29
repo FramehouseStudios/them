@@ -1699,7 +1699,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             let session = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
             let pending = session.pendingScreenplayQuestion
             let pendingProjectID = pending?.projectId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            pendingScreenplayQuestion = pendingProjectID == selectedID ? pending : nil
+            let queuedQuestionIDs = await OfflineTalkOutbox.shared
+                .pendingScreenplayQuestionResolutionIDs()
+            let isQueuedForResolution = pending.map { queuedQuestionIDs.contains($0.id) } ?? false
+            pendingScreenplayQuestion = pendingProjectID == selectedID && !isQueuedForResolution
+                ? pending
+                : nil
         } catch {
             // Keep the last restored question visible during a transient reconnect.
         }
@@ -5717,7 +5722,7 @@ struct ScreenplayStudioScreen: View {
     @State private var studioPromptSeed: String = ""
     @State private var studioPromptIntent: StudioPromptIntent = .advice
     @State private var isSubmittingStudioPrompt: Bool = false
-    @State private var deferredPendingQuestionSkip: BackendPendingScreenplayQuestion?
+    @State private var isResolvingPendingScreenplayQuestion: Bool = false
     @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
     @State private var pendingDraftImportURL: URL?
@@ -5985,11 +5990,10 @@ struct ScreenplayStudioScreen: View {
                     allowDuringTests: true
                 )
             }
-            .onChange(of: isSubmittingPrompt) { _, _ in
-                flushDeferredPendingQuestionSkipIfPossible()
-            }
-            .onChange(of: isSubmittingStudioPrompt) { _, _ in
-                flushDeferredPendingQuestionSkipIfPossible()
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)
+            ) { _ in
+                Task { await vm.refreshPendingScreenplayQuestion() }
             }
             .overlay(alignment: .topLeading) {
                 #if DEBUG
@@ -25487,6 +25491,11 @@ Return revised screenplay lines only.
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .accessibilityIdentifier("studio.pending-question.answer")
+                    .disabled(
+                        isSubmittingStudioPrompt ||
+                            isSubmittingPrompt ||
+                            isResolvingPendingScreenplayQuestion
+                    )
 
                     Button {
                         skipPendingScreenplayQuestion(pending)
@@ -25499,7 +25508,10 @@ Return revised screenplay lines only.
                     .controlSize(.small)
                     .foregroundStyle(Color.herText.opacity(0.58))
                     .accessibilityIdentifier("studio.pending-question.skip")
-                    .disabled(isSubmittingStudioPrompt)
+                    .disabled(
+                        isSubmittingStudioPrompt ||
+                            isResolvingPendingScreenplayQuestion
+                    )
                 }
             }
             .padding(.leading, 12)
@@ -25530,39 +25542,29 @@ Return revised screenplay lines only.
     }
 
     private func skipPendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
-        guard !isSubmittingStudioPrompt else { return }
-
+        guard !isSubmittingStudioPrompt, !isResolvingPendingScreenplayQuestion else { return }
         dismissPendingScreenplayQuestion(id: pending.id)
-        if isSubmittingPrompt {
-            deferredPendingQuestionSkip = pending
-            vm.infoText = "Question skipped. Saving after the current response."
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests, pending.id == "ui-pending-theme-question" {
+            vm.infoText = "Question skipped."
             return
         }
-        persistPendingScreenplayQuestionSkip(pending)
-    }
-
-    private func flushDeferredPendingQuestionSkipIfPossible() {
-        guard !isSubmittingPrompt,
-              !isSubmittingStudioPrompt,
-              let pending = deferredPendingQuestionSkip else {
-            return
-        }
-        persistPendingScreenplayQuestionSkip(pending)
-    }
-
-    private func persistPendingScreenplayQuestionSkip(_ pending: BackendPendingScreenplayQuestion) {
-        deferredPendingQuestionSkip = nil
-        submitStudioPromptText(
-            "skip",
-            displayText: "Skip Clementine's question",
-            source: .typed,
-            routingMode: .voicePin,
-            successMessage: "Question skipped.",
-            clearSeedOnSuccess: false,
-            sendingSuggestionID: nil
-        ) { error in
-            guard error != nil else { return }
-            restorePendingScreenplayQuestion(pending)
+        #endif
+        isResolvingPendingScreenplayQuestion = true
+        Task { @MainActor in
+            defer { isResolvingPendingScreenplayQuestion = false }
+            do {
+                _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                    pending,
+                    responseStatus: "declined"
+                )
+                vm.infoText = "Question skipped."
+            } catch is BackendTalkQueuedError {
+                vm.infoText = "Question skipped. Saving when you're online."
+            } catch {
+                restorePendingScreenplayQuestion(pending)
+                vm.infoText = "Couldn’t save that choice. \(error.localizedDescription)"
+            }
         }
     }
 
@@ -26219,7 +26221,8 @@ Return revised screenplay lines only.
         }
         let submittedText = featureContinuationPrompt ?? text
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
-        let pendingQuestionIDAtSubmission = vm.pendingScreenplayQuestion?.id
+        let pendingQuestionAtSubmission = vm.pendingScreenplayQuestion
+        let pendingQuestionIDAtSubmission = pendingQuestionAtSubmission?.id
         if let featureSnapshotForSubmission {
             liveDraftBridge.recordFeatureWorkflowContext(
                 ScreenplayFeatureWorkflowSessionContext(
@@ -26309,6 +26312,42 @@ Return revised screenplay lines only.
                 setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
             }
 #endif
+            if let pendingQuestionAtSubmission {
+                isResolvingPendingScreenplayQuestion = true
+                do {
+                    _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                        pendingQuestionAtSubmission,
+                        responseStatus: "answered",
+                        answer: text
+                    )
+                    dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
+                    isResolvingPendingScreenplayQuestion = false
+                } catch is BackendTalkQueuedError {
+                    dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
+                    isResolvingPendingScreenplayQuestion = false
+                    isSubmittingStudioPrompt = false
+                    self.sendingVoicePinSuggestionID = nil
+                    liveDraftBridge.clearPendingPageWriteReplacement()
+                    completePerceivedSpeedResponse(requestID: requestID)
+                    if clearSeedOnSuccess {
+                        studioPromptSeed = ""
+                    }
+                    vm.infoText = "Answer saved. Clementine will use it when you're online."
+                    completion?(nil)
+                    return
+                } catch {
+                    restorePendingScreenplayQuestion(pendingQuestionAtSubmission)
+                    isResolvingPendingScreenplayQuestion = false
+                    isSubmittingStudioPrompt = false
+                    self.sendingVoicePinSuggestionID = nil
+                    liveDraftBridge.clearPendingPageWriteReplacement()
+                    completePerceivedSpeedResponse(requestID: requestID)
+                    let resolutionError = "Couldn’t save that answer. \(error.localizedDescription)"
+                    vm.infoText = resolutionError
+                    completion?(resolutionError)
+                    return
+                }
+            }
             let submittedAt = Date()
             let error = await onSubmitPrompt(submittedText, routingMode, requestID)
 #if DEBUG || os(macOS)

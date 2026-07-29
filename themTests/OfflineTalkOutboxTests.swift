@@ -65,6 +65,86 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries, [])
     }
 
+    func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(
+            url: URL(string: "https://them.test/memory/screenplay-question/resolve")!
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("question-resolution-1", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue(
+            "screenplay-learning-4-project.theme_argument",
+            forHTTPHeaderField: "X-Screenplay-Question-ID"
+        )
+        request.setValue(
+            "screenplay_question_resolution",
+            forHTTPHeaderField: "X-Them-Outbox-Action"
+        )
+        let body = try JSONSerialization.data(withJSONObject: [
+            "question_id": "screenplay-learning-4-project.theme_argument",
+            "project_id": "split-ferries",
+            "response_status": "answered",
+            "answer": "Love without trust becomes possession.",
+        ])
+
+        _ = try await outbox.enqueue(request: request, body: body, reason: "offline")
+
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let queuedIDs = await relaunched.pendingScreenplayQuestionResolutionIDs()
+        XCTAssertEqual(queuedIDs, Set(["screenplay-learning-4-project.theme_argument"]))
+
+        var replayedBody = Data()
+        let drained = await relaunched.drainDue(
+            now: Date().addingTimeInterval(10)
+        ) { replayRequest in
+            replayedBody = replayRequest.httpBody ?? Data()
+            XCTAssertEqual(
+                replayRequest.value(forHTTPHeaderField: "X-Screenplay-Question-ID"),
+                "screenplay-learning-4-project.theme_argument"
+            )
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(replayedBody, body)
+        XCTAssertEqual(drained.pendingCount, 0)
+        let resolvedIDs = await relaunched.pendingScreenplayQuestionResolutionIDs()
+        XCTAssertEqual(resolvedIDs, Set<String>())
+    }
+
+    func testQueuedWriteNeverCrossesIntoAnotherSignedInAccount() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(
+            url: URL(string: "https://them.test/memory/screenplay-question/resolve")!
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("queued-\(UUID().uuidString)", forHTTPHeaderField: "X-User-Id")
+        request.setValue("question-resolution-account", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue("question-account", forHTTPHeaderField: "X-Screenplay-Question-ID")
+
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("{}".utf8),
+            reason: "offline"
+        )
+        var transportCalls = 0
+        let snapshot = await outbox.drainDue(
+            now: Date().addingTimeInterval(10)
+        ) { _ in
+            transportCalls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(transportCalls, 0)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.first?.retries, 1)
+        XCTAssertTrue(
+            entries.first?.lastError?.contains("different signed-in account") == true
+        )
+    }
+
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)

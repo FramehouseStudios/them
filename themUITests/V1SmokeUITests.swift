@@ -317,6 +317,56 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_pending_screenplay_question_appears_in_memories_and_opens_studio() {
+        let app = launchApp(
+            openMemories: true,
+            showPendingScreenplayQuestion: true
+        )
+        defer { app.terminate() }
+
+        let questionCard = element(identifier: "memories.pending-question", in: app)
+        #if os(macOS)
+        XCTAssertTrue(
+            app.sheets.firstMatch.waitForExistence(timeout: 8),
+            "Memories did not open as a desktop sheet."
+        )
+        #else
+        XCTAssertTrue(
+            app.otherElements["memories.screen"].waitForExistence(timeout: 8),
+            "Memories did not open."
+        )
+        #endif
+        XCTAssertTrue(
+            questionCard.waitForExistence(timeout: 5),
+            "Memories did not surface the unresolved screenplay question."
+        )
+        let questionText = element(identifier: "memories.pending-question.text", in: app)
+        XCTAssertTrue(questionText.waitForExistence(timeout: 3))
+        let questionTextContent = [
+            questionText.label,
+            questionText.value as? String ?? "",
+        ].joined(separator: " ")
+        XCTAssertTrue(
+            questionTextContent.localizedCaseInsensitiveContains("What does Mara learn"),
+            "Memories surfaced the wrong screenplay question: \(questionTextContent)"
+        )
+
+        let openStudio = app.buttons["memories.pending-question.open-studio"]
+        XCTAssertTrue(openStudio.waitForExistence(timeout: 3))
+        XCTAssertTrue(openStudio.isHittable)
+        openStudio.tap()
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 8),
+            "Open Studio did not return the writer to the screenplay workspace."
+        )
+        revealStudioPendingQuestion(in: app)
+        XCTAssertTrue(
+            element(identifier: "studio.pending-question", in: app).waitForExistence(timeout: 5),
+            "The unresolved question did not follow the writer into Studio."
+        )
+    }
+
     @MainActor
     func test_backend_project_restore_loads_seeded_screenplay_session() async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!

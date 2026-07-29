@@ -46,6 +46,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/memories/forget", methodNotAllowed("POST"));
   app.all("/memories/promote", methodNotAllowed("POST"));
   app.all("/memories/feedback", methodNotAllowed("POST"));
+  app.all("/memory/screenplay-question/resolve", methodNotAllowed("POST"));
   app.all("/tasks", methodNotAllowed("GET"));
   app.all("/tasks/update", methodNotAllowed("POST"));
   app.all("/recap", methodNotAllowed("GET"));

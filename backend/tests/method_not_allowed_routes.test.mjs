@@ -36,6 +36,7 @@ const EXPECTED = [
   ["/memories/forget", "POST"],
   ["/memories/promote", "POST"],
   ["/memories/feedback", "POST"],
+  ["/memory/screenplay-question/resolve", "POST"],
   ["/tasks", "GET"],
   ["/tasks/update", "POST"],
   ["/recap", "GET"],

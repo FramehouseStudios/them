@@ -1466,20 +1466,90 @@ export function resolvePendingScreenplayLearningAnswer({
     status: "answered",
     shouldClear: true,
     interaction: buildPendingQuestionInteraction(pending, "answered", now),
-    learningContext: {
-      questionId: clean(pending.id, 120),
-      projectId: clean(pending.projectId || projectId, 96),
-      projectTitle: clean(pending.projectTitle || projectTitle, 160),
+    learningContext: buildScreenplayLearningContext(pending, {
+      projectId,
+      projectTitle,
       targetField,
-      targetLabel: clean(pending.targetLabel, 120),
-      anchor: clean(pending.anchor, 180),
-      question: clean(pending.question, 260),
-      actKey: clean(pending.actKey, 24),
-      sequenceKey: clean(pending.sequenceKey, 32),
-      writerBlocked: Boolean(pending.writerBlocked),
-      askedAt: Math.max(0, Number(pending.askedAt) || 0),
-      authority: "writer_clarification",
-    },
+    }),
+  };
+}
+
+function buildScreenplayLearningContext(pending, {
+  projectId = "",
+  projectTitle = "",
+  targetField = "",
+} = {}) {
+  return {
+    questionId: clean(pending?.id, 120),
+    projectId: clean(pending?.projectId || projectId, 96),
+    projectTitle: clean(pending?.projectTitle || projectTitle, 160),
+    targetField: clean(targetField || pending?.targetField, 64),
+    targetLabel: clean(pending?.targetLabel, 120),
+    anchor: clean(pending?.anchor, 180),
+    question: clean(pending?.question, 260),
+    actKey: clean(pending?.actKey, 24),
+    sequenceKey: clean(pending?.sequenceKey, 32),
+    writerBlocked: Boolean(pending?.writerBlocked),
+    askedAt: Math.max(0, Number(pending?.askedAt) || 0),
+    authority: "writer_clarification",
+  };
+}
+
+export function resolvePendingScreenplayLearningAction({
+  pending = null,
+  responseStatus = "",
+  answer = "",
+  projectId = "",
+  projectTitle = "",
+  currentTurn = 0,
+  now = Date.now(),
+} = {}) {
+  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  if (!target) {
+    return { status: "none", shouldClear: false, learningContext: null, interaction: null };
+  }
+  const normalizedStatus = clean(responseStatus, 24).toLowerCase();
+  if (!["answered", "declined"].includes(normalizedStatus)) {
+    return { status: "invalid", shouldClear: false, learningContext: null, interaction: null };
+  }
+  const turn = Math.max(0, Math.floor(Number(currentTurn) || 0));
+  if (target.expiresAfterTurn && turn > target.expiresAfterTurn) {
+    return {
+      status: "expired",
+      shouldClear: true,
+      learningContext: null,
+      interaction: buildPendingQuestionInteraction(target, "expired", now),
+    };
+  }
+  if (!projectMatches(target, { projectId, projectTitle })) {
+    return {
+      status: "different_project",
+      shouldClear: false,
+      learningContext: null,
+      interaction: null,
+    };
+  }
+  if (normalizedStatus === "declined") {
+    return {
+      status: "declined",
+      shouldClear: true,
+      learningContext: null,
+      interaction: buildPendingQuestionInteraction(target, "declined", now),
+    };
+  }
+
+  const normalizedAnswer = clean(answer, 2_000);
+  if (!normalizedAnswer) {
+    return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
+  }
+  return {
+    status: "answered",
+    shouldClear: true,
+    interaction: buildPendingQuestionInteraction(target, "answered", now),
+    learningContext: buildScreenplayLearningContext(target, {
+      projectId,
+      projectTitle,
+    }),
   };
 }
 

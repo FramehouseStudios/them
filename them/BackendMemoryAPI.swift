@@ -1473,6 +1473,26 @@ nonisolated struct BackendPendingScreenplayQuestion: Decodable, Equatable {
     let askedAt: TimeInterval?
 }
 
+nonisolated struct BackendScreenplayQuestionResolutionResponse: Decodable, Equatable {
+    let ok: Bool
+    let action: String?
+    let status: String
+    let questionId: String
+    let responseStatus: String
+    let targetField: String?
+    let learningPromoted: Bool?
+    let correctionProtected: Bool?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
 nonisolated struct BackendAuthUser: Codable, Hashable {
     let userId: String
     let email: String
@@ -4346,6 +4366,101 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
+    func resolvePendingScreenplayQuestion(
+        _ pending: BackendPendingScreenplayQuestion,
+        responseStatus: String,
+        answer: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayQuestionResolutionResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedStatus = responseStatus
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedStatus == "answered" || normalizedStatus == "declined" else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "response_status must be answered or declined"
+            )
+        }
+        let normalizedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedStatus == "answered", normalizedAnswer.isEmpty {
+            throw BackendMemoryAPIError.server(status: 400, message: "answer is required")
+        }
+
+        var request = try makeWriteRequest(path: "/memory/screenplay-question/resolve")
+        let idempotencyKey = String(
+            "screenplay-question-\(pending.id)-\(normalizedStatus)".prefix(128)
+        )
+        request.setValue(idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue(
+            "screenplay_question_resolution",
+            forHTTPHeaderField: "X-Them-Outbox-Action"
+        )
+        request.setValue(
+            String(pending.id.prefix(120)),
+            forHTTPHeaderField: "X-Screenplay-Question-ID"
+        )
+        let body = try JSONSerialization.data(withJSONObject: [
+            "question_id": pending.id,
+            "project_id": pending.projectId,
+            "project_title": pending.projectTitle,
+            "response_status": normalizedStatus,
+            "answer": normalizedAnswer,
+        ])
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw BackendMemoryAPIError.server(
+                    status: http.statusCode,
+                    message: decodeErrorMessage(from: data)
+                )
+            }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let payload = try decoder.decode(
+                BackendScreenplayQuestionResolutionResponse.self,
+                from: data
+            )
+            cachedSession = nil
+            cachedSessionAt = nil
+            let headerSync = syncFromHeaders(http, fallbackStatus: payload.ok ? "up" : "degraded")
+            let bodySync = syncFromScreenplayEnvelope(
+                sessionId: payload.sessionId,
+                stateVersion: payload.stateVersion,
+                lastUpdatedAt: payload.lastUpdatedAt,
+                historyUpdatedAt: payload.historyUpdatedAt,
+                memoryUpdatedAt: payload.memoryUpdatedAt,
+                lastTurnId: payload.lastTurnId,
+                schemaVersion: payload.schemaVersion,
+                backendBuild: payload.backendBuild,
+                backendBootId: payload.backendBootId
+            )
+            updateSyncState(
+                mergeSyncStates(base: bodySync, incoming: headerSync),
+                emitTurnEvent: true
+            )
+            return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        } catch {
+            guard shouldQueueScreenplayQuestionResolution(error) else { throw error }
+            let queued = try await OfflineTalkOutbox.shared.enqueue(
+                request: request,
+                body: body,
+                reason: error.localizedDescription
+            )
+            cachedSession = nil
+            cachedSessionAt = nil
+            throw BackendTalkQueuedError(
+                entryID: queued.entry.id,
+                snapshot: queued.snapshot,
+                reason: error.localizedDescription
+            )
+        }
+    }
+
     func fetchStateDelta(
         sinceVersion: String,
         sinceTurnId: String? = nil,
@@ -4386,6 +4501,32 @@ actor BackendMemoryAPI {
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
         updateSyncState(incoming, emitTurnEvent: true)
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    private func shouldQueueScreenplayQuestionResolution(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .networkConnectionLost,
+                .cannotConnectToHost,
+                .cannotFindHost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(urlError.code)
+        }
+        guard let backendError = error as? BackendMemoryAPIError else { return false }
+        switch backendError {
+        case .invalidResponse:
+            return true
+        case .invalidBaseURL:
+            return false
+        case .server(let status, _):
+            return status == 408 ||
+                status == 425 ||
+                status == 429 ||
+                (500...599).contains(status)
+        }
     }
 
     func fetchActionReceipts(

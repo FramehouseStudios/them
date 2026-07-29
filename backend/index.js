@@ -153,6 +153,7 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
 import { createAccountPurgeWorker, purgePersistenceRowsForUser } from "./lib/account_purge_worker.js";
@@ -32538,6 +32539,18 @@ mountMemoriesRoutes(app, {
   logger: console,
   TASKS_MAX_STORED,
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,
+});
+
+mountScreenplayQuestionRoutes(app, {
+  createRequestId,
+  normalizeSnippet,
+  resolveWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  persistWritableMemoryContext,
+  recordCreativeMemoryTriggersForRequest,
+  buildReadStateMeta,
+  applyReadStateHeaders,
+  logger: console,
 });
 
 // GET /tasks + POST /tasks/update extracted to lib/tasks_routes.js.
