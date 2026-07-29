@@ -204,19 +204,21 @@ function buildBlockCoachingBlockForPrompt(signal) {
   if (!signal || typeof signal !== "object") return "";
   const level = signal.level;
   if (level !== "medium" && level !== "high") return "";
-  const summary = typeof signal.summary === "string" && signal.summary
-    ? signal.summary
-    : "Writer may be stuck.";
+  const summary = (
+    typeof signal.summary === "string" && signal.summary
+      ? signal.summary
+      : "Writer may be stuck."
+  ).trim().slice(0, 240) || "Writer may be stuck.";
   if (level === "high") {
     return [
       "writer-coaching-note:",
       `  observation: ${summary}`,
-      "  tone: warmer, shorter sentences, lower-stakes prompts",
-      "  ask: invite ONE concrete image or beat — do not ask for a finished scene",
+      "  tone: warmer, low-stakes",
+      "  ask: invite ONE concrete image or beat; never demand a scene",
       "story-rescue-protocol:",
-      "  diagnose: find the immediate craft blockage: unclear want, passive protagonist, weak obstacle, repeated tactic, missing consequence, act-pressure drift, or no exit turn",
-      "  engines: choose one pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, ironic complication, or image transformation",
-      "  delivery: offer the strongest next beat first; if context exists, draft a tiny playable Fountain sample instead of advice alone",
+      "  diagnose: name one blockage: unclear want, obstacle, tactic, consequence, reveal, act pressure, or exit",
+      "  engine: use one: reversal, revelation, deadline, hard choice, secret, relationship cost, antagonist move, payoff, or irony",
+      "  delivery: lead with best beat; with context, draft a tiny playable Fountain sample",
     ].join("\n");
   }
   // medium
