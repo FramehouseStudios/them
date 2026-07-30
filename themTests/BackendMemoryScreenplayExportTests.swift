@@ -482,6 +482,93 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertNil(routesRequest.bodyObject)
         XCTAssertFalse(recorder.requests.contains { $0.path == "/session" })
     }
+
+    func testStoryMovePreferenceCorrectionPostsProjectScopeAndDecodesRefreshedProfile() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories/story-preferences/update":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-preference-2",
+                    ],
+                    body: Data(
+                        #"""
+                        {
+                          "ok": true,
+                          "action": "story_move_preference",
+                          "status": "prefer",
+                          "story_move_preferences": [
+                            {
+                              "project_id": "split-ferries",
+                              "project_title": "Split Ferries",
+                              "family": "relationship_pressure",
+                              "display_name": "Relationship pressure",
+                              "summary": "make plot movement damage, redefine, or test a bond",
+                              "learned_score": -1,
+                              "effective_score": 10,
+                              "evidence_count": 3,
+                              "selected_count": 1,
+                              "passed_over_count": 2,
+                              "accepted_page_count": 1,
+                              "block_resolution_count": 1,
+                              "explicit_stance": "prefer",
+                              "corrected_at": 5000,
+                              "updated_at": 5000
+                            }
+                          ],
+                          "state_version": "state-preference-2",
+                          "memory_updated_at": 5000
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let result = try await api.updateStoryMovePreference(
+            projectID: "split-ferries",
+            projectTitle: "Split Ferries",
+            family: "relationship_pressure",
+            action: "prefer"
+        )
+
+        let preference = try XCTUnwrap(result.payload.storyMovePreferences?.first)
+        XCTAssertEqual(preference.family, "relationship_pressure")
+        XCTAssertEqual(preference.explicitStance, "prefer")
+        XCTAssertEqual(preference.effectiveScore, 10)
+        XCTAssertTrue(preference.isExplicitlyCorrected)
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/story-preferences/update" }
+        )
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
+        XCTAssertEqual(request.bodyObject?["family"] as? String, "relationship_pressure")
+        XCTAssertEqual(request.bodyObject?["action"] as? String, "prefer")
+    }
 }
 
 private struct ScreenplayExportHTTPStub {

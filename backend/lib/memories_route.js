@@ -52,6 +52,12 @@
 import express from "express";
 import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 import { extractCharacterMemoryCorrection } from "./creative_memory_store.js";
+import {
+  buildStoryMoveTasteProfile,
+  normalizeStoryMoveFamily,
+  storyMoveFamilyDirective,
+  storyMoveFamilyLabel,
+} from "./story_rescue_move_library.js";
 
 const MEMORIES_MUTATION_BODY_LIMIT = "256kb";
 
@@ -150,7 +156,7 @@ function mountMemoriesRoutes(app, deps = {}) {
   }
 
   async function readCreativeMemoryForUser(userId, query = "memories character bible") {
-    if (!userId || !creativeMemoryStore || typeof creativeMemoryStore.getCreativeMemoryForPrompt !== "function") {
+    if (!userId || !creativeMemoryStore) {
       return null;
     }
     try {
@@ -161,7 +167,10 @@ function mountMemoriesRoutes(app, deps = {}) {
           maxEpisodicMemories: 72,
         });
       }
-      return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
+      if (typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+        return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
+      }
+      return null;
     } catch (error) {
       logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
       return null;
@@ -186,6 +195,44 @@ function mountMemoriesRoutes(app, deps = {}) {
       if (out.length >= maxItems) break;
     }
     return out;
+  }
+
+  function buildStoryMovePreferencesPayload(creativeMemory = null) {
+    const projects = Array.isArray(creativeMemory?.projects)
+      ? creativeMemory.projects
+      : [];
+    return projects
+      .slice()
+      .sort((left, right) => Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0))
+      .slice(0, 6)
+      .flatMap((project) => {
+        const profile = buildStoryMoveTasteProfile(
+          project?.questionEffectiveness,
+          {
+            preferenceOverrides: project?.storyMovePreferenceOverrides,
+          }
+        );
+        return profile
+          .filter((item) => item.evidenceCount > 0 || item.explicitStance)
+          .slice(0, 9)
+          .map((item) => ({
+            project_id: String(project?.projectId || ""),
+            project_title: String(project?.projectTitle || ""),
+            family: item.family,
+            display_name: storyMoveFamilyLabel(item.family),
+            summary: storyMoveFamilyDirective(item.family),
+            learned_score: Number(item.learnedTasteBonus || 0),
+            effective_score: Number(item.tasteBonus || 0),
+            evidence_count: Math.max(0, Number(item.evidenceCount || 0)),
+            selected_count: Math.max(0, Number(item.selectedCount || 0)),
+            passed_over_count: Math.max(0, Number(item.passedOverCount || 0)),
+            accepted_page_count: Math.max(0, Number(item.acceptedPageCount || 0)),
+            block_resolution_count: Math.max(0, Number(item.blockResolutionCount || 0)),
+            explicit_stance: String(item.explicitStance || ""),
+            corrected_at: Math.max(0, Number(item.correctedAt || 0)) || null,
+            updated_at: Math.max(0, Number(project?.updatedAt || 0)) || null,
+          }));
+      });
   }
 
   function canonCorrectionReceiptPayload(receipt = null) {
@@ -486,6 +533,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
+    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory);
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -513,6 +561,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         is_delta: true,
         delta_no_change: true,
         memory_quality: memoryQuality,
+        story_move_preferences: [],
         memories: [],
         conversation_samples: [],
       });
@@ -543,9 +592,128 @@ function mountMemoriesRoutes(app, deps = {}) {
       is_delta: Boolean(sinceVersion),
       delta_no_change: false,
       memory_quality: memoryQuality,
+      story_move_preferences: storyMovePreferences,
       memories,
       conversation_samples: historyThreads.slice(0, Math.max(3, Math.min(12, limit))),
     });
+  });
+
+  // ============== POST /memories/story-preferences/update ==============
+  app.post("/memories/story-preferences/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_story_preferences_update");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.updateStoryMovePreference !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+        request_id: rid,
+      });
+    }
+    const projectId = normalizeSnippet(req.body?.project_id ?? req.body?.projectId, 96);
+    const projectTitle = normalizeSnippet(req.body?.project_title ?? req.body?.projectTitle, 160);
+    const action = normalizeSnippet(req.body?.action, 24).toLowerCase();
+    const family = normalizeStoryMoveFamily(
+      req.body?.family ?? req.body?.move_family ?? req.body?.moveFamily
+    );
+    if (!projectId && !projectTitle) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "missing_project_identity",
+        message: "A screenplay project is required.",
+        request_id: rid,
+      });
+    }
+    if (!["prefer", "avoid", "reset", "reset_all"].includes(action)) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "invalid_action",
+        message: "Choose prefer, avoid, reset, or reset_all.",
+        request_id: rid,
+      });
+    }
+    if (action !== "reset_all" && !family) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "invalid_story_move_family",
+        message: "Choose a valid story preference.",
+        request_id: rid,
+      });
+    }
+
+    try {
+      const receipt = await creativeMemoryStore.updateStoryMovePreference({
+        userId,
+        projectId,
+        projectTitle,
+        family,
+        action,
+      });
+      if (!receipt?.ok) {
+        const notFound = ["creative_memory_not_found", "project_not_found"].includes(receipt?.reason);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(notFound ? 404 : 400).json({
+          ok: false,
+          action: "story_move_preference",
+          status: String(receipt?.reason || "story_move_preference_failed"),
+          message: notFound
+            ? "That screenplay memory could not be found."
+            : "The preference could not be updated.",
+          request_id: rid,
+        });
+      }
+      const creativeMemory = await readCreativeMemoryForUser(
+        userId,
+        `${receipt.projectTitle || projectTitle} story move preferences`
+      );
+      const selected = selectMemoryRecordForRead(req, Date.now());
+      const memory = sanitizePersistedSessionMemory(selected.memory);
+      const readMeta = buildReadStateMeta(req, memory, selected.ip);
+      res.setHeader("Cache-Control", "no-store");
+      applyReadStateHeaders(res, readMeta);
+      return res.status(200).json({
+        ok: true,
+        action: "story_move_preference",
+        status: action,
+        message: action === "reset_all"
+          ? "Creative preference learning was reset for this screenplay."
+          : action === "reset"
+            ? "That creative preference was reset."
+            : "Clementine will use this correction when ranking future story moves.",
+        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory),
+        session_id: readMeta.sessionId,
+        state_version: readMeta.stateVersion,
+        last_turn_id: readMeta.lastTurnId || null,
+        last_updated_at: readMeta.lastUpdatedAt || null,
+        history_updated_at: readMeta.historyUpdatedAt || null,
+        memory_updated_at: Math.max(
+          Number(readMeta.memoryUpdatedAt || 0),
+          Number(receipt.updatedAt || 0)
+        ) || null,
+        schema_version: readMeta.schemaVersion,
+        backend_build: readMeta.backendBuild,
+        backend_boot_id: readMeta.backendBootId,
+      });
+    } catch (error) {
+      logger.log(`[memories_story_preferences_update_failed] error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "story_move_preference_failed",
+        message: "The preference could not be updated.",
+        request_id: rid,
+      });
+    }
   });
 
   // ============== POST /memories/character-bible/update ==============

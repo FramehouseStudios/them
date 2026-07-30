@@ -90,6 +90,7 @@ import {
   normalizeAcceptedCausalFacts,
 } from "./lib/screenplay_canon_guard.js";
 import { selectPendingScreenplayLearningQuestion } from "./lib/screenplay_question_planner.js";
+import { normalizeStoryMovePreferenceOverrides } from "./lib/story_rescue_move_library.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -3659,6 +3660,9 @@ function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
 
 function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance = []) {
   const questionEffectiveness = project?.questionEffectiveness ?? project?.question_effectiveness;
+  const storyMovePreferenceOverrides = normalizeStoryMovePreferenceOverrides(
+    project?.storyMovePreferenceOverrides ?? project?.story_move_preference_overrides
+  );
   project = repairScreenplayProjectMemoryForPrompt(project);
   if (!project || typeof project !== "object") return null;
   const correctedTerms = normalizeScreenplayStringList(project.correctedTerms, 8, 120);
@@ -3702,6 +3706,11 @@ function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance
     question_effectiveness: buildScreenplayQuestionEffectivenessPromptTrace(
       questionEffectiveness
     ),
+    story_move_preference_overrides: storyMovePreferenceOverrides.map((item) => ({
+      family: item.family,
+      stance: item.stance,
+      ...(item.updatedAt ? { updated_at: item.updatedAt } : {}),
+    })),
   };
   return Object.fromEntries(
     Object.entries(trace).filter(([, value]) => {

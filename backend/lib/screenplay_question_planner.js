@@ -1208,6 +1208,10 @@ function provisionalScreenplayMoveFamiliesForTarget(
     imageMotifs: project.image_motifs ?? project.imageMotifs ?? [],
     questionEffectiveness:
       project.question_effectiveness ?? project.questionEffectiveness ?? [],
+    storyMovePreferenceOverrides:
+      project.story_move_preference_overrides ??
+      project.storyMovePreferenceOverrides ??
+      [],
   });
 }
 

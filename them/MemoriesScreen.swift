@@ -102,6 +102,9 @@ final class MemoriesViewModel: ObservableObject {
     @Published var qualitySnapshot: BackendMemoryQualitySnapshot?
     @Published var recentActionReceipts: [BackendActionReceipt] = []
     @Published var pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
+    @Published var storyMovePreferences: [BackendStoryMovePreference] = []
+    @Published var updatingStoryMoveFamily = ""
+    @Published var preferenceActionError = ""
 
     private var isLoading = false
     private var lastLoadedAt: Date?
@@ -166,6 +169,7 @@ final class MemoriesViewModel: ObservableObject {
             var payload = result.payload
             qualitySnapshot = payload.memoryQuality
             recentActionReceipts = payload.actionReceipts?.items ?? []
+            storyMovePreferences = payload.storyMovePreferences ?? []
 
             if let userName = payload.userName, !userName.isEmpty {
                 subtitle = "Moments I have remembered about \(userName)."
@@ -197,6 +201,7 @@ final class MemoriesViewModel: ObservableObject {
                 payload = result.payload
                 qualitySnapshot = payload.memoryQuality
                 recentActionReceipts = payload.actionReceipts?.items ?? []
+                storyMovePreferences = payload.storyMovePreferences ?? []
                 incoming = payload.memories.map(memoryItem(from:))
                 if incoming.isEmpty && !payload.conversationSamples.isEmpty {
                     incoming = payload.conversationSamples.map(memoryItem(fromFallbackThread:))
@@ -475,6 +480,63 @@ final class MemoriesViewModel: ObservableObject {
         throw NSError(domain: "MemoriesViewModel", code: -3, userInfo: [
             NSLocalizedDescriptionKey: "Memory promoted, but the promoted card was not found."
         ])
+    }
+
+    func updateStoryMovePreference(
+        _ preference: BackendStoryMovePreference,
+        action: String
+    ) async {
+        let family = preference.family.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !family.isEmpty, updatingStoryMoveFamily.isEmpty else { return }
+        updatingStoryMoveFamily = family
+        preferenceActionError = ""
+        defer { updatingStoryMoveFamily = "" }
+        do {
+            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+                projectID: preference.projectId,
+                projectTitle: preference.projectTitle,
+                family: family,
+                action: action
+            )
+            lastSync = result.sync
+            if !result.sync.stateVersion.isEmpty {
+                latestSeenStateVersion = result.sync.stateVersion
+            }
+            if let preferences = result.payload.storyMovePreferences {
+                storyMovePreferences = preferences
+            } else {
+                await load(force: true, sinceVersion: nil)
+            }
+        } catch {
+            preferenceActionError = error.localizedDescription
+        }
+    }
+
+    func resetAllStoryMovePreferences(
+        projectID: String,
+        projectTitle: String
+    ) async {
+        guard updatingStoryMoveFamily.isEmpty else { return }
+        updatingStoryMoveFamily = "reset_all"
+        preferenceActionError = ""
+        defer { updatingStoryMoveFamily = "" }
+        do {
+            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+                projectID: projectID,
+                projectTitle: projectTitle,
+                family: "",
+                action: "reset_all"
+            )
+            lastSync = result.sync
+            if !result.sync.stateVersion.isEmpty {
+                latestSeenStateVersion = result.sync.stateVersion
+            }
+            storyMovePreferences = result.payload.storyMovePreferences ?? []
+        } catch {
+            preferenceActionError = error.localizedDescription
+        }
     }
 
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
@@ -801,88 +863,367 @@ struct MemoriesScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let pending = vm.pendingScreenplayQuestion {
-                PendingScreenplayQuestionMemoryCard(
-                    pending: pending,
-                    openStudioAction: openStudioAction
-                )
-            }
-            if let snapshot = vm.qualitySnapshot {
-                MemoryQualityOverviewCard(snapshot: snapshot)
-            }
-            if !vm.recentActionReceipts.isEmpty {
-                MemoryActionReceiptsCard(receipts: vm.recentActionReceipts)
-            }
-
-            switch vm.state {
-            case .loading:
-                MemoriesLoadingView()
-            case .empty:
-                MemoriesEmptyView(startTalkingAction: startTalkingAction)
-            case .error(let message):
-                MemoriesErrorView(message: message, retry: {
-                    Task { await vm.retry() }
-                })
-            case .loaded(let items):
-                if let storySpine = StorySpineSnapshot.make(from: items) {
-                    StorySpineOverview(snapshot: storySpine, onTap: { tapped in
-                        vm.selection = tapped
-                    })
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let pending = vm.pendingScreenplayQuestion {
+                    PendingScreenplayQuestionMemoryCard(
+                        pending: pending,
+                        openStudioAction: openStudioAction
+                    )
                 }
-                MemoriesGrid(items: items) { tapped in
-                    vm.selection = tapped
-                }
-                .navigationDestination(item: $vm.selection) { item in
-                    MemoryDetailView(
-                        item: item,
-                        onReturnHome: startTalkingAction,
-                        onSave: { updated in
-                            try await vm.updateMemory(
-                                itemID: updated.id,
-                                key: updated.key,
-                                title: updated.title,
-                                summary: updated.summary,
-                                reason: updated.reason,
-                                characterBible: updated.characterBible,
-                                storySpine: updated.storySpine
-                            )
+                if !vm.storyMovePreferences.isEmpty {
+                    CreativeStoryPreferencesCard(
+                        preferences: vm.storyMovePreferences,
+                        updatingFamily: vm.updatingStoryMoveFamily,
+                        errorMessage: vm.preferenceActionError,
+                        onUpdate: { preference, action in
+                            Task {
+                                await vm.updateStoryMovePreference(
+                                    preference,
+                                    action: action
+                                )
+                            }
                         },
-                        onForget: { target in
-                            try await vm.forgetMemory(
-                                itemID: target.id,
-                                key: target.key
-                            )
-                        },
-                        onUndoCorrection: { receipt in
-                            try await vm.undoCanonCorrection(receiptID: receipt.id)
-                        },
-                        onResolveCorrection: { ambiguity, selectedFacts in
-                            try await vm.resolveCanonCorrection(
-                                ambiguityID: ambiguity.id,
-                                selectedFacts: selectedFacts
-                            )
-                        },
-                        onQualitySignal: { target, signal in
-                            try await vm.markMemoryQuality(
-                                itemID: target.id,
-                                key: target.key,
-                                signal: signal
-                            )
-                        },
-                        onPromote: { target in
-                            try await vm.promoteMemory(
-                                itemID: target.id,
-                                key: target.key,
-                                title: target.title,
-                                summary: target.summary,
-                                reason: target.reason
-                            )
+                        onResetAll: { projectID, projectTitle in
+                            Task {
+                                await vm.resetAllStoryMovePreferences(
+                                    projectID: projectID,
+                                    projectTitle: projectTitle
+                                )
+                            }
                         }
                     )
                 }
+                if let snapshot = vm.qualitySnapshot {
+                    MemoryQualityOverviewCard(snapshot: snapshot)
+                }
+                if !vm.recentActionReceipts.isEmpty {
+                    MemoryActionReceiptsCard(receipts: vm.recentActionReceipts)
+                }
+
+                switch vm.state {
+                case .loading:
+                    MemoriesLoadingView()
+                case .empty:
+                    MemoriesEmptyView(startTalkingAction: startTalkingAction)
+                case .error(let message):
+                    MemoriesErrorView(message: message, retry: {
+                        Task { await vm.retry() }
+                    })
+                case .loaded(let items):
+                    if let storySpine = StorySpineSnapshot.make(from: items) {
+                        StorySpineOverview(snapshot: storySpine, onTap: { tapped in
+                            vm.selection = tapped
+                        })
+                    }
+                    MemoriesGrid(items: items) { tapped in
+                        vm.selection = tapped
+                    }
+                    .navigationDestination(item: $vm.selection) { item in
+                        MemoryDetailView(
+                            item: item,
+                            onReturnHome: startTalkingAction,
+                            onSave: { updated in
+                                try await vm.updateMemory(
+                                    itemID: updated.id,
+                                    key: updated.key,
+                                    title: updated.title,
+                                    summary: updated.summary,
+                                    reason: updated.reason,
+                                    characterBible: updated.characterBible,
+                                    storySpine: updated.storySpine
+                                )
+                            },
+                            onForget: { target in
+                                try await vm.forgetMemory(
+                                    itemID: target.id,
+                                    key: target.key
+                                )
+                            },
+                            onUndoCorrection: { receipt in
+                                try await vm.undoCanonCorrection(receiptID: receipt.id)
+                            },
+                            onResolveCorrection: { ambiguity, selectedFacts in
+                                try await vm.resolveCanonCorrection(
+                                    ambiguityID: ambiguity.id,
+                                    selectedFacts: selectedFacts
+                                )
+                            },
+                            onQualitySignal: { target, signal in
+                                try await vm.markMemoryQuality(
+                                    itemID: target.id,
+                                    key: target.key,
+                                    signal: signal
+                                )
+                            },
+                            onPromote: { target in
+                                try await vm.promoteMemory(
+                                    itemID: target.id,
+                                    key: target.key,
+                                    title: target.title,
+                                    summary: target.summary,
+                                    reason: target.reason
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.automatic)
+    }
+}
+
+private struct CreativeStoryPreferencesCard: View {
+    let preferences: [BackendStoryMovePreference]
+    let updatingFamily: String
+    let errorMessage: String
+    let onUpdate: (BackendStoryMovePreference, String) -> Void
+    let onResetAll: (String, String) -> Void
+
+    @State private var showsResetConfirmation = false
+    @State private var isExpanded = false
+
+    private var projectPreferences: [BackendStoryMovePreference] {
+        guard let first = preferences.first else { return [] }
+        let projectID = first.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let projectTitle = first.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return preferences
+            .filter { item in
+                let itemID = item.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                if !projectID.isEmpty { return itemID == projectID }
+                return item.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == projectTitle
+            }
+            .sorted { left, right in
+                if left.isExplicitlyCorrected != right.isExplicitlyCorrected {
+                    return left.isExplicitlyCorrected
+                }
+                if abs(left.effectiveScore) != abs(right.effectiveScore) {
+                    return abs(left.effectiveScore) > abs(right.effectiveScore)
+                }
+                return left.displayName < right.displayName
+            }
+    }
+
+    private var projectName: String {
+        let title = projectPreferences.first?.projectTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Current screenplay" : title
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(MemoriesTheme.focusAccent)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Creative Instincts")
+                                .font(.system(size: 14, weight: .semibold, design: .default))
+                                .foregroundStyle(MemoriesTheme.textPrimary)
+                            Text(projectName)
+                                .font(.system(size: 12, weight: .regular, design: .default))
+                                .foregroundStyle(MemoriesTheme.textSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(MemoriesTheme.textSecondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(
+                    isExpanded ? "Collapse creative instincts" : "Expand creative instincts"
+                )
+                .accessibilityIdentifier("memories.story-preferences.toggle")
+
+                Spacer()
+
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .disabled(!updatingFamily.isEmpty)
+                .help("Reset creative preference learning")
+                .accessibilityLabel("Reset creative preference learning")
+                .accessibilityIdentifier("memories.story-preferences.reset-all")
+            }
+
+            if isExpanded {
+                ForEach(Array(projectPreferences.prefix(6))) { preference in
+                    CreativeStoryPreferenceRow(
+                        preference: preference,
+                        isUpdating: updatingFamily == preference.family,
+                        isDisabled: !updatingFamily.isEmpty,
+                        onUpdate: onUpdate
+                    )
+                }
+            } else if let leading = projectPreferences.first {
+                Text(compactSummary(for: leading))
+                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .foregroundStyle(MemoriesTheme.textSecondary)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("memories.story-preferences.summary")
+            }
+
+            if !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .foregroundStyle(Color.red.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.story-preferences.error")
             }
         }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.13))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("memories.story-preferences")
+        .confirmationDialog(
+            "Reset creative preference learning for \(projectName)?",
+            isPresented: $showsResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset Preferences", role: .destructive) {
+                guard let first = projectPreferences.first else { return }
+                onResetAll(first.projectId, first.projectTitle)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Story facts and screenplay canon stay intact.")
+        }
+    }
+
+    private func compactSummary(for preference: BackendStoryMovePreference) -> String {
+        if preference.explicitStance == "prefer" {
+            return "\(preference.displayName): corrected toward more."
+        }
+        if preference.explicitStance == "avoid" {
+            return "\(preference.displayName): corrected toward less."
+        }
+        return "\(preference.displayName): learned from \(preference.evidenceCount) choice\(preference.evidenceCount == 1 ? "" : "s")."
+    }
+}
+
+private struct CreativeStoryPreferenceRow: View {
+    let preference: BackendStoryMovePreference
+    let isUpdating: Bool
+    let isDisabled: Bool
+    let onUpdate: (BackendStoryMovePreference, String) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(preference.displayName)
+                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary)
+                    if preference.isExplicitlyCorrected {
+                        Text("Corrected")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(MemoriesTheme.focusAccent)
+                    }
+                }
+
+                Text(preferenceSummary)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(MemoriesTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(evidenceLine)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(MemoriesTheme.textSecondary.opacity(0.82))
+            }
+
+            Spacer(minLength: 10)
+
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 28, height: 28)
+            } else {
+                Menu {
+                    Button {
+                        onUpdate(preference, "prefer")
+                    } label: {
+                        Label("Suggest More Like This", systemImage: "plus.circle")
+                    }
+                    Button {
+                        onUpdate(preference, "avoid")
+                    } label: {
+                        Label("Suggest Less Like This", systemImage: "minus.circle")
+                    }
+                    Button(role: .destructive) {
+                        onUpdate(preference, "reset")
+                    } label: {
+                        Label("Forget This Preference", systemImage: "arrow.counterclockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisabled)
+                .help("Adjust creative preference")
+                .accessibilityLabel("Adjust \(preference.displayName)")
+                .accessibilityIdentifier(
+                    "memories.story-preference.\(preference.family).menu"
+                )
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(preference.displayName). \(evidenceLine)")
+        .accessibilityIdentifier(
+            "memories.story-preference.\(preference.family)"
+        )
+    }
+
+    private var preferenceSummary: String {
+        let summary = preference.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { return "Clementine uses this pattern when shaping options." }
+        return "Clementine will \(summary)."
+    }
+
+    private var evidenceLine: String {
+        if preference.explicitStance == "prefer" {
+            return "You corrected this toward more."
+        }
+        if preference.explicitStance == "avoid" {
+            return "You corrected this toward less."
+        }
+        var parts = ["Learned from \(preference.evidenceCount) choice\(preference.evidenceCount == 1 ? "" : "s")"]
+        if preference.acceptedPageCount > 0 {
+            parts.append("\(preference.acceptedPageCount) page\(preference.acceptedPageCount == 1 ? "" : "s") kept")
+        }
+        if preference.blockResolutionCount > 0 {
+            parts.append("\(preference.blockResolutionCount) block\(preference.blockResolutionCount == 1 ? "" : "s") cleared")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -1466,43 +1807,36 @@ struct MemoriesGrid: View {
     var onTap: (MemoryItem) -> Void
 
     var body: some View {
-        GeometryReader { geo in
-            let columns = columnsFor(width: geo.size.width)
+        ViewThatFits(in: .horizontal) {
+            memoryGrid(
+                columns: [
+                    GridItem(.fixed(560), spacing: 28, alignment: .topLeading),
+                    GridItem(.fixed(560), spacing: 28, alignment: .topLeading)
+                ]
+            )
+            .frame(minWidth: 1_148, alignment: .leading)
 
-            ScrollView {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 28) {
-                    ForEach(items) { item in
-                        MemoryCard(item: item) {
-                            onTap(item)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-            }
-            .scrollIndicators(.automatic)
+            memoryGrid(
+                columns: [
+                    GridItem(
+                        .flexible(minimum: 0, maximum: 560),
+                        alignment: .topLeading
+                    )
+                ]
+            )
         }
     }
 
-    private func columnsFor(width: CGFloat) -> [GridItem] {
-        let targetCardWidth: CGFloat = 560
-        let gutter: CGFloat = 28
-        let canFitTwo = width >= ((targetCardWidth * 2) + gutter)
-
-        if canFitTwo {
-            return [
-                GridItem(.fixed(targetCardWidth), spacing: gutter, alignment: .topLeading),
-                GridItem(.fixed(targetCardWidth), spacing: gutter, alignment: .topLeading)
-            ]
+    private func memoryGrid(columns: [GridItem]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 28) {
+            ForEach(items) { item in
+                MemoryCard(item: item) {
+                    onTap(item)
+                }
+            }
         }
-
-        return [
-            GridItem(
-                .flexible(minimum: min(320, max(320, width)), maximum: targetCardWidth),
-                spacing: gutter,
-                alignment: .topLeading
-            )
-        ]
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
     }
 }
 

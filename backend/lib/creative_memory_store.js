@@ -29,7 +29,10 @@ import {
   resolveProvisionalScreenplayOptionSelection,
   sanitizeProvisionalScreenplayOptions,
 } from "./screenplay_question_planner.js";
-import { normalizeStoryMoveFamily } from "./story_rescue_move_library.js";
+import {
+  normalizeStoryMoveFamily,
+  normalizeStoryMovePreferenceOverrides,
+} from "./story_rescue_move_library.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -43,6 +46,7 @@ const CHARACTER_BIBLE_LEARNED_FIELDS_MAX = 8;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
 const QUESTION_EFFECTIVENESS_MAX = 24;
+const STORY_MOVE_PREFERENCE_OVERRIDES_MAX = 9;
 const QUESTION_EFFECTIVENESS_ATTRIBUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 const PROJECT_CORRECTED_TERMS_MAX = 64;
 const ACCEPTED_SCENES_MAX = 96;
@@ -1252,6 +1256,12 @@ function sanitizeProjectContinuity(value = {}) {
   const questionEffectiveness = value.questionEffectiveness ?? value.question_effectiveness;
   if (Array.isArray(questionEffectiveness)) {
     out.questionEffectiveness = mergeQuestionEffectivenessRecords(questionEffectiveness, []);
+  }
+  const storyMovePreferenceOverrides = normalizeStoryMovePreferenceOverrides(
+    value.storyMovePreferenceOverrides ?? value.story_move_preference_overrides
+  ).slice(0, STORY_MOVE_PREFERENCE_OVERRIDES_MAX);
+  if (storyMovePreferenceOverrides.length) {
+    out.storyMovePreferenceOverrides = storyMovePreferenceOverrides;
   }
   return out;
 }
@@ -5126,6 +5136,107 @@ function createCreativeMemoryStore({
     });
   }
 
+  async function updateStoryMovePreference({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    family = "",
+    action = "",
+    at = nowMs(),
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanProjectId = cleanText(projectId, 96).toLowerCase();
+    const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+    const cleanFamily = normalizeStoryMoveFamily(family);
+    const cleanAction = cleanText(action, 24).toLowerCase();
+    const updatedAt = Math.max(0, Number(at) || nowMs());
+    if (!cleanUserId || (!cleanProjectId && !cleanProjectTitle)) {
+      return { ok: false, reason: "missing_project_identity" };
+    }
+    if (!["prefer", "avoid", "reset", "reset_all"].includes(cleanAction)) {
+      return { ok: false, reason: "invalid_action" };
+    }
+    if (cleanAction !== "reset_all" && !cleanFamily) {
+      return { ok: false, reason: "invalid_story_move_family" };
+    }
+
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, reason: "creative_memory_not_found" };
+      const projects = (Array.isArray(current.projects) ? current.projects : [])
+        .map(sanitizeProjectContinuity)
+        .filter(Boolean);
+      let projectIndex = -1;
+      if (cleanProjectId) {
+        projectIndex = projects.findIndex((project) => (
+          projectIdentity(project).projectId === cleanProjectId
+        ));
+      }
+      if (projectIndex < 0 && cleanProjectTitle) {
+        projectIndex = projects.findIndex((project) => (
+          projectIdentity(project).projectTitle === cleanProjectTitle
+        ));
+      }
+      if (projectIndex < 0) return { ok: false, reason: "project_not_found" };
+
+      const project = projects[projectIndex];
+      let overrides = normalizeStoryMovePreferenceOverrides(
+        project.storyMovePreferenceOverrides
+      );
+      let outcomes = mergeQuestionEffectivenessRecords(
+        project.questionEffectiveness,
+        []
+      );
+
+      if (cleanAction === "prefer" || cleanAction === "avoid") {
+        overrides = [
+          ...overrides.filter((item) => item.family !== cleanFamily),
+          { family: cleanFamily, stance: cleanAction, updatedAt },
+        ];
+      } else {
+        const resetAll = cleanAction === "reset_all";
+        overrides = resetAll
+          ? []
+          : overrides.filter((item) => item.family !== cleanFamily);
+        outcomes = outcomes.map((item) => {
+          const next = { ...item };
+          if (resetAll || next.selectedMoveFamily === cleanFamily) {
+            delete next.selectedMoveFamily;
+          }
+          if (Array.isArray(next.offeredMoveFamilies)) {
+            const offeredMoveFamilies = resetAll
+              ? []
+              : next.offeredMoveFamilies.filter((value) => value !== cleanFamily);
+            if (offeredMoveFamilies.length) next.offeredMoveFamilies = offeredMoveFamilies;
+            else delete next.offeredMoveFamilies;
+          }
+          return sanitizeQuestionEffectivenessRecord(next);
+        }).filter(Boolean);
+      }
+
+      const updatedProject = sanitizeProjectContinuity({
+        ...project,
+        questionEffectiveness: outcomes,
+        storyMovePreferenceOverrides: normalizeStoryMovePreferenceOverrides(overrides),
+        updatedAt,
+      });
+      projects[projectIndex] = updatedProject;
+      current.projects = projects
+        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+        .slice(0, PROJECT_CONTINUITY_MAX);
+      current.updatedAt = updatedAt;
+      await writeUser(cleanUserId, current);
+      return {
+        ok: true,
+        action: cleanAction,
+        family: cleanFamily,
+        projectId: updatedProject?.projectId || project.projectId || "",
+        projectTitle: updatedProject?.projectTitle || project.projectTitle || "",
+        updatedAt,
+      };
+    });
+  }
+
   // T30: optional `source` and `metadata` thread through so callers can
   // distinguish reply-side rendered mentions (e.g. `ios_screenplay_render`)
   // from user-input mentions. Schema stays backward-compatible: existing
@@ -6544,6 +6655,7 @@ function createCreativeMemoryStore({
     undoCanonCorrection,
     resolveCanonCorrectionAmbiguity,
     recordProjectContinuity,
+    updateStoryMovePreference,
     recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,

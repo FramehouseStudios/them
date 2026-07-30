@@ -261,6 +261,15 @@ function buildMomentumRescueFallbackReply({
       meta.screenplay_question_effectiveness
     ).slice(0, 24)
     : [];
+  const storyMovePreferenceOverrides = Array.isArray(
+    meta.screenplayStoryMovePreferenceOverrides ??
+    meta.screenplay_story_move_preference_overrides
+  )
+    ? (
+      meta.screenplayStoryMovePreferenceOverrides ??
+      meta.screenplay_story_move_preference_overrides
+    ).slice(0, 9)
+    : [];
   const primaryCausalFact = causalFacts[0] || null;
   const relationshipCausalFact = causalFacts.find((item) => item.kind === "relationship_change") || null;
   const irreversibleCausalFact = causalFacts.find((item) => item.kind === "irreversible_consequence") || null;
@@ -319,6 +328,7 @@ function buildMomentumRescueFallbackReply({
     causalFacts,
     dueStoryThread,
     questionEffectiveness,
+    storyMovePreferenceOverrides,
   });
   const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
   const bestNextBeat = rankedRescueMoves[0]?.move

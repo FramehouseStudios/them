@@ -141,6 +141,55 @@ async function teachCharacterAnswerFromIPhone(server, identity) {
       provenance.source === "screenplay_learning_confirmation",
       "The fresh answer lost its learning source."
     );
+    await store.recordProjectContinuity({
+      userId: identity.userID,
+      continuity: {
+        projectId: PROJECT_ID,
+        projectTitle: PROJECT_TITLE,
+        questionEffectiveness: [{
+          questionId: "iphone-story-move-preference",
+          targetField: "story.next_irreversible_choice",
+          responseStatus: "answered",
+          askedAt: Date.now() - 2_000,
+          answeredAt: Date.now() - 1_000,
+          selectedMoveFamily: "relationship_pressure",
+          offeredMoveFamilies: [
+            "reversal_pressure",
+            "relationship_pressure",
+            "obstacle_pressure",
+          ],
+          acceptedPageAt: Date.now(),
+          acceptedPageCount: 1,
+        }],
+      },
+    });
+    const preferenceUpdate = await requestStudioRestoreJSON({
+      baseURL: server.baseUrl,
+      path: "/memories/story-preferences/update",
+      method: "POST",
+      headers: {
+        "X-APP-TOKEN": identity.appToken,
+        "X-CLIENT-TOKEN": identity.clientToken,
+        Authorization: `Bearer ${identity.accessToken}`,
+      },
+      body: {
+        project_id: PROJECT_ID,
+        project_title: PROJECT_TITLE,
+        family: "relationship_pressure",
+        action: "prefer",
+      },
+    });
+    assert(
+      preferenceUpdate.status === 200,
+      `The iPhone preference correction failed: ${preferenceUpdate.status} ${JSON.stringify(preferenceUpdate.payload)}`
+    );
+    assert(
+      preferenceUpdate.payload?.story_move_preferences?.some((item) => (
+        item?.family === "relationship_pressure" &&
+        item?.explicit_stance === "prefer"
+      )),
+      "The corrected iPhone story preference was not returned."
+    );
     return {
       character: "Mara",
       field: "want",
@@ -148,6 +197,9 @@ async function teachCharacterAnswerFromIPhone(server, identity) {
       status: "Current",
       source: "Learned from your answer",
       questionId: provenance.questionId,
+      preferenceFamily: "relationship_pressure",
+      preferenceLabel: "Relationship pressure",
+      preferenceStance: "prefer",
     };
   } finally {
     await persistence.close();
@@ -195,6 +247,9 @@ function fixtureJSON(baseURL, identity, learned) {
     value: learned.value,
     status: learned.status,
     source: learned.source,
+    preferenceFamily: learned.preferenceFamily,
+    preferenceLabel: learned.preferenceLabel,
+    preferenceStance: learned.preferenceStance,
   });
 }
 
@@ -329,6 +384,8 @@ try {
     field: learned.field,
     value: learned.value,
     questionId: learned.questionId,
+    preferenceFamily: learned.preferenceFamily,
+    preferenceStance: learned.preferenceStance,
   }, null, 2));
   console.log("cross-platform-learned-memory-ui-smoke: ok");
 } catch (error) {

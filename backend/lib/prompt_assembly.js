@@ -696,6 +696,7 @@ function buildMomentumRescueMoveOptionLines({
   causalFacts = [],
   dueStoryThread = null,
   questionEffectiveness = [],
+  storyMovePreferenceOverrides = [],
 } = {}) {
   const ranked = rankStoryRescueMovesForContext({
     transcript,
@@ -726,6 +727,7 @@ function buildMomentumRescueMoveOptionLines({
     causalFacts,
     dueStoryThread,
     questionEffectiveness,
+    storyMovePreferenceOverrides,
   });
   return [
     "ranked_rescue_moves:",
@@ -1549,6 +1551,11 @@ function buildWriterBlockCreativeRecall(creativeMemory) {
     )
       ? creativeMemory.projectContinuity.questionEffectiveness.slice(0, 24)
       : [],
+    storyMovePreferenceOverrides: Array.isArray(
+      creativeMemory?.projectContinuity?.storyMovePreferenceOverrides
+    )
+      ? creativeMemory.projectContinuity.storyMovePreferenceOverrides.slice(0, 9)
+      : [],
   };
 }
 
@@ -1802,6 +1809,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     causalFacts,
     dueStoryThread,
     questionEffectiveness: creativeRecall.questionEffectiveness,
+    storyMovePreferenceOverrides: creativeRecall.storyMovePreferenceOverrides,
   });
 
   return [

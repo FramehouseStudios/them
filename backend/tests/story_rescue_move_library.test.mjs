@@ -5,6 +5,7 @@ import {
   buildStoryMoveTasteProfile,
   formatRankedStoryRescueMoveLine,
   inferStoryMoveActKind,
+  normalizeStoryMovePreferenceOverrides,
   rankStoryRescueMovesForContext,
   selectProvisionalStoryMoveFamilies,
   selectStoryMoveLibraryLines,
@@ -253,4 +254,83 @@ test("[story-rescue-move-library] due canon outranks taste and protects feature 
 
   assert.equal(ranked[0].key, "payoff_pressure");
   assert.match(ranked[0].move, /red ferry key/i);
+});
+
+test("[story-rescue-move-library] explicit writer corrections override learned taste without overriding due canon", () => {
+  const questionEffectiveness = Array.from({ length: 5 }, (_, index) => ({
+    questionId: `preference-${index}`,
+    targetField: "story.next_irreversible_choice",
+    responseStatus: "answered",
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: [
+      "reversal_pressure",
+      "relationship_pressure",
+      "payoff_pressure",
+    ],
+    acceptedPageCount: 1,
+    answeredAt: 5_000 - index,
+  }));
+  const preferenceOverrides = [{
+    family: "reversal_pressure",
+    stance: "avoid",
+    updatedAt: 6_000,
+  }, {
+    family: "relationship_pressure",
+    stance: "prefer",
+    updatedAt: 6_001,
+  }];
+  const profile = buildStoryMoveTasteProfile(questionEffectiveness, {
+    preferenceOverrides,
+  });
+  assert.equal(
+    profile.find((item) => item.family === "reversal_pressure")?.explicitStance,
+    "avoid"
+  );
+  assert.ok(
+    profile.find((item) => item.family === "reversal_pressure")?.tasteBonus <= -10
+  );
+  assert.ok(
+    profile.find((item) => item.family === "relationship_pressure")?.tasteBonus >= 10
+  );
+
+  const actTwo = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck in the middle.",
+    act: "Act II",
+    protagonistWant: "Mara wants June to stay.",
+    questionEffectiveness,
+    storyMovePreferenceOverrides: preferenceOverrides,
+  });
+  assert.equal(actTwo[0].key, "relationship_pressure");
+
+  const ending = rankStoryRescueMovesForContext({
+    transcript: "Help me finish Act III.",
+    act: "Act III",
+    questionEffectiveness,
+    storyMovePreferenceOverrides: preferenceOverrides,
+    dueStoryThread: {
+      setup: "June hid the red ferry key in Mara's coat.",
+      promisedPayoff: "Mara gives June control of the final crossing.",
+      ageInScenes: 42,
+    },
+  });
+  assert.equal(ending[0].key, "payoff_pressure");
+});
+
+test("[story-rescue-move-library] preference corrections sanitize malformed timestamps", () => {
+  assert.deepEqual(normalizeStoryMovePreferenceOverrides([
+    {
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: "not-a-timestamp",
+    },
+    {
+      family: "relationship_pressure",
+      stance: "avoid",
+      updatedAt: 4_200,
+    },
+  ]), [{
+    family: "relationship_pressure",
+    stance: "avoid",
+    updatedAt: 4_200,
+  }]);
 });

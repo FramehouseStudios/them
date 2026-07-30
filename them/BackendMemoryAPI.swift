@@ -593,6 +593,32 @@ nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
     let generatedAt: TimeInterval?
 }
 
+nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable {
+    let projectId: String
+    let projectTitle: String
+    let family: String
+    let displayName: String
+    let summary: String
+    let learnedScore: Int
+    let effectiveScore: Int
+    let evidenceCount: Int
+    let selectedCount: Int
+    let passedOverCount: Int
+    let acceptedPageCount: Int
+    let blockResolutionCount: Int
+    let explicitStance: String
+    let correctedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+
+    var id: String {
+        "\(projectId.lowercased())|\(projectTitle.lowercased())|\(family.lowercased())"
+    }
+
+    var isExplicitlyCorrected: Bool {
+        explicitStance == "prefer" || explicitStance == "avoid"
+    }
+}
+
 nonisolated struct BackendMemoriesResponse: Decodable {
     let source: String
     let sourceIp: String
@@ -616,6 +642,7 @@ nonisolated struct BackendMemoriesResponse: Decodable {
     let deltaNoChange: Bool?
     let actionReceipts: BackendActionReceiptsPayload?
     let memoryQuality: BackendMemoryQualitySnapshot?
+    let storyMovePreferences: [BackendStoryMovePreference]?
     let memories: [BackendMemoryCard]
     let conversationSamples: [BackendHistoryThread]
 }
@@ -1186,6 +1213,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let storySpineRepairCount: Int?
     let correctionReceipt: BackendCanonCorrectionReceipt?
     let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
+    let storyMovePreferences: [BackendStoryMovePreference]?
     let sessionId: String?
     let stateVersion: String?
     let lastTurnId: String?
@@ -5980,6 +6008,27 @@ actor BackendMemoryAPI {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+    }
+
+    func updateStoryMovePreference(
+        projectID: String,
+        projectTitle: String,
+        family: String,
+        action: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "action": action,
+        ]
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFamily = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanProjectID.isEmpty { payload["project_id"] = cleanProjectID }
+        if !cleanProjectTitle.isEmpty { payload["project_title"] = cleanProjectTitle }
+        if !cleanFamily.isEmpty { payload["family"] = cleanFamily }
+        return try await runMemoryMutation(
+            path: "/memories/story-preferences/update",
+            payload: payload
+        )
     }
 
     func undoCanonCorrection(

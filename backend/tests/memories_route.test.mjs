@@ -226,6 +226,91 @@ test("[memories] GET /memories: full envelope on happy path", async () => {
   });
 });
 
+test("[memories] GET exposes project-scoped learned and corrected story preferences", async () => {
+  const creativeMemoryStore = {
+    getCreativeMemoryLedger: async () => ({
+      projects: [{
+        projectId: "split-ferries",
+        projectTitle: "Split Ferries",
+        updatedAt: 4_000,
+        questionEffectiveness: [{
+          questionId: "choice-1",
+          targetField: "story.next_irreversible_choice",
+          responseStatus: "answered",
+          selectedMoveFamily: "reversal_pressure",
+          offeredMoveFamilies: [
+            "reversal_pressure",
+            "relationship_pressure",
+            "obstacle_pressure",
+          ],
+          acceptedPageCount: 1,
+          answeredAt: 3_000,
+        }],
+        storyMovePreferenceOverrides: [{
+          family: "relationship_pressure",
+          stance: "prefer",
+          updatedAt: 4_000,
+        }],
+      }],
+    }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await getJson(baseURL, "/memories");
+    assert.equal(r.status, 200);
+    const relationship = r.body.story_move_preferences.find(
+      (item) => item.family === "relationship_pressure"
+    );
+    assert.equal(relationship.project_id, "split-ferries");
+    assert.equal(relationship.display_name, "Relationship pressure");
+    assert.equal(relationship.explicit_stance, "prefer");
+    assert.ok(relationship.effective_score >= 10);
+    assert.equal(JSON.stringify(r.body.story_move_preferences).includes("Option"), false);
+  });
+});
+
+test("[memories] POST story preference update is authenticated and returns refreshed profile", async () => {
+  const calls = [];
+  const project = {
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    updatedAt: 5_000,
+    questionEffectiveness: [],
+    storyMovePreferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "avoid",
+      updatedAt: 5_000,
+    }],
+  };
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        action: input.action,
+        family: input.family,
+        projectId: input.projectId,
+        projectTitle: "Split Ferries",
+        updatedAt: 5_000,
+      };
+    },
+    getCreativeMemoryLedger: async () => ({ projects: [project] }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_id: "split-ferries",
+      family: "relationship_pressure",
+      action: "avoid",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.status, "avoid");
+    assert.equal(r.body.story_move_preferences[0].explicit_stance, "avoid");
+    assert.ok(r.body.memory_updated_at >= 5_000);
+    assert.equal(calls[0].userId, "user_memories_test");
+    assert.equal(calls[0].projectId, "split-ferries");
+  });
+});
+
 test("[memories] GET /memories requires authenticated user and does not read memory on spoofed header", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {

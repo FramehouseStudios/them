@@ -2348,3 +2348,71 @@ test("recordTriggersFromTalkTurn never throws on garbage input", async () => {
   // No exception means pass.
   assert.ok(true);
 });
+
+test("story move preference corrections persist and reset without deleting question outcomes", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-move-preferences";
+  await store.recordProjectContinuity({
+    userId,
+    continuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      questionEffectiveness: [{
+        questionId: "story-choice-1",
+        targetField: "story.next_irreversible_choice",
+        responseStatus: "answered",
+        askedAt: 1_000,
+        answeredAt: 1_100,
+        selectedMoveFamily: "reversal_pressure",
+        offeredMoveFamilies: [
+          "reversal_pressure",
+          "relationship_pressure",
+          "obstacle_pressure",
+        ],
+      }],
+    },
+  });
+
+  const corrected = await store.updateStoryMovePreference({
+    userId,
+    projectId: "split-ferries",
+    family: "relationship_pressure",
+    action: "prefer",
+    at: 2_000,
+  });
+  assert.equal(corrected.ok, true);
+  let ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(ledger.projects[0].storyMovePreferenceOverrides, [{
+    family: "relationship_pressure",
+    stance: "prefer",
+    updatedAt: 2_000,
+  }]);
+
+  const reset = await store.updateStoryMovePreference({
+    userId,
+    projectId: "split-ferries",
+    family: "reversal_pressure",
+    action: "reset",
+    at: 3_000,
+  });
+  assert.equal(reset.ok, true);
+  ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
+  assert.equal(ledger.projects[0].questionEffectiveness[0].responseStatus, "answered");
+  assert.equal(ledger.projects[0].questionEffectiveness[0].selectedMoveFamily, undefined);
+  assert.deepEqual(
+    ledger.projects[0].questionEffectiveness[0].offeredMoveFamilies,
+    ["relationship_pressure", "obstacle_pressure"]
+  );
+
+  await store.updateStoryMovePreference({
+    userId,
+    projectId: "split-ferries",
+    action: "reset_all",
+    at: 4_000,
+  });
+  ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
+  assert.equal(ledger.projects[0].questionEffectiveness[0].offeredMoveFamilies, undefined);
+  assert.equal(ledger.projects[0].storyMovePreferenceOverrides, undefined);
+});

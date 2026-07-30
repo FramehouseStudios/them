@@ -610,6 +610,11 @@ function createTalkHandler(deps) {
     )
       ? creativeMemoryTrace.screenplay_project_memory.question_effectiveness.slice(0, 24)
       : [];
+    const tracedStoryMovePreferenceOverrides = Array.isArray(
+      creativeMemoryTrace?.screenplay_project_memory?.story_move_preference_overrides
+    )
+      ? creativeMemoryTrace.screenplay_project_memory.story_move_preference_overrides.slice(0, 9)
+      : [];
     const baseWithCreativeRecall = {
       ...base,
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
@@ -632,6 +637,9 @@ function createTalkHandler(deps) {
         : {}),
       ...(tracedQuestionEffectiveness.length
         ? { screenplayQuestionEffectiveness: tracedQuestionEffectiveness }
+        : {}),
+      ...(tracedStoryMovePreferenceOverrides.length
+        ? { screenplayStoryMovePreferenceOverrides: tracedStoryMovePreferenceOverrides }
         : {}),
     };
     const memoryProject = selectTalkMomentumMemoryProject(memory, base);
@@ -843,6 +851,15 @@ function createTalkHandler(deps) {
         studioMeta?.screenplay_question_effectiveness
       ).slice(0, 24)
       : [];
+    const screenplayStoryMovePreferenceOverrides = Array.isArray(
+      studioMeta?.screenplayStoryMovePreferenceOverrides ||
+      studioMeta?.screenplay_story_move_preference_overrides
+    )
+      ? (
+        studioMeta?.screenplayStoryMovePreferenceOverrides ||
+        studioMeta?.screenplay_story_move_preference_overrides
+      ).slice(0, 9)
+      : [];
     const rawDueStoryThread = studioMeta?.screenplayDueStoryThread ||
       studioMeta?.screenplay_due_story_thread ||
       studioMeta?.dueStoryThread ||
@@ -877,6 +894,7 @@ function createTalkHandler(deps) {
       causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
       questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
     });
     const rankedRescueMoves = rankStoryRescueMovesForContext({
       transcript: userRequest,
@@ -907,6 +925,7 @@ function createTalkHandler(deps) {
       causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
       questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
     });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",

@@ -453,6 +453,41 @@ final class V1SmokeUITests: XCTestCase {
                 memoriesSurface.waitForExistence(timeout: 12),
                 "Memories did not open on learned-memory launch \(launchIndex). Accessibility hierarchy:\n\(app.debugDescription)"
             )
+            let preferenceSection = element(
+                identifier: "memories.story-preferences",
+                in: app
+            )
+            XCTAssertTrue(
+                preferenceSection.waitForExistence(timeout: 30),
+                "The iPhone-learned creative instincts section was not restored."
+            )
+            let preferenceToggle = element(
+                identifier: "memories.story-preferences.toggle",
+                in: app
+            )
+            XCTAssertTrue(
+                preferenceToggle.waitForExistence(timeout: 5),
+                "Creative instincts did not expose its disclosure control."
+            )
+            preferenceToggle.tap()
+            let preference = element(
+                identifier: "memories.story-preference.\(fixture.preferenceFamily)",
+                in: app
+            )
+            XCTAssertTrue(
+                preference.waitForExistence(timeout: 30),
+                "The iPhone-learned story preference was not restored on launch \(launchIndex)."
+            )
+            let preferenceText = accessibilityText(of: preference)
+            XCTAssertTrue(
+                preferenceText.localizedCaseInsensitiveContains(fixture.preferenceLabel),
+                "Expected story preference '\(fixture.preferenceLabel)', got '\(preferenceText)'."
+            )
+            XCTAssertTrue(
+                preferenceText.localizedCaseInsensitiveContains("corrected"),
+                "The explicitly corrected preference did not retain correction status."
+            )
+            preferenceToggle.tap()
             let card = learnedMemoryCard(
                 character: fixture.character,
                 in: memoriesSurface
@@ -918,6 +953,9 @@ final class V1SmokeUITests: XCTestCase {
         let value: String
         let status: String
         let source: String
+        let preferenceFamily: String
+        let preferenceLabel: String
+        let preferenceStance: String
         let appLaunchEnvironment: [String: String]
 
         var characterKey: String { Self.accessibilityKey(character) }
@@ -1095,6 +1133,21 @@ final class V1SmokeUITests: XCTestCase {
             source: try firstNonEmptyString(
                 payload["source"],
                 message: "Learned-memory fixture missing source."
+            ),
+            preferenceFamily: try firstNonEmptyString(
+                payload["preferenceFamily"],
+                payload["preference_family"],
+                message: "Learned-memory fixture missing preference family."
+            ),
+            preferenceLabel: try firstNonEmptyString(
+                payload["preferenceLabel"],
+                payload["preference_label"],
+                message: "Learned-memory fixture missing preference label."
+            ),
+            preferenceStance: try firstNonEmptyString(
+                payload["preferenceStance"],
+                payload["preference_stance"],
+                message: "Learned-memory fixture missing preference stance."
             ),
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURL,
