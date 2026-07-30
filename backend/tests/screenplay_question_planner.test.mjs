@@ -115,6 +115,125 @@ test("learned Story Spine fields are resolved even when raw session memory is mi
   assert.deepEqual(plan.fieldStates.learned, ["project.protagonist_want"]);
 });
 
+test("an answered question resolves a lagging Story Spine field before structured memory catches up", () => {
+  const now = 5_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing the feature structure.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        question_effectiveness: [{
+          question_id: "screenplay-learning-8-project.protagonist_want",
+          target_field: "project.protagonist_want",
+          asked_at: now - 20_000,
+          answered_at: now - 10_000,
+          response_status: "answered",
+        }],
+      },
+    },
+    studioMeta: { screenplayProjectId: "split-ferries" },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.targetField, "project.central_question");
+  assert.ok(plan.fieldStates.learned.includes("project.protagonist_want"));
+  assert.doesNotMatch(plan.question, /carry Split Ferries through all three acts/i);
+});
+
+test("a recent pending question prevents Clementine from stacking another intake question", () => {
+  const now = 6_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep working on the structure.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        question_effectiveness: [{
+          question_id: "screenplay-learning-9-project.central_question",
+          target_field: "project.central_question",
+          asked_at: now - 60_000,
+          response_status: "asked",
+        }],
+      },
+    },
+    studioMeta: { screenplayProjectId: "split-ferries" },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "develop_without_question");
+  assert.equal(plan.shouldAsk, false);
+  assert.equal(plan.questionStrategy, "respect_question_quiet_window");
+  assert.equal(plan.questionQuietWindow.responseStatus, "asked");
+  assert.equal(plan.questionQuietWindow.targetField, "project.central_question");
+  assert.match(plan.reason, /already awaiting a response/i);
+});
+
+test("a recent declined question yields writer-block moves without another question", () => {
+  const now = 7_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "I'm stuck in Act Two. Give me ideas for what happens next.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act II",
+        question_effectiveness: [{
+          question_id: "screenplay-learning-10-character.current_tactic",
+          target_field: "character.current_tactic",
+          asked_at: now - (5 * 60 * 1_000),
+          response_status: "declined",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "momentum_rescue" },
+    now,
+  });
+
+  assert.equal(plan.mode, "rescue_without_question");
+  assert.equal(plan.shouldAsk, false);
+  assert.match(plan.objective, /three distinct causal story moves/i);
+  assert.match(plan.objective, /recommend the strongest/i);
+  assert.equal(plan.questionQuietWindow.responseStatus, "declined");
+});
+
+test("the declined-question quiet window expires and restores high-value planning", () => {
+  const now = 8_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's develop Act One.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act I",
+        question_effectiveness: [{
+          question_id: "screenplay-learning-11-project.protagonist_want",
+          target_field: "project.protagonist_want",
+          asked_at: now - (46 * 60 * 1_000),
+          response_status: "declined",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act I",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "develop_then_learn");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.targetField, "project.protagonist_want");
+  assert.equal(plan.questionQuietWindow.active, false);
+});
+
 test("corrected Story Spine fields are authoritative and never re-asked", () => {
   const plan = buildScreenplayQuestionPlan({
     transcript: "Help me break the story.",

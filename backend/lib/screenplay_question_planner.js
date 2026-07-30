@@ -186,6 +186,11 @@ const MAX_WRITING_MOMENTUM_WINDOW_MS = 75 * 60 * 1_000;
 const ACCEPTED_SCENE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 const SUBSTANTIAL_INSERTED_TEXT_CHARS = 120;
 const PENDING_SCREENPLAY_LEARNING_QUESTIONS_MAX = 8;
+const QUESTION_QUIET_WINDOW_MS = Object.freeze({
+  asked: 10 * 60 * 1_000,
+  declined: 45 * 60 * 1_000,
+  expired: 45 * 60 * 1_000,
+});
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -434,6 +439,7 @@ function normalizeQuestionEffectiveness(rows) {
               ? "declined"
               : "asked";
       return {
+        questionId: clean(row?.question_id ?? row?.questionId, 120),
         targetField,
         lane: questionFieldLane(targetField),
         actKey: clean(row?.act_key ?? row?.actKey, 24).toLowerCase(),
@@ -453,6 +459,64 @@ function normalizeQuestionEffectiveness(rows) {
       Math.max(left.answeredAt, left.askedAt)
     ))
     .slice(0, 24);
+}
+
+function applyAnsweredQuestionResolutions(states, questionEffectiveness = []) {
+  const next = { ...(states || {}) };
+  for (const outcome of questionEffectiveness) {
+    if (outcome?.responseStatus !== "answered") continue;
+    const targetField = clean(outcome.targetField, 64).toLowerCase();
+    if (!targetField.startsWith("project.") && !targetField.startsWith("character.")) continue;
+    const current = next[targetField];
+    if (!current || current.status !== "unknown") continue;
+    next[targetField] = {
+      ...current,
+      status: "learned",
+      resolvedBy: "answered_question_outcome",
+      provenance: [{
+        source: "screenplay_learning_confirmation",
+        status: "current",
+        question_id: outcome.questionId,
+        answered_at: outcome.answeredAt,
+      }],
+    };
+  }
+  return next;
+}
+
+function buildQuestionQuietWindow(
+  questionEffectiveness = [],
+  fieldStates = {},
+  now = Date.now()
+) {
+  const resolvedNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  for (const outcome of questionEffectiveness) {
+    const status = clean(outcome?.responseStatus, 24).toLowerCase();
+    const windowMs = Number(QUESTION_QUIET_WINDOW_MS[status] || 0);
+    if (!windowMs) continue;
+    const targetField = clean(outcome?.targetField, 64).toLowerCase();
+    if (fieldStates?.[targetField]?.status !== "unknown") continue;
+    const eventAt = Math.max(0, Number(outcome?.answeredAt || outcome?.askedAt || 0));
+    if (!eventAt) continue;
+    const ageMs = resolvedNow - eventAt;
+    if (ageMs < -ACCEPTED_SCENE_CLOCK_SKEW_MS || ageMs > windowMs) continue;
+    return {
+      active: true,
+      responseStatus: status,
+      targetField,
+      ageSeconds: Math.max(0, Math.round(ageMs / 1_000)),
+      remainingSeconds: Math.max(0, Math.ceil((windowMs - Math.max(0, ageMs)) / 1_000)),
+      windowSeconds: Math.round(windowMs / 1_000),
+    };
+  }
+  return {
+    active: false,
+    responseStatus: "",
+    targetField: "",
+    ageSeconds: null,
+    remainingSeconds: 0,
+    windowSeconds: 0,
+  };
 }
 
 function buildQuestionInterventionProfile(questionEffectiveness = []) {
@@ -1105,11 +1169,19 @@ export function buildScreenplayQuestionPlan({
     studioMeta?.screenplayCharacterFocus
   );
   const protagonistName = clean(character?.name, 80) || "";
-  const fieldStates = buildStoryFieldStates(projectMemory, character);
+  const fieldStates = applyAnsweredQuestionResolutions(
+    buildStoryFieldStates(projectMemory, character),
+    questionEffectiveness
+  );
   const fieldStateSummary = summarizeFieldStates(fieldStates);
   const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
   const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
   const interventionProfile = buildQuestionInterventionProfile(questionEffectiveness);
+  const questionQuietWindow = buildQuestionQuietWindow(
+    questionEffectiveness,
+    fieldStates,
+    now
+  );
   const writingMomentum = deriveWritingMomentum({
     now,
     transcript: text,
@@ -1134,6 +1206,30 @@ export function buildScreenplayQuestionPlan({
       sequenceContext,
       writingMomentum,
       questionStrategy: "suppress_low_value_question",
+    };
+  }
+  if (questionQuietWindow.active) {
+    const sequenceDirective = sequenceExecutionDirective(sequenceContext);
+    const awaitingAnswer = questionQuietWindow.responseStatus === "asked";
+    return {
+      active: true,
+      mode: writerBlocked ? "rescue_without_question" : "develop_without_question",
+      shouldAsk: false,
+      askAfterDeliverable: false,
+      projectId,
+      projectTitle,
+      objective: writerBlocked
+        ? `Offer three distinct causal story moves, recommend the strongest, and advance it from known canon without asking another intake question.${sequenceDirective}`
+        : `Develop the requested story area from known canon without opening another intake question yet.${sequenceDirective}`,
+      reason: awaitingAnswer
+        ? "A screenplay question is already awaiting a response; Clementine will not stack another."
+        : "The writer recently declined or skipped a screenplay question; Clementine will protect flow before asking again.",
+      fieldStates: fieldStateSummary,
+      actContext,
+      sequenceContext,
+      writingMomentum,
+      questionQuietWindow,
+      questionStrategy: "respect_question_quiet_window",
     };
   }
   const dueGapCandidate = dueThreadGap(trace.due_story_thread);
@@ -1202,6 +1298,7 @@ export function buildScreenplayQuestionPlan({
       actContext,
       sequenceContext,
       writingMomentum,
+      questionQuietWindow,
     };
   }
 
@@ -1237,6 +1334,7 @@ export function buildScreenplayQuestionPlan({
     actContext,
     sequenceContext,
     writingMomentum,
+    questionQuietWindow,
     questionStrategy,
     selectionScore: gap.score,
     effectivenessBonus: gap.effectivenessBonus || 0,

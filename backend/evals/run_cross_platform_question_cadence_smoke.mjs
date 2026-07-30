@@ -542,7 +542,7 @@ Mara loosens her grip on June's ticket. June takes it, then steps onto the oppos
       screenplayFeatureSequence: "Resolution",
     },
     turnPlanner: { intent: "idea_development" },
-    now: ignoredAcceptedAt + (46 * MINUTE_MS),
+    now: askedAt + (46 * MINUTE_MS),
   });
   assert.equal(resumedPlan.mode, "develop_then_learn");
   assert.equal(resumedPlan.shouldAsk, true);
