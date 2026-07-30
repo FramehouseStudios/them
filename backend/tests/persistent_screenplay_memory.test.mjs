@@ -1730,6 +1730,12 @@ test("[persistent-screenplay-memory] exposes question outcomes to planner trace 
         answeredAt: 1_000,
         acceptedPageCount: 1,
         blockResolutionCount: 1,
+        selectedMoveFamily: "relationship_pressure",
+        offeredMoveFamilies: [
+          "reversal_pressure",
+          "relationship_pressure",
+          "obstacle_pressure",
+        ],
         outcome: "accepted_pages_and_block_resolved",
       }, {
         questionId: "screenplay-learning-18-project.theme_argument",
@@ -1767,6 +1773,12 @@ test("[persistent-screenplay-memory] exposes question outcomes to planner trace 
     response_status: "answered",
     accepted_page_count: 1,
     block_resolution_count: 1,
+    selected_move_family: "relationship_pressure",
+    offered_move_families: [
+      "reversal_pressure",
+      "relationship_pressure",
+      "obstacle_pressure",
+    ],
     outcome: "accepted_pages_and_block_resolved",
   }]);
   assert.equal(

@@ -561,6 +561,12 @@ test("[turn-commit] turns uncertain spoken brainstorming into provisional option
       persisted.pendingScreenplayLearningQuestions[0].provisionalOptions[1].value,
       "Mara tells June the truth and asks her to choose the crossing."
     );
+    assert.equal(
+      persisted.pendingScreenplayLearningQuestions[0].provisionalOptions
+        .map((option) => option.moveFamily)
+        .filter(Boolean).length,
+      3
+    );
   });
 });
 
@@ -574,9 +580,9 @@ test("[turn-commit] promotes only the explicit realtime option selection", async
     anchor: "Mara",
     question: "Which path should become true: Option 1, 2, or 3?",
     provisionalOptions: [
-      { id: "option-1", rank: 1, value: "Mara wants control of every crossing.", recommended: true },
-      { id: "option-2", rank: 2, value: "Mara wants June to choose her freely.", recommended: false },
-      { id: "option-3", rank: 3, value: "Mara wants to expose the ferry board.", recommended: false },
+      { id: "option-1", rank: 1, value: "Mara wants control of every crossing.", recommended: true, moveFamily: "reversal_pressure" },
+      { id: "option-2", rank: 2, value: "Mara wants June to choose her freely.", recommended: false, moveFamily: "relationship_pressure" },
+      { id: "option-3", rank: 3, value: "Mara wants to expose the ferry board.", recommended: false, moveFamily: "obstacle_pressure" },
     ],
     askedAtTurn: 7,
     expiresAfterTurn: 9,
@@ -616,6 +622,7 @@ test("[turn-commit] promotes only the explicit realtime option selection", async
     assert.equal(r.body.screenplay_question_resolution.learning_promoted, true);
     const write = deps._calls.recordCreativeMemoryTriggersForRequest[0];
     assert.equal(write.learningContext.selectedOptionId, "option-2");
+    assert.equal(write.learningContext.selectedMoveFamily, "relationship_pressure");
     assert.equal(write.learningContext.provisionalOptions.length, 3);
     assert.equal(
       deps._calls.persistWritableMemoryContext.at(-1).nextMem

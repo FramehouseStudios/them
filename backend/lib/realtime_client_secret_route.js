@@ -37,7 +37,11 @@
 // + voice, never the client secret value.
 
 import express from "express";
-import { selectPendingScreenplayLearningQuestion } from "./screenplay_question_planner.js";
+import {
+  selectPendingScreenplayLearningQuestion,
+  selectProvisionalScreenplayMoveFamilies,
+} from "./screenplay_question_planner.js";
+import { storyMoveFamilyDirective } from "./story_rescue_move_library.js";
 
 const CLIENT_SECRET_BODY_LIMIT = "512kb";
 const PROJECT_GROUNDING_BODY_LIMIT = "512kb";
@@ -57,11 +61,21 @@ function boundedMultilinePreservingEnds(value, maxChars) {
   ].join(marker);
 }
 
-function buildPendingScreenplayQuestionBlock(pending) {
+function buildPendingScreenplayQuestionBlock(pending, projectMemory = null) {
   if (!pending) return "";
   const provisionalOptions = Array.isArray(pending.provisionalOptions)
     ? pending.provisionalOptions
     : [];
+  const storedMoveFamilies = provisionalOptions
+    .map((option) => option.moveFamily)
+    .filter(Boolean);
+  const provisionalMoveFamilies = storedMoveFamilies.length === 3
+    ? storedMoveFamilies
+    : selectProvisionalScreenplayMoveFamilies({
+      pending,
+      projectMemory,
+      transcript: pending.question,
+    });
   const lines = [
     "<realtime_screenplay_question>",
     "authority: this is the single project-scoped screenplay question already planned for the writer.",
@@ -76,11 +90,23 @@ function buildPendingScreenplayQuestionBlock(pending) {
   if (provisionalOptions.length === 3) {
     for (const option of provisionalOptions) {
       lines.push(`provisional_option_${option.rank}: ${option.value}`);
+      const moveFamily = option.moveFamily || provisionalMoveFamilies[option.rank - 1];
+      if (moveFamily) {
+        lines.push(`provisional_option_${option.rank}_engine: ${moveFamily}`);
+      }
     }
     lines.push(
       "directive: These three choices are proposals, not canon. If the writer explicitly selects one, acknowledge that exact choice and use it as project truth. If they modify a choice, use their wording. Never merge options or imply an unselected option was decided."
     );
   } else {
+    for (const [index, family] of provisionalMoveFamilies.entries()) {
+      const directive = storyMoveFamilyDirective(family);
+      if (directive) {
+        lines.push(
+          `option_${index + 1}_private_engine: ${family}; ${directive}; never speak the engine label.`
+        );
+      }
+    }
     lines.push(
       "directive: Treat the writer's next relevant statement as a possible answer to this exact question. If they are unsure or ask for ideas, give exactly three mutually exclusive, canon-compatible choices ranked for the current act and sequence using three separate lines: Option 1 (recommended): <complete story fact>; Option 2: <complete story fact>; Option 3: <complete story fact>. Keep all three provisional and end by asking which option should become true. Do not re-ask any resolved or corrected fact. If a substantive answer arrives, acknowledge it briefly, use it as project truth, and continue without another intake question."
     );
@@ -95,13 +121,23 @@ function buildRealtimeProjectGroundedInstructions({
   pendingQuestion = null,
   projectId = "",
   projectTitle = "",
+  projectMemory = null,
 } = {}) {
   const headParts = [
     "<realtime_project_grounding>",
     "authority: server-retrieved account memory for the active screenplay. This block overrides older or conflicting project details elsewhere in the prompt. Never invent a remembered fact.",
     projectId ? `project_id: ${projectId}` : "",
     projectTitle ? `project_title: ${projectTitle}` : "",
-    buildPendingScreenplayQuestionBlock(pendingQuestion),
+    buildPendingScreenplayQuestionBlock(
+      pendingQuestion
+        ? {
+          ...pendingQuestion,
+          projectId: pendingQuestion.projectId || projectId,
+          projectTitle: pendingQuestion.projectTitle || projectTitle,
+        }
+        : null,
+      projectMemory
+    ),
   ].filter(Boolean);
   const head = headParts.join("\n");
   const tail = "</realtime_project_grounding>";
@@ -283,6 +319,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
               pendingQuestion,
               projectId: screenplayProjectId,
               projectTitle: screenplayProjectTitle,
+              projectMemory: creativeMemory?.projectContinuity,
             })
             : requestedPrompt,
         memoryGrounding,

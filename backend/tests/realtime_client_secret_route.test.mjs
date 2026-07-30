@@ -113,10 +113,28 @@ test("[realtime-client-secret] screenplay uncertainty stays provisional until an
       sequenceKey: "midpoint",
     },
     projectId: "project-a",
+    projectMemory: {
+      act: "Act II",
+      protagonistWant: "Mara wants June to choose her freely.",
+      questionEffectiveness: Array.from({ length: 3 }, (_, index) => ({
+        questionId: `taste-${index}`,
+        targetField: "character.current_tactic",
+        responseStatus: "answered",
+        selectedMoveFamily: "relationship_pressure",
+        offeredMoveFamilies: [
+          "relationship_pressure",
+          "reversal_pressure",
+          "obstacle_pressure",
+        ],
+        acceptedPageCount: 1,
+        answeredAt: 3_000 - index,
+      })),
+    },
   });
   assert.match(initial, /exactly three mutually exclusive, canon-compatible choices/i);
   assert.match(initial, /Option 1 \(recommended\)/);
   assert.match(initial, /Keep all three provisional/i);
+  assert.match(initial, /option_1_private_engine: relationship_pressure/i);
 
   const choosing = buildRealtimeProjectGroundedInstructions({
     baseInstructions: "Base voice contract.",

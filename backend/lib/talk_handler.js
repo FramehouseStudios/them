@@ -605,6 +605,11 @@ function createTalkHandler(deps) {
         ageInScenes: Math.max(0, Math.round(Number(item?.age_in_scenes ?? item?.ageInScenes ?? 0))),
       })).filter((item) => item.kind && item.fact)
       : [];
+    const tracedQuestionEffectiveness = Array.isArray(
+      creativeMemoryTrace?.screenplay_project_memory?.question_effectiveness
+    )
+      ? creativeMemoryTrace.screenplay_project_memory.question_effectiveness.slice(0, 24)
+      : [];
     const baseWithCreativeRecall = {
       ...base,
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
@@ -624,6 +629,9 @@ function createTalkHandler(deps) {
         : {}),
       ...(tracedAcceptedCausalFacts.length
         ? { screenplayAcceptedCausalFacts: tracedAcceptedCausalFacts }
+        : {}),
+      ...(tracedQuestionEffectiveness.length
+        ? { screenplayQuestionEffectiveness: tracedQuestionEffectiveness }
         : {}),
     };
     const memoryProject = selectTalkMomentumMemoryProject(memory, base);
@@ -826,6 +834,15 @@ function createTalkHandler(deps) {
         ageInScenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
       })).filter((item) => item.kind && item.fact)
       : [];
+    const screenplayQuestionEffectiveness = Array.isArray(
+      studioMeta?.screenplayQuestionEffectiveness ||
+      studioMeta?.screenplay_question_effectiveness
+    )
+      ? (
+        studioMeta?.screenplayQuestionEffectiveness ||
+        studioMeta?.screenplay_question_effectiveness
+      ).slice(0, 24)
+      : [];
     const rawDueStoryThread = studioMeta?.screenplayDueStoryThread ||
       studioMeta?.screenplay_due_story_thread ||
       studioMeta?.dueStoryThread ||
@@ -859,6 +876,7 @@ function createTalkHandler(deps) {
       imageMotifs: screenplayImageMotifs,
       causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
+      questionEffectiveness: screenplayQuestionEffectiveness,
     });
     const rankedRescueMoves = rankStoryRescueMovesForContext({
       transcript: userRequest,
@@ -888,6 +906,7 @@ function createTalkHandler(deps) {
       storyMoments: screenplayRetrievedStoryMoments,
       causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
+      questionEffectiveness: screenplayQuestionEffectiveness,
     });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",

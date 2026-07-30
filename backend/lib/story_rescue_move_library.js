@@ -101,6 +101,183 @@ const STORY_STALL_MOVE_LIBRARY = Object.freeze([
   }),
 ]);
 
+const STORY_MOVE_FAMILY_KEYS = Object.freeze(
+  STORY_STALL_MOVE_LIBRARY.map((entry) => entry.key)
+);
+const STORY_MOVE_FAMILY_KEY_SET = new Set(STORY_MOVE_FAMILY_KEYS);
+const STORY_MOVE_FAMILY_DIRECTIVES = Object.freeze({
+  objective_pressure: "turn desire into a concrete objective that can visibly succeed or fail",
+  obstacle_pressure: "activate a person, rule, deadline, secret, or consequence that can say no",
+  reversal_pressure: "turn apparent progress into a cost, obligation, or loss of leverage",
+  information_pressure: "move established information into dangerous hands or a public consequence",
+  relationship_pressure: "make plot movement damage, redefine, or test a bond",
+  deadline_pressure: "create a now-or-never condition where waiting causes immediate harm",
+  choice_pressure: "close a safe door with an irreversible decision that causes the next scene",
+  payoff_pressure: "spend an established setup through changed behavior rather than explanation",
+  image_pressure: "transform a concrete image or object through visible action",
+});
+const PROVISIONAL_EMOTIONAL_FAMILIES = Object.freeze([
+  "relationship_pressure",
+  "choice_pressure",
+  "reversal_pressure",
+]);
+const PROVISIONAL_CONTRAST_FAMILIES = Object.freeze([
+  "payoff_pressure",
+  "information_pressure",
+  "obstacle_pressure",
+  "deadline_pressure",
+  "image_pressure",
+  "objective_pressure",
+]);
+
+function normalizeStoryMoveFamily(value = "") {
+  const key = normalizeSnippet(value, 48)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return STORY_MOVE_FAMILY_KEY_SET.has(key) ? key : "";
+}
+
+function storyMoveFamilyDirective(value = "") {
+  const key = normalizeStoryMoveFamily(value);
+  return key ? STORY_MOVE_FAMILY_DIRECTIVES[key] : "";
+}
+
+function normalizeOfferedStoryMoveFamilies(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const item of source) {
+    const family = normalizeStoryMoveFamily(item);
+    if (!family || out.includes(family)) continue;
+    out.push(family);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+function buildStoryMoveTasteProfile(questionEffectiveness = []) {
+  const records = Array.isArray(questionEffectiveness)
+    ? questionEffectiveness.slice(0, 24)
+    : [];
+  const byFamily = new Map();
+  const ensure = (family) => {
+    if (!byFamily.has(family)) {
+      byFamily.set(family, {
+        family,
+        selectedCount: 0,
+        passedOverCount: 0,
+        declinedCount: 0,
+        acceptedPageCount: 0,
+        blockResolutionCount: 0,
+        successfulSelectionCount: 0,
+        lastSelectedAt: 0,
+      });
+    }
+    return byFamily.get(family);
+  };
+  let mostRecentSelectedFamily = "";
+  let mostRecentSelectedAt = 0;
+
+  for (const record of records) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+    const selectedFamily = normalizeStoryMoveFamily(
+      record.selectedMoveFamily ??
+      record.selected_move_family ??
+      record.selectedStoryMove ??
+      record.selected_story_move
+    );
+    const offeredFamilies = normalizeOfferedStoryMoveFamilies(
+      record.offeredMoveFamilies ??
+      record.offered_move_families ??
+      record.provisionalMoveFamilies ??
+      record.provisional_move_families
+    );
+    if (!selectedFamily && !offeredFamilies.length) continue;
+    const answeredAt = Math.max(
+      0,
+      Number(record.answeredAt ?? record.answered_at ?? record.respondedAt ?? record.responded_at ?? 0)
+    );
+    const responseStatus = normalizeSnippet(
+      record.responseStatus ?? record.response_status,
+      24
+    ).toLowerCase();
+    const acceptedPageCount = Math.max(
+      0,
+      Math.min(8, Math.floor(Number(
+        record.acceptedPageCount ?? record.accepted_page_count ?? 0
+      ) || 0))
+    );
+    const blockResolutionCount = Math.max(
+      0,
+      Math.min(8, Math.floor(Number(
+        record.blockResolutionCount ?? record.block_resolution_count ?? 0
+      ) || 0))
+    );
+
+    if (selectedFamily) {
+      const selected = ensure(selectedFamily);
+      selected.selectedCount += 1;
+      selected.acceptedPageCount += acceptedPageCount;
+      selected.blockResolutionCount += blockResolutionCount;
+      if (acceptedPageCount > 0 || blockResolutionCount > 0) {
+        selected.successfulSelectionCount += 1;
+      }
+      selected.lastSelectedAt = Math.max(selected.lastSelectedAt, answeredAt);
+      if (answeredAt >= mostRecentSelectedAt) {
+        mostRecentSelectedAt = answeredAt;
+        mostRecentSelectedFamily = selectedFamily;
+      }
+    }
+    for (const family of offeredFamilies) {
+      if (family === selectedFamily) continue;
+      const passed = ensure(family);
+      passed.passedOverCount += 1;
+      if (!selectedFamily && responseStatus === "declined") {
+        passed.declinedCount += 1;
+      }
+    }
+  }
+
+  return [...byFamily.values()]
+    .map((item) => {
+      const positive =
+        item.selectedCount * 5 +
+        item.successfulSelectionCount * 7 +
+        item.acceptedPageCount * 3 +
+        item.blockResolutionCount * 4;
+      const negative =
+        Math.min(6, item.passedOverCount) +
+        Math.min(6, item.declinedCount * 2);
+      const evidenceCount =
+        item.selectedCount +
+        item.passedOverCount +
+        item.declinedCount +
+        item.acceptedPageCount +
+        item.blockResolutionCount;
+      const confidence = Math.min(1, evidenceCount / 5);
+      const tasteBonus = Math.max(
+        -12,
+        Math.min(18, Math.round((positive - negative) * (0.35 + confidence * 0.65)))
+      );
+      const recentVarietyPenalty =
+        item.family === mostRecentSelectedFamily && item.selectedCount > 1
+          ? 3
+          : 0;
+      return {
+        ...item,
+        tasteBonus,
+        recentVarietyPenalty,
+        evidenceCount,
+      };
+    })
+    .sort((left, right) => (
+      right.tasteBonus - left.tasteBonus ||
+      right.successfulSelectionCount - left.successfulSelectionCount ||
+      right.lastSelectedAt - left.lastSelectedAt ||
+      STORY_MOVE_FAMILY_KEYS.indexOf(left.family) -
+        STORY_MOVE_FAMILY_KEYS.indexOf(right.family)
+    ));
+}
+
 function selectStoryMoveLibraryLines(lower = "", { intent = "", actKind = "", act = "", problem = "" } = {}) {
   const normalizedProblem = trimToString(problem).toLowerCase();
   const resolvedActKind = trimToString(actKind) || inferStoryMoveActKind(act);
@@ -309,6 +486,11 @@ function normalizeStoryRescueContext(context = {}) {
   const causalFacts = normalizeAcceptedCausalFacts(
     context.causalFacts ?? context.acceptedCausalFacts ?? context.accepted_causal_facts
   );
+  const questionEffectiveness = Array.isArray(
+    context.questionEffectiveness ?? context.question_effectiveness
+  )
+    ? (context.questionEffectiveness ?? context.question_effectiveness).slice(0, 24)
+    : [];
   return {
     transcript,
     intent: normalizeSnippet(context.intent || "momentum_rescue", 64),
@@ -341,6 +523,8 @@ function normalizeStoryRescueContext(context = {}) {
     characters,
     causalFacts,
     dueStoryThread,
+    questionEffectiveness,
+    storyMoveTasteProfile: buildStoryMoveTasteProfile(questionEffectiveness),
   };
 }
 
@@ -462,6 +646,11 @@ function storyMoveScore(key, context, selectedKeys) {
   if (causalFact?.kind === "decision" && key === "reversal_pressure") score += 16;
   if (causalFact?.kind === "irreversible_consequence" && key === "reversal_pressure") score += 26;
   if (causalFact?.kind === "irreversible_consequence" && key === "obstacle_pressure") score += 14;
+  const taste = context.storyMoveTasteProfile.find((item) => item.family === key);
+  if (taste) {
+    score += taste.tasteBonus;
+    score -= taste.recentVarietyPenalty;
+  }
   score += Math.min(6, storyMoveEvidence(key, context).length * 2);
   return Math.max(1, score);
 }
@@ -561,19 +750,45 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
         ? "Act III must spend setup through changed behavior and final-image pressure."
         : "The next beat must change available choices and make another scene necessary.";
   const ranked = STORY_STALL_MOVE_LIBRARY
-    .map((entry, libraryIndex) => ({
-      key: entry.key,
-      libraryIndex,
-      score: storyMoveScore(entry.key, context, selectedKeys),
-      move: buildGroundedStoryMove(entry.key, context),
-      why: actReason,
-      evidence: storyMoveEvidence(entry.key, context),
-      successCheck: STORY_MOVE_SUCCESS_CHECKS[entry.key] || "The beat visibly changes story state.",
-    }))
+    .map((entry, libraryIndex) => {
+      const taste = context.storyMoveTasteProfile.find((item) => item.family === entry.key);
+      return {
+        key: entry.key,
+        libraryIndex,
+        score: storyMoveScore(entry.key, context, selectedKeys),
+        tasteBonus: taste?.tasteBonus || 0,
+        tasteEvidenceCount: taste?.evidenceCount || 0,
+        move: buildGroundedStoryMove(entry.key, context),
+        why: actReason,
+        evidence: storyMoveEvidence(entry.key, context),
+        successCheck: STORY_MOVE_SUCCESS_CHECKS[entry.key] || "The beat visibly changes story state.",
+      };
+    })
     .sort((a, b) => b.score - a.score || a.libraryIndex - b.libraryIndex)
     .slice(0, Math.max(1, Math.min(5, Number(limit) || 3)))
     .map(({ libraryIndex: _libraryIndex, ...move }, index) => ({ ...move, rank: index + 1 }));
   return ranked;
+}
+
+function selectProvisionalStoryMoveFamilies(input = {}) {
+  const ranked = rankStoryRescueMovesForContext(input, { limit: 5 });
+  const rankedKeys = ranked.map((item) => item.key).filter(Boolean);
+  const selected = [];
+  const add = (family) => {
+    const clean = normalizeStoryMoveFamily(family);
+    if (!clean || selected.includes(clean)) return;
+    selected.push(clean);
+  };
+  add(rankedKeys[0]);
+  add(PROVISIONAL_EMOTIONAL_FAMILIES.find((family) => (
+    rankedKeys.includes(family) && !selected.includes(family)
+  )));
+  add(PROVISIONAL_CONTRAST_FAMILIES.find((family) => (
+    rankedKeys.includes(family) && !selected.includes(family)
+  )));
+  for (const family of rankedKeys) add(family);
+  for (const family of STORY_MOVE_FAMILY_KEYS) add(family);
+  return selected.slice(0, 3);
 }
 
 function formatRankedStoryRescueMoveLine(move = {}) {
@@ -583,14 +798,23 @@ function formatRankedStoryRescueMoveLine(move = {}) {
   const evidence = normalizeList(move.evidence, 3, 180).join(" | ") || "current request";
   const playableMove = normalizeSnippet(move.move, 420);
   const successCheck = normalizeSnippet(move.successCheck, 220);
-  return `rank_${rank}: engine=${key}; score=${score}; evidence=${evidence}; move=${playableMove}; success_check=${successCheck}`;
+  const tasteBonus = Math.max(-12, Math.min(18, Math.round(Number(move.tasteBonus || 0))));
+  const taste = tasteBonus
+    ? `; taste_bonus=${tasteBonus > 0 ? "+" : ""}${tasteBonus}`
+    : "";
+  return `rank_${rank}: engine=${key}; score=${score}${taste}; evidence=${evidence}; move=${playableMove}; success_check=${successCheck}`;
 }
 
 export {
   STORY_STALL_MOVE_LIBRARY,
+  STORY_MOVE_FAMILY_KEYS,
+  buildStoryMoveTasteProfile,
   formatRankedStoryRescueMoveLine,
   inferStoryMoveActKind,
+  normalizeStoryMoveFamily,
   rankStoryRescueMovesForContext,
+  selectProvisionalStoryMoveFamilies,
   selectStoryMoveLibraryLines,
   selectStoryMoveLibraryLinesForContext,
+  storyMoveFamilyDirective,
 };

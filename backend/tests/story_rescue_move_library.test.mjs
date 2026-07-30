@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildStoryMoveTasteProfile,
   formatRankedStoryRescueMoveLine,
   inferStoryMoveActKind,
   rankStoryRescueMovesForContext,
+  selectProvisionalStoryMoveFamilies,
   selectStoryMoveLibraryLines,
   selectStoryMoveLibraryLinesForContext,
 } from "../lib/story_rescue_move_library.js";
@@ -159,4 +161,96 @@ test("[story-rescue-move-library] irreversible accepted consequences cannot be u
   assert.equal(ranked[0].key, "reversal_pressure");
   assert.ok(ranked[0].evidence.includes("accepted_causal_fact: Mara burns the only copy of the affidavit."));
   assert.match(ranked[0].move, /Do not undo it/);
+});
+
+test("[story-rescue-move-library] learns bounded taste from choices and downstream page success", () => {
+  const questionEffectiveness = [
+    {
+      questionId: "options-3",
+      targetField: "character.current_tactic",
+      responseStatus: "answered",
+      selectedMoveFamily: "relationship_pressure",
+      offeredMoveFamilies: [
+        "reversal_pressure",
+        "relationship_pressure",
+        "obstacle_pressure",
+      ],
+      acceptedPageCount: 1,
+      blockResolutionCount: 1,
+      answeredAt: 3_000,
+    },
+    {
+      questionId: "options-2",
+      targetField: "story.next_irreversible_choice",
+      responseStatus: "answered",
+      selectedMoveFamily: "relationship_pressure",
+      offeredMoveFamilies: [
+        "choice_pressure",
+        "relationship_pressure",
+        "information_pressure",
+      ],
+      answeredAt: 2_000,
+    },
+  ];
+  const profile = buildStoryMoveTasteProfile(questionEffectiveness);
+  const relationship = profile.find((item) => item.family === "relationship_pressure");
+  const obstacle = profile.find((item) => item.family === "obstacle_pressure");
+
+  assert.equal(relationship.selectedCount, 2);
+  assert.equal(relationship.acceptedPageCount, 1);
+  assert.equal(relationship.blockResolutionCount, 1);
+  assert.ok(relationship.tasteBonus > 0);
+  assert.equal(relationship.recentVarietyPenalty, 3);
+  assert.ok(obstacle.tasteBonus <= 0);
+
+  const ranked = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck in Act II and need the next turn.",
+    act: "Act II",
+    protagonistWant: "Mara wants June to stay.",
+    characterArcState: "Mara still confuses protection with control.",
+    questionEffectiveness,
+  });
+  assert.equal(ranked[0].key, "relationship_pressure");
+  assert.ok(ranked[0].tasteBonus > 0);
+
+  const provisionalFamilies = selectProvisionalStoryMoveFamilies({
+    transcript: "Give me options for the next turn.",
+    act: "Act II",
+    protagonistWant: "Mara wants June to stay.",
+    characterArcState: "Mara still confuses protection with control.",
+    questionEffectiveness,
+  });
+  assert.equal(provisionalFamilies.length, 3);
+  assert.equal(new Set(provisionalFamilies).size, 3);
+  assert.equal(provisionalFamilies[0], "relationship_pressure");
+});
+
+test("[story-rescue-move-library] due canon outranks taste and protects feature structure", () => {
+  const relationshipTaste = Array.from({ length: 6 }, (_, index) => ({
+    questionId: `taste-${index}`,
+    targetField: "character.relationship_pressure",
+    responseStatus: "answered",
+    selectedMoveFamily: "relationship_pressure",
+    offeredMoveFamilies: [
+      "relationship_pressure",
+      "payoff_pressure",
+      "image_pressure",
+    ],
+    acceptedPageCount: 1,
+    answeredAt: 10_000 - index,
+  }));
+  const ranked = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck at the ending.",
+    act: "Act III",
+    characters: ["Mara"],
+    dueStoryThread: {
+      setup: "June hid the red ferry key in Mara's coat.",
+      promisedPayoff: "Mara gives June control of the final crossing.",
+      ageInScenes: 42,
+    },
+    questionEffectiveness: relationshipTaste,
+  });
+
+  assert.equal(ranked[0].key, "payoff_pressure");
+  assert.match(ranked[0].move, /red ferry key/i);
 });

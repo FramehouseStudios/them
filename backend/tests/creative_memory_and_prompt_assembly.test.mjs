@@ -1395,6 +1395,21 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
     correctionReplacements: ["wrong memory -> hidden confession"],
   };
   const creativeMemory = {
+    projectContinuity: {
+      questionEffectiveness: Array.from({ length: 2 }, (_, index) => ({
+        questionId: `rescue-taste-${index}`,
+        targetField: "character.current_tactic",
+        responseStatus: "answered",
+        selectedMoveFamily: "reversal_pressure",
+        offeredMoveFamilies: [
+          "reversal_pressure",
+          "relationship_pressure",
+          "obstacle_pressure",
+        ],
+        acceptedPageCount: 1,
+        answeredAt: 2_000 - index,
+      })),
+    },
     episodicMemories: [
       {
         summary: "Mara promised Eli she would not edit the truth again.",
@@ -1443,6 +1458,7 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("ranked_rescue_moves:"));
   assert.ok(out.includes("selection_method: score act fit, remembered continuity, character pressure"));
   assert.ok(out.includes("rank_1: engine=reversal_pressure"));
+  assert.match(out, /rank_1: engine=reversal_pressure; score=\d+; taste_bonus=\+\d+/);
   assert.ok(out.includes("evidence=accepted_page: Mara puts the public affidavit on the record."));
   assert.ok(out.includes("remembered_next_turn: The reel plays the wrong memory."));
   assert.ok(out.includes("success_check=The apparent gain changes into a cost"));

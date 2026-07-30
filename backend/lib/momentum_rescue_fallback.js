@@ -253,6 +253,14 @@ function buildMomentumRescueFallbackReply({
   );
   const dueStoryThread = dueStoryThreadMetaValue(meta);
   const causalFacts = acceptedCausalFactsMetaValue(meta);
+  const questionEffectiveness = Array.isArray(
+    meta.screenplayQuestionEffectiveness ?? meta.screenplay_question_effectiveness
+  )
+    ? (
+      meta.screenplayQuestionEffectiveness ??
+      meta.screenplay_question_effectiveness
+    ).slice(0, 24)
+    : [];
   const primaryCausalFact = causalFacts[0] || null;
   const relationshipCausalFact = causalFacts.find((item) => item.kind === "relationship_change") || null;
   const irreversibleCausalFact = causalFacts.find((item) => item.kind === "irreversible_consequence") || null;
@@ -310,6 +318,7 @@ function buildMomentumRescueFallbackReply({
     storyMoments,
     causalFacts,
     dueStoryThread,
+    questionEffectiveness,
   });
   const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
   const bestNextBeat = rankedRescueMoves[0]?.move

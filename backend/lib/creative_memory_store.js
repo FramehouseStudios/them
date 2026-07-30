@@ -29,6 +29,7 @@ import {
   resolveProvisionalScreenplayOptionSelection,
   sanitizeProvisionalScreenplayOptions,
 } from "./screenplay_question_planner.js";
+import { normalizeStoryMoveFamily } from "./story_rescue_move_library.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -1006,6 +1007,22 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       source.blockResolutionCount ?? source.block_resolution_count ?? 1
     ) || 1)))
     : 0;
+  const selectedMoveFamily = normalizeStoryMoveFamily(
+    source.selectedMoveFamily ??
+    source.selected_move_family ??
+    source.selectedStoryMove ??
+    source.selected_story_move
+  );
+  const offeredMoveFamilies = normalizeStringList(
+    source.offeredMoveFamilies ??
+    source.offered_move_families ??
+    source.provisionalMoveFamilies ??
+    source.provisional_move_families,
+    3,
+    48
+  )
+    .map(normalizeStoryMoveFamily)
+    .filter((family, index, values) => family && values.indexOf(family) === index);
   if (acceptedPageAt || blockResolvedAt) responseStatus = "answered";
   const outcome = acceptedPageAt && blockResolvedAt
     ? "accepted_pages_and_block_resolved"
@@ -1038,6 +1055,8 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
     blockResolvedAt,
     blockResolutionCount,
     outcome,
+    selectedMoveFamily,
+    ...(offeredMoveFamilies.length ? { offeredMoveFamilies } : {}),
     updatedAt: Math.max(
       askedAt,
       answeredAt,
@@ -1096,6 +1115,15 @@ function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
         previous.blockResolutionCount || 0,
         item.blockResolutionCount || 0
       ),
+      selectedMoveFamily: item.selectedMoveFamily || previous.selectedMoveFamily,
+      offeredMoveFamilies: normalizeStringList(
+        [
+          ...(item.offeredMoveFamilies || []),
+          ...(previous.offeredMoveFamilies || []),
+        ],
+        3,
+        48
+      ),
     }));
   }
   return [...byQuestionId.values()]
@@ -1117,6 +1145,8 @@ function buildAnsweredQuestionEffectivenessRecord(learningContext, answeredAt = 
     actKey: learningContext?.actKey,
     sequenceKey: learningContext?.sequenceKey,
     writerBlocked: learningContext?.writerBlocked,
+    selectedMoveFamily: learningContext?.selectedMoveFamily,
+    offeredMoveFamilies: learningContext?.offeredMoveFamilies,
     askedAt: learningContext?.askedAt,
     answeredAt,
     respondedAt: answeredAt,
@@ -1138,6 +1168,8 @@ function buildQuestionInteractionEffectivenessRecord(interaction) {
     actKey: interaction.actKey,
     sequenceKey: interaction.sequenceKey,
     writerBlocked: interaction.writerBlocked,
+    selectedMoveFamily: interaction.selectedMoveFamily,
+    offeredMoveFamilies: interaction.offeredMoveFamilies,
     askedAt: interaction.askedAt,
     answeredAt: responseStatus === "answered" ? respondedAt : 0,
     respondedAt,
@@ -3331,6 +3363,22 @@ function sanitizeScreenplayLearningContext(value, {
     cleanProjectTitle &&
     contextProjectTitle.toLowerCase() !== cleanProjectTitle.toLowerCase()
   ) return null;
+  const provisionalOptions = sanitizeProvisionalScreenplayOptions(
+    value.provisionalOptions ?? value.provisional_options
+  );
+  const selectedOptionId = cleanText(
+    value.selectedOptionId ?? value.selected_option_id,
+    32
+  );
+  const selectedOption = provisionalOptions.find((option) => option.id === selectedOptionId);
+  const selectedMoveFamily = normalizeStoryMoveFamily(
+    selectedOption?.moveFamily ??
+    value.selectedMoveFamily ??
+    value.selected_move_family
+  );
+  const offeredMoveFamilies = provisionalOptions
+    .map((option) => normalizeStoryMoveFamily(option.moveFamily))
+    .filter((family, index, values) => family && values.indexOf(family) === index);
   return {
     questionId: cleanText(value.questionId ?? value.question_id, 120),
     projectId: contextProjectId || cleanProjectId,
@@ -3351,17 +3399,14 @@ function sanitizeScreenplayLearningContext(value, {
       ? cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
       : "",
     writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
-    provisionalOptions: sanitizeProvisionalScreenplayOptions(
-      value.provisionalOptions ?? value.provisional_options
-    ),
-    selectedOptionId: cleanText(
-      value.selectedOptionId ?? value.selected_option_id,
-      32
-    ),
+    provisionalOptions,
+    selectedOptionId,
     selectedOptionRank: Math.max(
       0,
       Math.floor(Number(value.selectedOptionRank ?? value.selected_option_rank ?? 0) || 0)
     ),
+    selectedMoveFamily,
+    ...(offeredMoveFamilies.length ? { offeredMoveFamilies } : {}),
     askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0)),
   };
 }

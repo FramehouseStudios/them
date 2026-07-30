@@ -695,6 +695,7 @@ function buildMomentumRescueMoveOptionLines({
   storyMoments = [],
   causalFacts = [],
   dueStoryThread = null,
+  questionEffectiveness = [],
 } = {}) {
   const ranked = rankStoryRescueMovesForContext({
     transcript,
@@ -724,10 +725,11 @@ function buildMomentumRescueMoveOptionLines({
     storyMoments,
     causalFacts,
     dueStoryThread,
+    questionEffectiveness,
   });
   return [
     "ranked_rescue_moves:",
-    "  selection_method: score act fit, remembered continuity, character pressure, setup/payoff value, and ability to change story state now.",
+    "  selection_method: score act fit, remembered continuity, character pressure, setup/payoff value, demonstrated writer taste, and ability to change story state now; taste is capped so canon and structural obligation stay authoritative.",
     ...ranked.map((move) => `  ${formatRankedStoryRescueMoveLine(move)}`),
     "  selection_rule: execute rank_1 unless it conflicts with a writer correction; use lower ranks only as distinct alternate forks.",
   ];
@@ -1542,6 +1544,11 @@ function buildWriterBlockCreativeRecall(creativeMemory) {
     storyMoments,
     causalFacts: normalizeAcceptedCausalFacts(creativeMemory?.acceptedCausalFacts),
     dueStoryThread: normalizeDueStoryThread(creativeMemory?.dueStoryThread),
+    questionEffectiveness: Array.isArray(
+      creativeMemory?.projectContinuity?.questionEffectiveness
+    )
+      ? creativeMemory.projectContinuity.questionEffectiveness.slice(0, 24)
+      : [],
   };
 }
 
@@ -1794,6 +1801,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     storyMoments: creativeRecall.storyMoments,
     causalFacts,
     dueStoryThread,
+    questionEffectiveness: creativeRecall.questionEffectiveness,
   });
 
   return [

@@ -1266,6 +1266,19 @@ test("provisional option planning is ranked, act-aware, and selection-gated", ()
         act: "Act II",
         feature_sequence: "Sequence 4: Midpoint Reversal",
         protagonist_want: "Mara wants to save June.",
+        question_effectiveness: Array.from({ length: 3 }, (_, index) => ({
+          question_id: `taste-${index}`,
+          target_field: "character.current_tactic",
+          response_status: "answered",
+          selected_move_family: "relationship_pressure",
+          offered_move_families: [
+            "relationship_pressure",
+            "reversal_pressure",
+            "obstacle_pressure",
+          ],
+          accepted_page_count: 1,
+          answered_at: 10_000 - index,
+        })),
       },
     },
     studioMeta: {
@@ -1282,10 +1295,14 @@ test("provisional option planning is ranked, act-aware, and selection-gated", ()
   assert.equal(plan.shouldAsk, true);
   assert.equal(plan.optionCount, 3);
   assert.equal(plan.questionStrategy, "provisional_ranked_choice");
+  assert.equal(plan.provisionalMoveFamilies.length, 3);
+  assert.equal(new Set(plan.provisionalMoveFamilies).size, 3);
+  assert.equal(plan.provisionalMoveFamilies[0], "relationship_pressure");
   assert.equal(plan.actContext.label, "Act II");
   assert.match(plan.sequenceContext.label, /Midpoint/i);
   assert.match(plan.objective, /Option 1 must be your strongest recommendation/i);
   assert.match(plan.objective, /character and emotional reversal/i);
+  assert.match(plan.objective, /Option 1 must make plot movement damage, redefine, or test a bond/i);
   assert.match(plan.objective, /Option 1 \(recommended\):[^\n]+\nOption 2:[^\n]+\nOption 3:/i);
   assert.match(plan.objective, /Treat all three as provisional/i);
   assert.match(plan.question, /Option 1, 2, or 3/i);
@@ -1332,7 +1349,15 @@ test("provisional options parse and only the explicit selected value becomes lea
     askedAtTurn: 12,
     expiresAfterTurn: 14,
     askedAt: 1_000,
-  }, options, { askedAtTurn: 13, now: 2_000 });
+  }, options, {
+    askedAtTurn: 13,
+    now: 2_000,
+    moveFamilies: [
+      "reversal_pressure",
+      "relationship_pressure",
+      "obstacle_pressure",
+    ],
+  });
   const selected = resolvePendingScreenplayLearningAnswer({
     pending,
     transcript: "Option 2.",
@@ -1344,7 +1369,14 @@ test("provisional options parse and only the explicit selected value becomes lea
   assert.equal(selected.status, "answered");
   assert.equal(selected.shouldClear, true);
   assert.equal(selected.answerClassification.selectedOptionId, "option-2");
+  assert.equal(selected.answerClassification.selectedMoveFamily, "relationship_pressure");
   assert.equal(selected.learningContext.selectedOptionRank, 2);
+  assert.equal(selected.learningContext.selectedMoveFamily, "relationship_pressure");
+  assert.deepEqual(selected.learningContext.offeredMoveFamilies, [
+    "reversal_pressure",
+    "relationship_pressure",
+    "obstacle_pressure",
+  ]);
   assert.equal(selected.learningContext.provisionalOptions.length, 3);
   const orphanReference = classifyScreenplayLearningAnswer("Option 2.", {
     targetField: "character.current_tactic",

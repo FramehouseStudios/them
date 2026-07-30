@@ -3,6 +3,11 @@ import {
   FEATURE_SEQUENCE_TEMPLATE,
   findSequenceForPage,
 } from "./feature_screenplay_map.js";
+import {
+  normalizeStoryMoveFamily,
+  selectProvisionalStoryMoveFamilies,
+  storyMoveFamilyDirective,
+} from "./story_rescue_move_library.js";
 
 const DIRECT_PAGE_REQUEST = /^(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|punch\s*up|generate|give\s+me|show\s+me|start|keep\s+(?:writing|going))\b|\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|punch\s*up|generate|start)\b/i;
 const WRITER_BLOCK_SIGNAL = /\b(?:writer'?s\s+block|writers\s+block|stuck|blocked|out\s+of\s+ideas|no\s+ideas|don'?t\s+know\s+what\s+happens\s+next|what\s+happens\s+next|where\s+do\s+i\s+go|how\s+do\s+i\s+move|story\s+forward|next\s+beat|next\s+scene|middle\s+(?:is\s+)?(?:flat|dragging|slow)|second\s+act\s+(?:is\s+)?(?:flat|dragging|slow))\b/i;
@@ -457,6 +462,18 @@ function normalizeQuestionEffectiveness(rows) {
         responseStatus,
         acceptedPageCount,
         blockResolutionCount,
+        selectedMoveFamily: normalizeStoryMoveFamily(
+          row?.selected_move_family ?? row?.selectedMoveFamily
+        ),
+        offeredMoveFamilies: (Array.isArray(
+          row?.offered_move_families ?? row?.offeredMoveFamilies
+        )
+          ? (row?.offered_move_families ?? row?.offeredMoveFamilies)
+          : []
+        )
+          .map(normalizeStoryMoveFamily)
+          .filter((family, index, values) => family && values.indexOf(family) === index)
+          .slice(0, 3),
         successful: acceptedPageCount > 0 || blockResolutionCount > 0,
       };
     })
@@ -1100,22 +1117,109 @@ function buildProvisionalOptionSelectionQuestion(pending) {
   );
 }
 
-function buildProvisionalOptionObjective(pending, actContext, sequenceContext) {
+function buildProvisionalOptionObjective(
+  pending,
+  actContext,
+  sequenceContext,
+  provisionalMoveFamilies = []
+) {
   const label = clean(pending?.targetLabel, 120) || "the unresolved story choice";
   const actLabel = actContext?.key === "unknown" ? "the current act" : actContext.label;
   const sequenceLabel = sequenceContext?.key === "unknown"
     ? "the current sequence"
     : sequenceContext.label;
   const sequenceDirective = sequenceExecutionDirective(sequenceContext);
+  const moveFamilyDirectives = provisionalMoveFamilies
+    .slice(0, PROVISIONAL_SCREENPLAY_OPTION_COUNT)
+    .map((family, index) => {
+      const directive = storyMoveFamilyDirective(family);
+      return directive
+        ? `Option ${index + 1} must ${directive}; do not name this internal engine in the displayed option.`
+        : "";
+    })
+    .filter(Boolean);
   return [
     `Give exactly three mutually exclusive, canon-compatible choices for ${label}, ranked for ${actLabel} / ${sequenceLabel}.`,
     "Option 1 must be your strongest recommendation: the choice with the clearest causal pressure and feature-length consequences.",
     "Option 2 must prioritize character and emotional reversal. Option 3 must be the boldest credible complication or payoff path.",
+    ...moveFamilyDirectives,
     "Use exactly these three newline-delimited labels:\nOption 1 (recommended): <one complete story fact>\nOption 2: <one complete story fact>\nOption 3: <one complete story fact>",
     "After each option line, you may add one short consequence sentence, but never present any option as remembered or decided.",
     "Treat all three as provisional. Do not save, assume, or write forward from one until the writer explicitly chooses it.",
     sequenceDirective.trim(),
   ].filter(Boolean).join(" ");
+}
+
+function provisionalScreenplayMoveFamiliesForTarget(
+  target,
+  projectMemory = null,
+  transcript = ""
+) {
+  const project = projectMemory && typeof projectMemory === "object" && !Array.isArray(projectMemory)
+    ? projectMemory
+    : {};
+  const act = firstValue(
+    project.act,
+    target.actKey === "act1"
+      ? "Act I"
+      : target.actKey === "act2"
+        ? "Act II"
+        : target.actKey === "act3"
+          ? "Act III"
+          : ""
+  );
+  return selectProvisionalStoryMoveFamilies({
+    transcript: [
+      transcript,
+      target.question,
+      target.targetLabel,
+      target.targetField,
+    ].filter(Boolean).join(" "),
+    intent: "momentum_rescue",
+    act,
+    featureSequence: firstValue(
+      project.feature_sequence,
+      project.featureSequence,
+      target.sequenceKey
+    ),
+    featureObligation: firstValue(
+      project.feature_obligation,
+      project.featureObligation
+    ),
+    currentBeat: firstValue(project.current_beat, project.currentBeat),
+    protagonistWant: firstValue(
+      project.protagonist_want,
+      project.protagonistWant
+    ),
+    protagonistNeed: firstValue(
+      project.protagonist_need,
+      project.protagonistNeed
+    ),
+    antagonisticForce: firstValue(
+      project.antagonistic_force,
+      project.antagonisticForce
+    ),
+    unresolvedSetups:
+      project.unresolved_setups ?? project.unresolvedSetups ?? [],
+    unresolvedStoryThreads:
+      project.unresolved_story_threads ?? project.unresolvedStoryThreads ?? [],
+    actThreePayoffPath:
+      project.act_three_payoff_path ?? project.actThreePayoffPath ?? [],
+    imageMotifs: project.image_motifs ?? project.imageMotifs ?? [],
+    questionEffectiveness:
+      project.question_effectiveness ?? project.questionEffectiveness ?? [],
+  });
+}
+
+export function selectProvisionalScreenplayMoveFamilies({
+  pending = null,
+  projectMemory = null,
+  transcript = "",
+} = {}) {
+  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  return target
+    ? provisionalScreenplayMoveFamiliesForTarget(target, projectMemory, transcript)
+    : [];
 }
 
 export function buildScreenplayQuestionPlan({
@@ -1184,6 +1288,11 @@ export function buildScreenplayQuestionPlan({
   ) {
     const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
     const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
+    const provisionalMoveFamilies = selectProvisionalScreenplayMoveFamilies({
+      pending: provisionalPending,
+      projectMemory,
+      transcript: text,
+    });
     return {
       active: true,
       mode: "provisional_options",
@@ -1193,7 +1302,8 @@ export function buildScreenplayQuestionPlan({
       objective: buildProvisionalOptionObjective(
         provisionalPending,
         actContext,
-        sequenceContext
+        sequenceContext,
+        provisionalMoveFamilies
       ),
       projectId: provisionalPending.projectId || projectId,
       projectTitle: provisionalPending.projectTitle || projectTitle,
@@ -1210,6 +1320,7 @@ export function buildScreenplayQuestionPlan({
       questionStrategy: "provisional_ranked_choice",
       provisionalChoice: true,
       optionCount: PROVISIONAL_SCREENPLAY_OPTION_COUNT,
+      provisionalMoveFamilies,
     };
   }
 
@@ -1463,6 +1574,21 @@ export function sanitizeProvisionalScreenplayOptions(values) {
       rank,
       value: optionValue,
       recommended: rank === 1,
+      ...(normalizeStoryMoveFamily(
+        value?.moveFamily ??
+        value?.move_family ??
+        value?.storyMoveFamily ??
+        value?.story_move_family
+      )
+        ? {
+          moveFamily: normalizeStoryMoveFamily(
+            value?.moveFamily ??
+            value?.move_family ??
+            value?.storyMoveFamily ??
+            value?.story_move_family
+          ),
+        }
+        : {}),
     });
   }
   const options = [...byRank.values()].sort((left, right) => left.rank - right.rank);
@@ -1556,6 +1682,17 @@ export function createPendingScreenplayLearningQuestion(plan, {
   }
   const turn = Math.max(0, Math.floor(Number(askedAtTurn) || 0));
   const targetField = clean(plan.targetField, 64);
+  const provisionalMoveFamilies = Array.isArray(plan.provisionalMoveFamilies)
+    ? plan.provisionalMoveFamilies.map(normalizeStoryMoveFamily).filter(Boolean).slice(0, 3)
+    : [];
+  const rankedProvisionalOptions = plan.mode === "provisional_options"
+    ? safeProvisionalOptions.map((option) => ({
+      ...option,
+      ...(provisionalMoveFamilies[option.rank - 1]
+        ? { moveFamily: provisionalMoveFamilies[option.rank - 1] }
+        : {}),
+    }))
+    : [];
   return {
     id: `screenplay-learning-${turn}-${targetField || "story"}`,
     projectId: clean(plan.projectId, 96),
@@ -1568,7 +1705,7 @@ export function createPendingScreenplayLearningQuestion(plan, {
     sequenceKey: clean(plan.sequenceContext?.key, 32),
     writerBlocked: Boolean(plan.writerBlocked || plan.mode === "rescue_then_decide"),
     provisionalOptions: plan.mode === "provisional_options"
-      ? safeProvisionalOptions
+      ? sanitizeProvisionalScreenplayOptions(rankedProvisionalOptions)
       : [],
     askedAtTurn: turn,
     expiresAfterTurn: turn + 2,
@@ -1579,9 +1716,20 @@ export function createPendingScreenplayLearningQuestion(plan, {
 export function createProvisionalScreenplayOptionQuestion(pending, options, {
   askedAtTurn = 0,
   now = Date.now(),
+  moveFamilies = [],
 } = {}) {
   const target = sanitizePendingScreenplayLearningQuestion(pending);
-  const provisionalOptions = sanitizeProvisionalScreenplayOptions(options);
+  const safeMoveFamilies = Array.isArray(moveFamilies)
+    ? moveFamilies.map(normalizeStoryMoveFamily).filter(Boolean).slice(0, 3)
+    : [];
+  const provisionalOptions = sanitizeProvisionalScreenplayOptions(
+    sanitizeProvisionalScreenplayOptions(options).map((option) => ({
+      ...option,
+      ...(safeMoveFamilies[option.rank - 1]
+        ? { moveFamily: safeMoveFamilies[option.rank - 1] }
+        : {}),
+    }))
+  );
   if (!target || provisionalOptions.length !== PROVISIONAL_SCREENPLAY_OPTION_COUNT) {
     return null;
   }
@@ -1631,6 +1779,31 @@ export function sanitizePendingScreenplayLearningQuestion(value) {
     askedAtTurn,
     expiresAfterTurn,
     askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0) || 0),
+  };
+}
+
+function ensurePendingProvisionalMoveFamilies(value) {
+  const target = sanitizePendingScreenplayLearningQuestion(value);
+  if (!target || target.provisionalOptions.length !== PROVISIONAL_SCREENPLAY_OPTION_COUNT) {
+    return target;
+  }
+  const storedFamilies = target.provisionalOptions
+    .map((option) => option.moveFamily)
+    .filter(Boolean);
+  if (storedFamilies.length === PROVISIONAL_SCREENPLAY_OPTION_COUNT) return target;
+  const families = provisionalScreenplayMoveFamiliesForTarget(
+    target,
+    null,
+    target.question
+  );
+  return {
+    ...target,
+    provisionalOptions: sanitizeProvisionalScreenplayOptions(
+      target.provisionalOptions.map((option) => ({
+        ...option,
+        moveFamily: option.moveFamily || families[option.rank - 1],
+      }))
+    ),
   };
 }
 
@@ -1693,7 +1866,7 @@ export function selectPendingScreenplayLearningQuestion(values, {
 }
 
 export function removePendingScreenplayLearningQuestion(values, pending) {
-  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  const target = ensurePendingProvisionalMoveFamilies(pending);
   if (!target) return sanitizePendingScreenplayLearningQuestions(values);
   const projectKey = pendingQuestionProjectKey(target);
   return sanitizePendingScreenplayLearningQuestions(values)
@@ -1720,6 +1893,9 @@ function buildPendingQuestionInteraction(pending, responseStatus, now) {
     actKey: clean(pending?.actKey, 24),
     sequenceKey: clean(pending?.sequenceKey, 32),
     writerBlocked: Boolean(pending?.writerBlocked),
+    offeredMoveFamilies: sanitizeProvisionalScreenplayOptions(
+      pending?.provisionalOptions
+    ).map((option) => option.moveFamily).filter(Boolean),
     askedAt: Math.max(0, Number(pending?.askedAt) || respondedAt || Date.now()),
     responseStatus: status,
     respondedAt,
@@ -1824,7 +2000,7 @@ export function resolvePendingScreenplayLearningAnswer({
   currentTurn = 0,
   now = Date.now(),
 } = {}) {
-  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  const target = ensurePendingProvisionalMoveFamilies(pending);
   if (!target) {
     return { status: "none", shouldClear: false, learningContext: null, interaction: null };
   }
@@ -1895,6 +2071,7 @@ export function resolvePendingScreenplayLearningAnswer({
       ...answerClassification,
       selectedOptionId: selectedOption?.id || null,
       selectedOptionRank: selectedOption?.rank || null,
+      selectedMoveFamily: selectedOption?.moveFamily || null,
     },
     learningContext: {
       ...buildScreenplayLearningContext(target, {
@@ -1904,6 +2081,7 @@ export function resolvePendingScreenplayLearningAnswer({
       }),
       selectedOptionId: selectedOption?.id || "",
       selectedOptionRank: selectedOption?.rank || 0,
+      selectedMoveFamily: selectedOption?.moveFamily || "",
     },
   };
 }
@@ -1927,6 +2105,9 @@ function buildScreenplayLearningContext(pending, {
     provisionalOptions: sanitizeProvisionalScreenplayOptions(
       pending?.provisionalOptions
     ),
+    offeredMoveFamilies: sanitizeProvisionalScreenplayOptions(
+      pending?.provisionalOptions
+    ).map((option) => option.moveFamily).filter(Boolean),
     askedAt: Math.max(0, Number(pending?.askedAt) || 0),
     authority: "writer_clarification",
   };
@@ -2023,6 +2204,7 @@ export function resolvePendingScreenplayLearningAction({
       ...answerClassification,
       selectedOptionId: selectedOption?.id || null,
       selectedOptionRank: selectedOption?.rank || null,
+      selectedMoveFamily: selectedOption?.moveFamily || null,
     },
     learningContext: {
       ...buildScreenplayLearningContext(target, {
@@ -2031,6 +2213,7 @@ export function resolvePendingScreenplayLearningAction({
       }),
       selectedOptionId: selectedOption?.id || "",
       selectedOptionRank: selectedOption?.rank || 0,
+      selectedMoveFamily: selectedOption?.moveFamily || "",
     },
   };
 }

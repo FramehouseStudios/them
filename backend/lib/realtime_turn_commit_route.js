@@ -49,6 +49,7 @@ import {
   removePendingScreenplayLearningQuestion,
   resolvePendingScreenplayLearningAnswer,
   selectPendingScreenplayLearningQuestion,
+  selectProvisionalScreenplayMoveFamilies,
   upsertPendingScreenplayLearningQuestion,
 } from "./screenplay_question_planner.js";
 
@@ -80,6 +81,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     recordUserTalkMetrics,
     maybeRefineActiveThemesWithLLM,
     recordCreativeMemoryTriggersForRequest,
+    getCreativeMemoryForPrompt = null,
     // ---------- turn meta storage + read state ----------
     storeTalkTurnMeta,
     buildReadStateMeta,
@@ -187,12 +189,42 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       pendingScreenplayResolution.status === "provisional_options"
         ? extractProvisionalScreenplayOptions(reply)
         : [];
+    let provisionalMoveFamilies = [];
+    if (
+      pendingScreenplayResolution.status === "provisional_options" &&
+      pendingScreenplayQuestion
+    ) {
+      let projectMemory = null;
+      if (typeof getCreativeMemoryForPrompt === "function") {
+        try {
+          const creativeMemory = await getCreativeMemoryForPrompt({
+            userId: String(req?.authUser?.id || req?.userId || "").trim(),
+            projectId: screenplayProjectId,
+            projectTitle: screenplayProjectTitle,
+            query: [
+              screenplayProjectTitle,
+              pendingScreenplayQuestion.question,
+              "screenplay story move taste",
+            ].filter(Boolean).join(" "),
+            maxEpisodicMemories: 0,
+            recordEpisodicRecall: false,
+          });
+          projectMemory = creativeMemory?.projectContinuity || null;
+        } catch (_error) { /* never block a realtime commit on taste recall */ }
+      }
+      provisionalMoveFamilies = selectProvisionalScreenplayMoveFamilies({
+        pending: pendingScreenplayQuestion,
+        projectMemory,
+        transcript: pendingScreenplayQuestion.question,
+      });
+    }
     const provisionalScreenplayQuestion = createProvisionalScreenplayOptionQuestion(
       pendingScreenplayQuestion,
       provisionalScreenplayOptions,
       {
         askedAtTurn: previousMemory.turns,
         now: nowTs,
+        moveFamilies: provisionalMoveFamilies,
       },
     );
     const requesterIp = normalizeClientIp(context.requesterIp || clientIp(req));

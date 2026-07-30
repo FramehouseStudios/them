@@ -247,18 +247,21 @@ test("memory storage promotes only the explicitly selected provisional option", 
       rank: 1,
       value: "Mara controls every ferry departure by stealing the harbor keys.",
       recommended: true,
+      moveFamily: "reversal_pressure",
     },
     {
       id: "option-2",
       rank: 2,
       value: "Mara tells June the truth and asks her to choose the crossing.",
       recommended: false,
+      moveFamily: "relationship_pressure",
     },
     {
       id: "option-3",
       rank: 3,
       value: "Mara destroys the manifest and forces both sisters to move without proof.",
       recommended: false,
+      moveFamily: "obstacle_pressure",
     },
   ];
   const context = {
@@ -308,6 +311,37 @@ test("memory storage promotes only the explicitly selected provisional option", 
   assert.doesNotMatch(storedText, /destroys the manifest/i);
   assert.match(memory.episodicMemories[0].summary, /tells June the truth/i);
   assert.doesNotMatch(memory.episodicMemories[0].excerpt, /Option 2/i);
+  assert.equal(
+    memory.projectContinuity.questionEffectiveness[0].selectedMoveFamily,
+    "relationship_pressure"
+  );
+  assert.deepEqual(
+    memory.projectContinuity.questionEffectiveness[0].offeredMoveFamilies,
+    ["reversal_pressure", "relationship_pressure", "obstacle_pressure"]
+  );
+
+  const accepted = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-provisional-selection",
+    transcript: "Keep that version.",
+    reply: "INT. EAST FERRY DOCK - NIGHT",
+    acceptedPageText: [
+      "INT. EAST FERRY DOCK - NIGHT",
+      "",
+      "Mara puts the manifest in June's hand.",
+    ].join("\n"),
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+  });
+  assert.equal(accepted.questionAcceptedPageOutcomes, 1);
+  const afterAcceptedPage = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-provisional-selection",
+    projectId: "split-ferries",
+    query: "What kinds of story moves have worked for this screenplay?",
+  });
+  assert.equal(
+    afterAcceptedPage.projectContinuity.questionEffectiveness[0].acceptedPageCount,
+    1
+  );
 });
 
 test("confirmed story questions populate Story Spine fields across store restarts", async () => {

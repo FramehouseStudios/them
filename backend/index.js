@@ -3634,10 +3634,20 @@ function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
           0,
           Math.floor(Number(item?.blockResolutionCount ?? item?.block_resolution_count ?? 0))
         ),
+        selected_move_family: normalizeSnippet(
+          item?.selectedMoveFamily ?? item?.selected_move_family,
+          48
+        ).toLowerCase(),
+        offered_move_families: normalizeScreenplayStringList(
+          item?.offeredMoveFamilies ?? item?.offered_move_families,
+          3,
+          48
+        ),
         outcome: normalizeSnippet(item?.outcome, 48).toLowerCase(),
-      }).filter(([, fieldValue]) => (
-        typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue)
-      )));
+      }).filter(([, fieldValue]) => {
+        if (Array.isArray(fieldValue)) return fieldValue.length > 0;
+        return typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue);
+      }));
     })
     .filter(Boolean)
     .sort((left, right) => (
@@ -33778,6 +33788,7 @@ mountRealtimeTurnCommitRoute(app, {
   recordUserTalkMetrics,
   maybeRefineActiveThemesWithLLM,
   recordCreativeMemoryTriggersForRequest,
+  getCreativeMemoryForPrompt: (options) => creativeMemoryStore.getCreativeMemoryForPrompt(options),
   storeTalkTurnMeta,
   buildReadStateMeta,
   applyReadStateHeaders,
