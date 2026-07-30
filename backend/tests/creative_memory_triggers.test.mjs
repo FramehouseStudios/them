@@ -189,6 +189,55 @@ test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned s
   assert.equal(memory.episodicMemories[0].tags.includes("correction"), false);
 });
 
+test("memory storage downgrades and discards an uncertain clarification from any caller", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const question = {
+    questionId: "screenplay-learning-9-character.want",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "What does Mara want badly enough to choose danger?",
+    askedAt: 1_725_000_000_000,
+    authority: "writer_clarification",
+  };
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-rejected-learning-answer",
+    transcript: "Actually, I'm not sure. Help me brainstorm whether Mara wants freedom.",
+    reply: "Let's explore several possibilities.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: question,
+    questionInteraction: {
+      ...question,
+      responseStatus: "answered",
+      respondedAt: 1_725_000_001_000,
+    },
+  });
+
+  assert.equal(summary.learningAnswersRecorded, 0);
+  assert.equal(summary.learningAnswersPromoted, 0);
+  assert.equal(summary.episodicMemories, 0);
+  assert.equal(summary.corrections, 0);
+  assert.equal(summary.structuredCharacterBibles, 0);
+  assert.equal(summary.questionInteractionsRecorded, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-rejected-learning-answer",
+    projectId: "split-ferries",
+    query: "What does Mara want?",
+  });
+  assert.equal((memory.episodicMemories || []).length, 0);
+  assert.equal((memory.characters || []).some((item) => item.bible?.arc?.want), false);
+  const outcome = memory.projectContinuity.questionEffectiveness.find(
+    (item) => item.questionId === question.questionId
+  );
+  assert.equal(outcome.responseStatus, "declined");
+  assert.equal(outcome.outcome, "declined");
+});
+
 test("confirmed story questions populate Story Spine fields across store restarts", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });

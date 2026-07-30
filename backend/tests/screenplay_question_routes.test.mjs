@@ -167,6 +167,50 @@ test("[screenplay-question-route] promotes an explicit answer before clearing it
   });
 });
 
+test("[screenplay-question-route] downgrades an uncertain answer and never promotes it", async () => {
+  const deps = defaultDeps();
+  await withServer(deps, async (baseURL) => {
+    const result = await postResolution(baseURL, {
+      question_id: pendingQuestion.id,
+      project_id: pendingQuestion.projectId,
+      project_title: pendingQuestion.projectTitle,
+      response_status: "answered",
+      answer: "I'm not sure, give me three options instead.",
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.response_status, "declined");
+    assert.equal(result.body.learning_promoted, false);
+    assert.equal(deps._calls.creativeMemory.length, 1);
+    assert.equal(deps._calls.creativeMemory[0].transcript, "skip");
+    assert.equal(deps._calls.creativeMemory[0].learningContext, null);
+    assert.equal(
+      deps._calls.creativeMemory[0].questionInteraction.responseStatus,
+      "declined"
+    );
+    assert.deepEqual(deps._memory().pendingScreenplayLearningQuestions, []);
+  });
+});
+
+test("[screenplay-question-route] keeps a confirmation-only answer pending", async () => {
+  const deps = defaultDeps();
+  await withServer(deps, async (baseURL) => {
+    const result = await postResolution(baseURL, {
+      question_id: pendingQuestion.id,
+      project_id: pendingQuestion.projectId,
+      project_title: pendingQuestion.projectTitle,
+      response_status: "answered",
+      answer: "Exactly.",
+    });
+
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, "insufficient");
+    assert.equal(deps._calls.creativeMemory.length, 0);
+    assert.equal(deps._calls.persisted, 0);
+    assert.equal(deps._memory().pendingScreenplayLearningQuestions.length, 1);
+  });
+});
+
 test("[screenplay-question-route] records a decline without a learning promotion", async () => {
   const deps = defaultDeps();
   await withServer(deps, async (baseURL) => {

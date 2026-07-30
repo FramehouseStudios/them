@@ -499,6 +499,54 @@ test("[turn-commit] marks authoritative canon corrections for live grounding ref
   });
 });
 
+test("[turn-commit] never promotes uncertain spoken brainstorming as screenplay canon", async () => {
+  const pending = {
+    id: "screenplay-learning-6-character.want",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "What does Mara want badly enough to choose danger?",
+    askedAtTurn: 6,
+    expiresAfterTurn: 8,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveWritableMemoryContext = () => ({
+    memory: {
+      turns: 7,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "I'm not sure, help me brainstorm three options.",
+      reply: "I can give you three different engines for Mara.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.screenplay_question_resolution.response_status, "declined");
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, false);
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext,
+      null,
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
+      "declined",
+    );
+  });
+});
+
 test("[turn-commit] does not apply an ambiguous correction before the writer resolves it", async () => {
   const deps = defaultDeps({
     recordCreativeMemoryTriggersForRequest: async (_req, args) => {

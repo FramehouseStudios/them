@@ -8,7 +8,11 @@ const DIRECT_PAGE_REQUEST = /^(?:please\s+)?(?:write|draft|continue|finish|compl
 const WRITER_BLOCK_SIGNAL = /\b(?:writer'?s\s+block|writers\s+block|stuck|blocked|out\s+of\s+ideas|no\s+ideas|don'?t\s+know\s+what\s+happens\s+next|what\s+happens\s+next|where\s+do\s+i\s+go|how\s+do\s+i\s+move|story\s+forward|next\s+beat|next\s+scene|middle\s+(?:is\s+)?(?:flat|dragging|slow)|second\s+act\s+(?:is\s+)?(?:flat|dragging|slow))\b/i;
 const DEVELOPMENT_SIGNAL = /\b(?:brainstorm|develop|figure\s+out|work\s+out|plan|outline|structure|break\s+(?:the\s+)?story|character\s+arc|story\s+arc|act\s+(?:one|two|three|i|ii|iii|1|2|3)|theme|ending|motivation|want|need|wound|false\s+belief|misbelief)\b/i;
 const SCREENPLAY_SIGNAL = /\b(?:screenplay|script|scene|feature|film|movie|act|beat|character|protagonist|antagonist|dialogue|story)\b/i;
-const NON_ANSWER_SIGNAL = /^(?:i\s+don'?t\s+know|not\s+sure|no\s+idea|skip|pass|decide\s+later|let'?s\s+come\s+back|we\s+can\s+decide\s+later|you\s+decide)[.!\s]*$/i;
+const LEARNING_UNCERTAINTY_SIGNAL = /^(?:(?:well|actually|honestly|uh+|um+|h+m+|to\s+be\s+honest)\s*[,;-]?\s*)*(?:(?:i(?:['’]m| am)?\s+)?not\s+sure|i\s+don['’]?t\s+know|i\s+do\s+not\s+know|i(?:['’]m| am)\s+unsure|unsure|no\s+idea|i\s+have\s+no\s+idea|i\s+can['’]?t\s+decide|i\s+cannot\s+decide|i\s+haven['’]?t\s+decided|i\s+have\s+not\s+decided|i\s+need\s+(?:some\s+)?time\s+to\s+think|i\s+need\s+to\s+think|let\s+me\s+think|maybe|perhaps|i\s+guess|i\s+think\s+maybe)(?:\b|[\s,.!?;:])/i;
+const LEARNING_DEFERRAL_SIGNAL = /^(?:(?:well|actually|honestly|uh+|um+|h+m+|to\s+be\s+honest)\s*[,;-]?\s*)*(?:skip|let['’]?s\s+skip|pass|not\s+now|later|decide\s+later|let['’]?s\s+come\s+back(?:\s+to\s+(?:it|that|this))?|(?:can|could)\s+we\s+(?:come|circle)\s+back(?:\s+to\s+(?:it|that|this))?|we\s+can\s+decide\s+later|you\s+decide|up\s+to\s+you)(?:\b|[\s,.!?;:])/i;
+const LEARNING_IDEATION_REQUEST_SIGNAL = /\b(?:help\s+me\s+(?:decide|choose|figure\s+(?:it|that|this)\s+out|brainstorm)|give\s+me\s+(?:some\s+)?(?:ideas|options|choices)|show\s+me\s+(?:some\s+)?(?:ideas|options|choices)|brainstorm\s+(?:it|that|this|with\s+me)|what\s+(?:do|would)\s+you\s+think|pick\s+(?:one|for\s+me)|surprise\s+me)\b/i;
+const LEARNING_CONFIRMATION_ONLY_SIGNAL = /^(?:yes|yeah|yep|correct|exactly|confirmed|definitely|absolutely|no|nope|that\s+one|this\s+one|lock\s+(?:it|that)\s+in)[.!\s]*$/i;
+const LEARNING_VAGUE_SIGNAL = /^(?:whatever|anything|either|neither|both|something|same\s+as\s+before|what\s+you\s+said|whatever\s+works|i\s+don['’]?t\s+care|it\s+doesn['’]?t\s+matter|good\s+question|that['’]?s\s+a\s+good\s+question)[.!\s]*$/i;
 const STORY_SPINE_FIELD_DEFINITIONS = Object.freeze([
   ["project.protagonist_want", "protagonist_want", "protagonistWant"],
   ["project.central_question", "central_question", "centralQuestion"],
@@ -1510,6 +1514,88 @@ function buildPendingQuestionInteraction(pending, responseStatus, now) {
   };
 }
 
+export function classifyScreenplayLearningAnswer(value, {
+  targetField = "",
+} = {}) {
+  const answer = clean(value, 2_000);
+  if (!answer) {
+    return { accepted: false, status: "empty", reason: "empty", wordCount: 0 };
+  }
+  const words = answer.split(/\s+/).filter(Boolean);
+  if (words.length > 140) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "too_long_for_clarification",
+      wordCount: words.length,
+    };
+  }
+  if (LEARNING_UNCERTAINTY_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "uncertain",
+      wordCount: words.length,
+    };
+  }
+  if (LEARNING_DEFERRAL_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "deferred",
+      wordCount: words.length,
+    };
+  }
+  if (LEARNING_IDEATION_REQUEST_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "ideation_request",
+      wordCount: words.length,
+    };
+  }
+  if (DIRECT_PAGE_REQUEST.test(answer)) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "page_or_execution_request",
+      wordCount: words.length,
+    };
+  }
+  if (LEARNING_CONFIRMATION_ONLY_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "insufficient",
+      reason: "confirmation_without_value",
+      wordCount: words.length,
+    };
+  }
+  if (LEARNING_VAGUE_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "vague",
+      wordCount: words.length,
+    };
+  }
+  const looksLikeQuestion = /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer);
+  const acceptsQuestionValue = clean(targetField, 64).toLowerCase() === "project.central_question";
+  if (looksLikeQuestion && !acceptsQuestionValue) {
+    return {
+      accepted: false,
+      status: "declined",
+      reason: "question_instead_of_answer",
+      wordCount: words.length,
+    };
+  }
+  return {
+    accepted: true,
+    status: "answered",
+    reason: "substantive_answer",
+    wordCount: words.length,
+  };
+}
+
 export function resolvePendingScreenplayLearningAnswer({
   pending = null,
   transcript = "",
@@ -1543,27 +1629,31 @@ export function resolvePendingScreenplayLearningAnswer({
   if (!answer) {
     return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
   }
-  const words = answer.split(/\s+/).filter(Boolean);
-  const looksLikeQuestion = /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer);
   const targetField = clean(pending.targetField, 64);
-  const acceptsQuestionValue = targetField.toLowerCase() === "project.central_question";
-  if (
-    NON_ANSWER_SIGNAL.test(answer) ||
-    (looksLikeQuestion && !acceptsQuestionValue) ||
-    words.length > 140 ||
-    DIRECT_PAGE_REQUEST.test(answer)
-  ) {
+  const answerClassification = classifyScreenplayLearningAnswer(answer, { targetField });
+  if (!answerClassification.accepted) {
+    if (answerClassification.status === "insufficient") {
+      return {
+        status: "insufficient",
+        shouldClear: false,
+        learningContext: null,
+        interaction: null,
+        answerClassification,
+      };
+    }
     return {
       status: "declined",
       shouldClear: true,
       learningContext: null,
       interaction: buildPendingQuestionInteraction(pending, "declined", now),
+      answerClassification,
     };
   }
   return {
     status: "answered",
     shouldClear: true,
     interaction: buildPendingQuestionInteraction(pending, "answered", now),
+    answerClassification,
     learningContext: buildScreenplayLearningContext(pending, {
       projectId,
       projectTitle,
@@ -1640,10 +1730,32 @@ export function resolvePendingScreenplayLearningAction({
   if (!normalizedAnswer) {
     return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
   }
+  const answerClassification = classifyScreenplayLearningAnswer(normalizedAnswer, {
+    targetField: target.targetField,
+  });
+  if (!answerClassification.accepted) {
+    if (answerClassification.status === "insufficient") {
+      return {
+        status: "insufficient",
+        shouldClear: false,
+        learningContext: null,
+        interaction: null,
+        answerClassification,
+      };
+    }
+    return {
+      status: "declined",
+      shouldClear: true,
+      learningContext: null,
+      interaction: buildPendingQuestionInteraction(target, "declined", now),
+      answerClassification,
+    };
+  }
   return {
     status: "answered",
     shouldClear: true,
     interaction: buildPendingQuestionInteraction(target, "answered", now),
+    answerClassification,
     learningContext: buildScreenplayLearningContext(target, {
       projectId,
       projectTitle,

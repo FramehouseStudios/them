@@ -24,6 +24,7 @@ import {
   mergeTraits as mergeCharacterTraits,
 } from "./trait_library.js";
 import { isExplicitCanonCorrectionRequest } from "./screenplay_canon_guard.js";
+import { classifyScreenplayLearningAnswer } from "./screenplay_question_planner.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -3376,20 +3377,6 @@ function sanitizeScreenplayQuestionInteraction(value, {
   };
 }
 
-function isScreenplayLearningAnswerCandidate(text, { targetField = "" } = {}) {
-  const answer = cleanText(text, 2_000);
-  if (!answer) return false;
-  if (/^(?:i\s+don'?t\s+know|not\s+sure|no\s+idea|skip|pass|decide\s+later|you\s+decide)[.!\s]*$/i.test(answer)) {
-    return false;
-  }
-  if (/^(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|generate)\b/i.test(answer)) {
-    return false;
-  }
-  const acceptsQuestionValue = cleanText(targetField, 64).toLowerCase() === "project.central_question";
-  if (!acceptsQuestionValue && /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer)) return false;
-  return tokenizeMemoryText(answer).length <= 140;
-}
-
 function buildScreenplayLearningSummary({ learningContext, transcript = "" } = {}) {
   const label = cleanText(learningContext?.targetLabel, 120) || "the story choice";
   const answer = cleanText(transcript, 260);
@@ -5863,18 +5850,35 @@ function createCreativeMemoryStore({
       projectId: resolvedProjectId,
       projectTitle: resolvedProjectTitle,
     });
-    const cleanQuestionInteraction = sanitizeScreenplayQuestionInteraction(
+    const sanitizedQuestionInteraction = sanitizeScreenplayQuestionInteraction(
       questionInteraction,
       {
         projectId: resolvedProjectId,
         projectTitle: resolvedProjectTitle,
       }
     );
-    const isLearningAnswer = Boolean(
-      cleanLearningContext && isScreenplayLearningAnswerCandidate(userText, {
+    const learningAnswerClassification = cleanLearningContext
+      ? classifyScreenplayLearningAnswer(userText, {
         targetField: cleanLearningContext.targetField,
       })
+      : null;
+    const isLearningAnswer = Boolean(
+      cleanLearningContext && learningAnswerClassification?.accepted
     );
+    const rejectedLearningAnswer = Boolean(
+      (cleanLearningContext && !learningAnswerClassification?.accepted) ||
+      sanitizedQuestionInteraction?.responseStatus === "declined"
+    );
+    const cleanQuestionInteraction = (
+      rejectedLearningAnswer &&
+      sanitizedQuestionInteraction?.responseStatus === "answered"
+    )
+      ? {
+        ...sanitizedQuestionInteraction,
+        responseStatus: "declined",
+      }
+      : sanitizedQuestionInteraction;
+    const effectiveCorrectionTurn = isCorrectionTurn && !rejectedLearningAnswer;
     const learningPromotion = isLearningAnswer
       ? buildConfirmedScreenplayLearningPromotion({
         learningContext: cleanLearningContext,
@@ -5882,7 +5886,7 @@ function createCreativeMemoryStore({
       })
       : null;
     let learningPromotionProtected = false;
-    let projectCorrection = isCorrectionTurn
+    let projectCorrection = effectiveCorrectionTurn
       ? collectEpisodicCorrectionSignal({ text: userText })
       : null;
     let matchedAcceptedCanonFacts = [];
@@ -5890,7 +5894,7 @@ function createCreativeMemoryStore({
     let canonCorrectionBeforeState = null;
     let pendingWriterCanonFact = null;
     let pendingCanonCorrectionReceiptId = "";
-    let writerCanonStructuredTargets = isCorrectionTurn
+    let writerCanonStructuredTargets = effectiveCorrectionTurn
       ? extractWriterCanonStructuredTargets({ correctionText: userText })
       : [];
     const structuredCorrectionAt = nowMs();
@@ -5902,7 +5906,7 @@ function createCreativeMemoryStore({
       ].join("|"))}`
       : "";
     let correctionMemoryId = "";
-    if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
+    if (effectiveCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
       const currentRecord = await readUser(userId).catch(() => null);
       const projectCharacterNames = scopeRecordsToProject(
         Array.isArray(currentRecord?.characters) ? currentRecord.characters : [],
@@ -5963,7 +5967,7 @@ function createCreativeMemoryStore({
     const structuredReplacesFacts = matchedAcceptedCanonFacts.length
       ? matchedAcceptedCanonFacts
       : normalizeStringList(projectCorrection?.correctedTerms, 8, 220);
-    const authoritativeProjectFields = deferAmbiguousCorrection
+    const authoritativeProjectFields = deferAmbiguousCorrection || rejectedLearningAnswer
       ? []
       : buildAuthoritativeProjectFields({
         targets: writerCanonStructuredTargets,
@@ -6034,7 +6038,7 @@ function createCreativeMemoryStore({
     // Only writer text can mutate canon. Generated pages remain useful for draft continuity and voice.
     const characterDiscoveryText = isGeneratedScreenplayOutput ? combined : userText;
     const traitText = isGeneratedScreenplayOutput ? combined : userText;
-    const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
+    const storyMemoryText = isGeneratedScreenplayOutput && !effectiveCorrectionTurn
       ? combined
       : userText;
     if (cleanAcceptedPageText) {
@@ -6096,17 +6100,17 @@ function createCreativeMemoryStore({
       try {
         const traitLines = extractTraitLinesForCharacter(traitText, name);
         const traitHint = extractTraitHintForCharacter(traitText, name);
-        const traits = traitLines.length || traitHint
+        const traits = !rejectedLearningAnswer && (traitLines.length || traitHint)
           ? extractTraits({ characterName: name, lines: traitLines, hint: traitHint })
           : null;
-        let characterBible = deferAmbiguousCorrection
+        let characterBible = deferAmbiguousCorrection || rejectedLearningAnswer
           ? null
           : extractCharacterBibleDelta({
             text: userText,
             characterName: name,
-            isCorrectionTurn,
+            isCorrectionTurn: effectiveCorrectionTurn,
           });
-        const authoritativeFields = deferAmbiguousCorrection
+        const authoritativeFields = deferAmbiguousCorrection || rejectedLearningAnswer
           ? []
           : buildAuthoritativeCharacterFields({
             character: name,
@@ -6290,7 +6294,7 @@ function createCreativeMemoryStore({
       (isGeneratedScreenplayOutput ? firstMemoryMoment(assistantText) : "");
     if (
       (isLearningAnswer && !learningPromotionProtected) ||
-      (!isLearningAnswer && isStoryMemoryCandidate({
+      (!isLearningAnswer && !rejectedLearningAnswer && isStoryMemoryCandidate({
         transcript: userText,
         reply: isGeneratedScreenplayOutput ? assistantText : "",
         projectId: cleanProjectId,
@@ -6312,10 +6316,10 @@ function createCreativeMemoryStore({
           moment,
           projectTitle: cleanProjectTitle,
           transcript: userText,
-          isCorrection: isCorrectionTurn,
+          isCorrection: effectiveCorrectionTurn,
         });
       try {
-        const correctionSignal = isCorrectionTurn
+        const correctionSignal = effectiveCorrectionTurn
           ? mergeCorrectionSignals(
             projectCorrection,
             collectEpisodicCorrectionSignal({
@@ -6360,9 +6364,9 @@ function createCreativeMemoryStore({
         });
         if (receipt?.ok) summary.episodicMemories += 1;
         if (receipt?.ok && isLearningAnswer) summary.learningAnswersRecorded += 1;
-        if (receipt?.ok && isCorrectionTurn) correctionMemoryId = cleanText(receipt.memoryId, 80);
+        if (receipt?.ok && effectiveCorrectionTurn) correctionMemoryId = cleanText(receipt.memoryId, 80);
         if (receipt?.ok && acceptedOutput) summary.acceptedPagesRecorded += 1;
-        if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;
+        if (receipt?.ok && effectiveCorrectionTurn) summary.corrections += 1;
       } catch (_e) { /* never block the response on memory writes */ }
     }
 

@@ -3,9 +3,11 @@ import { test } from "node:test";
 
 import {
   buildScreenplayQuestionPlan,
+  classifyScreenplayLearningAnswer,
   createPendingScreenplayLearningQuestion,
   enforceScreenplayQuestionPlan,
   removePendingScreenplayLearningQuestion,
+  resolvePendingScreenplayLearningAction,
   resolvePendingScreenplayLearningAnswer,
   sanitizePendingScreenplayLearningQuestions,
   selectPendingScreenplayLearningQuestion,
@@ -1171,6 +1173,103 @@ test("a central dramatic question remains a valid structured learning answer", (
   assert.equal(resolution.status, "answered");
   assert.equal(resolution.learningContext.targetField, "project.central_question");
   assert.equal(resolution.learningContext.authority, "writer_clarification");
+});
+
+test("learning-answer classification rejects uncertainty and ideation without rejecting real answers", () => {
+  const rejected = [
+    ["I'm not sure, give me three options.", "uncertain"],
+    ["Actually, I haven't decided yet.", "uncertain"],
+    ["Honestly, I need to think about it.", "uncertain"],
+    ["Can we come back to that?", "deferred"],
+    ["Let's skip this for now.", "deferred"],
+    ["Help me brainstorm that with a few choices.", "ideation_request"],
+    ["Whatever works.", "vague"],
+    ["Write the next scene instead.", "page_or_execution_request"],
+  ];
+  for (const [answer, reason] of rejected) {
+    const result = classifyScreenplayLearningAnswer(answer, {
+      targetField: "character.want",
+    });
+    assert.equal(result.accepted, false, answer);
+    assert.equal(result.status, "declined", answer);
+    assert.equal(result.reason, reason, answer);
+  }
+
+  const freedom = classifyScreenplayLearningAnswer("Freedom.", {
+    targetField: "character.want",
+  });
+  assert.equal(freedom.accepted, true);
+  assert.equal(freedom.status, "answered");
+
+  const centralQuestion = classifyScreenplayLearningAnswer(
+    "Can Mara expose the truth without becoming her father?",
+    { targetField: "project.central_question" }
+  );
+  assert.equal(centralQuestion.accepted, true);
+});
+
+test("uncertain spoken replies clear the question without becoming learned canon", () => {
+  const pending = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "What does Mara want badly enough to choose danger?",
+  }, { askedAtTurn: 12, now: 1_000 });
+  const resolution = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "I'm not sure, help me brainstorm three possibilities.",
+    projectId: "split-ferries",
+    currentTurn: 13,
+    now: 2_000,
+  });
+
+  assert.equal(resolution.status, "declined");
+  assert.equal(resolution.shouldClear, true);
+  assert.equal(resolution.learningContext, null);
+  assert.equal(resolution.answerClassification.reason, "uncertain");
+  assert.equal(resolution.interaction.responseStatus, "declined");
+});
+
+test("confirmation without a value keeps the pending question unresolved", () => {
+  const pending = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.theme_argument",
+    targetLabel: "the theme argument",
+    anchor: "Split Ferries",
+    question: "What does the feature argue about love and control?",
+  }, { askedAtTurn: 12, now: 1_000 });
+  const spoken = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "Yes.",
+    projectId: "split-ferries",
+    currentTurn: 13,
+    now: 2_000,
+  });
+  const explicit = resolvePendingScreenplayLearningAction({
+    pending,
+    responseStatus: "answered",
+    answer: "Exactly.",
+    projectId: "split-ferries",
+    currentTurn: 13,
+    now: 2_000,
+  });
+
+  for (const resolution of [spoken, explicit]) {
+    assert.equal(resolution.status, "insufficient");
+    assert.equal(resolution.shouldClear, false);
+    assert.equal(resolution.learningContext, null);
+    assert.equal(
+      resolution.answerClassification.reason,
+      "confirmation_without_value"
+    );
+  }
 });
 
 test("an answered learning question is applied before Clementine asks another one", () => {
