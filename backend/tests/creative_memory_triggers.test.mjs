@@ -238,6 +238,78 @@ test("memory storage downgrades and discards an uncertain clarification from any
   assert.equal(outcome.outcome, "declined");
 });
 
+test("memory storage promotes only the explicitly selected provisional option", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const options = [
+    {
+      id: "option-1",
+      rank: 1,
+      value: "Mara controls every ferry departure by stealing the harbor keys.",
+      recommended: true,
+    },
+    {
+      id: "option-2",
+      rank: 2,
+      value: "Mara tells June the truth and asks her to choose the crossing.",
+      recommended: false,
+    },
+    {
+      id: "option-3",
+      rank: 3,
+      value: "Mara destroys the manifest and forces both sisters to move without proof.",
+      recommended: false,
+    },
+  ];
+  const context = {
+    questionId: "screenplay-options-14-character.current_tactic",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.current_tactic",
+    targetLabel: "Mara's Act II tactic",
+    anchor: "Mara",
+    question: "Which path should become true: Option 1, 2, or 3?",
+    actKey: "act2",
+    sequenceKey: "midpoint",
+    authority: "writer_clarification",
+    provisionalOptions: options,
+    selectedOptionId: "option-2",
+    selectedOptionRank: 2,
+    askedAt: 1_725_000_000_000,
+  };
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-provisional-selection",
+    transcript: "Option 2.",
+    reply: "Then the midpoint turns on June's agency, not Mara's control.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: context,
+    questionInteraction: {
+      ...context,
+      responseStatus: "answered",
+      respondedAt: 1_725_000_001_000,
+    },
+  });
+
+  assert.equal(summary.learningAnswersRecorded, 1);
+  assert.equal(summary.learningAnswersPromoted, 1);
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-provisional-selection",
+    projectId: "split-ferries",
+    query: "What is Mara's tactic at the midpoint?",
+  });
+  const mara = memory.characters.find((item) => item.name === "Mara");
+  assert.equal(
+    mara.bible.arc.currentTactic,
+    "Mara tells June the truth and asks her to choose the crossing"
+  );
+  const storedText = JSON.stringify(memory);
+  assert.doesNotMatch(storedText, /stealing the harbor keys/i);
+  assert.doesNotMatch(storedText, /destroys the manifest/i);
+  assert.match(memory.episodicMemories[0].summary, /tells June the truth/i);
+  assert.doesNotMatch(memory.episodicMemories[0].excerpt, /Option 2/i);
+});
+
 test("confirmed story questions populate Story Spine fields across store restarts", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });

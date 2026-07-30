@@ -33317,6 +33317,12 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
         target_field: sessionPendingScreenplayQuestion.targetField,
         target_label: sessionPendingScreenplayQuestion.targetLabel,
         question: sessionPendingScreenplayQuestion.question,
+        provisional_options: sessionPendingScreenplayQuestion.provisionalOptions.map((option) => ({
+          id: option.id,
+          rank: option.rank,
+          value: option.value,
+          recommended: option.recommended,
+        })),
         asked_at: Math.max(0, Number(sessionPendingScreenplayQuestion.askedAt || 0)) || null,
       }
     : null;

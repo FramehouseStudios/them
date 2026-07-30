@@ -23,10 +23,10 @@ const pendingQuestion = {
   askedAt: 1_725_000_000_000,
 };
 
-function defaultDeps(overrides = {}) {
+function defaultDeps(overrides = {}, initialQuestion = pendingQuestion) {
   let storedMemory = {
     turns: 5,
-    pendingScreenplayLearningQuestions: [pendingQuestion],
+    pendingScreenplayLearningQuestions: [initialQuestion],
   };
   const calls = {
     creativeMemory: [],
@@ -167,7 +167,7 @@ test("[screenplay-question-route] promotes an explicit answer before clearing it
   });
 });
 
-test("[screenplay-question-route] downgrades an uncertain answer and never promotes it", async () => {
+test("[screenplay-question-route] preserves an uncertain question for option generation", async () => {
   const deps = defaultDeps();
   await withServer(deps, async (baseURL) => {
     const result = await postResolution(baseURL, {
@@ -179,14 +179,66 @@ test("[screenplay-question-route] downgrades an uncertain answer and never promo
     });
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.response_status, "declined");
+    assert.equal(result.body.status, "awaiting_options");
+    assert.equal(result.body.response_status, "provisional_options");
+    assert.equal(result.body.option_generation_required, true);
     assert.equal(result.body.learning_promoted, false);
+    assert.equal(deps._calls.creativeMemory.length, 0);
+    assert.equal(deps._calls.persisted, 0);
+    assert.equal(deps._memory().pendingScreenplayLearningQuestions.length, 1);
+  });
+});
+
+test("[screenplay-question-route] promotes only an explicitly selected provisional option", async () => {
+  const provisionalQuestion = {
+    ...pendingQuestion,
+    id: "screenplay-options-5-project.theme_argument",
+    question: "Which path should become true: Option 1, 2, or 3?",
+    provisionalOptions: [
+      {
+        id: "option-1",
+        rank: 1,
+        value: "Love without trust becomes control.",
+        recommended: true,
+      },
+      {
+        id: "option-2",
+        rank: 2,
+        value: "Love requires risking the truth even when it may cost the relationship.",
+        recommended: false,
+      },
+      {
+        id: "option-3",
+        rank: 3,
+        value: "Protection becomes abandonment when it denies another person's agency.",
+        recommended: false,
+      },
+    ],
+  };
+  const deps = defaultDeps({}, provisionalQuestion);
+  await withServer(deps, async (baseURL) => {
+    const result = await postResolution(baseURL, {
+      question_id: provisionalQuestion.id,
+      project_id: provisionalQuestion.projectId,
+      project_title: provisionalQuestion.projectTitle,
+      response_status: "answered",
+      answer: "Option 2.",
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.response_status, "answered");
+    assert.equal(result.body.selected_option_id, "option-2");
+    assert.equal(result.body.selected_option_rank, 2);
+    assert.equal(result.body.learning_promoted, true);
     assert.equal(deps._calls.creativeMemory.length, 1);
-    assert.equal(deps._calls.creativeMemory[0].transcript, "skip");
-    assert.equal(deps._calls.creativeMemory[0].learningContext, null);
+    assert.equal(deps._calls.creativeMemory[0].transcript, "Option 2.");
     assert.equal(
-      deps._calls.creativeMemory[0].questionInteraction.responseStatus,
-      "declined"
+      deps._calls.creativeMemory[0].learningContext.selectedOptionId,
+      "option-2"
+    );
+    assert.equal(
+      deps._calls.creativeMemory[0].learningContext.provisionalOptions.length,
+      3
     );
     assert.deepEqual(deps._memory().pendingScreenplayLearningQuestions, []);
   });

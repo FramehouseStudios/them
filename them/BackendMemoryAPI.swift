@@ -1484,7 +1484,15 @@ nonisolated struct BackendPendingScreenplayQuestion: Decodable, Equatable {
     let targetField: String
     let targetLabel: String
     let question: String
+    let provisionalOptions: [BackendPendingScreenplayOption]?
     let askedAt: TimeInterval?
+}
+
+nonisolated struct BackendPendingScreenplayOption: Decodable, Equatable, Identifiable {
+    let id: String
+    let rank: Int
+    let value: String
+    let recommended: Bool
 }
 
 nonisolated struct BackendScreenplayQuestionResolutionResponse: Decodable, Equatable {
@@ -1494,6 +1502,9 @@ nonisolated struct BackendScreenplayQuestionResolutionResponse: Decodable, Equat
     let questionId: String
     let responseStatus: String
     let targetField: String?
+    let selectedOptionId: String?
+    let selectedOptionRank: Int?
+    let optionGenerationRequired: Bool?
     let learningPromoted: Bool?
     let correctionProtected: Bool?
     let sessionId: String?

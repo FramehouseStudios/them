@@ -101,6 +101,44 @@ test("[realtime-client-secret] oversized memory stays bounded without losing que
   assert.match(instructions, /<\/realtime_project_grounding>$/);
 });
 
+test("[realtime-client-secret] screenplay uncertainty stays provisional until an explicit option selection", () => {
+  const initial = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    pendingQuestion: {
+      id: "question-tactic",
+      targetField: "character.current_tactic",
+      targetLabel: "Mara's Act II tactic",
+      question: "What tactic does Mara keep using after it starts failing?",
+      actKey: "act2",
+      sequenceKey: "midpoint",
+    },
+    projectId: "project-a",
+  });
+  assert.match(initial, /exactly three mutually exclusive, canon-compatible choices/i);
+  assert.match(initial, /Option 1 \(recommended\)/);
+  assert.match(initial, /Keep all three provisional/i);
+
+  const choosing = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    pendingQuestion: {
+      id: "question-tactic-options",
+      targetField: "character.current_tactic",
+      targetLabel: "Mara's Act II tactic",
+      question: "Which path should become true: Option 1, 2, or 3?",
+      provisionalOptions: [
+        { id: "option-1", rank: 1, value: "Mara steals the harbor keys." },
+        { id: "option-2", rank: 2, value: "Mara tells June the truth." },
+        { id: "option-3", rank: 3, value: "Mara destroys the manifest." },
+      ],
+    },
+    projectId: "project-a",
+  });
+  assert.match(choosing, /provisional_option_1: Mara steals the harbor keys/);
+  assert.match(choosing, /provisional_option_2: Mara tells June the truth/);
+  assert.match(choosing, /proposals, not canon/i);
+  assert.match(choosing, /explicitly selects one/i);
+});
+
 test("[realtime-client-secret] mount fails without Express app", () => {
   assert.throws(() => mountRealtimeClientSecretRoute(null, defaultDeps()));
 });

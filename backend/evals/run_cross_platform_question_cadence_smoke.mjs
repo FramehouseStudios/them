@@ -141,6 +141,7 @@ function assertRestoredSessionQuestion(identity, expected) {
       "id",
       "project_id",
       "project_title",
+      "provisional_options",
       "question",
       "target_field",
       "target_label",
@@ -152,6 +153,30 @@ function assertRestoredSessionQuestion(identity, expected) {
   assert.equal(pending.project_title, expected.projectTitle);
   assert.equal(pending.target_field, expected.targetField);
   assert.equal(pending.question, expected.question);
+  assert.ok(
+    Array.isArray(pending.provisional_options),
+    "Session restore provisional options must be an array."
+  );
+  assert.ok(
+    pending.provisional_options.length <= 3,
+    "Session restore exposed more than three provisional options."
+  );
+  for (const option of pending.provisional_options) {
+    assert.deepEqual(
+      Object.keys(option).sort(),
+      ["id", "rank", "recommended", "value"],
+      "A provisional option exposed fields outside its content-safe contract."
+    );
+    assert.match(option.id, /^option-[123]$/);
+    assert.ok(Number.isInteger(option.rank) && option.rank >= 1 && option.rank <= 3);
+    assert.ok(typeof option.recommended === "boolean");
+    assert.ok(
+      typeof option.value === "string" &&
+      option.value.length > 0 &&
+      option.value.length <= 360,
+      "A provisional option exceeded its bounded story-choice contract."
+    );
+  }
 }
 
 async function assertMacCanRestoreProjects(server, identity) {

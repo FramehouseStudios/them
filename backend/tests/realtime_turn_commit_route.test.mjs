@@ -499,7 +499,7 @@ test("[turn-commit] marks authoritative canon corrections for live grounding ref
   });
 });
 
-test("[turn-commit] never promotes uncertain spoken brainstorming as screenplay canon", async () => {
+test("[turn-commit] turns uncertain spoken brainstorming into provisional options", async () => {
   const pending = {
     id: "screenplay-learning-6-character.want",
     projectId: "split-ferries",
@@ -525,7 +525,13 @@ test("[turn-commit] never promotes uncertain spoken brainstorming as screenplay 
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, {
       transcript: "I'm not sure, help me brainstorm three options.",
-      reply: "I can give you three different engines for Mara.",
+      reply: [
+        "Option 1 (recommended): Mara steals the ferry key so June must follow her plan.",
+        "Option 2: Mara tells June the truth and asks her to choose the crossing.",
+        "Option 3: Mara burns the manifest, forcing both sisters to move without proof.",
+        "",
+        "Which path should become true: Option 1, 2, or 3?",
+      ].join("\n"),
       studio: {
         screenplayProjectId: "split-ferries",
         screenplayProjectTitle: "Split Ferries",
@@ -533,16 +539,88 @@ test("[turn-commit] never promotes uncertain spoken brainstorming as screenplay 
     });
 
     assert.equal(r.status, 201);
-    assert.equal(r.body.screenplay_question_resolution.response_status, "declined");
+    assert.equal(
+      r.body.screenplay_question_resolution.response_status,
+      "provisional_options"
+    );
     assert.equal(r.body.screenplay_question_resolution.learning_promoted, false);
+    assert.equal(r.body.screenplay_question_resolution.provisional_options.length, 3);
     assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "screenplay_options_proposed");
     assert.equal(
       deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext,
       null,
     );
     assert.equal(
-      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
-      "declined",
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction,
+      null,
+    );
+    const persisted = deps._calls.persistWritableMemoryContext.at(-1).nextMem;
+    assert.equal(persisted.pendingScreenplayLearningQuestions.length, 1);
+    assert.equal(
+      persisted.pendingScreenplayLearningQuestions[0].provisionalOptions[1].value,
+      "Mara tells June the truth and asks her to choose the crossing."
+    );
+  });
+});
+
+test("[turn-commit] promotes only the explicit realtime option selection", async () => {
+  const pending = {
+    id: "screenplay-options-7-character.want",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "Which path should become true: Option 1, 2, or 3?",
+    provisionalOptions: [
+      { id: "option-1", rank: 1, value: "Mara wants control of every crossing.", recommended: true },
+      { id: "option-2", rank: 2, value: "Mara wants June to choose her freely.", recommended: false },
+      { id: "option-3", rank: 3, value: "Mara wants to expose the ferry board.", recommended: false },
+    ],
+    askedAtTurn: 7,
+    expiresAfterTurn: 9,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveWritableMemoryContext = () => ({
+    memory: {
+      turns: 8,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+  deps.recordCreativeMemoryTriggersForRequest = async (_req, args) => {
+    deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+    return {
+      skipped: false,
+      learningAnswersPromoted: args.learningContext ? 1 : 0,
+    };
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Let's go with option 2.",
+      reply: "Then Mara's desire is no longer rescue at any cost. It is being chosen without force.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.screenplay_question_resolution.response_status, "answered");
+    assert.equal(r.body.screenplay_question_resolution.selected_option_id, "option-2");
+    assert.equal(r.body.screenplay_question_resolution.selected_option_rank, 2);
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, true);
+    const write = deps._calls.recordCreativeMemoryTriggersForRequest[0];
+    assert.equal(write.learningContext.selectedOptionId, "option-2");
+    assert.equal(write.learningContext.provisionalOptions.length, 3);
+    assert.equal(
+      deps._calls.persistWritableMemoryContext.at(-1).nextMem
+        .pendingScreenplayLearningQuestions.length,
+      0
     );
   });
 });

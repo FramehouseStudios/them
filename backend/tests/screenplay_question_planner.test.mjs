@@ -5,8 +5,11 @@ import {
   buildScreenplayQuestionPlan,
   classifyScreenplayLearningAnswer,
   createPendingScreenplayLearningQuestion,
+  createProvisionalScreenplayOptionQuestion,
   enforceScreenplayQuestionPlan,
+  extractProvisionalScreenplayOptions,
   removePendingScreenplayLearningQuestion,
+  resolveProvisionalScreenplayOptionSelection,
   resolvePendingScreenplayLearningAction,
   resolvePendingScreenplayLearningAnswer,
   sanitizePendingScreenplayLearningQuestions,
@@ -1208,7 +1211,7 @@ test("learning-answer classification rejects uncertainty and ideation without re
   assert.equal(centralQuestion.accepted, true);
 });
 
-test("uncertain spoken replies clear the question without becoming learned canon", () => {
+test("uncertain spoken replies request provisional options without resolving canon", () => {
   const pending = createPendingScreenplayLearningQuestion({
     active: true,
     shouldAsk: true,
@@ -1227,11 +1230,138 @@ test("uncertain spoken replies clear the question without becoming learned canon
     now: 2_000,
   });
 
-  assert.equal(resolution.status, "declined");
-  assert.equal(resolution.shouldClear, true);
+  assert.equal(resolution.status, "provisional_options");
+  assert.equal(resolution.shouldClear, false);
   assert.equal(resolution.learningContext, null);
   assert.equal(resolution.answerClassification.reason, "uncertain");
-  assert.equal(resolution.interaction.responseStatus, "declined");
+  assert.equal(resolution.interaction, null);
+});
+
+test("provisional option planning is ranked, act-aware, and selection-gated", () => {
+  const pending = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.current_tactic",
+    targetLabel: "Mara's failing Act II tactic",
+    anchor: "Mara",
+    question: "What tactic does Mara keep using after it starts hurting June?",
+    actContext: { key: "act2" },
+    sequenceContext: { key: "midpoint" },
+  }, { askedAtTurn: 12, now: 1_000 });
+  const resolution = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "I'm not sure. Help me brainstorm three options.",
+    projectId: "split-ferries",
+    currentTurn: 13,
+    now: 2_000,
+  });
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "I'm not sure. Help me brainstorm three options.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act II",
+        feature_sequence: "Sequence 4: Midpoint Reversal",
+        protagonist_want: "Mara wants to save June.",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Sequence 4: Midpoint Reversal",
+    },
+    turnPlanner: { intent: "idea_development" },
+    pendingLearningQuestion: pending,
+    pendingLearningResolution: resolution,
+  });
+
+  assert.equal(plan.mode, "provisional_options");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.optionCount, 3);
+  assert.equal(plan.questionStrategy, "provisional_ranked_choice");
+  assert.equal(plan.actContext.label, "Act II");
+  assert.match(plan.sequenceContext.label, /Midpoint/i);
+  assert.match(plan.objective, /Option 1 must be your strongest recommendation/i);
+  assert.match(plan.objective, /character and emotional reversal/i);
+  assert.match(plan.objective, /Option 1 \(recommended\):[^\n]+\nOption 2:[^\n]+\nOption 3:/i);
+  assert.match(plan.objective, /Treat all three as provisional/i);
+  assert.match(plan.question, /Option 1, 2, or 3/i);
+  assert.equal(
+    createPendingScreenplayLearningQuestion(plan, {
+      askedAtTurn: 13,
+      provisionalOptions: [],
+    }),
+    null,
+    "An incomplete provider response must not replace the original question with an empty choice set."
+  );
+});
+
+test("provisional options parse and only the explicit selected value becomes learnable", () => {
+  const options = extractProvisionalScreenplayOptions([
+    "Option 1 (recommended): Mara forges June's signature to force the crossing.",
+    "Option 2: Mara tells Eli the truth and asks him to betray the ferry board.",
+    "Option 3: Mara destroys the manifest so June must choose without proof.",
+    "",
+    "Which option should become true?",
+  ].join("\n"));
+  assert.equal(options.length, 3);
+  assert.equal(options[0].recommended, true);
+  assert.match(options[1].value, /tells Eli the truth/i);
+  assert.equal(
+    resolveProvisionalScreenplayOptionSelection("Let's go with option 2.", options)?.rank,
+    2
+  );
+  assert.equal(
+    resolveProvisionalScreenplayOptionSelection("Option 1 or option 2.", options),
+    null
+  );
+
+  const pending = createProvisionalScreenplayOptionQuestion({
+    id: "screenplay-learning-12-character.current_tactic",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.current_tactic",
+    targetLabel: "Mara's failing tactic",
+    anchor: "Mara",
+    question: "What tactic keeps failing?",
+    actKey: "act2",
+    sequenceKey: "midpoint",
+    askedAtTurn: 12,
+    expiresAfterTurn: 14,
+    askedAt: 1_000,
+  }, options, { askedAtTurn: 13, now: 2_000 });
+  const selected = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "Option 2.",
+    projectId: "split-ferries",
+    currentTurn: 14,
+    now: 3_000,
+  });
+
+  assert.equal(selected.status, "answered");
+  assert.equal(selected.shouldClear, true);
+  assert.equal(selected.answerClassification.selectedOptionId, "option-2");
+  assert.equal(selected.learningContext.selectedOptionRank, 2);
+  assert.equal(selected.learningContext.provisionalOptions.length, 3);
+  const orphanReference = classifyScreenplayLearningAnswer("Option 2.", {
+    targetField: "character.current_tactic",
+  });
+  assert.equal(orphanReference.accepted, false);
+  assert.equal(orphanReference.reason, "option_reference_without_context");
+  for (const orphanPhrase of [
+    "Let's go with option 2.",
+    "I'll choose the first option.",
+    "The third one, please.",
+  ]) {
+    const orphanChoice = classifyScreenplayLearningAnswer(orphanPhrase, {
+      targetField: "character.current_tactic",
+    });
+    assert.equal(orphanChoice.accepted, false, orphanPhrase);
+    assert.equal(orphanChoice.reason, "option_reference_without_context", orphanPhrase);
+  }
 });
 
 test("confirmation without a value keeps the pending question unresolved", () => {

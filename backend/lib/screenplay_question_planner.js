@@ -13,6 +13,9 @@ const LEARNING_DEFERRAL_SIGNAL = /^(?:(?:well|actually|honestly|uh+|um+|h+m+|to\
 const LEARNING_IDEATION_REQUEST_SIGNAL = /\b(?:help\s+me\s+(?:decide|choose|figure\s+(?:it|that|this)\s+out|brainstorm)|give\s+me\s+(?:some\s+)?(?:ideas|options|choices)|show\s+me\s+(?:some\s+)?(?:ideas|options|choices)|brainstorm\s+(?:it|that|this|with\s+me)|what\s+(?:do|would)\s+you\s+think|pick\s+(?:one|for\s+me)|surprise\s+me)\b/i;
 const LEARNING_CONFIRMATION_ONLY_SIGNAL = /^(?:yes|yeah|yep|correct|exactly|confirmed|definitely|absolutely|no|nope|that\s+one|this\s+one|lock\s+(?:it|that)\s+in)[.!\s]*$/i;
 const LEARNING_VAGUE_SIGNAL = /^(?:whatever|anything|either|neither|both|something|same\s+as\s+before|what\s+you\s+said|whatever\s+works|i\s+don['’]?t\s+care|it\s+doesn['’]?t\s+matter|good\s+question|that['’]?s\s+a\s+good\s+question)[.!\s]*$/i;
+const LEARNING_OPTION_REFERENCE_SIGNAL = /^(?:(?:i(?:['’]ll| will)?|let(?:['’]s| us)|we(?:['’]ll| will)?)\s+)?(?:(?:pick|choose|want|take|prefer|like|use|go\s+with)\s+)?(?:the\s+)?(?:(?:option|number)\s*)?(?:1|2|3|one|two|three|first|second|third)(?:\s+(?:one|option))?(?:\s*,?\s*please)?[.!\s]*$/i;
+const PROVISIONAL_SCREENPLAY_OPTION_COUNT = 3;
+const PROVISIONAL_SCREENPLAY_OPTION_MAX_CHARS = 360;
 const STORY_SPINE_FIELD_DEFINITIONS = Object.freeze([
   ["project.protagonist_want", "protagonist_want", "protagonistWant"],
   ["project.central_question", "central_question", "centralQuestion"],
@@ -1082,12 +1085,47 @@ function fallbackChoiceGap({ protagonistName, projectName }) {
   });
 }
 
+function shouldOfferProvisionalOptions(resolution) {
+  const reason = clean(resolution?.answerClassification?.reason, 64);
+  return resolution?.status === "provisional_options" ||
+    reason === "uncertain" ||
+    reason === "ideation_request";
+}
+
+function buildProvisionalOptionSelectionQuestion(pending) {
+  const label = clean(pending?.targetLabel, 120) || "this story choice";
+  return clean(
+    `Which path should become true for ${label}: Option 1, 2, or 3?`,
+    260
+  );
+}
+
+function buildProvisionalOptionObjective(pending, actContext, sequenceContext) {
+  const label = clean(pending?.targetLabel, 120) || "the unresolved story choice";
+  const actLabel = actContext?.key === "unknown" ? "the current act" : actContext.label;
+  const sequenceLabel = sequenceContext?.key === "unknown"
+    ? "the current sequence"
+    : sequenceContext.label;
+  const sequenceDirective = sequenceExecutionDirective(sequenceContext);
+  return [
+    `Give exactly three mutually exclusive, canon-compatible choices for ${label}, ranked for ${actLabel} / ${sequenceLabel}.`,
+    "Option 1 must be your strongest recommendation: the choice with the clearest causal pressure and feature-length consequences.",
+    "Option 2 must prioritize character and emotional reversal. Option 3 must be the boldest credible complication or payoff path.",
+    "Use exactly these three newline-delimited labels:\nOption 1 (recommended): <one complete story fact>\nOption 2: <one complete story fact>\nOption 3: <one complete story fact>",
+    "After each option line, you may add one short consequence sentence, but never present any option as remembered or decided.",
+    "Treat all three as provisional. Do not save, assume, or write forward from one until the writer explicitly chooses it.",
+    sequenceDirective.trim(),
+  ].filter(Boolean).join(" ");
+}
+
 export function buildScreenplayQuestionPlan({
   transcript = "",
   creativeMemoryTrace = null,
   studioMeta = null,
   turnPlanner = null,
   answeredLearningContext = null,
+  pendingLearningQuestion = null,
+  pendingLearningResolution = null,
   now = Date.now(),
 } = {}) {
   const text = clean(transcript, 4_000);
@@ -1134,6 +1172,44 @@ export function buildScreenplayQuestionPlan({
       reason: "The writer requested pages or a concrete rewrite; questions must not block execution.",
       projectId,
       projectTitle,
+    };
+  }
+
+  const provisionalPending = sanitizePendingScreenplayLearningQuestion(
+    pendingLearningQuestion
+  );
+  if (
+    provisionalPending &&
+    shouldOfferProvisionalOptions(pendingLearningResolution)
+  ) {
+    const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
+    const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
+    return {
+      active: true,
+      mode: "provisional_options",
+      shouldAsk: true,
+      askAfterDeliverable: true,
+      reason: "The writer asked Clementine to help decide instead of confirming a story fact.",
+      objective: buildProvisionalOptionObjective(
+        provisionalPending,
+        actContext,
+        sequenceContext
+      ),
+      projectId: provisionalPending.projectId || projectId,
+      projectTitle: provisionalPending.projectTitle || projectTitle,
+      targetField: provisionalPending.targetField,
+      targetLabel: provisionalPending.targetLabel,
+      anchor: provisionalPending.anchor,
+      question: buildProvisionalOptionSelectionQuestion(provisionalPending),
+      originalQuestion: provisionalPending.question,
+      memoryAuthority: "writer_clarification",
+      writerBlocked: true,
+      targetFieldStatus: "unknown",
+      actContext,
+      sequenceContext,
+      questionStrategy: "provisional_ranked_choice",
+      provisionalChoice: true,
+      optionCount: PROVISIONAL_SCREENPLAY_OPTION_COUNT,
     };
   }
 
@@ -1365,11 +1441,119 @@ export function buildScreenplayQuestionPlan({
   };
 }
 
+export function sanitizeProvisionalScreenplayOptions(values) {
+  const source = Array.isArray(values) ? values : [];
+  const byRank = new Map();
+  for (const value of source) {
+    const rank = Math.floor(Number(value?.rank ?? value?.option ?? value?.id));
+    const optionValue = clean(
+      value?.value ?? value?.text ?? value?.choice,
+      PROVISIONAL_SCREENPLAY_OPTION_MAX_CHARS
+    );
+    if (
+      rank < 1 ||
+      rank > PROVISIONAL_SCREENPLAY_OPTION_COUNT ||
+      !optionValue ||
+      byRank.has(rank)
+    ) {
+      continue;
+    }
+    byRank.set(rank, {
+      id: `option-${rank}`,
+      rank,
+      value: optionValue,
+      recommended: rank === 1,
+    });
+  }
+  const options = [...byRank.values()].sort((left, right) => left.rank - right.rank);
+  const complete = options.length === PROVISIONAL_SCREENPLAY_OPTION_COUNT &&
+    options.every((option, index) => option.rank === index + 1);
+  return complete ? options : [];
+}
+
+export function extractProvisionalScreenplayOptions(value) {
+  const lines = String(value || "").split(/\r?\n/);
+  const options = [];
+  for (const rawLine of lines) {
+    const line = rawLine
+      .trim()
+      .replace(/^[-*]\s+/, "")
+      .replace(/[*_`]/g, "")
+      .trim();
+    const match = line.match(
+      /^(?:option\s*)?([123])\s*(?:\(\s*recommended\s*\))?\s*[:.)-]\s*(.+)$/i
+    );
+    if (!match) continue;
+    const rank = Number(match[1]);
+    const optionValue = clean(
+      match[2].replace(
+        /\s+(?:why\s+now|why\s+it\s+works|consequence|tradeoff)\s*:\s*.*$/i,
+        ""
+      ),
+      PROVISIONAL_SCREENPLAY_OPTION_MAX_CHARS
+    );
+    if (!optionValue) continue;
+    options.push({ rank, value: optionValue });
+  }
+  return sanitizeProvisionalScreenplayOptions(options);
+}
+
+export function resolveProvisionalScreenplayOptionSelection(value, options) {
+  const available = sanitizeProvisionalScreenplayOptions(options);
+  const answer = clean(value, 500);
+  if (!available.length || !answer) return null;
+  const words = answer.split(/\s+/).filter(Boolean);
+  if (
+    words.length > 14 ||
+    /\b(?:but|except|change|modify|rewrite|different|instead|only\s+if)\b/i.test(answer)
+  ) {
+    return null;
+  }
+
+  const normalized = answer.toLowerCase();
+  const ranks = new Set();
+  const digitOrWord = /\b(?:option|number)\s*(1|2|3|one|two|three)\b/g;
+  for (const match of normalized.matchAll(digitOrWord)) {
+    ranks.add({ one: 1, two: 2, three: 3 }[match[1]] || Number(match[1]));
+  }
+  const ordinal = /\b(first|second|third)\s+(?:one|option)\b/g;
+  for (const match of normalized.matchAll(ordinal)) {
+    ranks.add({ first: 1, second: 2, third: 3 }[match[1]]);
+  }
+  if (!ranks.size) {
+    const bare = normalized
+      .replace(/[.!]/g, "")
+      .trim()
+      .match(/^(?:1|2|3|one|two|three|first|second|third)$/);
+    if (bare) {
+      ranks.add({
+        one: 1,
+        two: 2,
+        three: 3,
+        first: 1,
+        second: 2,
+        third: 3,
+      }[bare[0]] || Number(bare[0]));
+    }
+  }
+  if (ranks.size !== 1) return null;
+  const [rank] = ranks;
+  return available.find((option) => option.rank === rank) || null;
+}
+
 export function createPendingScreenplayLearningQuestion(plan, {
   askedAtTurn = 0,
   now = Date.now(),
+  provisionalOptions = [],
 } = {}) {
   if (!plan?.active || !plan?.shouldAsk || !clean(plan?.question, 260)) return null;
+  const safeProvisionalOptions = sanitizeProvisionalScreenplayOptions(provisionalOptions);
+  if (
+    plan.mode === "provisional_options" &&
+    safeProvisionalOptions.length !== PROVISIONAL_SCREENPLAY_OPTION_COUNT
+  ) {
+    return null;
+  }
   const turn = Math.max(0, Math.floor(Number(askedAtTurn) || 0));
   const targetField = clean(plan.targetField, 64);
   return {
@@ -1383,10 +1567,35 @@ export function createPendingScreenplayLearningQuestion(plan, {
     actKey: clean(plan.actContext?.key, 24),
     sequenceKey: clean(plan.sequenceContext?.key, 32),
     writerBlocked: Boolean(plan.writerBlocked || plan.mode === "rescue_then_decide"),
+    provisionalOptions: plan.mode === "provisional_options"
+      ? safeProvisionalOptions
+      : [],
     askedAtTurn: turn,
     expiresAfterTurn: turn + 2,
     askedAt: Math.max(0, Number(now) || Date.now()),
   };
+}
+
+export function createProvisionalScreenplayOptionQuestion(pending, options, {
+  askedAtTurn = 0,
+  now = Date.now(),
+} = {}) {
+  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  const provisionalOptions = sanitizeProvisionalScreenplayOptions(options);
+  if (!target || provisionalOptions.length !== PROVISIONAL_SCREENPLAY_OPTION_COUNT) {
+    return null;
+  }
+  const turn = Math.max(0, Math.floor(Number(askedAtTurn) || 0));
+  return sanitizePendingScreenplayLearningQuestion({
+    ...target,
+    id: `screenplay-options-${turn}-${target.targetField || "story"}`,
+    question: buildProvisionalOptionSelectionQuestion(target),
+    provisionalOptions,
+    writerBlocked: true,
+    askedAtTurn: turn,
+    expiresAfterTurn: turn + 2,
+    askedAt: Math.max(0, Number(now) || Date.now()),
+  });
 }
 
 export function sanitizePendingScreenplayLearningQuestion(value) {
@@ -1416,6 +1625,9 @@ export function sanitizePendingScreenplayLearningQuestion(value) {
     actKey: clean(value.actKey ?? value.act_key, 24),
     sequenceKey: clean(value.sequenceKey ?? value.sequence_key, 32),
     writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
+    provisionalOptions: sanitizeProvisionalScreenplayOptions(
+      value.provisionalOptions ?? value.provisional_options
+    ),
     askedAtTurn,
     expiresAfterTurn,
     askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0) || 0),
@@ -1578,6 +1790,14 @@ export function classifyScreenplayLearningAnswer(value, {
       wordCount: words.length,
     };
   }
+  if (LEARNING_OPTION_REFERENCE_SIGNAL.test(answer)) {
+    return {
+      accepted: false,
+      status: "insufficient",
+      reason: "option_reference_without_context",
+      wordCount: words.length,
+    };
+  }
   const looksLikeQuestion = /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer);
   const acceptsQuestionValue = clean(targetField, 64).toLowerCase() === "project.central_question";
   if (looksLikeQuestion && !acceptsQuestionValue) {
@@ -1604,20 +1824,21 @@ export function resolvePendingScreenplayLearningAnswer({
   currentTurn = 0,
   now = Date.now(),
 } = {}) {
-  if (!pending || typeof pending !== "object") {
+  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  if (!target) {
     return { status: "none", shouldClear: false, learningContext: null, interaction: null };
   }
   const turn = Math.max(0, Math.floor(Number(currentTurn) || 0));
-  const expiresAfterTurn = Math.max(0, Math.floor(Number(pending.expiresAfterTurn) || 0));
+  const expiresAfterTurn = Math.max(0, Math.floor(Number(target.expiresAfterTurn) || 0));
   if (expiresAfterTurn && turn > expiresAfterTurn) {
     return {
       status: "expired",
       shouldClear: true,
       learningContext: null,
-      interaction: buildPendingQuestionInteraction(pending, "expired", now),
+      interaction: buildPendingQuestionInteraction(target, "expired", now),
     };
   }
-  if (!projectMatches(pending, { projectId, projectTitle })) {
+  if (!projectMatches(target, { projectId, projectTitle })) {
     return {
       status: "different_project",
       shouldClear: false,
@@ -1629,9 +1850,26 @@ export function resolvePendingScreenplayLearningAnswer({
   if (!answer) {
     return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
   }
-  const targetField = clean(pending.targetField, 64);
-  const answerClassification = classifyScreenplayLearningAnswer(answer, { targetField });
+  const targetField = clean(target.targetField, 64);
+  const selectedOption = resolveProvisionalScreenplayOptionSelection(
+    answer,
+    target.provisionalOptions
+  );
+  const answerForLearning = selectedOption?.value || answer;
+  const answerClassification = classifyScreenplayLearningAnswer(
+    answerForLearning,
+    { targetField }
+  );
   if (!answerClassification.accepted) {
+    if (["uncertain", "ideation_request"].includes(answerClassification.reason)) {
+      return {
+        status: "provisional_options",
+        shouldClear: false,
+        learningContext: null,
+        interaction: null,
+        answerClassification,
+      };
+    }
     if (answerClassification.status === "insufficient") {
       return {
         status: "insufficient",
@@ -1645,20 +1883,28 @@ export function resolvePendingScreenplayLearningAnswer({
       status: "declined",
       shouldClear: true,
       learningContext: null,
-      interaction: buildPendingQuestionInteraction(pending, "declined", now),
+      interaction: buildPendingQuestionInteraction(target, "declined", now),
       answerClassification,
     };
   }
   return {
     status: "answered",
     shouldClear: true,
-    interaction: buildPendingQuestionInteraction(pending, "answered", now),
-    answerClassification,
-    learningContext: buildScreenplayLearningContext(pending, {
-      projectId,
-      projectTitle,
-      targetField,
-    }),
+    interaction: buildPendingQuestionInteraction(target, "answered", now),
+    answerClassification: {
+      ...answerClassification,
+      selectedOptionId: selectedOption?.id || null,
+      selectedOptionRank: selectedOption?.rank || null,
+    },
+    learningContext: {
+      ...buildScreenplayLearningContext(target, {
+        projectId,
+        projectTitle,
+        targetField,
+      }),
+      selectedOptionId: selectedOption?.id || "",
+      selectedOptionRank: selectedOption?.rank || 0,
+    },
   };
 }
 
@@ -1678,6 +1924,9 @@ function buildScreenplayLearningContext(pending, {
     actKey: clean(pending?.actKey, 24),
     sequenceKey: clean(pending?.sequenceKey, 32),
     writerBlocked: Boolean(pending?.writerBlocked),
+    provisionalOptions: sanitizeProvisionalScreenplayOptions(
+      pending?.provisionalOptions
+    ),
     askedAt: Math.max(0, Number(pending?.askedAt) || 0),
     authority: "writer_clarification",
   };
@@ -1730,10 +1979,25 @@ export function resolvePendingScreenplayLearningAction({
   if (!normalizedAnswer) {
     return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
   }
-  const answerClassification = classifyScreenplayLearningAnswer(normalizedAnswer, {
-    targetField: target.targetField,
-  });
+  const selectedOption = resolveProvisionalScreenplayOptionSelection(
+    normalizedAnswer,
+    target.provisionalOptions
+  );
+  const answerForLearning = selectedOption?.value || normalizedAnswer;
+  const answerClassification = classifyScreenplayLearningAnswer(
+    answerForLearning,
+    { targetField: target.targetField }
+  );
   if (!answerClassification.accepted) {
+    if (["uncertain", "ideation_request"].includes(answerClassification.reason)) {
+      return {
+        status: "provisional_options",
+        shouldClear: false,
+        learningContext: null,
+        interaction: null,
+        answerClassification,
+      };
+    }
     if (answerClassification.status === "insufficient") {
       return {
         status: "insufficient",
@@ -1755,11 +2019,19 @@ export function resolvePendingScreenplayLearningAction({
     status: "answered",
     shouldClear: true,
     interaction: buildPendingQuestionInteraction(target, "answered", now),
-    answerClassification,
-    learningContext: buildScreenplayLearningContext(target, {
-      projectId,
-      projectTitle,
-    }),
+    answerClassification: {
+      ...answerClassification,
+      selectedOptionId: selectedOption?.id || null,
+      selectedOptionRank: selectedOption?.rank || null,
+    },
+    learningContext: {
+      ...buildScreenplayLearningContext(target, {
+        projectId,
+        projectTitle,
+      }),
+      selectedOptionId: selectedOption?.id || "",
+      selectedOptionRank: selectedOption?.rank || 0,
+    },
   };
 }
 

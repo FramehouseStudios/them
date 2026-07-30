@@ -44,9 +44,12 @@ import express from "express";
 import { buildCanonClarificationPayload } from "./canon_clarification.js";
 import { withIdempotency } from "./idempotency_envelope.js";
 import {
+  createProvisionalScreenplayOptionQuestion,
+  extractProvisionalScreenplayOptions,
   removePendingScreenplayLearningQuestion,
   resolvePendingScreenplayLearningAnswer,
   selectPendingScreenplayLearningQuestion,
+  upsertPendingScreenplayLearningQuestion,
 } from "./screenplay_question_planner.js";
 
 const TURN_COMMIT_BODY_LIMIT = "256kb";
@@ -180,6 +183,18 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       currentTurn: previousMemory.turns,
       now: nowTs,
     });
+    const provisionalScreenplayOptions =
+      pendingScreenplayResolution.status === "provisional_options"
+        ? extractProvisionalScreenplayOptions(reply)
+        : [];
+    const provisionalScreenplayQuestion = createProvisionalScreenplayOptionQuestion(
+      pendingScreenplayQuestion,
+      provisionalScreenplayOptions,
+      {
+        askedAtTurn: previousMemory.turns,
+        now: nowTs,
+      },
+    );
     const requesterIp = normalizeClientIp(context.requesterIp || clientIp(req));
     const flags = directorFlagsFromTranscript(transcript);
     const metricStateBeforeTurn = getUserMetricState(requesterIp, nowTs);
@@ -196,6 +211,13 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       sameDaySessionReturns,
     });
     nextMemory = updateSessionAfterReply(nextMemory, transcript, reply, false, studioMeta);
+    if (provisionalScreenplayQuestion) {
+      nextMemory.pendingScreenplayLearningQuestions =
+        upsertPendingScreenplayLearningQuestion(
+          nextMemory.pendingScreenplayLearningQuestions,
+          provisionalScreenplayQuestion,
+        );
+    }
 
     const modeSwitchedThisTurn =
       prevBehaviorMode !== String(nextMemory?.behaviorMode || prevBehaviorMode);
@@ -303,6 +325,14 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         question_id: pendingScreenplayQuestion.id,
         response_status: pendingScreenplayResolution.status,
         target_field: pendingScreenplayQuestion.targetField,
+        ...(pendingScreenplayResolution.answerClassification?.selectedOptionId
+          ? {
+            selected_option_id:
+              pendingScreenplayResolution.answerClassification.selectedOptionId,
+            selected_option_rank:
+              pendingScreenplayResolution.answerClassification.selectedOptionRank,
+          }
+          : {}),
         learning_promoted: Math.max(
           0,
           Number(creativeMemoryWriteSummary?.learningAnswersPromoted || 0),
@@ -312,7 +342,21 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
           Number(creativeMemoryWriteSummary?.learningAnswersCorrectionProtected || 0),
         ) > 0,
       }
-      : null;
+      : provisionalScreenplayQuestion
+        ? {
+          question_id: provisionalScreenplayQuestion.id,
+          response_status: "provisional_options",
+          target_field: provisionalScreenplayQuestion.targetField,
+          learning_promoted: false,
+          correction_protected: false,
+          provisional_options: provisionalScreenplayQuestion.provisionalOptions.map((option) => ({
+            id: option.id,
+            rank: option.rank,
+            value: option.value,
+            recommended: option.recommended,
+          })),
+        }
+        : null;
     const canonClarificationPending = Boolean(
       creativeMemoryWriteSummary?.canonCorrectionAmbiguityId,
     );
@@ -322,9 +366,15 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       Math.max(0, Number(creativeMemoryWriteSummary?.writerCanonFactsRecorded || 0)) > 0 ||
       String(creativeMemoryWriteSummary?.canonCorrectionReceiptId || "").trim(),
     );
-    const memoryGroundingChanged = screenplayQuestionResolved || canonGroundingChanged;
+    const memoryGroundingChanged = Boolean(
+      screenplayQuestionResolved ||
+      provisionalScreenplayQuestion ||
+      canonGroundingChanged
+    );
     const memoryGroundingReason = screenplayQuestionResolved
       ? "screenplay_question_resolved"
+      : provisionalScreenplayQuestion
+        ? "screenplay_options_proposed"
       : canonGroundingChanged
         ? "canon_correction"
         : null;

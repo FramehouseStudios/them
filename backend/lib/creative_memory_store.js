@@ -24,7 +24,11 @@ import {
   mergeTraits as mergeCharacterTraits,
 } from "./trait_library.js";
 import { isExplicitCanonCorrectionRequest } from "./screenplay_canon_guard.js";
-import { classifyScreenplayLearningAnswer } from "./screenplay_question_planner.js";
+import {
+  classifyScreenplayLearningAnswer,
+  resolveProvisionalScreenplayOptionSelection,
+  sanitizeProvisionalScreenplayOptions,
+} from "./screenplay_question_planner.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -3347,6 +3351,17 @@ function sanitizeScreenplayLearningContext(value, {
       ? cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
       : "",
     writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
+    provisionalOptions: sanitizeProvisionalScreenplayOptions(
+      value.provisionalOptions ?? value.provisional_options
+    ),
+    selectedOptionId: cleanText(
+      value.selectedOptionId ?? value.selected_option_id,
+      32
+    ),
+    selectedOptionRank: Math.max(
+      0,
+      Math.floor(Number(value.selectedOptionRank ?? value.selected_option_rank ?? 0) || 0)
+    ),
     askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0)),
   };
 }
@@ -5857,8 +5872,25 @@ function createCreativeMemoryStore({
         projectTitle: resolvedProjectTitle,
       }
     );
+    const provisionalSelection = cleanLearningContext
+      ? resolveProvisionalScreenplayOptionSelection(
+        userText,
+        cleanLearningContext.provisionalOptions
+      )
+      : null;
+    const expectedSelectedOptionId = cleanText(
+      cleanLearningContext?.selectedOptionId,
+      32
+    );
+    const validProvisionalSelection = Boolean(
+      provisionalSelection &&
+      (!expectedSelectedOptionId || provisionalSelection.id === expectedSelectedOptionId)
+    );
+    const learningAnswerText = validProvisionalSelection
+      ? provisionalSelection.value
+      : userText;
     const learningAnswerClassification = cleanLearningContext
-      ? classifyScreenplayLearningAnswer(userText, {
+      ? classifyScreenplayLearningAnswer(learningAnswerText, {
         targetField: cleanLearningContext.targetField,
       })
       : null;
@@ -5882,7 +5914,7 @@ function createCreativeMemoryStore({
     const learningPromotion = isLearningAnswer
       ? buildConfirmedScreenplayLearningPromotion({
         learningContext: cleanLearningContext,
-        transcript: userText,
+        transcript: learningAnswerText,
       })
       : null;
     let learningPromotionProtected = false;
@@ -6308,7 +6340,7 @@ function createCreativeMemoryStore({
       const memorySummary = isLearningAnswer
         ? buildScreenplayLearningSummary({
           learningContext: cleanLearningContext,
-          transcript: userText,
+          transcript: learningAnswerText,
         })
         : buildEpisodicSummary({
           characterNames: turnCharacterNames,
@@ -6351,7 +6383,7 @@ function createCreativeMemoryStore({
         const receipt = await recordEpisodicMemory({
           userId,
           summary: memorySummary,
-          text: storyMemoryText,
+          text: isLearningAnswer ? learningAnswerText : storyMemoryText,
           characterNames: turnCharacterNames,
           tags,
           projectId: cleanProjectId,

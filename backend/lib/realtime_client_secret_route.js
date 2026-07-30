@@ -59,6 +59,9 @@ function boundedMultilinePreservingEnds(value, maxChars) {
 
 function buildPendingScreenplayQuestionBlock(pending) {
   if (!pending) return "";
+  const provisionalOptions = Array.isArray(pending.provisionalOptions)
+    ? pending.provisionalOptions
+    : [];
   const lines = [
     "<realtime_screenplay_question>",
     "authority: this is the single project-scoped screenplay question already planned for the writer.",
@@ -68,9 +71,20 @@ function buildPendingScreenplayQuestionBlock(pending) {
   if (pending.targetLabel) lines.push(`target_label: ${pending.targetLabel}`);
   if (pending.anchor) lines.push(`anchor: ${pending.anchor}`);
   lines.push(`question: ${pending.question}`);
-  lines.push(
-    "directive: Treat the writer's next relevant statement as a possible answer to this exact question. Do not re-ask any resolved or corrected fact. If an answer arrives, acknowledge it briefly, use it as project truth, and continue without asking another intake question in the same turn."
-  );
+  if (pending.actKey) lines.push(`act: ${pending.actKey}`);
+  if (pending.sequenceKey) lines.push(`sequence: ${pending.sequenceKey}`);
+  if (provisionalOptions.length === 3) {
+    for (const option of provisionalOptions) {
+      lines.push(`provisional_option_${option.rank}: ${option.value}`);
+    }
+    lines.push(
+      "directive: These three choices are proposals, not canon. If the writer explicitly selects one, acknowledge that exact choice and use it as project truth. If they modify a choice, use their wording. Never merge options or imply an unselected option was decided."
+    );
+  } else {
+    lines.push(
+      "directive: Treat the writer's next relevant statement as a possible answer to this exact question. If they are unsure or ask for ideas, give exactly three mutually exclusive, canon-compatible choices ranked for the current act and sequence using three separate lines: Option 1 (recommended): <complete story fact>; Option 2: <complete story fact>; Option 3: <complete story fact>. Keep all three provisional and end by asking which option should become true. Do not re-ask any resolved or corrected fact. If a substantive answer arrives, acknowledge it briefly, use it as project truth, and continue without another intake question."
+    );
+  }
   lines.push("</realtime_screenplay_question>");
   return lines.join("\n");
 }

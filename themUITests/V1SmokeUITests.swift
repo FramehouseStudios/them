@@ -317,6 +317,41 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_provisional_story_options_require_an_explicit_selection() {
+        let app = launchApp(
+            openStudio: true,
+            showProvisionalScreenplayOptions: true
+        )
+        defer { app.terminate() }
+        revealStudioPendingQuestion(in: app)
+
+        let card = element(identifier: "studio.pending-question", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            element(identifier: "studio.pending-question.options", in: app)
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertEqual(
+            app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "studio.pending-question.option-")
+            ).count,
+            3,
+            "Clementine should expose exactly three provisional choices. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+
+        let optionTwo = app.buttons["studio.pending-question.option-2"]
+        XCTAssertTrue(optionTwo.waitForExistence(timeout: 3))
+        XCTAssertTrue(optionTwo.isHittable)
+        optionTwo.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: card, timeout: 5),
+            "The chosen provisional option remained unresolved."
+        )
+        XCTAssertTrue(
+            staticText(containing: "Option 2 saved", in: app).waitForExistence(timeout: 3)
+        )
+    }
+
     func test_pending_screenplay_question_appears_in_memories_and_opens_studio() {
         let app = launchApp(
             openMemories: true,
@@ -572,6 +607,7 @@ final class V1SmokeUITests: XCTestCase {
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
+        showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
@@ -636,6 +672,10 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showPendingScreenplayQuestion {
             arguments.append("--ui-show-pending-screenplay-question")
+        }
+        if showProvisionalScreenplayOptions {
+            arguments.append("--ui-show-pending-screenplay-question")
+            arguments.append("--ui-show-provisional-screenplay-options")
         }
         if let realtimeNetworkFaultStage {
             arguments.append(contentsOf: [

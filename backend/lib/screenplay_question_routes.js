@@ -117,6 +117,30 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
         currentTurn: pending.askedAtTurn,
         now,
       });
+      if (resolution.status === "provisional_options") {
+        const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+        applyReadStateHeaders(res, readMeta);
+        return res.status(200).json({
+          ok: true,
+          action: "screenplay_question_resolution",
+          status: "awaiting_options",
+          question_id: questionId,
+          response_status: "provisional_options",
+          target_field: pending.targetField,
+          option_generation_required: true,
+          learning_promoted: false,
+          correction_protected: false,
+          session_id: readMeta.sessionId,
+          state_version: readMeta.stateVersion,
+          last_updated_at: readMeta.lastUpdatedAt || null,
+          history_updated_at: readMeta.historyUpdatedAt || null,
+          memory_updated_at: readMeta.memoryUpdatedAt || null,
+          last_turn_id: readMeta.lastTurnId || null,
+          schema_version: readMeta.schemaVersion,
+          backend_build: readMeta.backendBuild,
+          backend_boot_id: readMeta.backendBootId,
+        });
+      }
       if (!resolution.shouldClear) {
         return res.status(resolution.status === "different_project" ? 409 : 400).json({
           stage: "screenplay_question_resolution",
@@ -169,6 +193,12 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
         question_id: questionId,
         response_status: resolution.status,
         target_field: pending.targetField,
+        ...(resolution.answerClassification?.selectedOptionId
+          ? {
+            selected_option_id: resolution.answerClassification.selectedOptionId,
+            selected_option_rank: resolution.answerClassification.selectedOptionRank,
+          }
+          : {}),
         learning_promoted: learningPromoted,
         correction_protected: correctionProtected,
         session_id: readMeta.sessionId,

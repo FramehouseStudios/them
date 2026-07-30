@@ -47,6 +47,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "createTalkFailureError",
   "formatRankedStoryRescueMoveLine",
   "enforceScreenplayQuestionPlan",
+  "extractProvisionalScreenplayOptions",
   "incrementErrorCounter",
   "isNextSceneExecutionBriefRepairReason",
   "rankStoryRescueMovesForContext",

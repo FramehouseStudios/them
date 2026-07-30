@@ -25489,8 +25489,61 @@ Return revised screenplay lines only.
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("studio.pending-question.text")
 
+                if let options = pending.provisionalOptions, !options.isEmpty {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(options) { option in
+                            Button {
+                                choosePendingScreenplayOption(option, for: pending)
+                            } label: {
+                                HStack(alignment: .top, spacing: 9) {
+                                    Text("\(option.rank)")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Color.accentColor)
+                                        .frame(width: 18, height: 18)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        if option.recommended {
+                                            Text("Clementine’s pick")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundStyle(Color.accentColor.opacity(0.86))
+                                        }
+                                        Text(option.value)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(Color.herText.opacity(0.88))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "checkmark.circle")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(Color.herText.opacity(0.42))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(Color.herText.opacity(0.055))
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Choose option \(option.rank)")
+                            .accessibilityIdentifier("studio.pending-question.option-\(option.rank)")
+                            .disabled(
+                                isSubmittingStudioPrompt ||
+                                    isSubmittingPrompt ||
+                                    isResolvingPendingScreenplayQuestion
+                            )
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("studio.pending-question.options")
+                }
+
                 HStack(spacing: 10) {
-                    Button("Answer") {
+                    Button(
+                        pending.provisionalOptions?.isEmpty == false
+                            ? "Answer differently"
+                            : "Answer"
+                    ) {
                         answerPendingScreenplayQuestion(pending)
                     }
                     .buttonStyle(.borderedProminent)
@@ -25566,6 +25619,37 @@ Return revised screenplay lines only.
                 vm.infoText = "Question skipped."
             } catch is BackendTalkQueuedError {
                 vm.infoText = "Question skipped. Saving when you're online."
+            } catch {
+                restorePendingScreenplayQuestion(pending)
+                vm.infoText = "Couldn’t save that choice. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func choosePendingScreenplayOption(
+        _ option: BackendPendingScreenplayOption,
+        for pending: BackendPendingScreenplayQuestion
+    ) {
+        guard !isSubmittingStudioPrompt, !isResolvingPendingScreenplayQuestion else { return }
+        dismissPendingScreenplayQuestion(id: pending.id)
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests, pending.id == "ui-pending-theme-question" {
+            vm.infoText = "Option \(option.rank) saved to this project."
+            return
+        }
+        #endif
+        isResolvingPendingScreenplayQuestion = true
+        Task { @MainActor in
+            defer { isResolvingPendingScreenplayQuestion = false }
+            do {
+                _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                    pending,
+                    responseStatus: "answered",
+                    answer: "Option \(option.rank)"
+                )
+                vm.infoText = "Option \(option.rank) saved to this project."
+            } catch is BackendTalkQueuedError {
+                vm.infoText = "Choice queued. Clementine will remember it when you’re online."
             } catch {
                 restorePendingScreenplayQuestion(pending)
                 vm.infoText = "Couldn’t save that choice. \(error.localizedDescription)"
@@ -27832,18 +27916,44 @@ Look at the city.
     }
 
     private func applyUITestPendingScreenplayQuestionFixtureIfNeeded() {
+        let arguments = ProcessInfo.processInfo.arguments
         guard IOThemRuntime.isRunningUITests,
-              ProcessInfo.processInfo.arguments.contains("--ui-show-pending-screenplay-question"),
+              arguments.contains("--ui-show-pending-screenplay-question"),
               !didResolveUITestPendingQuestionFixture else {
             return
         }
+        let provisionalOptions = arguments.contains("--ui-show-provisional-screenplay-options")
+            ? [
+                BackendPendingScreenplayOption(
+                    id: "option-1",
+                    rank: 1,
+                    value: "Mara gives June the manifest and lets her choose the crossing.",
+                    recommended: true
+                ),
+                BackendPendingScreenplayOption(
+                    id: "option-2",
+                    rank: 2,
+                    value: "Mara exposes the ferry board before June can leave.",
+                    recommended: false
+                ),
+                BackendPendingScreenplayOption(
+                    id: "option-3",
+                    rank: 3,
+                    value: "Mara destroys the manifest and trusts June without proof.",
+                    recommended: false
+                ),
+            ]
+            : nil
         vm.pendingScreenplayQuestion = BackendPendingScreenplayQuestion(
             id: "ui-pending-theme-question",
             projectId: vm.selectedProjectID.isEmpty ? "ui-project" : vm.selectedProjectID,
             projectTitle: vm.selectedProject?.title ?? "The Last Crossing",
             targetField: "project.theme_argument",
             targetLabel: "Theme argument",
-            question: "What does Mara learn about love when control can no longer keep June safe?",
+            question: provisionalOptions == nil
+                ? "What does Mara learn about love when control can no longer keep June safe?"
+                : "Which path should become true: Option 1, 2, or 3?",
+            provisionalOptions: provisionalOptions,
             askedAt: Date().timeIntervalSince1970 * 1_000
         )
         directionOneRightPanelTab = .them

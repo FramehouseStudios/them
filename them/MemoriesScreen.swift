@@ -286,6 +286,7 @@ final class MemoriesViewModel: ObservableObject {
             targetField: "project.theme_argument",
             targetLabel: "Theme argument",
             question: "What does Mara learn about love when control can no longer keep June safe?",
+            provisionalOptions: nil,
             askedAt: Date().timeIntervalSince1970 * 1_000
         )
         return true
@@ -907,6 +908,13 @@ private struct PendingScreenplayQuestionMemoryCard: View {
                     .foregroundStyle(MemoriesTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("memories.pending-question.text")
+
+                if let optionCount = pending.provisionalOptions?.count, optionCount > 0 {
+                    Text("\(optionCount) provisional paths are waiting for your choice.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(MemoriesTheme.focusAccent.opacity(0.88))
+                        .accessibilityIdentifier("memories.pending-question.options")
+                }
             }
 
             Spacer(minLength: 12)

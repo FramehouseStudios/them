@@ -55,6 +55,7 @@ import {
   buildScreenplayQuestionPlan,
   createPendingScreenplayLearningQuestion,
   enforceScreenplayQuestionPlan,
+  extractProvisionalScreenplayOptions,
   removePendingScreenplayLearningQuestion,
   resolvePendingScreenplayLearningAnswer,
   selectPendingScreenplayLearningQuestion,
@@ -1363,6 +1364,8 @@ function createTalkHandler(deps) {
   let thinkingDelayMs = pickThinkingDurationMs();
   const thinkingStartedAt = Date.now();
   let screenplayLearningAnswerContext = null;
+  let pendingScreenplayLearningQuestion = null;
+  let pendingScreenplayLearningResolution = null;
   let screenplayQuestionPlan = null;
 
   const t0 = Date.now();
@@ -2306,23 +2309,23 @@ function createTalkHandler(deps) {
         req.body?.project_title ??
         req.body?.pack ??
         "";
-      const pendingScreenplayLearningQuestion = selectPendingScreenplayLearningQuestion(
+      pendingScreenplayLearningQuestion = selectPendingScreenplayLearningQuestion(
         sessionMemory.pendingScreenplayLearningQuestions,
         {
           projectId: studioMeta?.screenplayProjectId,
           projectTitle: screenplayProjectTitle,
         }
       );
-      const pendingLearningResolution = resolvePendingScreenplayLearningAnswer({
+      pendingScreenplayLearningResolution = resolvePendingScreenplayLearningAnswer({
         pending: pendingScreenplayLearningQuestion,
         transcript,
         projectId: studioMeta?.screenplayProjectId,
         projectTitle: screenplayProjectTitle,
         currentTurn: turnsInSession,
       });
-      screenplayLearningAnswerContext = pendingLearningResolution.learningContext;
-      screenplayQuestionInteraction = pendingLearningResolution.interaction;
-      if (pendingLearningResolution.shouldClear) {
+      screenplayLearningAnswerContext = pendingScreenplayLearningResolution.learningContext;
+      screenplayQuestionInteraction = pendingScreenplayLearningResolution.interaction;
+      if (pendingScreenplayLearningResolution.shouldClear) {
         sessionMemory.pendingScreenplayLearningQuestions =
           removePendingScreenplayLearningQuestion(
             sessionMemory.pendingScreenplayLearningQuestions,
@@ -3174,6 +3177,8 @@ function createTalkHandler(deps) {
       studioMeta,
       turnPlanner,
       answeredLearningContext: screenplayLearningAnswerContext,
+      pendingLearningQuestion: pendingScreenplayLearningQuestion,
+      pendingLearningResolution: pendingScreenplayLearningResolution,
     });
     turnPlanner.screenplayQuestionPlan = screenplayQuestionPlan;
     // T21: when this is a screenplay page-write turn, append a compact
@@ -3554,7 +3559,7 @@ EVOLVING SELF-AWARENESS:
       ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} momentum=${screenplayQuestionPlan.writingMomentum?.active ? "protected" : screenplayQuestionPlan.writingMomentum?.source || "none"} cadence=${screenplayQuestionPlan.writingMomentum?.interventionProfile?.strategy || "balanced"}:${screenplayQuestionPlan.writingMomentum?.interventionProfile?.windowMinutes || 30}m strategy=${screenplayQuestionPlan.questionStrategy || "none"} score=${screenplayQuestionPlan.selectionScore || 0} learned_bonus=${screenplayQuestionPlan.effectivenessBonus || 0} reason=${screenplayQuestionPlan.reason || "none"}`
       : "inactive";
     const screenplayQuestionRule = screenplayQuestionPlan?.shouldAsk
-      ? `First execute this turn's useful story work. Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
+      ? `${screenplayQuestionPlan.objective || "First execute this turn's useful story work."} Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
       : screenplayQuestionPlan?.mode === "answer_now"
         ? "Deliver the requested pages or rewrite now. Do not block the work with a clarifying question."
         : screenplayQuestionPlan?.objective
@@ -4454,9 +4459,15 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         replyRepaired = true;
       }
       if (sessionMemory) {
+        const provisionalOptions = screenplayQuestionPlan.mode === "provisional_options"
+          ? extractProvisionalScreenplayOptions(reply)
+          : [];
         const pendingQuestion = createPendingScreenplayLearningQuestion(
           screenplayQuestionPlan,
-          { askedAtTurn: turnsInSession }
+          {
+            askedAtTurn: turnsInSession,
+            provisionalOptions,
+          }
         );
         if (pendingQuestion) {
           sessionMemory.pendingScreenplayLearningQuestions =
