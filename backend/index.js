@@ -19825,6 +19825,18 @@ function renderRealtimeBridgeHtml() {
         userTranscriptIsFinal: false,
         pendingGroundingRevision: '',
         pendingGroundingEventID: '',
+        pendingGroundingEventIDs: [],
+        pendingGroundingInstructions: '',
+        pendingGroundingAttempt: 0,
+        pendingGroundingStartedAt: 0,
+        pendingGroundingAckTimer: null,
+        groundingEventCounter: 0,
+        queuedGroundingUpdate: null,
+        groundingSpeechAtRisk: false,
+        groundingResponseDeferred: false,
+        groundingResponseCancelTimer: null,
+        groundingReadyToResume: false,
+        lastAppliedGroundingRevision: '',
       };
 
       function post(type, payload) {
@@ -20152,8 +20164,19 @@ function renderRealtimeBridgeHtml() {
         state.localLoudFrames = 0;
         state.userTranscript = '';
         state.userTranscriptIsFinal = false;
+        clearGroundingAckTimer();
         state.pendingGroundingRevision = '';
         state.pendingGroundingEventID = '';
+        state.pendingGroundingEventIDs = [];
+        state.pendingGroundingInstructions = '';
+        state.pendingGroundingAttempt = 0;
+        state.pendingGroundingStartedAt = 0;
+        state.queuedGroundingUpdate = null;
+        state.groundingSpeechAtRisk = false;
+        state.groundingResponseDeferred = false;
+        clearGroundingResponseCancelTimer();
+        state.groundingReadyToResume = false;
+        state.lastAppliedGroundingRevision = '';
         if (remoteAudio) {
           try {
           remoteAudio.pause();
@@ -20191,6 +20214,239 @@ function renderRealtimeBridgeHtml() {
 
       function safeText(value) {
         return typeof value === 'string' ? value.trim() : '';
+      }
+
+      function groundingAckTimeoutMilliseconds() {
+        if (state.networkClass === 'fast') return 1500;
+        if (state.networkClass === 'constrained') return 3500;
+        return 2200;
+      }
+
+      function groundingElapsedMilliseconds() {
+        if (!state.pendingGroundingStartedAt) return 0;
+        return Math.max(0, nowMilliseconds() - state.pendingGroundingStartedAt);
+      }
+
+      function clearGroundingAckTimer() {
+        if (!state.pendingGroundingAckTimer) return;
+        clearTimeout(state.pendingGroundingAckTimer);
+        state.pendingGroundingAckTimer = null;
+      }
+
+      function clearGroundingResponseCancelTimer() {
+        if (!state.groundingResponseCancelTimer) return;
+        clearTimeout(state.groundingResponseCancelTimer);
+        state.groundingResponseCancelTimer = null;
+      }
+
+      function armGroundingResponseCancelTimer() {
+        clearGroundingResponseCancelTimer();
+        const connectionGeneration = state.connectionGeneration;
+        const deadlineMs = (groundingAckTimeoutMilliseconds() * 3) + 1000;
+        state.groundingResponseCancelTimer = setTimeout(() => {
+          if (
+            connectionGeneration !== state.connectionGeneration ||
+            !state.groundingResponseDeferred ||
+            !state.assistantResponseActive
+          ) {
+            return;
+          }
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime could not confirm cancellation of a stale grounded response.',
+            {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            }
+          );
+        }, deadlineMs);
+      }
+
+      function clearPendingGroundingTransaction() {
+        clearGroundingAckTimer();
+        state.pendingGroundingRevision = '';
+        state.pendingGroundingEventID = '';
+        state.pendingGroundingEventIDs = [];
+        state.pendingGroundingInstructions = '';
+        state.pendingGroundingAttempt = 0;
+        state.pendingGroundingStartedAt = 0;
+      }
+
+      function maybeResumeGroundingDeferredResponse() {
+        if (!state.groundingResponseDeferred ||
+            !state.groundingReadyToResume ||
+            state.pendingGroundingRevision ||
+            state.queuedGroundingUpdate ||
+            state.assistantResponseActive) {
+          return false;
+        }
+        const turnID = currentTurnID();
+        if (!sendClientEvent({ type: 'response.create' })) {
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime could not resume the grounded response.',
+            {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            }
+          );
+          return false;
+        }
+        state.groundingResponseDeferred = false;
+        state.groundingReadyToResume = false;
+        state.groundingSpeechAtRisk = false;
+        post('project_grounding_response_resumed', {
+          revision: state.lastAppliedGroundingRevision,
+          turnID: turnID,
+        });
+        return true;
+      }
+
+      function beginQueuedGroundingUpdate() {
+        if (state.pendingGroundingRevision || !state.queuedGroundingUpdate) return false;
+        const queued = state.queuedGroundingUpdate;
+        state.queuedGroundingUpdate = null;
+        state.pendingGroundingRevision = queued.revision;
+        state.pendingGroundingInstructions = queued.instructions;
+        state.pendingGroundingStartedAt = nowMilliseconds();
+        return sendPendingGroundingAttempt('queued');
+      }
+
+      function failPendingGroundingUpdate(message, reason) {
+        const revision = state.pendingGroundingRevision;
+        const attempt = state.pendingGroundingAttempt;
+        const elapsedMs = groundingElapsedMilliseconds();
+        const responseDeferred = state.groundingResponseDeferred;
+        const turnAtRisk = responseDeferred || state.groundingSpeechAtRisk;
+        clearPendingGroundingTransaction();
+        post('project_grounding_update_failed', {
+          revision: revision,
+          message: safeText(message) || 'Realtime project memory refresh failed.',
+          reason: safeText(reason) || 'unknown',
+          attempt: attempt,
+          elapsedMs: elapsedMs,
+          responseDeferred: responseDeferred,
+          turnID: currentTurnID(),
+        });
+        if (turnAtRisk) {
+          state.queuedGroundingUpdate = null;
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime project memory could not be confirmed before the next response.',
+            {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: false,
+            }
+          );
+          return false;
+        }
+        return beginQueuedGroundingUpdate();
+      }
+
+      function retryPendingGroundingUpdate(reason, message) {
+        if (!state.pendingGroundingRevision) return false;
+        clearGroundingAckTimer();
+        if (state.pendingGroundingAttempt >= 3) {
+          return failPendingGroundingUpdate(message, reason);
+        }
+        post('project_grounding_update_retrying', {
+          revision: state.pendingGroundingRevision,
+          attempt: state.pendingGroundingAttempt + 1,
+          reason: safeText(reason) || 'ack_timeout',
+          elapsedMs: groundingElapsedMilliseconds(),
+          turnID: currentTurnID(),
+        });
+        return sendPendingGroundingAttempt(reason);
+      }
+
+      function sendPendingGroundingAttempt(reason) {
+        if (!state.pendingGroundingRevision || !state.pendingGroundingInstructions) return false;
+        if (!state.dc || state.dc.readyState !== 'open') {
+          return failPendingGroundingUpdate(
+            'Realtime project grounding could not reach the event channel.',
+            reason || 'event_channel_closed'
+          );
+        }
+
+        state.pendingGroundingAttempt += 1;
+        state.groundingEventCounter += 1;
+        const attempt = state.pendingGroundingAttempt;
+        const eventID = [
+          'grounding',
+          String(Date.now()),
+          String(state.connectionGeneration),
+          String(state.groundingEventCounter),
+        ].join('-');
+        state.pendingGroundingEventID = eventID;
+        state.pendingGroundingEventIDs.push(eventID);
+        const sent = sendClientEvent({
+          event_id: eventID,
+          type: 'session.update',
+          session: {
+            type: 'realtime',
+            instructions: state.pendingGroundingInstructions,
+          },
+        });
+        if (!sent) {
+          return retryPendingGroundingUpdate(
+            'send_failed',
+            'Realtime project grounding could not be sent.'
+          );
+        }
+
+        post('project_grounding_update_submitted', {
+          revision: state.pendingGroundingRevision,
+          attempt: attempt,
+          reason: safeText(reason) || 'memory_changed',
+          ackDeadlineMs: groundingAckTimeoutMilliseconds(),
+        });
+        const expectedEventID = eventID;
+        state.pendingGroundingAckTimer = setTimeout(() => {
+          if (state.pendingGroundingEventID !== expectedEventID) return;
+          retryPendingGroundingUpdate(
+            'ack_timeout',
+            'Realtime project memory acknowledgement timed out.'
+          );
+        }, groundingAckTimeoutMilliseconds());
+        return true;
+      }
+
+      function completePendingGroundingUpdate(event) {
+        if (!state.pendingGroundingRevision) return false;
+        const appliedInstructions = safeText(event && event.session && event.session.instructions);
+        if (!appliedInstructions ||
+            appliedInstructions !== state.pendingGroundingInstructions) {
+          post('project_grounding_update_ack_ignored', {
+            revision: state.pendingGroundingRevision,
+            attempt: state.pendingGroundingAttempt,
+            reason: appliedInstructions ? 'superseded_instructions' : 'missing_instructions',
+            elapsedMs: groundingElapsedMilliseconds(),
+          });
+          return false;
+        }
+        const revision = state.pendingGroundingRevision;
+        const attempt = state.pendingGroundingAttempt;
+        const elapsedMs = groundingElapsedMilliseconds();
+        const responseDeferred = state.groundingResponseDeferred;
+        clearPendingGroundingTransaction();
+        state.lastAppliedGroundingRevision = revision;
+        post('project_grounding_updated', {
+          revision: revision,
+          attempt: attempt,
+          elapsedMs: elapsedMs,
+          responseDeferred: responseDeferred,
+          turnID: currentTurnID(),
+        });
+        if (beginQueuedGroundingUpdate()) return true;
+        state.groundingReadyToResume = responseDeferred;
+        if (!responseDeferred) {
+          state.groundingSpeechAtRisk = false;
+        }
+        maybeResumeGroundingDeferredResponse();
+        return true;
       }
 
       function waitForIceGatheringComplete(pc) {
@@ -20260,18 +20516,16 @@ function renderRealtimeBridgeHtml() {
 
         switch (type) {
           case 'session.updated': {
-            const revision = state.pendingGroundingRevision;
-            state.pendingGroundingRevision = '';
-            state.pendingGroundingEventID = '';
-            if (revision) {
-              post('project_grounding_updated', { revision: revision });
-            }
+            completePendingGroundingUpdate(event);
             break;
           }
           case 'input_audio_buffer.speech_started':
             state.userSpeechActive = true;
             state.userTranscript = '';
             state.userTranscriptIsFinal = false;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+            }
             if (state.assistantSpeaking || state.assistantResponseActive) {
               startInterruption('server_vad', false);
             } else {
@@ -20284,6 +20538,9 @@ function renderRealtimeBridgeHtml() {
           case 'input_audio_buffer.speech_stopped':
             state.userSpeechActive = false;
             state.localLoudFrames = 0;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+            }
             beginLatencyTurn('server_vad_speech_stopped');
             break;
           case 'input_audio_buffer.committed':
@@ -20299,16 +20556,43 @@ function renderRealtimeBridgeHtml() {
             state.assistantResponseActive = true;
             state.assistantItemID = '';
             state.assistantAudioStartedAt = 0;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+              state.groundingResponseDeferred = true;
+              state.groundingReadyToResume = false;
+              cutRemoteAudioLocally();
+              if (!sendClientEvent({ type: 'response.cancel' })) {
+                reportTransportLoss(
+                  'project_grounding_update_failed',
+                  'Realtime could not defer a response while project memory refreshed.',
+                  {
+                    connectionGeneration: state.connectionGeneration,
+                    recoverable: true,
+                    credentialRefreshRecommended: true,
+                  }
+                );
+                break;
+              }
+              armGroundingResponseCancelTimer();
+              post('project_grounding_response_deferred', {
+                revision: state.pendingGroundingRevision,
+                turnID: currentTurnID(),
+                responseOrdinal: state.activeResponseOrdinal,
+              });
+              break;
+            }
             resumeRemoteAudio();
             setAssistantSpeaking(false, state.activeResponseOrdinal);
             post('assistant_thinking', { responseOrdinal: state.activeResponseOrdinal });
             break;
           case 'response.output_item.added':
+            if (state.groundingResponseDeferred) break;
             if (event.item && event.item.role === 'assistant') {
               state.assistantItemID = safeText(event.item.id);
             }
             break;
           case 'response.output_text.delta': {
+            if (state.groundingResponseDeferred) break;
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantText += delta;
@@ -20316,6 +20600,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.output_text.done': {
+            if (state.groundingResponseDeferred) break;
             const text = (typeof event.text === 'string' ? event.text : '') || state.assistantText;
             state.assistantText = '';
             if (text) {
@@ -20327,6 +20612,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.output_audio_transcript.delta': {
+            if (state.groundingResponseDeferred) break;
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantTranscript += delta;
@@ -20334,6 +20620,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.output_audio_transcript.done': {
+            if (state.groundingResponseDeferred) break;
             const transcript = safeText(event.transcript) || safeText(state.assistantTranscript);
             state.assistantTranscript = '';
             if (transcript) {
@@ -20345,6 +20632,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.text.done': {
+            if (state.groundingResponseDeferred) break;
             const transcript = safeText(event.text);
             if (transcript) {
               post('assistant_transcript_final', {
@@ -20355,22 +20643,32 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.done': {
+            const wasGroundingDeferred = state.groundingResponseDeferred;
             state.assistantResponseActive = false;
-            const text = extractTextFromResponse(event.response);
-            if (text) {
-              state.assistantText = '';
-              post('assistant_text_final', {
-                text: text,
-                responseOrdinal: activeResponseOrdinal(),
-              });
+            clearGroundingResponseCancelTimer();
+            if (!wasGroundingDeferred) {
+              const text = extractTextFromResponse(event.response);
+              if (text) {
+                state.assistantText = '';
+                post('assistant_text_final', {
+                  text: text,
+                  responseOrdinal: activeResponseOrdinal(),
+                });
+              }
             }
             if (event.response && event.response.status === 'cancelled') {
               setAssistantSpeaking(false, activeResponseOrdinal());
               acknowledgeInterruption('response_cancelled');
             }
+            maybeResumeGroundingDeferredResponse();
             break;
           }
           case 'output_audio_buffer.started':
+            if (state.groundingResponseDeferred) {
+              cutRemoteAudioLocally();
+              sendClientEvent({ type: 'output_audio_buffer.clear' });
+              break;
+            }
             state.assistantAudioStartedAt = state.assistantAudioStartedAt || nowMilliseconds();
             resumeRemoteAudio();
             reportFirstLatency('audio');
@@ -20408,6 +20706,7 @@ function renderRealtimeBridgeHtml() {
           }
           case 'conversation.item.done': {
             if (event.item && event.item.role === 'assistant') {
+              if (state.groundingResponseDeferred) break;
               const text = extractTextFromItem(event.item);
               if (text) {
                 post('assistant_text_final', {
@@ -20435,25 +20734,25 @@ function renderRealtimeBridgeHtml() {
             const failedEventID =
               safeText(event.event_id) ||
               safeText(event.error && event.error.event_id);
-            if (
-              state.pendingGroundingEventID &&
-              failedEventID === state.pendingGroundingEventID
-            ) {
-              const revision = state.pendingGroundingRevision;
-              state.pendingGroundingRevision = '';
-              state.pendingGroundingEventID = '';
-              post('project_grounding_update_failed', {
-                revision: revision,
-                message: message,
-              });
+            if (failedEventID && state.pendingGroundingEventIDs.includes(failedEventID)) {
+              if (failedEventID === state.pendingGroundingEventID) {
+                retryPendingGroundingUpdate('provider_error', message);
+              }
               break;
             }
-            const cancellationRace = state.interruptionStartedAt && (
+            const cancellationLikeError = (
               code.includes('cancel') ||
               code.includes('not_active') ||
               code.includes('buffer') ||
               message.toLowerCase().includes('active response')
             );
+            if (state.groundingResponseDeferred && cancellationLikeError) {
+              state.assistantResponseActive = false;
+              clearGroundingResponseCancelTimer();
+              maybeResumeGroundingDeferredResponse();
+              break;
+            }
+            const cancellationRace = state.interruptionStartedAt && cancellationLikeError;
             if (cancellationRace) {
               acknowledgeInterruption('provider_cancel_race');
               break;
@@ -20684,28 +20983,27 @@ function renderRealtimeBridgeHtml() {
           });
           return false;
         }
-        const eventID = 'grounding-' + String(Date.now()) + '-' + String(state.connectionGeneration);
-        state.pendingGroundingRevision = revision;
-        state.pendingGroundingEventID = eventID;
-        const sent = sendClientEvent({
-          event_id: eventID,
-          type: 'session.update',
-          session: {
-            type: 'realtime',
-            instructions: instructions,
-          },
-        });
-        if (!sent) {
-          state.pendingGroundingRevision = '';
-          state.pendingGroundingEventID = '';
-          post('project_grounding_update_failed', {
+        if (state.pendingGroundingRevision) {
+          if (
+            state.pendingGroundingRevision === revision &&
+            state.pendingGroundingInstructions === instructions
+          ) {
+            return true;
+          }
+          state.queuedGroundingUpdate = {
             revision: revision,
-            message: 'Realtime project grounding could not be sent.',
+            instructions: instructions,
+          };
+          post('project_grounding_update_queued', {
+            revision: revision,
+            pendingRevision: state.pendingGroundingRevision,
           });
-          return false;
+          return true;
         }
-        post('project_grounding_update_submitted', { revision: revision });
-        return true;
+        state.pendingGroundingRevision = revision;
+        state.pendingGroundingInstructions = instructions;
+        state.pendingGroundingStartedAt = nowMilliseconds();
+        return sendPendingGroundingAttempt('memory_changed');
       }
 
       function stop() {

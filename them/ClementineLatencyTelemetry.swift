@@ -262,14 +262,39 @@ extension ClementineLatencyTransport {
     }
 }
 
+struct ClementineRealtimeGroundingTelemetrySummary: Codable, Equatable {
+    var submittedCount = 0
+    var queuedCount = 0
+    var retryCount = 0
+    var ignoredAcknowledgementCount = 0
+    var deferredResponseCount = 0
+    var resumedResponseCount = 0
+    var succeededCount = 0
+    var failedCount = 0
+    var latestAcknowledgementMs: Double?
+    var latestAttemptCount = 0
+
+    var diagnosticsSummary: String {
+        let acknowledgement = ClementineLatencySummary.millisecondsText(latestAcknowledgementMs)
+        return [
+            "\(succeededCount) applied",
+            "\(failedCount) failed",
+            "\(retryCount) retries",
+            "latest ack \(acknowledgement)",
+        ].joined(separator: " · ")
+    }
+}
+
 @MainActor
 final class ClementineLatencyTelemetryStore: ObservableObject {
     static let shared = ClementineLatencyTelemetryStore()
 
     @Published private(set) var samples: [ClementineLatencySample]
+    @Published private(set) var realtimeGrounding: ClementineRealtimeGroundingTelemetrySummary
 
     private let defaults: UserDefaults
     private let storageKey: String
+    private let groundingStorageKey: String
     private let maxSamples: Int
     private var bargeInStartedAtByTurnID: [String: Date] = [:]
 
@@ -280,12 +305,22 @@ final class ClementineLatencyTelemetryStore: ObservableObject {
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
+        groundingStorageKey = "\(storageKey).realtime_grounding"
         self.maxSamples = max(1, maxSamples)
         if let data = defaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([ClementineLatencySample].self, from: data) {
             samples = Array(decoded.suffix(self.maxSamples))
         } else {
             samples = []
+        }
+        if let data = defaults.data(forKey: groundingStorageKey),
+           let decoded = try? JSONDecoder().decode(
+               ClementineRealtimeGroundingTelemetrySummary.self,
+               from: data
+           ) {
+            realtimeGrounding = decoded
+        } else {
+            realtimeGrounding = ClementineRealtimeGroundingTelemetrySummary()
         }
     }
 
@@ -401,6 +436,33 @@ final class ClementineLatencyTelemetryStore: ObservableObject {
 
     func recordFirstAudio(turnID: String, elapsedMilliseconds: Double) {
         updateFirstMetric(turnID: turnID, elapsedMilliseconds: elapsedMilliseconds, keyPath: \.firstAudioMs)
+    }
+
+    func recordRealtimeGrounding(_ event: ClementineRealtimeGroundingEvent) {
+        switch event.kind {
+        case .submitted:
+            realtimeGrounding.submittedCount += 1
+        case .queued:
+            realtimeGrounding.queuedCount += 1
+        case .retrying:
+            realtimeGrounding.retryCount += 1
+        case .acknowledgementIgnored:
+            realtimeGrounding.ignoredAcknowledgementCount += 1
+        case .responseDeferred:
+            realtimeGrounding.deferredResponseCount += 1
+        case .responseResumed:
+            realtimeGrounding.resumedResponseCount += 1
+        case .updated:
+            realtimeGrounding.succeededCount += 1
+            realtimeGrounding.latestAcknowledgementMs = event.elapsedMilliseconds
+            realtimeGrounding.latestAttemptCount = event.attempt
+        case .failed:
+            realtimeGrounding.failedCount += 1
+            realtimeGrounding.latestAcknowledgementMs = event.elapsedMilliseconds
+            realtimeGrounding.latestAttemptCount = event.attempt
+        }
+        guard let data = try? JSONEncoder().encode(realtimeGrounding) else { return }
+        defaults.set(data, forKey: groundingStorageKey)
     }
 
     private func updateFirstMetric(

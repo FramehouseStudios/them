@@ -62,6 +62,7 @@ struct ClementineRealtimeConnectionLoss: Equatable {
         case negotiationFailed = "negotiation_failed"
         case microphonePermissionDenied = "microphone_permission_denied"
         case providerError = "provider_error"
+        case projectGroundingUpdateFailed = "project_grounding_update_failed"
         case invalidConfiguration = "invalid_configuration"
         case bridgeNavigationFailed = "bridge_navigation_failed"
         case javascriptEvaluationFailed = "javascript_evaluation_failed"

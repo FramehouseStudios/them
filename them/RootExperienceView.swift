@@ -2685,6 +2685,12 @@ struct RootExperienceView: View {
         realtimeTransport.onConnectionLost = { loss in
             handleRealtimeConnectionLoss(loss)
         }
+        realtimeTransport.onProjectGroundingEvent = { event in
+            clientLatency.recordRealtimeGrounding(event)
+            HerLog.talk.info(
+                "realtime project grounding event=\(event.kind.rawValue, privacy: .public) attempt=\(event.attempt) elapsed_ms=\(event.elapsedMilliseconds ?? 0, privacy: .public)"
+            )
+        }
         realtimeTransport.onProjectGroundingUpdated = { revision in
             let cleanRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanRevision.isEmpty else { return }
@@ -2895,6 +2901,7 @@ struct RootExperienceView: View {
         realtimeTransport.onLatencyEvent = nil
         realtimeTransport.onConnected = nil
         realtimeTransport.onConnectionLost = nil
+        realtimeTransport.onProjectGroundingEvent = nil
         realtimeTransport.onProjectGroundingUpdated = nil
         realtimeTransport.onProjectGroundingUpdateFailed = nil
         realtimeGroundingRefreshTask?.cancel()
@@ -10940,10 +10947,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 ) else {
                     pendingRealtimeGroundingRevision = ""
                     return
-                }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                if pendingRealtimeGroundingRevision == revision {
-                    pendingRealtimeGroundingRevision = ""
                 }
             } catch {
                 if pendingRealtimeGroundingRevision == revision {

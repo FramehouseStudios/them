@@ -49,6 +49,11 @@ test("[realtime-bridge] runtime reports first output latency and provider-confir
     "session.update",
     "project_grounding_updated",
     "project_grounding_update_failed",
+    "project_grounding_update_retrying",
+    "project_grounding_update_ack_ignored",
+    "project_grounding_response_deferred",
+    "project_grounding_response_resumed",
+    "groundingAckTimeoutMilliseconds",
   ]) {
     assert.match(html, new RegExp(marker.replaceAll(".", "\\.")), marker);
   }

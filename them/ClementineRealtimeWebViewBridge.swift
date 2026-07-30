@@ -59,6 +59,65 @@ struct ClementineRealtimeLatencyEvent: Equatable {
     }
 }
 
+struct ClementineRealtimeGroundingEvent: Equatable {
+    enum Kind: String, Equatable {
+        case submitted = "project_grounding_update_submitted"
+        case queued = "project_grounding_update_queued"
+        case retrying = "project_grounding_update_retrying"
+        case acknowledgementIgnored = "project_grounding_update_ack_ignored"
+        case responseDeferred = "project_grounding_response_deferred"
+        case responseResumed = "project_grounding_response_resumed"
+        case updated = "project_grounding_updated"
+        case failed = "project_grounding_update_failed"
+    }
+
+    let kind: Kind
+    let revision: String
+    let attempt: Int
+    let elapsedMilliseconds: Double?
+    let acknowledgementDeadlineMilliseconds: Double?
+    let turnID: String
+    let message: String
+    let responseDeferred: Bool
+
+    static func parse(
+        eventType: String,
+        payload: [String: Any]
+    ) -> ClementineRealtimeGroundingEvent? {
+        guard let kind = Kind(rawValue: eventType) else { return nil }
+        return ClementineRealtimeGroundingEvent(
+            kind: kind,
+            revision: stringValue(payload["revision"]),
+            attempt: intValue(payload["attempt"]),
+            elapsedMilliseconds: doubleValue(payload["elapsedMs"]),
+            acknowledgementDeadlineMilliseconds: doubleValue(payload["ackDeadlineMs"]),
+            turnID: stringValue(payload["turnID"]),
+            message: stringValue(payload["message"]),
+            responseDeferred: boolValue(payload["responseDeferred"])
+        )
+    }
+
+    private static func stringValue(_ value: Any?) -> String {
+        guard let value, !(value is NSNull) else { return "" }
+        return String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func intValue(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        return Int(stringValue(value)) ?? 0
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        return Double(stringValue(value))
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let number = value as? NSNumber { return number.boolValue }
+        return ["true", "1", "yes"].contains(stringValue(value).lowercased())
+    }
+}
+
 @MainActor
 final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     enum Status: Equatable {
@@ -102,6 +161,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     var onLatencyEvent: ((ClementineRealtimeLatencyEvent) -> Void)?
     var onConnected: (() -> Void)?
     var onConnectionLost: ((ClementineRealtimeConnectionLoss) -> Void)?
+    var onProjectGroundingEvent: ((ClementineRealtimeGroundingEvent) -> Void)?
     var onProjectGroundingUpdated: ((String) -> Void)?
     var onProjectGroundingUpdateFailed: ((String, String) -> Void)?
 
@@ -223,6 +283,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         onLatencyEvent = nil
         onConnected = nil
         onConnectionLost = nil
+        onProjectGroundingEvent = nil
         onProjectGroundingUpdated = nil
         onProjectGroundingUpdateFailed = nil
         status = .idle
@@ -399,6 +460,12 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             payload: payload
         ) {
             onLatencyEvent?(latencyEvent)
+        }
+        if let groundingEvent = ClementineRealtimeGroundingEvent.parse(
+            eventType: eventType,
+            payload: payload
+        ) {
+            onProjectGroundingEvent?(groundingEvent)
         }
 
         switch eventType {

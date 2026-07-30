@@ -213,7 +213,13 @@ test("[realtime-simulator] updates project grounding without reconnecting", asyn
     "memory-v12|screenplay_question_resolved|split-ferries"
   );
 
-  simulator.providerEvent({ type: "session.updated", session: { type: "realtime" } });
+  simulator.providerEvent({
+    type: "session.updated",
+    session: {
+      type: "realtime",
+      instructions: "Mara now returns for both sisters. Never repeat the resolved question.",
+    },
+  });
 
   assert.equal(simulator.currentPeerConnection, peer);
   assert.equal(
@@ -221,6 +227,183 @@ test("[realtime-simulator] updates project grounding without reconnecting", asyn
     "memory-v12|screenplay_question_resolved|split-ferries"
   );
   assert.equal(simulator.eventsOfType("transport_lost").length, 0);
+});
+
+test("[realtime-simulator] retries a missing grounding acknowledgement and records latency", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+
+  assert.equal(
+    simulator.updateInstructions(
+      "Mara returns for both sisters.",
+      "memory-v13|canon_correction|split-ferries"
+    ),
+    true
+  );
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "session.update").length,
+    1
+  );
+
+  assert.equal(await simulator.runNextTimeout(), true);
+
+  const sessionUpdates = simulator.currentDataChannel.sent.filter(
+    (event) => event.type === "session.update"
+  );
+  assert.equal(sessionUpdates.length, 2);
+  assert.notEqual(sessionUpdates[0].event_id, sessionUpdates[1].event_id);
+  assert.equal(simulator.eventsOfType("project_grounding_update_retrying").length, 1);
+  assert.equal(
+    simulator.eventsOfType("project_grounding_update_retrying")[0].attempt,
+    2
+  );
+
+  simulator.advance(280);
+  simulator.providerEvent({
+    type: "session.updated",
+    session: { type: "realtime", instructions: "Mara returns for both sisters." },
+  });
+
+  const applied = simulator.eventsOfType("project_grounding_updated")[0];
+  assert.equal(applied.revision, "memory-v13|canon_correction|split-ferries");
+  assert.equal(applied.attempt, 2);
+  assert.equal(applied.elapsedMs, 2_480);
+  assert.equal(simulator.eventsOfType("project_grounding_update_failed").length, 0);
+});
+
+test("[realtime-simulator] gates the next response until the newest queued grounding is acknowledged", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+
+  assert.equal(
+    simulator.updateInstructions("Mara returns for Eli.", "memory-v14|learned|split-ferries"),
+    true
+  );
+  assert.equal(
+    simulator.updateInstructions(
+      "Correction: Mara returns for both Eli and June.",
+      "memory-v15|correction|split-ferries"
+    ),
+    true
+  );
+  assert.equal(simulator.eventsOfType("project_grounding_update_queued").length, 1);
+
+  simulator.providerEvent({ type: "input_audio_buffer.speech_stopped" });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "What happens when Mara reaches the ferry?",
+  });
+  simulator.providerEvent({ type: "response.created" });
+
+  assert.equal(simulator.eventsOfType("assistant_thinking").length, 0);
+  assert.equal(simulator.eventsOfType("project_grounding_response_deferred").length, 1);
+  assert.equal(simulator.currentDataChannel.sent.at(-1).type, "response.cancel");
+  simulator.providerEvent({
+    type: "response.output_text.done",
+    text: "Stale canon should never render.",
+  });
+  simulator.providerEvent({
+    type: "response.output_audio_transcript.done",
+    transcript: "Stale canon should never speak.",
+  });
+  simulator.providerEvent({ type: "output_audio_buffer.started" });
+  simulator.providerEvent({
+    type: "conversation.item.done",
+    item: {
+      role: "assistant",
+      content: [{ type: "text", text: "Stale fallback output." }],
+    },
+  });
+  assert.equal(simulator.eventsOfType("assistant_text_final").length, 0);
+  assert.equal(simulator.eventsOfType("assistant_transcript_final").length, 0);
+  assert.equal(simulator.eventsOfType("assistant_speaking").length, 0);
+  assert.equal(simulator.currentDataChannel.sent.at(-1).type, "output_audio_buffer.clear");
+
+  simulator.providerEvent({
+    type: "session.updated",
+    session: { type: "realtime", instructions: "Mara returns for Eli." },
+  });
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "session.update").length,
+    2
+  );
+  simulator.providerEvent({
+    type: "session.updated",
+    session: { type: "realtime", instructions: "Mara returns for Eli." },
+  });
+  assert.equal(simulator.eventsOfType("project_grounding_update_ack_ignored").length, 1);
+  assert.equal(simulator.eventsOfType("project_grounding_updated").length, 1);
+  simulator.providerEvent({
+    type: "response.done",
+    response: { status: "cancelled", output: [] },
+  });
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "response.create").length,
+    0
+  );
+
+  simulator.providerEvent({
+    type: "session.updated",
+    session: {
+      type: "realtime",
+      instructions: "Correction: Mara returns for both Eli and June.",
+    },
+  });
+
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "response.create").length,
+    1
+  );
+  assert.equal(simulator.eventsOfType("project_grounding_response_resumed").length, 1);
+  assert.equal(
+    simulator.eventsOfType("project_grounding_response_resumed")[0].revision,
+    "memory-v15|correction|split-ferries"
+  );
+
+  simulator.providerEvent({ type: "response.created" });
+  assert.equal(simulator.eventsOfType("assistant_thinking").length, 1);
+  assert.equal(simulator.eventsOfType("transport_lost").length, 0);
+});
+
+test("[realtime-simulator] exhausted grounding retries repair instead of releasing stale output", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+
+  simulator.updateInstructions(
+    "Mara returns for both Eli and June.",
+    "memory-v16|correction|split-ferries"
+  );
+  simulator.providerEvent({ type: "input_audio_buffer.speech_stopped" });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "Continue from Mara reaching the ferry.",
+  });
+  simulator.providerEvent({ type: "response.created" });
+
+  assert.equal(await simulator.runNextTimeout(), true);
+  assert.equal(await simulator.runNextTimeout(), true);
+  assert.equal(await simulator.runNextTimeout(), true);
+
+  const failure = simulator.eventsOfType("project_grounding_update_failed")[0];
+  assert.equal(failure.revision, "memory-v16|correction|split-ferries");
+  assert.equal(failure.attempt, 3);
+  assert.equal(failure.reason, "ack_timeout");
+  assert.equal(failure.responseDeferred, true);
+  assert.equal(simulator.eventsOfType("project_grounding_update_retrying").length, 2);
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "response.create").length,
+    0
+  );
+  assert.equal(simulator.eventsOfType("assistant_thinking").length, 0);
+
+  const loss = simulator.eventsOfType("transport_lost")[0];
+  assert.equal(loss.cause, "project_grounding_update_failed");
+  assert.equal(loss.userTranscript, "Continue from Mara reaching the ferry.");
+  assert.equal(loss.transcriptIsFinal, true);
+  assert.equal(loss.assistantResponseActive, true);
 });
 
 test("[realtime-simulator] intentional stop never emits a transport loss", async () => {

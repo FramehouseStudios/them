@@ -48,6 +48,7 @@ class RealtimeBridgeRuntimeSimulator {
     this.nowMs = initialNowMs;
     this.roundTripSeconds = roundTripSeconds;
     this.intervalCallbacks = new Map();
+    this.timeoutCallbacks = new Map();
     this.nextTimerID = 1;
 
     const simulator = this;
@@ -192,8 +193,17 @@ class RealtimeBridgeRuntimeSimulator {
       clearInterval(id) {
         simulator.intervalCallbacks.delete(id);
       },
-      setTimeout,
-      clearTimeout,
+      setTimeout(callback, delay = 0) {
+        const id = simulator.nextTimerID++;
+        simulator.timeoutCallbacks.set(id, {
+          callback,
+          dueAt: simulator.nowMs + Math.max(0, Number(delay) || 0),
+        });
+        return id;
+      },
+      clearTimeout(id) {
+        simulator.timeoutCallbacks.delete(id);
+      },
       structuredClone,
       window,
     });
@@ -202,8 +212,8 @@ class RealtimeBridgeRuntimeSimulator {
     window.performance = context.performance;
     window.setInterval = context.setInterval;
     window.clearInterval = context.clearInterval;
-    window.setTimeout = setTimeout;
-    window.clearTimeout = clearTimeout;
+    window.setTimeout = context.setTimeout;
+    window.clearTimeout = context.clearTimeout;
 
     vm.runInContext(extractRuntimeScript(html), context, {
       filename: "clementine-realtime-bridge.js",
@@ -229,6 +239,19 @@ class RealtimeBridgeRuntimeSimulator {
     }
     await Promise.resolve();
     await Promise.resolve();
+  }
+
+  async runNextTimeout() {
+    const next = [...this.timeoutCallbacks.entries()]
+      .sort((left, right) => left[1].dueAt - right[1].dueAt)[0];
+    if (!next) return false;
+    const [id, scheduled] = next;
+    this.timeoutCallbacks.delete(id);
+    this.nowMs = Math.max(this.nowMs, scheduled.dueAt);
+    scheduled.callback();
+    await Promise.resolve();
+    await Promise.resolve();
+    return true;
   }
 
   async start(config = {}) {

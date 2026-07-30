@@ -195,6 +195,8 @@ final class ClementineRealtimeBridgeEventTests: XCTestCase {
         let bridge = ClementineRealtimeWebViewBridge()
         var appliedRevisions: [String] = []
         var failures: [(String, String)] = []
+        var groundingEvents: [ClementineRealtimeGroundingEvent] = []
+        bridge.onProjectGroundingEvent = { groundingEvents.append($0) }
         bridge.onProjectGroundingUpdated = { appliedRevisions.append($0) }
         bridge.onProjectGroundingUpdateFailed = { failures.append(($0, $1)) }
 
@@ -203,6 +205,9 @@ final class ClementineRealtimeBridgeEventTests: XCTestCase {
         bridge.receiveBridgeMessage([
             "type": "project_grounding_updated",
             "revision": "memory-v12|screenplay_question_resolved|split-ferries",
+            "attempt": 2,
+            "elapsedMs": 940,
+            "responseDeferred": true,
         ])
         bridge.receiveBridgeMessage([
             "type": "project_grounding_update_failed",
@@ -216,6 +221,10 @@ final class ClementineRealtimeBridgeEventTests: XCTestCase {
         )
         XCTAssertEqual(failures.first?.0, "memory-v13|canon_correction|split-ferries")
         XCTAssertEqual(failures.first?.1, "Provider rejected the update.")
+        XCTAssertEqual(groundingEvents.map(\.kind), [.updated, .failed])
+        XCTAssertEqual(groundingEvents.first?.attempt, 2)
+        XCTAssertEqual(groundingEvents.first?.elapsedMilliseconds, 940)
+        XCTAssertEqual(groundingEvents.first?.responseDeferred, true)
         XCTAssertEqual(bridge.status, .live)
     }
 }

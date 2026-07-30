@@ -286,11 +286,40 @@ try {
   const updateEvent = simulator.currentDataChannel.sent.at(-1);
   assert.equal(updateEvent?.type, "session.update");
   assert.equal(updateEvent?.session?.instructions, refreshedGrounding.payload.instructions);
-  simulator.providerEvent({ type: "session.updated", session: { type: "realtime" } });
+
+  simulator.providerEvent({ type: "input_audio_buffer.speech_stopped" });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "What should happen next?",
+  });
+  simulator.providerEvent({ type: "response.created" });
+  assert.equal(simulator.eventsOfType("project_grounding_response_deferred").length, 1);
+  assert.equal(simulator.currentDataChannel.sent.at(-1)?.type, "response.cancel");
+
+  simulator.providerEvent({
+    type: "session.updated",
+    session: {
+      type: "realtime",
+      instructions: refreshedGrounding.payload.instructions,
+    },
+  });
   assert.equal(
     simulator.eventsOfType("project_grounding_updated").at(-1)?.revision,
     revision,
   );
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "response.create").length,
+    0,
+  );
+  simulator.providerEvent({
+    type: "response.done",
+    response: { status: "cancelled", output: [] },
+  });
+  assert.equal(
+    simulator.currentDataChannel.sent.filter((event) => event.type === "response.create").length,
+    1,
+  );
+  assert.equal(simulator.eventsOfType("project_grounding_response_resumed").length, 1);
 
   const nextSpokenReply = [
     "Then make the next scene pressure Mara's want:",
@@ -314,6 +343,7 @@ try {
     answerLearned: true,
     pendingQuestionCleared: true,
     groundingRefreshed: true,
+    immediateNextTurnGatedUntilGrounded: true,
     samePeerConnection: true,
     nextSpokenReplyUsesLearnedFact: true,
     repeatedResolvedQuestion: false,

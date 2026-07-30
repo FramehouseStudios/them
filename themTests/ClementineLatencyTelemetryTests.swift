@@ -87,4 +87,60 @@ final class ClementineLatencyTelemetryTests: XCTestCase {
         XCTAssertEqual(event.elapsedMilliseconds, 184.5)
         XCTAssertEqual(event.networkClass, .constrained)
     }
+
+    func testGroundingAcknowledgementTelemetryPersistsRetriesAndOutcome() throws {
+        let store = ClementineLatencyTelemetryStore(
+            defaults: defaults,
+            storageKey: "grounding",
+            maxSamples: 4
+        )
+        let retry = try XCTUnwrap(
+            ClementineRealtimeGroundingEvent.parse(
+                eventType: "project_grounding_update_retrying",
+                payload: [
+                    "revision": "memory-v15|correction|split-ferries",
+                    "attempt": 2,
+                    "elapsedMs": 2_200,
+                ]
+            )
+        )
+        let updated = try XCTUnwrap(
+            ClementineRealtimeGroundingEvent.parse(
+                eventType: "project_grounding_updated",
+                payload: [
+                    "revision": "memory-v15|correction|split-ferries",
+                    "attempt": 2,
+                    "elapsedMs": 2_480,
+                    "responseDeferred": true,
+                ]
+            )
+        )
+        let ignoredAcknowledgement = try XCTUnwrap(
+            ClementineRealtimeGroundingEvent.parse(
+                eventType: "project_grounding_update_ack_ignored",
+                payload: [
+                    "revision": "memory-v15|correction|split-ferries",
+                    "attempt": 1,
+                    "elapsedMs": 2_700,
+                ]
+            )
+        )
+
+        store.recordRealtimeGrounding(retry)
+        store.recordRealtimeGrounding(ignoredAcknowledgement)
+        store.recordRealtimeGrounding(updated)
+
+        XCTAssertEqual(store.realtimeGrounding.retryCount, 1)
+        XCTAssertEqual(store.realtimeGrounding.ignoredAcknowledgementCount, 1)
+        XCTAssertEqual(store.realtimeGrounding.succeededCount, 1)
+        XCTAssertEqual(store.realtimeGrounding.latestAttemptCount, 2)
+        XCTAssertEqual(store.realtimeGrounding.latestAcknowledgementMs, 2_480)
+
+        let restored = ClementineLatencyTelemetryStore(
+            defaults: defaults,
+            storageKey: "grounding",
+            maxSamples: 4
+        )
+        XCTAssertEqual(restored.realtimeGrounding, store.realtimeGrounding)
+    }
 }
