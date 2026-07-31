@@ -358,6 +358,15 @@ function createTalkHandler(deps) {
 
   let didLogMp3SignatureLocal = Boolean(didLogMp3Signature);
 
+  // Surface transient provider retries in logs (no PII — stage/status/timing
+  // only) so retry rate is observable at launch.
+  const logProviderRetry = (info) => {
+    console.warn(
+      `[talk][provider-retry] stage=${info.stage} attempt=${info.attempt} ` +
+      (info.status ? `status=${info.status}` : `error=${info.error?.name || "network"}`) +
+      ` retry_in_ms=${info.delayMs}`
+    );
+  };
   const sttSupplier = deps.sttSupplier || createSttSupplier({
     OPENAI_API_KEY,
     STT_LANGUAGE,
@@ -365,6 +374,7 @@ function createTalkHandler(deps) {
     STT_TIMEOUT_MS,
     fetchWithTimeout,
     isAbortError,
+    onProviderRetry: logProviderRetry,
   });
   const chatSupplier = deps.chatSupplier || createChatSupplier({
     OPENAI_API_KEY,
@@ -372,6 +382,7 @@ function createTalkHandler(deps) {
     fetchWithTimeout,
     isAbortError,
     streamChatReplyWithFirstSentence,
+    onProviderRetry: logProviderRetry,
   });
   const ttsSupplier = deps.ttsSupplier || createTtsSupplier({
     synthesizeSpeechMp3,

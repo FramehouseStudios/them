@@ -191,6 +191,19 @@ import {
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
 import { createRateLimiter } from "./lib/rate_limit.js";
 import { createProviderBudgetGuard } from "./lib/provider_budget.js";
+import { withProviderRetry } from "./lib/provider_retry.js";
+
+// Shared retry logger for the inline TTS provider calls (no PII — provider,
+// attempt, status/timing only), matching the talk supplier-glue retry logs.
+function logTtsProviderRetry(provider) {
+  return (info) => {
+    console.warn(
+      `[tts][provider-retry] provider=${provider} attempt=${info.attempt} ` +
+      (info.status ? `status=${info.status}` : `error=${info.error?.name || "network"}`) +
+      ` retry_in_ms=${info.delayMs}`
+    );
+  };
+}
 import {
   clampUnit,
   createRequestId,
@@ -21497,25 +21510,34 @@ ASSISTANT SELF-NAME:
 }
 
 async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
+  const ttsBody = JSON.stringify({
+    model: "gpt-4o-mini-tts",
+    voice: parseOneOf(voice, ALLOWED_TTS_VOICES, TTS_VOICE),
+    format: "mp3",
+    speed,
+    input: inputText,
+  });
   let ttsResp;
   try {
-    ttsResp = await fetchWithTimeout(
-      "https://api.openai.com/v1/audio/speech",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+    ttsResp = await withProviderRetry(
+      () => fetchWithTimeout(
+        "https://api.openai.com/v1/audio/speech",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: ttsBody,
         },
-        body: JSON.stringify({
-          model: "gpt-4o-mini-tts",
-          voice: parseOneOf(voice, ALLOWED_TTS_VOICES, TTS_VOICE),
-          format: "mp3",
-          speed,
-          input: inputText,
-        }),
-      },
-      TTS_TIMEOUT_MS
+        TTS_TIMEOUT_MS
+      ),
+      {
+        retries: 2,
+        baseDelayMs: 200,
+        isRetryableError: (err) => !isAbortError(err),
+        onRetry: logTtsProviderRetry("openai"),
+      }
     );
   } catch (err) {
     if (isAbortError(err)) {
@@ -21546,29 +21568,38 @@ async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(effectiveVoiceId)}/stream` +
     `?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}`;
 
+  const elevenBody = JSON.stringify({
+    text: inputText,
+    model_id: effectiveModelId,
+    voice_settings: {
+      stability: ELEVENLABS_STABILITY,
+      similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
+      style: ELEVENLABS_STYLE,
+      use_speaker_boost: ELEVENLABS_SPEAKER_BOOST,
+    },
+  });
   let ttsResp;
   try {
-    ttsResp = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          Accept: "audio/mpeg",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: inputText,
-          model_id: effectiveModelId,
-          voice_settings: {
-            stability: ELEVENLABS_STABILITY,
-            similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
-            style: ELEVENLABS_STYLE,
-            use_speaker_boost: ELEVENLABS_SPEAKER_BOOST,
+    ttsResp = await withProviderRetry(
+      () => fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            Accept: "audio/mpeg",
+            "Content-Type": "application/json",
           },
-        }),
-      },
-      TTS_TIMEOUT_MS
+          body: elevenBody,
+        },
+        TTS_TIMEOUT_MS
+      ),
+      {
+        retries: 2,
+        baseDelayMs: 200,
+        isRetryableError: (err) => !isAbortError(err),
+        onRetry: logTtsProviderRetry("elevenlabs"),
+      }
     );
   } catch (err) {
     if (isAbortError(err)) {

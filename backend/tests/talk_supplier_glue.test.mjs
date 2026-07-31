@@ -182,6 +182,52 @@ test("[phase7c] TTS supplier delegates all three synthesis seams", async () => {
   assert.deepEqual(calls.map(([name]) => name), ["synthesize", "openai", "screenplay"]);
 });
 
+test("[phase7c] STT supplier retries a transient 503 then succeeds", async () => {
+  let calls = 0;
+  const supplier = createSttSupplier({
+    OPENAI_API_KEY: "test-key",
+    fetchWithTimeout: async () => (++calls < 2 ? okResponse("busy", 503) : okResponse('{"text":"recovered"}')),
+    isAbortError: () => false,
+    retryBaseDelayMs: 0,
+  });
+  const result = await supplier.transcribe({
+    uploadedFile: { buffer: Buffer.from("audio"), originalname: "voice.m4a", mimetype: "audio/m4a" },
+  });
+  assert.equal(calls, 2, "one retry after the 503");
+  assert.equal(result.rawText, '{"text":"recovered"}');
+});
+
+test("[phase7c] chat supplier retries a transient 503 then succeeds", async () => {
+  let calls = 0;
+  const supplier = createChatSupplier({
+    OPENAI_API_KEY: "chat-key",
+    fetchWithTimeout: async () => (++calls < 2 ? okResponse("busy", 503) : okResponse('{"choices":[]}')),
+    isAbortError: () => false,
+    streamChatReplyWithFirstSentence: async () => ({}),
+    retryBaseDelayMs: 0,
+  });
+  const result = await supplier.chat({ model: "m", temperature: 0.2, maxTokens: 10, messages: [] });
+  assert.equal(calls, 2);
+  assert.equal(result.rawText, '{"choices":[]}');
+});
+
+test("[phase7c] chat supplier does NOT retry a timeout (fails fast as 504)", async () => {
+  let calls = 0;
+  const abortErr = new Error("aborted");
+  const supplier = createChatSupplier({
+    OPENAI_API_KEY: "chat-key",
+    fetchWithTimeout: async () => { calls += 1; throw abortErr; },
+    isAbortError: (err) => err === abortErr,
+    streamChatReplyWithFirstSentence: async () => ({}),
+    retryBaseDelayMs: 0,
+  });
+  await assert.rejects(
+    () => supplier.chat({ model: "m", temperature: 0.2, maxTokens: 10, messages: [] }),
+    (err) => err.status === 504 && err.stage === "chat",
+  );
+  assert.equal(calls, 1, "timeout is not retried");
+});
+
 test("[phase7c] supplier module exports no setter-shaped state hooks", async () => {
   const mod = await import("../lib/talk_supplier_glue.js");
   for (const name of Object.keys(mod)) {

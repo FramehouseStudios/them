@@ -6,6 +6,8 @@
 
 import { File } from "node:buffer";
 
+import { withProviderRetry } from "./provider_retry.js";
+
 function requireFunction(name, fn) {
   if (typeof fn !== "function") {
     throw new Error(`talk_supplier_glue missing required function: ${name}`);
@@ -27,6 +29,9 @@ function createSttSupplier({
   STT_TIMEOUT_MS = 30_000,
   fetchWithTimeout,
   isAbortError,
+  maxRetries = 2,
+  retryBaseDelayMs = 200,
+  onProviderRetry = () => {},
 } = {}) {
   const fetcher = requireFunction("fetchWithTimeout", fetchWithTimeout);
   const isAbort = requireFunction("isAbortError", isAbortError);
@@ -36,27 +41,40 @@ function createSttSupplier({
     async transcribe({ uploadedFile, modelName, includeLanguage = true } = {}) {
       const startedAt = Date.now();
       const model = String(modelName || STT_MODEL_PRIMARY);
-      const sttForm = new FormData();
-      sttForm.append("model", model);
-      if (includeLanguage && STT_LANGUAGE) {
-        sttForm.append("language", STT_LANGUAGE);
-      }
 
-      const file = new File([uploadedFile.buffer], uploadedFile.originalname || "recording.m4a", {
-        type: uploadedFile.mimetype || "audio/m4a",
-      });
-      sttForm.append("file", file);
+      // Built per attempt: a multipart body can only be sent once, so each
+      // retry needs a fresh FormData.
+      const buildForm = () => {
+        const sttForm = new FormData();
+        sttForm.append("model", model);
+        if (includeLanguage && STT_LANGUAGE) {
+          sttForm.append("language", STT_LANGUAGE);
+        }
+        const file = new File([uploadedFile.buffer], uploadedFile.originalname || "recording.m4a", {
+          type: uploadedFile.mimetype || "audio/m4a",
+        });
+        sttForm.append("file", file);
+        return sttForm;
+      };
 
       let sttResp;
       try {
-        sttResp = await fetcher(
-          "https://api.openai.com/v1/audio/transcriptions",
+        sttResp = await withProviderRetry(
+          () => fetcher(
+            "https://api.openai.com/v1/audio/transcriptions",
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+              body: buildForm(),
+            },
+            STT_TIMEOUT_MS
+          ),
           {
-            method: "POST",
-            headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-            body: sttForm,
-          },
-          STT_TIMEOUT_MS
+            retries: maxRetries,
+            baseDelayMs: retryBaseDelayMs,
+            isRetryableError: (err) => !isAbort(err),
+            onRetry: (info) => onProviderRetry({ stage: "stt", ...info }),
+          }
         );
       } catch (err) {
         if (isAbort(err)) {
@@ -82,6 +100,9 @@ function createChatSupplier({
   fetchWithTimeout,
   isAbortError,
   streamChatReplyWithFirstSentence,
+  maxRetries = 2,
+  retryBaseDelayMs = 200,
+  onProviderRetry = () => {},
 } = {}) {
   const fetcher = requireFunction("fetchWithTimeout", fetchWithTimeout);
   const isAbort = requireFunction("isAbortError", isAbortError);
@@ -96,24 +117,33 @@ function createChatSupplier({
       return streamFirstSentence(args);
     },
     async chat({ model, temperature, maxTokens, messages } = {}) {
+      const body = JSON.stringify({
+        model,
+        temperature,
+        max_tokens: maxTokens,
+        messages,
+      });
       let chatResp;
       try {
-        chatResp = await fetcher(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
+        chatResp = await withProviderRetry(
+          () => fetcher(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body,
             },
-            body: JSON.stringify({
-              model,
-              temperature,
-              max_tokens: maxTokens,
-              messages,
-            }),
-          },
-          CHAT_TIMEOUT_MS
+            CHAT_TIMEOUT_MS
+          ),
+          {
+            retries: maxRetries,
+            baseDelayMs: retryBaseDelayMs,
+            isRetryableError: (err) => !isAbort(err),
+            onRetry: (info) => onProviderRetry({ stage: "chat", ...info }),
+          }
         );
       } catch (err) {
         if (isAbort(err)) {
