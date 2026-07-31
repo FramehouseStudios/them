@@ -204,7 +204,7 @@ test("[studio-render] sync: applies corrected character bible memory to page pro
   });
 });
 
-test("[studio-render] sync: voice pin target does not inject page memory", async () => {
+test("[studio-render] sync: ordinary voice pin target does not inject page memory", async () => {
   let memoryReads = 0;
   const deps = defaultDeps({
     resolveUserId: () => "user-1",
@@ -226,6 +226,101 @@ test("[studio-render] sync: voice pin target does not inject page memory", async
     assert.equal(memoryReads, 0);
     assert.doesNotMatch(deps._calls.renderInvocations[0].systemPrompt, /<creative_memory>/);
     assert.equal(r.body.memory_applied, undefined);
+  });
+});
+
+test("[studio-render] sync: writer-block voice pin applies corrected instincts to a playable fallback", async () => {
+  const memoryCalls = [];
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => "Maybe raise the stakes and trust your instincts.",
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async (args) => {
+        memoryCalls.push(args);
+        return {
+          userId: "user-1",
+          version: 3,
+          projectContinuity: {
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            act: "Act II",
+            featureSequence: "Bad Guys Close In",
+            currentBeat: "Mara cannot decide whether to trust Eli.",
+            characterFocus: ["Mara", "Eli"],
+            storyMovePreferenceOverrides: [{
+              family: "relationship_pressure",
+              stance: "prefer",
+              updatedAt: 5_000,
+            }],
+          },
+        };
+      },
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "I am stuck in the middle. What should happen next?",
+      system_prompt: "Be a decisive screenplay partner.",
+      screenplay_target: "voice_pin",
+      screenplay_project_id: "split-ferries",
+      screenplay_project_title: "Split Ferries",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(memoryCalls.length, 1);
+    assert.equal(memoryCalls[0].projectId, "split-ferries");
+    assert.match(r.body.reply, /^Ranked strongest move - relationship pressure:/);
+    assert.match(r.body.reply, /Mara/);
+    assert.equal(r.body.screenplay_quality.ok, true);
+    assert.equal(r.body.screenplay_quality.source, "guard_momentum_rescue_fallback");
+    assert.equal(r.body.screenplay_quality.repair_outcome, "fallback");
+  });
+});
+
+test("[studio-render] sync: due canon outranks corrected instincts during writer-block fallback", async () => {
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => "Try a twist and see what feels exciting.",
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        userId: "user-1",
+        version: 4,
+        projectContinuity: {
+          projectId: "split-ferries",
+          projectTitle: "Split Ferries",
+          act: "Act II",
+          featureSequence: "Bad Guys Close In",
+          currentBeat: "Mara cannot decide whether to trust Eli.",
+          characterFocus: ["Mara", "Eli"],
+          storyMovePreferenceOverrides: [{
+            family: "relationship_pressure",
+            stance: "prefer",
+            updatedAt: 5_000,
+          }],
+        },
+        dueStoryThread: {
+          kind: "setup",
+          setup: "The red locket inside the courthouse clock",
+          sourceSceneHeading: "INT. CLOCK TOWER - NIGHT",
+          sourceAct: "Act I",
+          ageInScenes: 14,
+          acceptedSceneCount: 15,
+        },
+      }),
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "I am stuck in the middle. What should happen next?",
+      screenplay_target: "voice_pin",
+      screenplay_project_id: "split-ferries",
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.body.reply, /^Ranked strongest move - payoff pressure:/);
+    assert.match(r.body.reply, /The red locket inside the courthouse clock/);
+    assert.doesNotMatch(r.body.reply, /^Ranked strongest move - relationship pressure:/);
+    assert.equal(r.body.screenplay_quality.ok, true);
   });
 });
 

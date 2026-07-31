@@ -565,6 +565,124 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_studio_writer_block_rescue_follows_instinct_then_protects_due_canon() async throws {
+        guard let fixture = try studioInstinctFixtureFromEnvironment() else {
+            throw XCTSkip("No Studio writer-block instinct fixture was provided.")
+        }
+
+        let app = launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            liveMemory: true,
+            restoreProjectID: fixture.projectID,
+            submitTransportMode: "live",
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not open for the writer-block instinct smoke."
+        )
+        try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.baselineStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "The baseline writer-block response did not expose \(fixture.baselineStrongestMove). Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+
+        revealStudioCreativeInstincts(in: app)
+        let preference = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            in: app
+        )
+        XCTAssertTrue(
+            preference.waitForExistence(timeout: 20),
+            "The preference required by the writer-block smoke was missing."
+        )
+        let preferenceMenu = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily).menu",
+            in: app
+        )
+        makeHittable(preferenceMenu, in: app)
+        XCTAssertTrue(preferenceMenu.isHittable, "The creative instinct menu was not tappable.")
+        preferenceMenu.tap()
+        let preferAction = app.buttons["Suggest More Like This"]
+        XCTAssertTrue(preferAction.waitForExistence(timeout: 5))
+        preferAction.tap()
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+                containing: "corrected",
+                in: app,
+                timeout: 15
+            ),
+            "Studio did not surface the explicit preference correction."
+        )
+
+        try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.correctedStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "The corrected instinct did not change Clementine's strongest rescue move."
+        )
+
+        let canonCommit = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "Keep this accepted page and its setup as canon.",
+                "reply": fixture.acceptedPage,
+                "request_id": "ui-instinct-canon-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_target": "page",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_anchor_scene_label": "INT. CLOCK TOWER - NIGHT",
+                    "screenplay_inserted_text": fixture.acceptedPage,
+                    "screenplay_act": "Act II",
+                    "screenplay_scene_summary": "Mara hides the red locket inside the courthouse clock.",
+                    "screenplay_current_beat": "Mara leaves the clock tower without telling Eli where the locket is.",
+                    "screenplay_character_focus": ["Mara", "Eli"],
+                    "screenplay_unresolved_setups": [fixture.dueSetup],
+                    "screenplay_act_three_payoff_path": [fixture.duePayoff],
+                ],
+            ]
+        )
+        try assertHTTP(canonCommit, context: "writer-block due-canon commit")
+
+        try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.canonStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "Due canon did not outrank the corrected creative instinct."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.dueSetup,
+                in: app,
+                timeout: 5
+            ),
+            "The protected due setup was missing from Clementine's rescue."
+        )
+    }
+
+    @MainActor
     private func assertBackendProjectRestoreLoads(_ fixture: RestoreContractFixture) async throws {
         let app = launchApp(
             openStudio: true,
@@ -682,6 +800,7 @@ final class V1SmokeUITests: XCTestCase {
         restoreProjectID: String? = nil,
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
+        submitTransportMode: String = "stub",
         launchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -689,7 +808,7 @@ final class V1SmokeUITests: XCTestCase {
             "--ui-testing",
             "--ui-reset-state",
             "-studio_debug_submit_transport_mode",
-            "stub",
+            submitTransportMode,
             "-studio_auto_insert",
             "1"
         ]
@@ -978,6 +1097,218 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
+    }
+
+    private func revealStudioCreativeInstincts(in app: XCUIApplication) {
+        let section = element(identifier: "studio.story-preferences", in: app)
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+        if !rightDrawer.exists,
+           rightToggle.waitForExistence(timeout: 5),
+           rightToggle.isHittable {
+            rightToggle.tap()
+        }
+        let deadline = Date().addingTimeInterval(12)
+        while Date() < deadline, !section.exists {
+            app.swipeDown()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertTrue(section.exists, "Studio did not reveal Creative Instincts.")
+    }
+
+    private func makeHittable(_ element: XCUIElement, in app: XCUIApplication) {
+        guard element.exists, !element.isHittable else { return }
+        for _ in 0..<4 where !element.isHittable {
+            app.swipeDown()
+        }
+        for _ in 0..<8 where !element.isHittable {
+            app.swipeUp()
+        }
+    }
+
+    private func submitStudioWriterBlockPrompt(
+        _ prompt: String,
+        in app: XCUIApplication
+    ) throws {
+        let field = element(identifier: "studio.prompt.field", in: app)
+        if !field.isHittable {
+            let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+            if rightToggle.waitForExistence(timeout: 3),
+               rightToggle.isHittable,
+               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+                rightToggle.tap()
+            }
+            makeHittable(field, in: app)
+        }
+        XCTAssertTrue(
+            field.waitForExistence(timeout: 8),
+            "Studio prompt field was missing."
+        )
+        XCTAssertTrue(field.isHittable, "Studio prompt field was not tappable.")
+        field.tap()
+        field.typeText(prompt)
+        submitFocusedPrompt(in: app, field: field)
+    }
+
+    private func waitForAccessibilityText(
+        identifier: String,
+        containing expected: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let target = element(identifier: identifier, in: app)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if target.exists,
+               accessibilityText(of: target)
+                .localizedCaseInsensitiveContains(expected) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        return target.exists &&
+            accessibilityText(of: target)
+                .localizedCaseInsensitiveContains(expected)
+    }
+
+    private struct StudioInstinctFixture {
+        let baseURL: URL
+        let appToken: String
+        let clientToken: String
+        let accessToken: String
+        let projectID: String
+        let preferenceFamily: String
+        let prompt: String
+        let baselineStrongestMove: String
+        let correctedStrongestMove: String
+        let canonStrongestMove: String
+        let acceptedPage: String
+        let dueSetup: String
+        let duePayoff: String
+        let appLaunchEnvironment: [String: String]
+
+        var authorizedHeaders: [String: String] {
+            [
+                "X-APP-TOKEN": appToken,
+                "X-Client-Token": clientToken,
+                "Authorization": "Bearer \(accessToken)",
+            ]
+        }
+    }
+
+    private func studioInstinctFixtureFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> StudioInstinctFixture? {
+        let encoded = (environment["THEM_UITEST_STUDIO_INSTINCT_FIXTURE_BASE64URL"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !encoded.isEmpty else { return nil }
+        var base64 = encoded
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - (base64.count % 4)) % 4)
+        guard let data = Data(base64Encoded: base64),
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(
+                domain: "themUITests.studioInstinct",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not decode Studio instinct fixture JSON."]
+            )
+        }
+
+        let baseURLString = try firstNonEmptyString(
+            payload["baseURL"],
+            payload["base_url"],
+            message: "Studio instinct fixture missing baseURL."
+        )
+        guard let baseURL = URL(string: baseURLString) else {
+            throw NSError(
+                domain: "themUITests.studioInstinct",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Studio instinct fixture has an invalid baseURL."]
+            )
+        }
+        let appToken = try firstNonEmptyString(
+            payload["appToken"],
+            payload["app_token"],
+            message: "Studio instinct fixture missing appToken."
+        )
+        let userID = try firstNonEmptyString(
+            payload["userID"],
+            payload["user_id"],
+            message: "Studio instinct fixture missing userID."
+        )
+        let clientToken = try firstNonEmptyString(
+            payload["clientToken"],
+            payload["client_token"],
+            message: "Studio instinct fixture missing clientToken."
+        )
+        let accessToken = try firstNonEmptyString(
+            payload["accessToken"],
+            payload["access_token"],
+            message: "Studio instinct fixture missing accessToken."
+        )
+        let clientTokenExpiry = try firstNonEmptyString(
+            payload["clientTokenExpiry"],
+            payload["client_token_expiry"],
+            message: "Studio instinct fixture missing clientTokenExpiry."
+        )
+        let clientTokenCachedAt = max(1, intValue(payload["clientTokenCachedAt"]))
+        return StudioInstinctFixture(
+            baseURL: baseURL,
+            appToken: appToken,
+            clientToken: clientToken,
+            accessToken: accessToken,
+            projectID: try firstNonEmptyString(
+                payload["projectID"],
+                payload["project_id"],
+                message: "Studio instinct fixture missing projectID."
+            ),
+            preferenceFamily: try firstNonEmptyString(
+                payload["preferenceFamily"],
+                payload["preference_family"],
+                message: "Studio instinct fixture missing preferenceFamily."
+            ),
+            prompt: try firstNonEmptyString(
+                payload["prompt"],
+                message: "Studio instinct fixture missing prompt."
+            ),
+            baselineStrongestMove: try firstNonEmptyString(
+                payload["baselineStrongestMove"],
+                message: "Studio instinct fixture missing baselineStrongestMove."
+            ),
+            correctedStrongestMove: try firstNonEmptyString(
+                payload["correctedStrongestMove"],
+                message: "Studio instinct fixture missing correctedStrongestMove."
+            ),
+            canonStrongestMove: try firstNonEmptyString(
+                payload["canonStrongestMove"],
+                message: "Studio instinct fixture missing canonStrongestMove."
+            ),
+            acceptedPage: try firstNonEmptyString(
+                payload["acceptedPage"],
+                message: "Studio instinct fixture missing acceptedPage."
+            ),
+            dueSetup: try firstNonEmptyString(
+                payload["dueSetup"],
+                message: "Studio instinct fixture missing dueSetup."
+            ),
+            duePayoff: try firstNonEmptyString(
+                payload["duePayoff"],
+                message: "Studio instinct fixture missing duePayoff."
+            ),
+            appLaunchEnvironment: [
+                "THEM_UITEST_BACKEND_BASE_URL": baseURLString,
+                "THEM_UITEST_APP_TOKEN": appToken,
+                "THEM_UITEST_USER_ID": userID,
+                "THEM_UITEST_CLIENT_TOKEN": clientToken,
+                "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "\(clientTokenCachedAt)",
+                "THEM_UITEST_CLIENT_TOKEN_BASE_URL": baseURLString,
+                "THEM_UITEST_CLIENT_TOKEN_EXPIRY": clientTokenExpiry,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": accessToken,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "1",
+                "THEM_UITEST_AUTH_SIGNED_IN": "1",
+            ]
+        )
     }
 
     private struct LearnedMemoryFixture {

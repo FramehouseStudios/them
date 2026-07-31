@@ -400,10 +400,10 @@ function buildMomentumRescueFallbackReply({
     : "";
 
   return [
+    ...rankedMoveLines,
+    bestNextBeat,
     pressureLine,
     characterLine,
-    bestNextBeat,
-    ...rankedMoveLines,
     beatEngineLine,
     "",
     heading,

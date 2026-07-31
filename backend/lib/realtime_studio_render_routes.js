@@ -54,6 +54,8 @@ import {
   studioScreenplayMaxTokens,
   studioScreenplayRequestedPages,
 } from "./studio_screenplay_quality_gate.js";
+import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
+import { evaluateMomentumRescueQuality } from "./screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
 
 const STUDIO_RENDER_BODY_LIMIT = "512kb";
@@ -297,15 +299,24 @@ async function buildStudioRenderPromptMemoryContext({
   creativeMemoryStore = null,
   resolveUserId = null,
 } = {}) {
-  if (!shouldApplyScreenplayContract) {
-    return { systemPrompt, memoryApplied: null, acceptedCausalFacts: [] };
-  }
   const body = req?.body && typeof req.body === "object" ? req.body : {};
   const promptText = String(systemPrompt || "");
   const hasMemoryBlock = promptText.includes(MEMORY_BLOCK_OPEN);
   const hasFeatureMapBlock = promptText.includes(FEATURE_MAP_BLOCK_OPEN);
   const query = buildStudioRenderMemoryQuery({ body, transcript, systemPrompt });
-  const screenplayTask = hasFeatureMapBlock ? null : inferScreenplayTask(transcript || query);
+  const inferredScreenplayTask = inferScreenplayTask(transcript || query);
+  const screenplayTask = hasFeatureMapBlock ? null : inferredScreenplayTask;
+  const isMomentumRescue = inferredScreenplayTask?.writerBlocked === true ||
+    inferredScreenplayTask?.writer_blocked === true;
+  if (!shouldApplyScreenplayContract && !isMomentumRescue) {
+    return {
+      systemPrompt,
+      memoryApplied: null,
+      acceptedCausalFacts: [],
+      creativeMemory: null,
+      screenplayTask: null,
+    };
+  }
   const sessionContext = hasFeatureMapBlock ? null : studioScreenplayFeatureContext(body);
 
   let userId = "";
@@ -345,7 +356,13 @@ async function buildStudioRenderPromptMemoryContext({
     ? promptMemory.acceptedCausalFacts.slice(0, 8)
     : [];
   if (!memoryForPrompt && !sessionContext && !screenplayTask) {
-    return { systemPrompt, memoryApplied: null, acceptedCausalFacts };
+    return {
+      systemPrompt,
+      memoryApplied: null,
+      acceptedCausalFacts,
+      creativeMemory: promptMemory,
+      screenplayTask,
+    };
   }
   try {
     return {
@@ -357,10 +374,271 @@ async function buildStudioRenderPromptMemoryContext({
       }),
       memoryApplied,
       acceptedCausalFacts,
+      creativeMemory: promptMemory,
+      screenplayTask,
     };
   } catch (_error) {
-    return { systemPrompt, memoryApplied: null, acceptedCausalFacts };
+    return {
+      systemPrompt,
+      memoryApplied: null,
+      acceptedCausalFacts,
+      creativeMemory: promptMemory,
+      screenplayTask,
+    };
   }
+}
+
+function mergeStudioMomentumList(primary, secondary, maxItems = 6, maxChars = 180) {
+  return cleanStudioRenderMemoryList(
+    [
+      ...cleanStudioRenderMemoryList(primary, maxItems, maxChars),
+      ...cleanStudioRenderMemoryList(secondary, maxItems, maxChars),
+    ],
+    maxItems,
+    maxChars
+  );
+}
+
+function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
+  const project = creativeMemory?.projectContinuity &&
+    typeof creativeMemory.projectContinuity === "object"
+    ? creativeMemory.projectContinuity
+    : {};
+  const pick = (bodyKeys, projectValue, maxChars = 220) => {
+    for (const key of bodyKeys) {
+      const clean = cleanStudioRenderMemoryText(body?.[key], maxChars);
+      if (clean) return clean;
+    }
+    return cleanStudioRenderMemoryText(projectValue, maxChars);
+  };
+  const acceptedPages = Array.isArray(creativeMemory?.acceptedScenes)
+    ? creativeMemory.acceptedScenes.map((scene) => [
+      cleanStudioRenderMemoryText(scene?.sceneHeading, 120),
+      cleanStudioRenderMemoryText(scene?.outcome || scene?.summary || scene?.excerpt, 220),
+    ].filter(Boolean).join(" - "))
+    : [];
+  const storyMoments = Array.isArray(creativeMemory?.episodicMemories)
+    ? creativeMemory.episodicMemories
+      .filter((memory) => ["accepted_page", "user_note", "user_correction"].includes(
+        String(memory?.authority || "").trim().toLowerCase()
+      ))
+      .map((memory) => memory?.excerpt || memory?.summary)
+    : [];
+
+  return {
+    ...(body && typeof body === "object" ? body : {}),
+    screenplayTarget: "voice_pin",
+    screenplayProjectId: pick(
+      ["screenplayProjectId", "screenplay_project_id", "projectId", "project_id"],
+      project.projectId,
+      96
+    ),
+    screenplayAnchorSceneLabel: pick(
+      ["screenplayAnchorSceneLabel", "screenplay_anchor_scene_label"],
+      project.sceneLabel,
+      120
+    ),
+    screenplayAct: pick(["screenplayAct", "screenplay_act"], project.act, 120),
+    screenplaySceneObjective: pick(
+      ["screenplaySceneObjective", "screenplay_scene_objective"],
+      project.sceneObjective,
+      280
+    ),
+    screenplaySceneSummary: pick(
+      ["screenplaySceneSummary", "screenplay_scene_summary"],
+      project.sceneSummary,
+      280
+    ),
+    screenplayCurrentBeat: pick(
+      ["screenplayCurrentBeat", "screenplay_current_beat"],
+      project.currentBeat,
+      220
+    ),
+    screenplayProtagonistWant: pick(
+      ["screenplayProtagonistWant", "screenplay_protagonist_want"],
+      project.protagonistWant,
+      240
+    ),
+    screenplayProtagonistNeed: pick(
+      ["screenplayProtagonistNeed", "screenplay_protagonist_need"],
+      project.protagonistNeed,
+      240
+    ),
+    screenplayAntagonisticForce: pick(
+      ["screenplayAntagonisticForce", "screenplay_antagonistic_force"],
+      project.antagonisticForce,
+      260
+    ),
+    screenplayEndingImage: pick(
+      ["screenplayEndingImage", "screenplay_ending_image"],
+      project.endingImage,
+      240
+    ),
+    screenplayFeatureSequence: pick(
+      ["screenplayFeatureSequence", "screenplay_feature_sequence"],
+      project.featureSequence,
+      220
+    ),
+    screenplayFeatureObligation: pick(
+      ["screenplayFeatureObligation", "screenplay_feature_obligation"],
+      project.featureObligation,
+      280
+    ),
+    screenplayActPressureState: pick(
+      ["screenplayActPressureState", "screenplay_act_pressure_state"],
+      project.actPressureState,
+      280
+    ),
+    screenplayCharacterArcState: pick(
+      ["screenplayCharacterArcState", "screenplay_character_arc_state"],
+      project.characterArcState,
+      280
+    ),
+    screenplayLastSceneOutcome: pick(
+      ["screenplayLastSceneOutcome", "screenplay_last_scene_outcome"],
+      project.lastSceneOutcome,
+      240
+    ),
+    screenplayNextScenePlan: pick(
+      ["screenplayNextScenePlan", "screenplay_next_scene_plan"],
+      project.nextScenePlan,
+      340
+    ),
+    screenplayNextSceneMoves: mergeStudioMomentumList(
+      body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves,
+      project.nextSceneMoves,
+      5,
+      180
+    ),
+    screenplayNextThreeTurns: mergeStudioMomentumList(
+      body.screenplayNextThreeTurns ?? body.screenplay_next_three_turns,
+      project.nextThreeTurns,
+      3,
+      180
+    ),
+    screenplayActThreePayoffPath: mergeStudioMomentumList(
+      body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path,
+      project.actThreePayoffPath,
+      5,
+      200
+    ),
+    screenplayCharacterFocus: mergeStudioMomentumList(
+      body.screenplayCharacterFocus ?? body.screenplay_character_focus,
+      project.characterFocus,
+      8,
+      120
+    ),
+    screenplayUnresolvedSetups: mergeStudioMomentumList(
+      body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups,
+      project.unresolvedSetups,
+      8,
+      220
+    ),
+    screenplayUnresolvedStoryThreads: mergeStudioMomentumList(
+      body.screenplayUnresolvedStoryThreads ?? body.screenplay_unresolved_story_threads,
+      project.unresolvedStoryThreads,
+      8,
+      220
+    ),
+    screenplayCharacterArcTurns: mergeStudioMomentumList(
+      body.screenplayCharacterArcTurns ?? body.screenplay_character_arc_turns,
+      project.characterArcTurns,
+      6,
+      180
+    ),
+    screenplayImageMotifs: mergeStudioMomentumList(
+      body.screenplayImageMotifs ?? body.screenplay_image_motifs,
+      project.imageMotifs,
+      6,
+      140
+    ),
+    screenplayAcceptedPageContinuity: mergeStudioMomentumList(
+      body.screenplayAcceptedPageContinuity ?? body.screenplay_accepted_page_continuity,
+      acceptedPages,
+      3,
+      240
+    ),
+    screenplayRetrievedStoryMoments: mergeStudioMomentumList(
+      body.screenplayRetrievedStoryMoments ?? body.screenplay_retrieved_story_moments,
+      storyMoments,
+      4,
+      220
+    ),
+    screenplayAcceptedCausalFacts: Array.isArray(creativeMemory?.acceptedCausalFacts)
+      ? creativeMemory.acceptedCausalFacts.slice(0, 8)
+      : [],
+    screenplayDueStoryThread: creativeMemory?.dueStoryThread &&
+      typeof creativeMemory.dueStoryThread === "object"
+      ? creativeMemory.dueStoryThread
+      : null,
+    screenplayQuestionEffectiveness: Array.isArray(project.questionEffectiveness)
+      ? project.questionEffectiveness.slice(0, 24)
+      : [],
+    screenplayStoryMovePreferenceOverrides: Array.isArray(project.storyMovePreferenceOverrides)
+      ? project.storyMovePreferenceOverrides.slice(0, 9)
+      : [],
+  };
+}
+
+function compactMomentumQualityCounts(counts = {}) {
+  return Object.fromEntries(
+    Object.entries(counts || {})
+      .filter(([, value]) => Number.isFinite(Number(value)))
+      .map(([key, value]) => [key, Math.max(0, Math.round(Number(value)))])
+  );
+}
+
+function enforceStudioMomentumRescue({
+  reply = "",
+  transcript = "",
+  body = {},
+  memoryContext = null,
+} = {}) {
+  const initial = evaluateMomentumRescueQuality({
+    reply,
+    transcript,
+    studioMeta: body,
+  });
+  if (!initial?.applicable || initial.ok) {
+    return { reply, screenplayQuality: null, repaired: false };
+  }
+
+  const fallback = buildMomentumRescueFallbackReply({
+    transcript,
+    studioMeta: studioMomentumMeta({
+      body,
+      creativeMemory: memoryContext?.creativeMemory,
+    }),
+  });
+  const repaired = evaluateMomentumRescueQuality({
+    reply: fallback,
+    transcript,
+    studioMeta: body,
+  });
+  if (!repaired.ok) {
+    return { reply, screenplayQuality: null, repaired: false };
+  }
+  return {
+    reply: fallback,
+    repaired: true,
+    screenplayQuality: {
+      ok: true,
+      reason: "ok",
+      source: "guard_momentum_rescue_fallback",
+      requested_pages: 0,
+      attempted_repair: true,
+      repair_outcome: "fallback",
+      initial_reason: initial.reason || "low_momentum_rescue_quality",
+      repair_ms: 0,
+      counts: compactMomentumQualityCounts(repaired.counts),
+      canon_facts_checked: Array.isArray(memoryContext?.creativeMemory?.acceptedCausalFacts)
+        ? memoryContext.creativeMemory.acceptedCausalFacts.length
+        : 0,
+      canon_violation_count: 0,
+      canon_violation_types: [],
+      canon_correction_override: false,
+    },
+  };
 }
 
 function studioRenderQualityBody(body = {}, memoryContext = null) {
@@ -517,6 +795,15 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           });
         }
         reply = qualityResult.reply;
+      } else {
+        const momentumResult = enforceStudioMomentumRescue({
+          reply,
+          transcript,
+          body: req.body,
+          memoryContext,
+        });
+        reply = momentumResult.reply;
+        screenplayQuality = momentumResult.screenplayQuality;
       }
       console.warn(
         `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length} quality=${screenplayQuality?.repair_outcome || "not_applicable"}`,
@@ -692,6 +979,24 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           deltaChunks += 1;
           pushEvent("delta", { delta: finalDelta });
           lastEmittedReply = reply;
+        }
+      } else {
+        const momentumResult = enforceStudioMomentumRescue({
+          reply,
+          transcript,
+          body: req.body,
+          memoryContext,
+        });
+        reply = momentumResult.reply;
+        screenplayQuality = momentumResult.screenplayQuality;
+        if (momentumResult.repaired) {
+          pushEvent("trace", {
+            ok: true,
+            action: "studio_render_stream",
+            kind: "momentum_rescue_fallback",
+            request_id: rid,
+            screenplay_quality: screenplayQuality,
+          });
         }
       }
       const totalMs = Math.max(0, Date.now() - requestStartedAt);

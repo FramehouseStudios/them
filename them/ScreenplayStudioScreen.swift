@@ -8516,6 +8516,8 @@ Replace is best when this file should become the script you edit. Append is safe
 
             if let latestTurn = voicePinTurns.last,
                let latestExchange = studioAskNoteHistory.first(where: { $0.id == latestTurn.exchangeID }) {
+                let fullOutput = latestExchange.developmentText?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(latestTurn.userAskLabel)
@@ -8531,7 +8533,11 @@ Replace is best when this file should become the script you edit. Append is safe
                     Text(latestTurn.outputExcerpt)
                         .font(.system(size: 11, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.58))
-                        .lineLimit(2)
+                        .lineLimit(4)
+                        .accessibilityLabel(
+                            fullOutput.isEmpty ? latestTurn.outputExcerpt : fullOutput
+                        )
+                        .accessibilityIdentifier("studio.voice-pin.latest.output")
 
                     HStack(spacing: 8) {
                         Button("Reuse") {

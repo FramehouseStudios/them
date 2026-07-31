@@ -58,6 +58,7 @@
     "eval:studio-ios-relaunch-restore-contract": "node evals/run_studio_ios_relaunch_restore_contract_smoke.mjs",
     "eval:studio-cross-platform-restore-contract": "node evals/run_studio_cross_platform_restore_contract_smoke.mjs",
     "eval:cross-platform-learned-memory-ui": "node evals/run_cross_platform_learned_memory_ui_smoke.mjs",
+    "eval:studio-instinct-writer-block-ui": "node evals/run_studio_instinct_writer_block_ui_smoke.mjs",
     "eval:cross-platform-question-cadence": "node evals/run_cross_platform_question_cadence_smoke.mjs",
     "eval:studio-cross-platform-prompt-restore-contract": "node evals/run_studio_cross_platform_prompt_restore_contract_smoke.mjs",
     "eval:studio-typed-page-write": "STUDIO_CMDRETURN_SCENARIO=page-only STUDIO_CMDRETURN_TRANSPORT=debug-submit STUDIO_CMDRETURN_FIRST_PROMPT=\"Write the next beat where she leaves before he can answer.\" node evals/run_studio_cmdreturn_smoke.mjs",
