@@ -532,6 +532,40 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
                         """#.utf8
                     )
                 )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "source": "auth_user",
+                          "source_ip": "",
+                          "story_move_preferences": [
+                            {
+                              "project_id": "split-ferries",
+                              "project_title": "Split Ferries",
+                              "family": "relationship_pressure",
+                              "display_name": "Relationship pressure",
+                              "summary": "make plot movement damage, redefine, or test a bond",
+                              "learned_score": -1,
+                              "effective_score": 10,
+                              "evidence_count": 3,
+                              "selected_count": 1,
+                              "passed_over_count": 2,
+                              "accepted_page_count": 1,
+                              "block_resolution_count": 1,
+                              "explicit_stance": "prefer",
+                              "corrected_at": 5000,
+                              "updated_at": 5000
+                            }
+                          ],
+                          "memories": [],
+                          "conversation_samples": []
+                        }
+                        """#.utf8
+                    )
+                )
             default:
                 return ScreenplayExportHTTPStub(
                     status: 404,
@@ -568,6 +602,21 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
         XCTAssertEqual(request.bodyObject?["family"] as? String, "relationship_pressure")
         XCTAssertEqual(request.bodyObject?["action"] as? String, "prefer")
+
+        let scoped = try await api.fetchMemories(
+            limit: 1,
+            storyPreferenceProjectID: "split-ferries",
+            storyPreferenceProjectTitle: "Ignored because the ID is authoritative"
+        )
+        XCTAssertEqual(scoped.payload.storyMovePreferences?.map(\.projectId), ["split-ferries"])
+        let scopedRequest = try XCTUnwrap(
+            recorder.requests.last { $0.path == "/memories" }
+        )
+        XCTAssertEqual(
+            scopedRequest.queryItems["story_preference_project_id"],
+            "split-ferries"
+        )
+        XCTAssertNil(scopedRequest.queryItems["story_preference_project_title"])
     }
 }
 
@@ -616,6 +665,7 @@ private final class ScreenplayExportURLProtocolStub: URLProtocol {
 private struct RecordedScreenplayExportRequest {
     let method: String
     let path: String
+    let queryItems: [String: String]
     let acceptHeader: String?
     let bodyObject: [String: Any]?
 }
@@ -636,6 +686,15 @@ private final class ScreenplayExportRequestRecorder: @unchecked Sendable {
         let record = RecordedScreenplayExportRequest(
             method: request.httpMethod ?? "",
             path: request.url?.path ?? "",
+            queryItems: Dictionary(
+                uniqueKeysWithValues: (URLComponents(
+                    url: request.url ?? URL(fileURLWithPath: "/"),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems ?? []).compactMap { item in
+                    guard let value = item.value else { return nil }
+                    return (item.name, value)
+                }
+            ),
             acceptHeader: request.value(forHTTPHeaderField: "Accept"),
             bodyObject: bodyObject
         )

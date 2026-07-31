@@ -1,0 +1,423 @@
+import Combine
+import SwiftUI
+
+enum StudioStoryMovePreferencePresentation {
+    static func scoped(
+        _ preferences: [BackendStoryMovePreference],
+        projectID: String,
+        projectTitle: String
+    ) -> [BackendStoryMovePreference] {
+        let cleanProjectID = normalized(projectID)
+        let cleanProjectTitle = normalized(projectTitle)
+
+        return preferences
+            .filter { preference in
+                if !cleanProjectID.isEmpty {
+                    return normalized(preference.projectId) == cleanProjectID
+                }
+                guard !cleanProjectTitle.isEmpty else { return false }
+                return normalized(preference.projectTitle) == cleanProjectTitle
+            }
+            .sorted { left, right in
+                if left.isExplicitlyCorrected != right.isExplicitlyCorrected {
+                    return left.isExplicitlyCorrected
+                }
+                if abs(left.effectiveScore) != abs(right.effectiveScore) {
+                    return abs(left.effectiveScore) > abs(right.effectiveScore)
+                }
+                return left.displayName.localizedCaseInsensitiveCompare(right.displayName) == .orderedAscending
+            }
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+@MainActor
+final class StudioCreativeInstinctsModel: ObservableObject {
+    @Published private(set) var preferences: [BackendStoryMovePreference] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var updatingFamily = ""
+    @Published private(set) var errorText = ""
+
+    private var activeProjectID = ""
+    private var activeProjectTitle = ""
+    private var loadingProjectID = ""
+    private var loadingProjectTitle = ""
+    private var lastLoadedAt: Date?
+    private let minimumRefreshInterval: TimeInterval = 2
+
+    func activate(projectID: String, projectTitle: String) {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanProjectID != activeProjectID || cleanProjectTitle != activeProjectTitle else {
+            return
+        }
+
+        activeProjectID = cleanProjectID
+        activeProjectTitle = cleanProjectTitle
+        preferences = []
+        errorText = ""
+        lastLoadedAt = nil
+    }
+
+    func load(
+        projectID: String,
+        projectTitle: String,
+        force: Bool = false,
+        reportErrors: Bool = true
+    ) async {
+        activate(projectID: projectID, projectTitle: projectTitle)
+        let requestedProjectID = activeProjectID
+        let requestedProjectTitle = activeProjectTitle
+        guard !requestedProjectID.isEmpty || !requestedProjectTitle.isEmpty else {
+            preferences = []
+            return
+        }
+        if !force,
+           let lastLoadedAt,
+           Date().timeIntervalSince(lastLoadedAt) < minimumRefreshInterval {
+            return
+        }
+        if isLoading,
+           loadingProjectID == requestedProjectID,
+           loadingProjectTitle == requestedProjectTitle {
+            return
+        }
+
+        loadingProjectID = requestedProjectID
+        loadingProjectTitle = requestedProjectTitle
+        isLoading = true
+        if reportErrors {
+            errorText = ""
+        }
+        defer {
+            if loadingProjectID == requestedProjectID,
+               loadingProjectTitle == requestedProjectTitle {
+                loadingProjectID = ""
+                loadingProjectTitle = ""
+                isLoading = false
+            }
+        }
+
+        do {
+            let result = try await BackendMemoryAPI.shared.fetchMemories(
+                limit: 1,
+                force: true,
+                storyPreferenceProjectID: requestedProjectID,
+                storyPreferenceProjectTitle: requestedProjectTitle
+            )
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            preferences = StudioStoryMovePreferencePresentation.scoped(
+                result.payload.storyMovePreferences ?? [],
+                projectID: requestedProjectID,
+                projectTitle: requestedProjectTitle
+            )
+            errorText = ""
+            lastLoadedAt = Date()
+        } catch {
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            if reportErrors {
+                errorText = error.localizedDescription
+            }
+        }
+    }
+
+    func update(_ preference: BackendStoryMovePreference, action: String) async {
+        let family = preference.family.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !family.isEmpty, updatingFamily.isEmpty else { return }
+        let requestedProjectID = activeProjectID
+        let requestedProjectTitle = activeProjectTitle
+        guard !requestedProjectID.isEmpty || !requestedProjectTitle.isEmpty else { return }
+
+        updatingFamily = family
+        errorText = ""
+        defer { updatingFamily = "" }
+
+        do {
+            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+                projectID: requestedProjectID,
+                projectTitle: requestedProjectTitle,
+                family: family,
+                action: action
+            )
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            if let refreshed = result.payload.storyMovePreferences {
+                preferences = StudioStoryMovePreferencePresentation.scoped(
+                    refreshed,
+                    projectID: requestedProjectID,
+                    projectTitle: requestedProjectTitle
+                )
+                lastLoadedAt = Date()
+            } else {
+                await load(
+                    projectID: requestedProjectID,
+                    projectTitle: requestedProjectTitle,
+                    force: true
+                )
+            }
+        } catch {
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            errorText = error.localizedDescription
+        }
+    }
+
+    func resetAll() async {
+        guard updatingFamily.isEmpty else { return }
+        let requestedProjectID = activeProjectID
+        let requestedProjectTitle = activeProjectTitle
+        guard !requestedProjectID.isEmpty || !requestedProjectTitle.isEmpty else { return }
+
+        updatingFamily = "reset_all"
+        errorText = ""
+        defer { updatingFamily = "" }
+
+        do {
+            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+                projectID: requestedProjectID,
+                projectTitle: requestedProjectTitle,
+                family: "",
+                action: "reset_all"
+            )
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            preferences = StudioStoryMovePreferencePresentation.scoped(
+                result.payload.storyMovePreferences ?? [],
+                projectID: requestedProjectID,
+                projectTitle: requestedProjectTitle
+            )
+            lastLoadedAt = Date()
+        } catch {
+            guard requestedProjectID == activeProjectID,
+                  requestedProjectTitle == activeProjectTitle else {
+                return
+            }
+            errorText = error.localizedDescription
+        }
+    }
+}
+
+struct StudioCreativeInstinctsView: View {
+    let projectTitle: String
+    let preferences: [BackendStoryMovePreference]
+    let isLoading: Bool
+    let updatingFamily: String
+    let errorText: String
+    let onRefresh: () -> Void
+    let onUpdate: (BackendStoryMovePreference, String) -> Void
+    let onResetAll: () -> Void
+
+    @State private var showsResetConfirmation = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(projectName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.herText.opacity(0.68))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 26, height: 26)
+                } else {
+                    Button(action: onRefresh) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh creative instincts")
+                    .accessibilityLabel("Refresh creative instincts")
+                    .accessibilityIdentifier("studio.story-preferences.refresh")
+                }
+
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .disabled(preferences.isEmpty || !updatingFamily.isEmpty)
+                .help("Reset creative preference learning")
+                .accessibilityLabel("Reset creative preference learning")
+                .accessibilityIdentifier("studio.story-preferences.reset-all")
+            }
+
+            if preferences.isEmpty, !isLoading {
+                Text("No creative preference evidence yet.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+            } else {
+                ForEach(preferences.prefix(6)) { preference in
+                    StudioCreativeInstinctRow(
+                        preference: preference,
+                        isUpdating: updatingFamily == preference.family,
+                        isDisabled: !updatingFamily.isEmpty,
+                        onUpdate: onUpdate
+                    )
+                }
+            }
+
+            if !errorText.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(errorText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.red.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Try Again", action: onRefresh)
+                        .font(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                }
+                .accessibilityIdentifier("studio.story-preferences.error")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.story-preferences")
+        .confirmationDialog(
+            "Reset creative preference learning for \(projectName)?",
+            isPresented: $showsResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset Preferences", role: .destructive, action: onResetAll)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Story facts and screenplay canon stay intact.")
+        }
+    }
+
+    private var projectName: String {
+        let cleanTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanTitle.isEmpty ? "Current screenplay" : cleanTitle
+    }
+}
+
+private struct StudioCreativeInstinctRow: View {
+    let preference: BackendStoryMovePreference
+    let isUpdating: Bool
+    let isDisabled: Bool
+    let onUpdate: (BackendStoryMovePreference, String) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(preference.displayName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.herText.opacity(0.88))
+                    if preference.isExplicitlyCorrected {
+                        Text("Corrected")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.16))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(preferenceSummary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.herText.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(evidenceLine)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 26, height: 26)
+            } else {
+                Menu {
+                    Button {
+                        onUpdate(preference, "prefer")
+                    } label: {
+                        Label("Suggest More Like This", systemImage: "plus.circle")
+                    }
+                    Button {
+                        onUpdate(preference, "avoid")
+                    } label: {
+                        Label("Suggest Less Like This", systemImage: "minus.circle")
+                    }
+                    Button(role: .destructive) {
+                        onUpdate(preference, "reset")
+                    } label: {
+                        Label("Forget This Preference", systemImage: "arrow.counterclockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisabled)
+                .help("Adjust creative preference")
+                .accessibilityLabel("Adjust \(preference.displayName)")
+                .accessibilityIdentifier(
+                    "studio.story-preference.\(preference.family).menu"
+                )
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(preference.displayName). \(evidenceLine)")
+        .accessibilityIdentifier("studio.story-preference.\(preference.family)")
+    }
+
+    private var preferenceSummary: String {
+        let summary = preference.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else {
+            return "Clementine uses this pattern when shaping options."
+        }
+        return "Clementine will \(summary)."
+    }
+
+    private var evidenceLine: String {
+        if preference.explicitStance == "prefer" {
+            return "You corrected this toward more."
+        }
+        if preference.explicitStance == "avoid" {
+            return "You corrected this toward less."
+        }
+        var parts = [
+            "Learned from \(preference.evidenceCount) choice\(preference.evidenceCount == 1 ? "" : "s")"
+        ]
+        if preference.acceptedPageCount > 0 {
+            parts.append(
+                "\(preference.acceptedPageCount) page\(preference.acceptedPageCount == 1 ? "" : "s") kept"
+            )
+        }
+        if preference.blockResolutionCount > 0 {
+            parts.append(
+                "\(preference.blockResolutionCount) block\(preference.blockResolutionCount == 1 ? "" : "s") cleared"
+            )
+        }
+        return parts.joined(separator: " · ")
+    }
+}

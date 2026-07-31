@@ -197,11 +197,28 @@ function mountMemoriesRoutes(app, deps = {}) {
     return out;
   }
 
-  function buildStoryMovePreferencesPayload(creativeMemory = null) {
+  function buildStoryMovePreferencesPayload(
+    creativeMemory = null,
+    {
+      projectId = "",
+      projectTitle = "",
+    } = {}
+  ) {
     const projects = Array.isArray(creativeMemory?.projects)
       ? creativeMemory.projects
       : [];
+    const cleanProjectId = normalizeSnippet(projectId, 96).toLowerCase();
+    const cleanProjectTitle = normalizeSnippet(projectTitle, 160).toLowerCase();
     return projects
+      .filter((project) => {
+        if (cleanProjectId) {
+          return normalizeSnippet(project?.projectId, 96).toLowerCase() === cleanProjectId;
+        }
+        if (cleanProjectTitle) {
+          return normalizeSnippet(project?.projectTitle, 160).toLowerCase() === cleanProjectTitle;
+        }
+        return true;
+      })
       .slice()
       .sort((left, right) => Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0))
       .slice(0, 6)
@@ -533,7 +550,14 @@ function mountMemoriesRoutes(app, deps = {}) {
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
-    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory);
+    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory, {
+      projectId:
+        req.query?.story_preference_project_id ??
+        req.query?.storyPreferenceProjectId,
+      projectTitle:
+        req.query?.story_preference_project_title ??
+        req.query?.storyPreferenceProjectTitle,
+    });
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -689,7 +713,10 @@ function mountMemoriesRoutes(app, deps = {}) {
           : action === "reset"
             ? "That creative preference was reset."
             : "Clementine will use this correction when ranking future story moves.",
-        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory),
+        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory, {
+          projectId: receipt.projectId || projectId,
+          projectTitle: receipt.projectTitle || projectTitle,
+        }),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
         last_turn_id: readMeta.lastTurnId || null,

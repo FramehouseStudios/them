@@ -101,6 +101,52 @@ test("[momentum-rescue-fallback] sparse block turns still get one decisive playa
   assert.equal(quality.reason, "ok");
 });
 
+test("[momentum-rescue-fallback] applies corrected creative instincts without outranking due canon", () => {
+  const studioMeta = {
+    screenplayTarget: "voice_pin",
+    screenplayAct: "Act II",
+    screenplayFeatureSequence: "Pressure closes in",
+    screenplayCurrentBeat: "Mara cannot decide whether to trust Eli.",
+    screenplayCharacterFocus: ["Mara", "Eli"],
+    screenplayStoryMovePreferenceOverrides: [
+      {
+        family: "relationship_pressure",
+        stance: "prefer",
+        updated_at: 5_000,
+      },
+      {
+        family: "reversal_pressure",
+        stance: "avoid",
+        updated_at: 5_000,
+      },
+    ],
+  };
+  const personalized = buildMomentumRescueFallbackReply({
+    transcript: "I am stuck in the middle.",
+    studioMeta,
+  });
+
+  assert.match(personalized, /Ranked strongest move - relationship pressure:/);
+  assert.doesNotMatch(personalized, /Ranked strongest move - reversal pressure:/);
+
+  const canonBound = buildMomentumRescueFallbackReply({
+    transcript: "I am stuck in the middle.",
+    studioMeta: {
+      ...studioMeta,
+      screenplayDueStoryThread: {
+        kind: "payoff",
+        setup: "Eli hid the key in Mara's coat.",
+        promisedPayoff: "Mara finds the key while deciding whether Eli lied.",
+        sourceAct: "Act I",
+        ageInScenes: 18,
+      },
+    },
+  });
+
+  assert.match(canonBound, /Ranked strongest move - payoff pressure:/);
+  assert.match(canonBound, /Eli hid the key in Mara's coat/);
+});
+
 test("[momentum-rescue-fallback] spends the oldest accepted-scene promise during provider fallback", () => {
   const reply = buildMomentumRescueFallbackReply({
     transcript: "I'm stuck before the hearing.",

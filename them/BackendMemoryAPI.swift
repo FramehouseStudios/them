@@ -4377,15 +4377,37 @@ actor BackendMemoryAPI {
     func fetchMemories(
         limit: Int = 36,
         force: Bool = false,
-        sinceVersion: String? = nil
+        sinceVersion: String? = nil,
+        storyPreferenceProjectID: String? = nil,
+        storyPreferenceProjectTitle: String? = nil
     ) async throws -> BackendReadResult<BackendMemoriesResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedSince = sinceVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let extraQuery: [URLQueryItem] = normalizedSince.isEmpty
-            ? []
-            : [URLQueryItem(name: "sinceVersion", value: normalizedSince)]
+        let normalizedProjectID = storyPreferenceProjectID?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = storyPreferenceProjectTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var extraQuery: [URLQueryItem] = []
+        if !normalizedSince.isEmpty {
+            extraQuery.append(URLQueryItem(name: "sinceVersion", value: normalizedSince))
+        }
+        if !normalizedProjectID.isEmpty {
+            extraQuery.append(URLQueryItem(
+                name: "story_preference_project_id",
+                value: normalizedProjectID
+            ))
+        } else if !normalizedProjectTitle.isEmpty {
+            extraQuery.append(URLQueryItem(
+                name: "story_preference_project_title",
+                value: normalizedProjectTitle
+            ))
+        }
+        let canUseSharedCache =
+            normalizedSince.isEmpty &&
+            normalizedProjectID.isEmpty &&
+            normalizedProjectTitle.isEmpty
         var request = try makeRequest(path: "/memories", limit: limit, extraQueryItems: extraQuery)
-        if !force, normalizedSince.isEmpty, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
+        if !force, canUseSharedCache, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, response) = try await session.data(for: request)
@@ -4393,7 +4415,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.invalidResponse
         }
 
-        if normalizedSince.isEmpty, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
+        if canUseSharedCache, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
             let headerSync = syncFromHeaders(http, fallbackStatus: "up")
             let incoming = mergeSyncStates(base: cached.sync, incoming: headerSync)
             updateSyncState(incoming, emitTurnEvent: false)
@@ -4413,7 +4435,7 @@ actor BackendMemoryAPI {
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
         updateSyncState(incoming, emitTurnEvent: true)
         let etag = normalizedEtag(from: http, fallbackStateVersion: syncState.stateVersion)
-        if normalizedSince.isEmpty {
+        if canUseSharedCache {
             memoriesCacheByLimit[limit] = MemoriesCacheEntry(etag: etag, payload: payload, sync: syncState)
         }
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)

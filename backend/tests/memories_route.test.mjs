@@ -230,6 +230,16 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
   const creativeMemoryStore = {
     getCreativeMemoryLedger: async () => ({
       projects: [{
+        projectId: "newer-project",
+        projectTitle: "Newer Project",
+        updatedAt: 8_000,
+        questionEffectiveness: [],
+        storyMovePreferenceOverrides: [{
+          family: "reversal_pressure",
+          stance: "avoid",
+          updatedAt: 8_000,
+        }],
+      }, {
         projectId: "split-ferries",
         projectTitle: "Split Ferries",
         updatedAt: 4_000,
@@ -265,6 +275,16 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
     assert.equal(relationship.explicit_stance, "prefer");
     assert.ok(relationship.effective_score >= 10);
     assert.equal(JSON.stringify(r.body.story_move_preferences).includes("Option"), false);
+
+    const scoped = await getJson(
+      baseURL,
+      "/memories?story_preference_project_id=split-ferries"
+    );
+    assert.equal(scoped.status, 200);
+    assert.deepEqual(
+      [...new Set(scoped.body.story_move_preferences.map((item) => item.project_id))],
+      ["split-ferries"]
+    );
   });
 });
 

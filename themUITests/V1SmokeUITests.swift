@@ -505,6 +505,7 @@ final class V1SmokeUITests: XCTestCase {
         let studio = launchApp(
             openStudio: true,
             liveMemory: true,
+            restoreProjectID: fixture.projectID,
             launchEnvironment: fixture.appLaunchEnvironment
         )
         defer { studio.terminate() }
@@ -519,6 +520,38 @@ final class V1SmokeUITests: XCTestCase {
            rightToggle.isHittable {
             rightToggle.tap()
         }
+        let studioPreferenceSection = element(
+            identifier: "studio.story-preferences",
+            in: studio
+        )
+        XCTAssertTrue(
+            studioPreferenceSection.waitForExistence(timeout: 30),
+            "Studio did not restore Creative Instincts from the other device."
+        )
+        let studioPreference = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            in: studio
+        )
+        XCTAssertTrue(
+            studioPreference.waitForExistence(timeout: 30),
+            "Studio did not restore the corrected creative preference."
+        )
+        let studioPreferenceText = accessibilityText(of: studioPreference)
+        XCTAssertTrue(
+            studioPreferenceText.localizedCaseInsensitiveContains(fixture.preferenceLabel),
+            "Expected Studio preference '\(fixture.preferenceLabel)', got '\(studioPreferenceText)'."
+        )
+        XCTAssertTrue(
+            studioPreferenceText.localizedCaseInsensitiveContains("corrected"),
+            "Studio did not preserve the creative preference correction status."
+        )
+        XCTAssertTrue(
+            element(
+                identifier: "studio.story-preference.\(fixture.preferenceFamily).menu",
+                in: studio
+            ).waitForExistence(timeout: 5),
+            "Studio did not expose correction controls for the learned preference."
+        )
         let studioPrefix = "studio.learned-field.\(fixture.characterKey)"
         let studioValue = element(
             identifier: "\(studioPrefix).\(fixture.fieldKey).value",
@@ -956,6 +989,7 @@ final class V1SmokeUITests: XCTestCase {
         let preferenceFamily: String
         let preferenceLabel: String
         let preferenceStance: String
+        let projectID: String
         let appLaunchEnvironment: [String: String]
 
         var characterKey: String { Self.accessibilityKey(character) }
@@ -1148,6 +1182,11 @@ final class V1SmokeUITests: XCTestCase {
                 payload["preferenceStance"],
                 payload["preference_stance"],
                 message: "Learned-memory fixture missing preference stance."
+            ),
+            projectID: try firstNonEmptyString(
+                payload["projectID"],
+                payload["project_id"],
+                message: "Learned-memory fixture missing project ID."
             ),
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURL,

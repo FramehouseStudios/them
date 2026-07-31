@@ -206,6 +206,33 @@ async function teachCharacterAnswerFromIPhone(server, identity) {
   }
 }
 
+async function seedScreenplayProjectFromIPhone(server, identity) {
+  const project = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: "/screenplay/projects",
+    method: "POST",
+    headers: {
+      "X-APP-TOKEN": identity.appToken,
+      "X-CLIENT-TOKEN": identity.clientToken,
+      Authorization: `Bearer ${identity.accessToken}`,
+    },
+    body: {
+      project_id: PROJECT_ID,
+      title: PROJECT_TITLE,
+      phase: "scene_draft",
+      activate: true,
+    },
+  });
+  assert(
+    project.response.ok,
+    `The iPhone screenplay project seed failed: ${project.status} ${JSON.stringify(project.payload)}`
+  );
+  assert(
+    project.payload?.project_id === PROJECT_ID,
+    "The iPhone screenplay project seed returned the wrong project."
+  );
+}
+
 async function refreshClientIdentity(baseURL, identity) {
   const session = await requestStudioRestoreJSON({
     baseURL,
@@ -250,6 +277,8 @@ function fixtureJSON(baseURL, identity, learned) {
     preferenceFamily: learned.preferenceFamily,
     preferenceLabel: learned.preferenceLabel,
     preferenceStance: learned.preferenceStance,
+    projectID: PROJECT_ID,
+    projectTitle: PROJECT_TITLE,
   });
 }
 
@@ -345,6 +374,7 @@ try {
   await seedPendingIPhoneQuestion(initialServer, identity);
   server = await startBackend({ port: PORT, dataDir, env: backendEnv });
   const iphoneIdentity = await refreshClientIdentity(server.baseUrl, identity);
+  await seedScreenplayProjectFromIPhone(server, iphoneIdentity);
   const learned = await teachCharacterAnswerFromIPhone(server, iphoneIdentity);
 
   if (PLATFORM !== "macos") {

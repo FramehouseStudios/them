@@ -5693,6 +5693,7 @@ struct ScreenplayStudioScreen: View {
     }
 
     @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
     @State private var navigatorBackStack: [URL] = []
@@ -6411,6 +6412,13 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: vm.selectedProjectID) { _, _ in
                 restoreInspectorWorkspaceState()
                 publishDebugStudioDiffState()
+                creativeInstincts.activate(
+                    projectID: vm.selectedProjectID,
+                    projectTitle: vm.selectedProject?.title ?? ""
+                )
+                Task {
+                    await refreshStudioCreativeInstincts(force: true)
+                }
             }
             .onChange(of: vm.outline) { _, _ in
                 if shouldRestoreInspectorWorkspaceOnNextOutlineChange {
@@ -6434,6 +6442,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 if newValue == .them {
                     Task {
+                        await refreshStudioCreativeInstincts(force: true)
                         await vm.refreshBlockSignal(source: "io.them rail")
                         if !IOThemRuntime.isRunningUITests {
                             await vm.refreshCharacterTraits(source: "io.them rail")
@@ -6632,7 +6641,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
     }
 
-    private var studioObservedView: some View {
+    private var studioCreativeInstinctsBoundView: some View {
         studioBaseLayout
             .task {
                 #if DEBUG
@@ -6650,6 +6659,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 #endif
                 await vm.refreshScreenplayExportFormatsAutomatically()
                 if directionOneRightPanelTab == .them {
+                    await refreshStudioCreativeInstincts(force: true)
                     await vm.refreshBlockSignal(source: "Studio open")
                     await vm.refreshCraftTwists(source: "Studio open")
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
@@ -6657,8 +6667,20 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onReceive(Self.crossDeviceRefreshTimer) { _ in
                 guard !IOThemRuntime.isRunningTests else { return }
-                Task { await vm.refreshCrossDeviceStateIfNeeded() }
+                Task {
+                    await vm.refreshCrossDeviceStateIfNeeded()
+                    if directionOneRightPanelTab == .them {
+                        await refreshStudioCreativeInstincts(
+                            force: false,
+                            reportErrors: false
+                        )
+                    }
+                }
             }
+    }
+
+    private var studioObservedView: some View {
+        studioCreativeInstinctsBoundView
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests,
@@ -11228,6 +11250,7 @@ private var directionOneThemPanel: some View {
     return VStack(alignment: .leading, spacing: 16) {
         pendingScreenplayQuestionPrompt
         directionOneCompactComposerSection
+        directionOneCreativeInstinctsCard
 
         if vm.isCharacterTraitsLoading ||
             !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -11352,6 +11375,49 @@ private var directionOneThemPanel: some View {
             await vm.refreshCharacterTraits(source: "io.them rail")
         }
     }
+}
+
+private var directionOneCreativeInstinctsCard: some View {
+    intelligenceCollectionCard(title: "Creative Instincts", icon: "brain.head.profile") {
+        StudioCreativeInstinctsView(
+            projectTitle: vm.selectedProject?.title ?? "",
+            preferences: creativeInstincts.preferences,
+            isLoading: creativeInstincts.isLoading,
+            updatingFamily: creativeInstincts.updatingFamily,
+            errorText: creativeInstincts.errorText,
+            onRefresh: {
+                Task {
+                    await refreshStudioCreativeInstincts(force: true)
+                }
+            },
+            onUpdate: { preference, action in
+                Task {
+                    await creativeInstincts.update(preference, action: action)
+                    await vm.refreshBlockSignal(source: "Creative Instinct correction")
+                    await vm.refreshCraftTwists(source: "Creative Instinct correction")
+                }
+            },
+            onResetAll: {
+                Task {
+                    await creativeInstincts.resetAll()
+                    await vm.refreshBlockSignal(source: "Creative Instinct reset")
+                    await vm.refreshCraftTwists(source: "Creative Instinct reset")
+                }
+            }
+        )
+    }
+}
+
+private func refreshStudioCreativeInstincts(
+    force: Bool,
+    reportErrors: Bool = true
+) async {
+    await creativeInstincts.load(
+        projectID: vm.selectedProjectID,
+        projectTitle: vm.selectedProject?.title ?? "",
+        force: force,
+        reportErrors: reportErrors
+    )
 }
 
     private func directionOneBlockSignalNudgeCard(
