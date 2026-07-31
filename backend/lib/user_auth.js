@@ -36,8 +36,6 @@ const USER_PROTECTED_PATTERNS = [
   /^\/talk(?:\/|$)/,
   /^\/screenplay(?:\/|$)/,
   /^\/telemetry\/first-page-written(?:\/|$)/,
-  /^\/linkedin(?:\/|$)/,
-  /^\/secretary(?:\/|$)/,
   /^\/visual\/context(?:\/|$)/,
 ];
 

@@ -773,30 +773,6 @@ nonisolated struct BackendDailyRecapResponse: Decodable {
     let stats: BackendDailyRecapStats
 }
 
-nonisolated struct BackendSecretaryEmailResponse: Decodable {
-    let stage: String?
-    let mode: String?
-    let draftSource: String?
-    let to: String?
-    let subject: String?
-    let body: String?
-    let status: String?
-    let action: String?
-    let target: String?
-    let transport: String?
-    let composeUrl: String?
-    let error: String?
-}
-
-nonisolated struct BackendSecretaryEmailConnectResponse: Decodable {
-    let stage: String?
-    let provider: String?
-    let mode: String?
-    let oauthConfigured: Bool?
-    let connectUrl: String?
-    let error: String?
-}
-
 nonisolated struct BackendMemoryExportResponse: Decodable {
     let source: String
     let sourceIp: String
@@ -6221,46 +6197,6 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
-    func composeSecretaryEmail(
-        to: String,
-        subject: String,
-        body: String,
-        provider: String = "mailto",
-        sendNow: Bool = true
-    ) async throws -> BackendReadResult<BackendSecretaryEmailResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/secretary/email")
-        let payload: [String: Any] = [
-            "to": to,
-            "subject": subject,
-            "body": body,
-            "target": provider,
-            "send_now": sendNow,
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendSecretaryEmailResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
-        updateSyncState(headerSync, emitTurnEvent: false)
-
-        if !(200...299).contains(http.statusCode),
-           (parsed.composeUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            throw BackendMemoryAPIError.server(
-                status: http.statusCode,
-                message: message.isEmpty ? decodeErrorMessage(from: data) : message
-            )
-        }
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-    }
-
     nonisolated static func characterMentionPayload(
         mention: ScreenplayRenderedCharacterMention,
         writeID: String,
@@ -6446,36 +6382,6 @@ actor BackendMemoryAPI {
         let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
         updateSyncState(incoming, emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-    }
-
-    func fetchSecretaryEmailConnectURL(
-        provider: String = "gmail"
-    ) async throws -> BackendReadResult<BackendSecretaryEmailConnectResponse> {
-        _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(
-            path: "/secretary/email/connect-url",
-            extraQueryItems: [URLQueryItem(name: "provider", value: provider)]
-        )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendSecretaryEmailConnectResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
-        updateSyncState(headerSync, emitTurnEvent: false)
-
-        if !(200...299).contains(http.statusCode),
-           (parsed.connectUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            throw BackendMemoryAPIError.server(
-                status: http.statusCode,
-                message: message.isEmpty ? decodeErrorMessage(from: data) : message
-            )
-        }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 

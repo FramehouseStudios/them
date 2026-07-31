@@ -6,6 +6,17 @@ final class V1SmokeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func test_home_and_studio_primary_surfaces_remain_available() {
+        let home = launchApp()
+        XCTAssertTrue(element(identifier: "home.surface", in: home).waitForExistence(timeout: 8))
+        XCTAssertTrue(home.buttons["home.open-studio"].waitForExistence(timeout: 5))
+        home.terminate()
+
+        let studio = launchApp(openStudio: true)
+        XCTAssertTrue(element(identifier: "studio.surface", in: studio).waitForExistence(timeout: 10))
+        studio.terminate()
+    }
+
     func test_first_run_onboarding_unlocks_companion() {
         let app = launchApp(skipOnboarding: false)
 

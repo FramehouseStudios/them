@@ -5,7 +5,6 @@ import os
 import AVFoundation
 import CryptoKit
 import UniformTypeIdentifiers
-import Contacts
 import Combine
 import Speech
 #if os(macOS)
@@ -750,7 +749,6 @@ struct RootExperienceView: View {
     @State private var primarySurface: PrimarySurface = .home
     @State private var uiTestForceStudioSurface = false
     @AppStorage(ThemWorkspaceSurfaceRestorePolicy.storageKey) private var persistedPrimarySurfaceRaw: String = ""
-    @State private var showingEmailComposer = false
     @State private var showingRecap = false
     @State private var showingVoiceSettings = false
     @State private var showingCompanionControls = false
@@ -805,11 +803,6 @@ struct RootExperienceView: View {
     @State private var isRefreshingTalkDiagnostics = false
     @State private var lastSubmittedFingerprint = ""
     @State private var lastSubmittedAt: Date = .distantPast
-    @State private var lastOpenedEmailTurnID = ""
-    @State private var lastOpenedEmailComposeURL = ""
-    @State private var lastOpenedEmailComposeAt: Date = .distantPast
-    @State private var lastOpenedCalendarTurnID = ""
-    @State private var lastOpenedCalendarComposeURL = ""
     @State private var lastOpenedNoteTurnID = ""
     @State private var lastOpenedNotePath = ""
     @State private var lastKnowledgeCitations: [String] = []
@@ -3029,16 +3022,6 @@ struct RootExperienceView: View {
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
-                .sheet(isPresented: $showingEmailComposer) {
-                    QuickEmailPanel(onDone: {
-                        showingEmailComposer = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
-                    })
-                    .themDesktopSheetFrame(minWidth: 920, minHeight: 720)
-                }
                 .sheet(isPresented: $showingRecap) {
                     RecapPanel(onDone: {
                         showingRecap = false
@@ -3206,7 +3189,6 @@ struct RootExperienceView: View {
                 showingNotes ||
                 showingTasks ||
                 isStudioSurfaceActive ||
-                showingEmailComposer ||
                 showingVoiceSettings ||
                 showingCompanionControls ||
                 showingRecap ||
@@ -3503,7 +3485,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingVoiceSettings = true
                     } label: {
@@ -3526,7 +3507,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingCompanionControls = true
                     } label: {
@@ -3549,7 +3529,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = true
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("History")
@@ -3571,7 +3550,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = true
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("Notes")
@@ -3593,7 +3571,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = true
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("Tasks")
@@ -3611,7 +3588,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         openStudio()
                     } label: {
@@ -3652,29 +3628,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = true
-                        showingRecap = false
-                    } label: {
-                        Text("Email")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundColor(.herText.opacity(0.95))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = true
                     } label: {
                         Text("Recap")
@@ -3696,7 +3649,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingTrustCenter = true
                     } label: {
@@ -3719,7 +3671,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingDataControls = true
                     } label: {
@@ -4045,7 +3996,6 @@ struct RootExperienceView: View {
         showingConversationHistory = false
         showingNotes = false
         showingTasks = false
-        showingEmailComposer = false
         showingRecap = false
         showingMemories = true
     }
@@ -5629,22 +5579,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return "Captured note."
         }
 
-        if let email = result.emailAction, email.composed {
-            let to = (email.to ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !to.isEmpty {
-                return "Opened email draft to \(to)."
-            }
-            return "Opened email draft."
-        }
-
-        if let calendar = result.calendarAction, calendar.composed {
-            let title = (calendar.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !title.isEmpty {
-                return "Opened calendar draft: \(title)"
-            }
-            return "Opened calendar draft."
-        }
-
         return ""
     }
 
@@ -5653,7 +5587,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
            !(result.taskAction?.status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
             return "Task"
         }
-        if result.noteAction?.captured == true || result.emailAction?.composed == true || result.calendarAction?.composed == true {
+        if result.noteAction?.captured == true {
             return "Task"
         }
 
@@ -7508,8 +7442,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
 
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
-            handleEmailComposeIfNeeded(result.emailAction, turnId: result.commit?.turnId)
-            handleCalendarComposeIfNeeded(result.calendarAction, turnId: result.commit?.turnId)
             isThinking = false
             if didStartEarlyStreamPlayback {
                 pendingStreamRemainderURL = result.streamedRemainderURL
@@ -9357,8 +9289,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             turnErrorStage: nil,
             turnErrorMessage: nil,
             noteAction: nil,
-            emailAction: nil,
-            calendarAction: nil,
             taskAction: nil,
             speculativeTrace: .none,
             turnMetaRateLimitNotice: nil,
@@ -11107,72 +11037,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
         }
         #endif
-    }
-
-    @MainActor
-    private func handleEmailComposeIfNeeded(_ action: BackendEmailComposeAction?, turnId: String?) {
-        guard let action else { return }
-        guard action.composed || action.action == "compose" || action.status == "composed" else { return }
-
-        if let turnId, !turnId.isEmpty, turnId == lastOpenedEmailTurnID {
-            return
-        }
-
-        let composeURL = action.composeURL ?? fallbackMailtoURL(to: action.to, subject: action.subject)
-        guard let composeURL else { return }
-
-        let composeURLString = composeURL.absoluteString
-        let now = Date()
-        if composeURLString == lastOpenedEmailComposeURL &&
-            now.timeIntervalSince(lastOpenedEmailComposeAt) < 1.25 {
-            return
-        }
-
-        if let turnId, !turnId.isEmpty {
-            lastOpenedEmailTurnID = turnId
-        }
-        lastOpenedEmailComposeURL = composeURLString
-        lastOpenedEmailComposeAt = now
-        HerLog.ui.info("open email compose target=\(action.target, privacy: .public)")
-        openURL(composeURL)
-    }
-
-    @MainActor
-    private func handleCalendarComposeIfNeeded(_ action: BackendCalendarComposeAction?, turnId: String?) {
-        guard let action else { return }
-        guard action.composed || action.action == "compose" || action.status == "composed" else { return }
-
-        if let turnId, !turnId.isEmpty, turnId == lastOpenedCalendarTurnID {
-            return
-        }
-
-        guard let composeURL = action.composeURL else { return }
-        let composeURLString = composeURL.absoluteString
-        if composeURLString == lastOpenedCalendarComposeURL {
-            return
-        }
-
-        if let turnId, !turnId.isEmpty {
-            lastOpenedCalendarTurnID = turnId
-        }
-        lastOpenedCalendarComposeURL = composeURLString
-        HerLog.ui.info("open calendar compose target=\(action.target, privacy: .public)")
-        openURL(composeURL)
-    }
-
-    private func fallbackMailtoURL(to: String?, subject: String?) -> URL? {
-        let recipient = (to ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !recipient.isEmpty else { return nil }
-        var components = URLComponents()
-        components.scheme = "mailto"
-        components.path = recipient
-        let cleanSubject = (subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanSubject.isEmpty {
-            components.queryItems = [
-                URLQueryItem(name: "subject", value: cleanSubject)
-            ]
-        }
-        return components.url
     }
 
     @MainActor
@@ -14206,466 +14070,6 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
         guard let url = URL(string: rawURL) else { return }
         openURL(url)
         #endif
-    }
-}
-
-private enum QuickEmailProvider: String, CaseIterable, Identifiable {
-    case mailto
-    case gmail
-    case outlook
-    case yahoo
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .mailto: return "Mail App"
-        case .gmail: return "Gmail"
-        case .outlook: return "Outlook"
-        case .yahoo: return "Yahoo"
-        }
-    }
-
-    var backendTarget: String {
-        switch self {
-        case .mailto: return "mailto"
-        case .gmail: return "gmail"
-        case .outlook: return "outlook"
-        case .yahoo: return "yahoo"
-        }
-    }
-}
-
-private struct ContactEmailSuggestion: Identifiable, Hashable {
-    let id: String
-    let displayName: String
-    let email: String
-}
-
-private struct QuickEmailPanel: View {
-    private enum ContactsLoadState: Equatable {
-        case idle
-        case loading
-        case ready
-        case denied
-        case failed(String)
-    }
-
-    let onDone: () -> Void
-
-    @Environment(\.openURL) private var openURL
-    @State private var to = ""
-    @State private var subject = ""
-    @State private var messageBody = ""
-    @State private var provider: QuickEmailProvider = .mailto
-    @State private var isSubmitting = false
-    @State private var isConnecting = false
-    @State private var contactsState: ContactsLoadState = .idle
-    @State private var contacts: [ContactEmailSuggestion] = []
-    @State private var recentRecipients: [String] = []
-    @State private var statusText = ""
-    @State private var errorText = ""
-    @FocusState private var bodyFocused: Bool
-
-    private let recentRecipientsDefaultsKey = "quick_email_recent_recipients"
-
-    private var canSubmit: Bool {
-        !isSubmitting &&
-        !to.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !messageBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var filteredContacts: [ContactEmailSuggestion] {
-        let needle = to.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else {
-            return Array(contacts.prefix(8))
-        }
-        return Array(
-            contacts
-                .filter { suggestion in
-                    suggestion.email.lowercased().contains(needle) ||
-                    suggestion.displayName.lowercased().contains(needle)
-                }
-                .prefix(8)
-        )
-    }
-
-    private var contactsHelperText: String {
-        switch contactsState {
-        case .idle:
-            return "Load contacts to autofill recipient emails quickly."
-        case .loading:
-            return "Loading contacts…"
-        case .ready:
-            return "Contacts loaded."
-        case .denied:
-            return "Contacts access denied. Enable it in System Settings > Privacy > Contacts."
-        case .failed(let message):
-            return message
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    header
-                    providerRow
-                    recipientRow
-                    subjectRow
-                    bodyRow
-                    recentRow
-                    contactsRow
-                    actionsRow
-                    statusRow
-                    Spacer(minLength: 0)
-                }
-                .padding(24)
-            }
-            .task {
-                loadRecentRecipients()
-            }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Quick Email")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.95))
-                Spacer()
-                Button("Return", action: onDone)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white.opacity(0.22))
-                    .foregroundColor(.herText.opacity(0.92))
-            }
-            Text("Type your email here and open a ready-to-send draft instantly.")
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.80))
-        }
-    }
-
-    private var providerRow: some View {
-        HStack(spacing: 10) {
-            Text("Send via")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            Picker("Provider", selection: $provider) {
-                ForEach(QuickEmailProvider.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var recipientRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("To")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextField("name@example.com", text: $to)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
-    private var subjectRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Subject")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextField("Subject", text: $subject)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
-    private var bodyRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Message")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextEditor(text: $messageBody)
-                .focused($bodyFocused)
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.92))
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .frame(minHeight: 180)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.12))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-        }
-    }
-
-    private var recentRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Recent")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            if recentRecipients.isEmpty {
-                Text("No recent recipients yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.herText.opacity(0.64))
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(recentRecipients, id: \.self) { recipient in
-                            Button(recipient) {
-                                to = recipient
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.white.opacity(0.24))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-    }
-
-    private var contactsRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Contacts")
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.88))
-                Spacer()
-                Button {
-                    Task { await loadContacts() }
-                } label: {
-                    Text(contactsState == .loading ? "Loading…" : "Load Contacts")
-                }
-                .buttonStyle(.bordered)
-                .disabled(contactsState == .loading)
-            }
-
-            Text(contactsHelperText)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.66))
-
-            if !filteredContacts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(filteredContacts) { suggestion in
-                            Button("\(suggestion.displayName) <\(suggestion.email)>") {
-                                to = suggestion.email
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.white.opacity(0.24))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-    }
-
-    private var actionsRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task { await openDraft() }
-            } label: {
-                Text(isSubmitting ? "Opening…" : "Open Draft")
-                    .font(.system(size: 14, weight: .semibold, design: .default))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.white.opacity(0.24))
-            .disabled(!canSubmit)
-
-            Button {
-                Task { await connectGmail() }
-            } label: {
-                Text(isConnecting ? "Connecting…" : "Connect Gmail")
-                    .font(.system(size: 14, weight: .regular, design: .default))
-            }
-            .buttonStyle(.bordered)
-            .disabled(isConnecting)
-        }
-    }
-
-    private var statusRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !statusText.isEmpty {
-                Text(statusText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.herText.opacity(0.86))
-            }
-            if !errorText.isEmpty {
-                Text(errorText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.red.opacity(0.92))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @MainActor
-    private func openDraft() async {
-        let cleanTo = to.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanBody = messageBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTo.isEmpty, !cleanBody.isEmpty else { return }
-
-        isSubmitting = true
-        statusText = ""
-        errorText = ""
-        defer { isSubmitting = false }
-
-        do {
-            let result = try await BackendMemoryAPI.shared.composeSecretaryEmail(
-                to: cleanTo,
-                subject: cleanSubject,
-                body: cleanBody,
-                provider: provider.backendTarget,
-                sendNow: true
-            )
-            let payload = result.payload
-            let composeRaw = (payload.composeUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if let composeURL = URL(string: composeRaw), !composeRaw.isEmpty {
-                openURL(composeURL)
-                rememberRecentRecipient(cleanTo)
-                statusText = "Draft opened in \(provider.title)."
-                errorText = ""
-            } else {
-                let message = (payload.error ?? "Could not open draft URL.")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                errorText = message.isEmpty ? "Could not open draft URL." : message
-                statusText = ""
-            }
-        } catch {
-            errorText = error.localizedDescription
-            statusText = ""
-        }
-    }
-
-    @MainActor
-    private func connectGmail() async {
-        isConnecting = true
-        statusText = ""
-        errorText = ""
-        defer { isConnecting = false }
-
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchSecretaryEmailConnectURL(provider: "gmail")
-            let payload = result.payload
-            let raw = (payload.connectUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: raw), !raw.isEmpty else {
-                throw NSError(domain: "QuickEmail", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "Could not create Gmail connect URL."
-                ])
-            }
-            openURL(url)
-            if payload.mode == "oauth" {
-                statusText = "Opened Gmail OAuth connect in browser."
-            } else {
-                statusText = "Opened Gmail login in browser."
-            }
-        } catch {
-            if let fallbackURL = URL(string: "https://accounts.google.com/ServiceLogin?service=mail&continue=https://mail.google.com/mail/") {
-                openURL(fallbackURL)
-                statusText = "Opened Gmail login in browser."
-            } else {
-                errorText = error.localizedDescription
-                statusText = ""
-            }
-        }
-    }
-
-    @MainActor
-    private func loadContacts() async {
-        contactsState = .loading
-        errorText = ""
-
-        let store = CNContactStore()
-        let granted = await requestContactsAccess(store: store)
-        guard granted else {
-            contactsState = .denied
-            return
-        }
-
-        let keys: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-        ]
-        let request = CNContactFetchRequest(keysToFetch: keys)
-        var loaded: [ContactEmailSuggestion] = []
-        var seenEmails = Set<String>()
-
-        do {
-            try store.enumerateContacts(with: request) { contact, _ in
-                let name = "\(contact.givenName) \(contact.familyName)"
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let labelName = name.isEmpty ? "Contact" : name
-                for rawEmail in contact.emailAddresses {
-                    let email = String(rawEmail.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    guard !email.isEmpty else { continue }
-                    if seenEmails.contains(email) { continue }
-                    seenEmails.insert(email)
-                    loaded.append(
-                        ContactEmailSuggestion(
-                            id: email,
-                            displayName: labelName,
-                            email: email
-                        )
-                    )
-                }
-            }
-            contacts = loaded.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            contactsState = .ready
-        } catch {
-            contactsState = .failed(error.localizedDescription)
-        }
-    }
-
-    private func requestContactsAccess(store: CNContactStore) async -> Bool {
-        let status = CNContactStore.authorizationStatus(for: .contacts)
-        switch status {
-        case .authorized, .limited:
-            return true
-        case .denied, .restricted:
-            return false
-        case .notDetermined:
-            return await withCheckedContinuation { continuation in
-                store.requestAccess(for: .contacts) { granted, _ in
-                    continuation.resume(returning: granted)
-                }
-            }
-        @unknown default:
-            return false
-        }
-    }
-
-    private func loadRecentRecipients() {
-        let raw = UserDefaults.standard.array(forKey: recentRecipientsDefaultsKey) as? [String] ?? []
-        recentRecipients = raw
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-    }
-
-    private func rememberRecentRecipient(_ recipient: String) {
-        let clean = recipient.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !clean.isEmpty else { return }
-        var next = recentRecipients.filter { $0.caseInsensitiveCompare(clean) != .orderedSame }
-        next.insert(clean, at: 0)
-        if next.count > 10 {
-            next = Array(next.prefix(10))
-        }
-        recentRecipients = next
-        UserDefaults.standard.set(next, forKey: recentRecipientsDefaultsKey)
     }
 }
 

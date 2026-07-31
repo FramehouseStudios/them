@@ -257,6 +257,21 @@ test("[exposure-lock] GET /realtime/health remains unauthenticated (health/proxy
   }
 });
 
+test("[product-focus] unrelated LinkedIn and secretary routes are not mounted", async () => {
+  const server = await startBackend();
+  try {
+    for (const pathname of ["/linkedin/analyze", "/secretary/email", "/secretary/calendar"]) {
+      const response = await apiRequest(server, pathname, {
+        method: "POST",
+        json: {},
+      });
+      assert.equal(response.status, 404, `${pathname} must stay outside the screenplay product`);
+    }
+  } finally {
+    await server.stop();
+  }
+});
+
 test("[exposure-lock] first-page telemetry requires auth and ignores caller-supplied identity", async () => {
   const server = await startBackend();
   try {

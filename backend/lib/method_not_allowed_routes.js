@@ -67,9 +67,6 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/history/annotate_turn", methodNotAllowed("POST"));
   app.all("/data/history/clear", methodNotAllowed("POST"));
   app.all("/data/memories/clear", methodNotAllowed("POST"));
-  app.all("/linkedin/analyze", methodNotAllowed("POST"));
-  app.all("/secretary/email", methodNotAllowed("POST"));
-  app.all("/secretary/calendar", methodNotAllowed("POST"));
   app.all("/session", methodNotAllowed("POST, PATCH"));
   app.all("/realtime/client_secret", methodNotAllowed("POST"));
   app.all("/realtime/project_grounding", methodNotAllowed("POST"));

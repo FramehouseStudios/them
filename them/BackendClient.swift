@@ -1420,8 +1420,6 @@ struct BackendTalkResult {
     let turnErrorStage: String?
     let turnErrorMessage: String?
     let noteAction: BackendNoteCaptureAction?
-    let emailAction: BackendEmailComposeAction?
-    let calendarAction: BackendCalendarComposeAction?
     let taskAction: BackendTaskAction?
     let speculativeTrace: BackendTalkSpeculativeTrace
     let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
@@ -1885,27 +1883,6 @@ struct BackendNoteCaptureAction {
     let path: String?
     let fallbackFrom: String?
     let error: String?
-}
-
-struct BackendEmailComposeAction {
-    let action: String
-    let status: String
-    let target: String
-    let to: String?
-    let subject: String?
-    let composeURL: URL?
-    let composed: Bool
-}
-
-struct BackendCalendarComposeAction {
-    let action: String
-    let status: String
-    let target: String
-    let title: String?
-    let startAt: TimeInterval?
-    let endAt: TimeInterval?
-    let composeURL: URL?
-    let composed: Bool
 }
 
 struct BackendTaskAction {
@@ -4783,8 +4760,6 @@ final class BackendClient {
         let creativeMemoryTrace = parseCreativeMemoryTrace(from: http)
         let screenplayTrace = parseScreenplayTrace(from: http)
         let noteAction = parseNoteCaptureAction(from: http)
-        let emailAction = parseEmailComposeAction(from: http)
-        let calendarAction = parseCalendarComposeAction(from: http)
         let taskAction = parseTaskAction(from: http)
         let assistantSelfName = http?.value(forHTTPHeaderField: "x-assistant-self-name")?
             .removingPercentEncoding?
@@ -4926,8 +4901,6 @@ final class BackendClient {
             turnErrorStage: turnErrorStage,
             turnErrorMessage: turnErrorMessage,
             noteAction: noteAction,
-            emailAction: emailAction,
-            calendarAction: calendarAction,
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
             turnMetaRateLimitNotice: turnMetaRateLimitNotice,
@@ -6257,53 +6230,6 @@ final class BackendClient {
         )
     }
 
-    private func parseEmailComposeAction(from response: HTTPURLResponse?) -> BackendEmailComposeAction? {
-        guard let response else { return nil }
-
-        let status = (response.value(forHTTPHeaderField: "x-email-status") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let action = (response.value(forHTTPHeaderField: "x-email-action") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let target = (response.value(forHTTPHeaderField: "x-email-target") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let composed = parseHeaderBool(response, field: "x-email-composed", default: false)
-            || status == "composed"
-            || action == "compose"
-
-        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
-
-        let to = response.value(forHTTPHeaderField: "x-email-to")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let subject = response.value(forHTTPHeaderField: "x-email-subject")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let composeURL: URL? = {
-            guard
-                let raw = response.value(forHTTPHeaderField: "x-email-compose-url")?
-                    .removingPercentEncoding?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !raw.isEmpty
-            else {
-                return nil
-            }
-            return URL(string: raw)
-        }()
-
-        return BackendEmailComposeAction(
-            action: action,
-            status: status,
-            target: target,
-            to: to,
-            subject: subject,
-            composeURL: composeURL,
-            composed: composed
-        )
-    }
-
     private func parseNoteCaptureAction(from response: HTTPURLResponse?) -> BackendNoteCaptureAction? {
         guard let response else { return nil }
         let captured = parseHeaderBool(response, field: "x-note-captured", default: false)
@@ -6343,59 +6269,6 @@ final class BackendClient {
             path: path,
             fallbackFrom: fallbackFrom,
             error: error
-        )
-    }
-
-    private func parseCalendarComposeAction(from response: HTTPURLResponse?) -> BackendCalendarComposeAction? {
-        guard let response else { return nil }
-
-        let status = (response.value(forHTTPHeaderField: "x-calendar-status") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let action = (response.value(forHTTPHeaderField: "x-calendar-action") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let target = (response.value(forHTTPHeaderField: "x-calendar-target") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let composed = parseHeaderBool(response, field: "x-calendar-composed", default: false)
-            || status == "composed"
-            || action == "compose"
-
-        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
-
-        let title = response.value(forHTTPHeaderField: "x-calendar-title")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let startAt = Double(
-            (response.value(forHTTPHeaderField: "x-calendar-start-at") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        let endAt = Double(
-            (response.value(forHTTPHeaderField: "x-calendar-end-at") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        let composeURL: URL? = {
-            guard
-                let raw = response.value(forHTTPHeaderField: "x-calendar-compose-url")?
-                    .removingPercentEncoding?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !raw.isEmpty
-            else {
-                return nil
-            }
-            return URL(string: raw)
-        }()
-
-        return BackendCalendarComposeAction(
-            action: action,
-            status: status,
-            target: target,
-            title: title,
-            startAt: startAt,
-            endAt: endAt,
-            composeURL: composeURL,
-            composed: composed
         )
     }
 
