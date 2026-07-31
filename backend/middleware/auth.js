@@ -1,6 +1,7 @@
-import { APP_TOKEN, CORS_ALLOW_ORIGIN, REQUIRE_APP_TOKEN } from "../config.js";
+import { APP_TOKEN, CORS_ALLOW_ORIGIN, LOG_FORMAT, LOG_LEVEL, REQUIRE_APP_TOKEN } from "../config.js";
 import { securityHeadersMiddleware } from "../lib/security_headers.js";
 import { createRequestId } from "../lib/utils.js";
+import { createRequestLoggerMiddleware } from "../lib/request_logger.js";
 
 function requestIdMiddleware(req, res, next) {
   // Honor an incoming X-Request-Id when present (typically set by a
@@ -42,23 +43,13 @@ function corsMiddleware(req, res, next) {
   next();
 }
 
-function requestLoggerMiddleware(req, res, next) {
-  const rid = req.requestId;
-  const startedAt = Date.now();
-  console.log(`[${new Date().toISOString()}] [${rid}] ${req.method} ${req.url}`);
-
-  res.on("finish", () => {
-    const latencyMs = Date.now() - startedAt;
-    const contentType = res.getHeader("Content-Type") || "-";
-    const contentLength = res.getHeader("Content-Length") || "-";
-    console.log(
-      `[${new Date().toISOString()}] [${rid}] ${req.method} ${req.url} -> ${res.statusCode} ` +
-        `type=${String(contentType)} bytes=${String(contentLength)} latency=${latencyMs}ms`
-    );
-  });
-
-  next();
-}
+// Structured, PII-safe request logger (logs req.path only — never the query
+// string, body, or headers — as JSON in prod or text in dev, one line per
+// request, level-gated, health-probe-filtered). See lib/request_logger.js.
+const requestLoggerMiddleware = createRequestLoggerMiddleware({
+  format: LOG_FORMAT,
+  level: LOG_LEVEL,
+});
 
 const appTokenBypassPaths = new Set([
   "/health",
