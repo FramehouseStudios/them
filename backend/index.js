@@ -33691,7 +33691,12 @@ mountRealtimeRoutes(app, {
 app.use(
   "/realtime/client_secret",
   backendRateLimiter.middleware("realtime_mint"),
-  providerBudgetGuard.middleware("realtime_mint")
+  providerBudgetGuard.middleware("realtime_mint"),
+  // Mint eligibility: block a new realtime session secret once a user is over
+  // their daily $ cap. This is a READ-only check that does NOT charge — realtime
+  // audio streams client<->OpenAI directly once minted, so the actual usage is
+  // charged at turn commit instead. Fail-closed on meter failure (503).
+  providerBudgetGuard.spendMiddleware()
 );
 mountRealtimeClientSecretRoute(app, {
   getRealtimeSupplier: () => realtimeSupplier,
@@ -33855,6 +33860,7 @@ mountRealtimeTurnCommitRoute(app, {
   recordCreativeMemoryTriggersForRequest,
   getCreativeMemoryForPrompt: (options) => creativeMemoryStore.getCreativeMemoryForPrompt(options),
   storeTalkTurnMeta,
+  recordProviderSpend,
   buildReadStateMeta,
   applyReadStateHeaders,
   DEEP_TURN_SCORE_THRESHOLD,

@@ -234,6 +234,36 @@ test("[turn-commit] 201 with canonical envelope on happy path", async () => {
   });
 });
 
+test("[turn-commit] charges realtime provider spend once, keyed by turn id", async () => {
+  const charges = [];
+  const deps = defaultDeps({ recordProviderSpend: (args) => charges.push(args) });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "make me a scene",
+      reply: "She lights a cigarette.",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(charges.length, 1, "charged exactly once per committed turn");
+    assert.equal(charges[0].turnId, "turn_xyz", "keyed by the committed turn id (idempotency)");
+    assert.equal(charges[0].transcriptChars, "make me a scene".length);
+    assert.equal(charges[0].replyChars, "She lights a cigarette.".length);
+    assert.ok(charges[0].req, "trusted req passed for identity resolution");
+  });
+});
+
+test("[turn-commit] does not charge spend when no turn is committed", async () => {
+  const charges = [];
+  const deps = defaultDeps({
+    recordProviderSpend: (args) => charges.push(args),
+    buildReadStateMeta: () => ({ lastTurnId: "", sessionId: "s", stateVersion: "v" }),
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, { transcript: "hi", reply: "there" });
+    assert.equal(r.status, 201);
+    assert.equal(charges.length, 0, "no committed turn -> no charge");
+  });
+});
+
 test("[turn-commit] request_id falls back to rid when caller omits it", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, { transcript: "x", reply: "y" });

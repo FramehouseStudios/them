@@ -84,6 +84,10 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     getCreativeMemoryForPrompt = null,
     // ---------- turn meta storage + read state ----------
     storeTalkTurnMeta,
+    // Optional: charge this realtime turn's estimated $ against the per-user
+    // daily cap (idempotent per turn id). No-op default so existing mounts/tests
+    // stay valid; NOT added to requiredFns.
+    recordProviderSpend = () => {},
     buildReadStateMeta,
     applyReadStateHeaders,
     // ---------- constants ----------
@@ -334,6 +338,17 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         },
         requestId: requestId || rid,
         now: nowTs,
+      });
+      // Charge realtime usage into the same daily $ bucket as /talk, exactly
+      // once per committed turn (idempotent by turn id + the route's
+      // withIdempotency envelope). Audio streams client<->OpenAI directly, so
+      // the backend sees only text here; mint eligibility is the primary gate.
+      recordProviderSpend({
+        req,
+        transcriptChars: transcript.length,
+        replyChars: reply.length,
+        audioDurationMs: 0,
+        turnId: readMeta.lastTurnId,
       });
     }
 
