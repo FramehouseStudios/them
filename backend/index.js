@@ -456,22 +456,6 @@ const NOTE_CAPTURE_FALLBACK_DIR = path.resolve(
       path.join(process.env.HOME || process.cwd(), "Documents", "Clementine Notes")
   ).trim()
 );
-const ENABLE_LOCAL_EMAIL_SEND = process.env.ENABLE_LOCAL_EMAIL_SEND == null
-  ? true
-  : parseBool(process.env.ENABLE_LOCAL_EMAIL_SEND);
-const EMAIL_COMPOSE_TARGETS = new Set(["mailto", "gmail", "outlook", "yahoo"]);
-const EMAIL_SEND_TARGET_RAW = String(
-  process.env.EMAIL_SEND_TARGET || process.env.EMAIL_COMPOSE_TARGET || "mailto"
-).trim().toLowerCase();
-const EMAIL_SEND_TARGET = parseOneOf(
-  EMAIL_SEND_TARGET_RAW === "apple_mail" ? "mailto" : EMAIL_SEND_TARGET_RAW,
-  EMAIL_COMPOSE_TARGETS,
-  "mailto"
-);
-const EMAIL_COMPOSE_BODY_MAX_CHARS = parsePositiveInt(
-  process.env.EMAIL_COMPOSE_BODY_MAX_CHARS,
-  1800
-);
 const LOCAL_ACTION_MIN_STT_CONFIDENCE = parseNumberInRange(
   process.env.LOCAL_ACTION_MIN_STT_CONFIDENCE,
   0,
@@ -482,18 +466,9 @@ const LOCAL_ACTION_DEDUPE_WINDOW_MS = parsePositiveInt(
   process.env.LOCAL_ACTION_DEDUPE_WINDOW_MS,
   45_000
 );
-const CALENDAR_COMPOSE_TARGETS = new Set(["google", "outlook", "ics"]);
-const CALENDAR_COMPOSE_TARGET = parseOneOf(
-  String(process.env.CALENDAR_COMPOSE_TARGET || "google").trim().toLowerCase(),
-  CALENDAR_COMPOSE_TARGETS,
-  "google"
-);
 const TASKS_MAX_STORED = parsePositiveInt(process.env.TASKS_MAX_STORED, 240);
 const TASKS_LIST_DEFAULT_LIMIT = parsePositiveInt(process.env.TASKS_LIST_DEFAULT_LIMIT, 80);
 const DAILY_RECAP_HOUR_LOCAL = parsePositiveInt(process.env.DAILY_RECAP_HOUR_LOCAL, 9);
-const SECRETARY_EMAIL_FOLLOWUP_ENABLED = process.env.SECRETARY_EMAIL_FOLLOWUP_ENABLED == null
-  ? true
-  : parseBool(process.env.SECRETARY_EMAIL_FOLLOWUP_ENABLED);
 const ENDING_QUESTION_RATE = parseNumberInRange(process.env.ENDING_QUESTION_RATE, 0, 1, 0.10);
 const VENTING_QUESTION_RATE = parseNumberInRange(process.env.VENTING_QUESTION_RATE, 0, 1, 0.72);
 const ADAPTIVE_INTELLIGENCE_ENABLED = process.env.ADAPTIVE_INTELLIGENCE_ENABLED == null
@@ -4659,7 +4634,6 @@ configureMemoryStore({
   normalizeAssistantSelfName,
   normalizeClientIp,
   normalizeClientToken,
-  normalizeEmailAddress,
   normalizeLocalActionType,
   normalizeMotivationOutcome,
   normalizeReassuranceStyle,
@@ -4722,20 +4696,17 @@ if (process.env.OUTBOX_SNAPSHOT_ENABLED == null
 }
 
 configureOutboxStore({
-  CALENDAR_COMPOSE_TARGET,
   OUTBOX_ENABLED,
   OUTBOX_RETRY_BASE_DELAY_MS,
   OUTBOX_RETRY_MAX_ATTEMPTS,
   OUTBOX_WORKER_BATCH_SIZE,
   OUTBOX_WORKER_ENABLED,
-  buildCalendarComposeUrl,
   buildLocalActionSignature,
   captureLocalNote,
   normalizeLocalActionType,
   normalizeSnippet,
   randomUUID,
   scaleBackplane,
-  sendLocalEmail,
 });
 configureUserStore({
   USER_STORE_PATH,
@@ -7427,51 +7398,6 @@ const NOTE_CAPTURE_TRIGGERS = Object.freeze([
   "jot this down",
 ]);
 
-const EMAIL_SEND_TRIGGERS = Object.freeze([
-  "send email",
-  "send an email",
-  "send this email",
-  "email this",
-  "compose email",
-  "draft email",
-  "write an email",
-  "send a message to",
-]);
-
-const EMAIL_CANCEL_TRIGGERS = Object.freeze([
-  "cancel email",
-  "don't send email",
-  "dont send email",
-  "never mind email",
-  "forget email",
-  "stop email",
-]);
-
-const EMAIL_FOLLOWUP_BODY_HINTS = Object.freeze([
-  "body",
-  "message",
-  "it says",
-  "say",
-  "here is the message",
-  "here's the message",
-  "heres the message",
-]);
-
-const EMAIL_PENDING_FOLLOWUP_CONFIRM_TRIGGERS = Object.freeze([
-  "send it",
-  "send this",
-  "send that",
-  "go ahead and send",
-  "go ahead send",
-  "email it",
-  "email this",
-  "email that",
-  "use this message",
-  "use that message",
-  "that's the message",
-  "that is the message",
-]);
-
 function normalizeEmailAddress(value) {
   const raw = String(value || "")
     .trim()
@@ -7844,169 +7770,7 @@ function buildTaskActionReply(result) {
   return "";
 }
 
-function parseCalendarRange(transcript, nowTs = Date.now()) {
-  const source = String(transcript || "").toLowerCase();
-  const now = new Date(nowTs);
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0);
-  if (source.includes("tomorrow")) {
-    base.setDate(base.getDate() + 1);
-  }
-
-  const rangeMatch = source.match(
-    /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/
-  );
-  if (!rangeMatch) {
-    return {
-      startAt: base.getTime(),
-      endAt: base.getTime() + (60 * 60 * 1000),
-    };
-  }
-
-  const parseHour = (hourRaw, minuteRaw, meridiemRaw, fallbackMeridiem = "") => {
-    let hour = Math.max(0, Math.min(23, Number(hourRaw || 9)));
-    const minute = Math.max(0, Math.min(59, Number(minuteRaw || 0)));
-    const meridiem = String(meridiemRaw || fallbackMeridiem || "").toLowerCase();
-    if (meridiem === "pm" && hour < 12) hour += 12;
-    if (meridiem === "am" && hour === 12) hour = 0;
-    return { hour, minute };
-  };
-
-  const startMeridiem = rangeMatch[3] || rangeMatch[6] || "";
-  const endMeridiem = rangeMatch[6] || rangeMatch[3] || "";
-  const startParts = parseHour(rangeMatch[1], rangeMatch[2], startMeridiem, endMeridiem);
-  const endParts = parseHour(rangeMatch[4], rangeMatch[5], endMeridiem, startMeridiem);
-
-  const start = new Date(base);
-  start.setHours(startParts.hour, startParts.minute, 0, 0);
-  const end = new Date(base);
-  end.setHours(endParts.hour, endParts.minute, 0, 0);
-  if (end.getTime() <= start.getTime()) {
-    end.setTime(start.getTime() + (60 * 60 * 1000));
-  }
-  return { startAt: start.getTime(), endAt: end.getTime() };
-}
-
-function extractCalendarIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-  }
-  const lower = source.toLowerCase();
-  const triggers = [
-    "schedule",
-    "calendar",
-    "block",
-    "set a meeting",
-    "create event",
-    "book time",
-  ];
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of triggers) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-  if (triggerIndex < 0) {
-    return { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-  }
-  const range = parseCalendarRange(source);
-  let title = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .replace(/\b(today|tomorrow|tonight)\b/gi, "")
-    .replace(/\b\d{1,2}(?::\d{2})?\s*(am|pm)?\s*(to|-|until)\s*\d{1,2}(?::\d{2})?\s*(am|pm)?\b/gi, "")
-    .trim();
-  title = normalizeSnippet(title, 120) || "Calendar block";
-  return {
-    shouldCreate: true,
-    title,
-    startAt: range.startAt,
-    endAt: range.endAt,
-    trigger,
-  };
-}
-
-function formatGoogleCalendarDate(ts) {
-  return new Date(ts).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-}
-
-function buildCalendarComposeUrl({ title, startAt, endAt, details = "", target = CALENDAR_COMPOSE_TARGET }) {
-  const safeTitle = normalizeSnippet(title, 120) || "Calendar block";
-  const safeDetails = normalizeSnippet(details, 400);
-  const normalizedTarget = parseOneOf(String(target || "google"), CALENDAR_COMPOSE_TARGETS, "google");
-  if (normalizedTarget === "outlook") {
-    const outlook = new URL("https://outlook.live.com/calendar/0/deeplink/compose");
-    outlook.searchParams.set("path", "/calendar/action/compose");
-    outlook.searchParams.set("rru", "addevent");
-    outlook.searchParams.set("subject", safeTitle);
-    outlook.searchParams.set("startdt", new Date(startAt).toISOString());
-    outlook.searchParams.set("enddt", new Date(endAt).toISOString());
-    if (safeDetails) outlook.searchParams.set("body", safeDetails);
-    return { url: outlook.toString(), target: "outlook", transport: "browser" };
-  }
-  if (normalizedTarget === "ics") {
-    const lines = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//CLEMENTINE//EN",
-      "BEGIN:VEVENT",
-      `UID:${randomUUID()}`,
-      `DTSTAMP:${formatGoogleCalendarDate(Date.now())}`,
-      `DTSTART:${formatGoogleCalendarDate(startAt)}`,
-      `DTEND:${formatGoogleCalendarDate(endAt)}`,
-      `SUMMARY:${safeTitle.replace(/\n/g, " ")}`,
-      `DESCRIPTION:${(safeDetails || "Created by CLEMENTINE").replace(/\n/g, "\\n")}`,
-      "END:VEVENT",
-      "END:VCALENDAR",
-    ].join("\r\n");
-    return {
-      url: `data:text/calendar;charset=utf-8,${encodeURIComponent(lines)}`,
-      target: "ics",
-      transport: "file",
-    };
-  }
-  const google = new URL("https://calendar.google.com/calendar/render");
-  google.searchParams.set("action", "TEMPLATE");
-  google.searchParams.set("text", safeTitle);
-  google.searchParams.set("dates", `${formatGoogleCalendarDate(startAt)}/${formatGoogleCalendarDate(endAt)}`);
-  if (safeDetails) google.searchParams.set("details", safeDetails);
-  return { url: google.toString(), target: "google", transport: "browser" };
-}
-
-function buildCalendarActionReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-  if (state.status === "composed") {
-    return [
-      "Done.",
-      "",
-      `I opened a calendar draft for "${state.title || "your block"}".`,
-    ].join("\n");
-  }
-  if (state.status === "failed") {
-    return [
-      "I could not open that calendar draft yet.",
-      "",
-      "Say the title and time again and I will retry.",
-    ].join("\n");
-  }
-  return "";
-}
-
-function classifyActionLane({ emailResult, noteResult, calendarResult, taskResult }) {
-  if (emailResult) {
-    return { lane: "email_draft", created: emailResult.status === "composed" };
-  }
-  if (calendarResult) {
-    return { lane: "calendar_block", created: calendarResult.status === "composed" };
-  }
+function classifyActionLane({ noteResult, taskResult }) {
   if (taskResult) {
     return {
       lane: "task",
@@ -8018,144 +7782,6 @@ function classifyActionLane({ emailResult, noteResult, calendarResult, taskResul
     return { lane: "note", created: noteResult.status === "saved" };
   }
   return { lane: "chat", created: false };
-}
-
-function buildCapturedEmailSubject(bodyText) {
-  const cleaned = String(bodyText || "")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
-    .trim();
-  if (!cleaned) return "Message from CLEMENTINE";
-  const sentence = cleaned.split(/[.!?]/)[0] || cleaned;
-  return trimToMax(sentence, 84);
-}
-
-function extractEmailSendIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  }
-
-  const lower = source.toLowerCase();
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of EMAIL_SEND_TRIGGERS) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-
-  if (triggerIndex < 0) {
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  }
-
-  let working = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .trim();
-
-  const emailMatch = (working.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ||
-    source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i));
-  const recipient = normalizeEmailAddress(emailMatch?.[0] || "");
-  if (recipient) {
-    working = working.replace(new RegExp(escapeRegex(emailMatch[0]), "i"), "").trim();
-  }
-
-  let subject = "";
-  let body = "";
-  const subjectMarker = working.match(/\bsubject\b[:\s-]*/i);
-  const bodyMarker = working.match(/\b(?:body|message|saying|that says)\b[:\s-]*/i);
-
-  if (subjectMarker) {
-    const subjectStart = subjectMarker.index + subjectMarker[0].length;
-    if (bodyMarker && bodyMarker.index > subjectStart) {
-      subject = working.slice(subjectStart, bodyMarker.index).trim();
-      body = working.slice(bodyMarker.index + bodyMarker[0].length).trim();
-    } else {
-      subject = working.slice(subjectStart).trim();
-    }
-  } else if (bodyMarker) {
-    body = working.slice(bodyMarker.index + bodyMarker[0].length).trim();
-  } else {
-    body = working;
-  }
-
-  body = String(body || "")
-    .replace(/^["“”'`]+|["“”'`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  subject = String(subject || "")
-    .replace(/^["“”'`]+|["“”'`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!subject) {
-    subject = buildCapturedEmailSubject(body);
-  }
-
-  return {
-    shouldSend: true,
-    needsRecipient: !recipient,
-    needsContent: !body || body.length < 3,
-    trigger,
-    recipient,
-    subject: trimToMax(subject, 120),
-    body,
-  };
-}
-
-function clearPendingEmailDraft(memory, nowTs = Date.now()) {
-  if (!memory || typeof memory !== "object") return;
-  memory.pendingEmailRecipient = "";
-  memory.pendingEmailSubject = "";
-  memory.pendingEmailAwaitingBody = false;
-  memory.pendingEmailUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
-}
-
-function setPendingEmailDraft(memory, { recipient, subject }, nowTs = Date.now()) {
-  if (!memory || typeof memory !== "object") return;
-  memory.pendingEmailRecipient = normalizeEmailAddress(recipient);
-  memory.pendingEmailSubject = trimToMax(String(subject || "").trim(), 120);
-  memory.pendingEmailAwaitingBody = Boolean(memory.pendingEmailRecipient);
-  memory.pendingEmailUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
-}
-
-function readPendingEmailDraft(memory) {
-  if (!memory || typeof memory !== "object") {
-    return {
-      recipient: "",
-      subject: "",
-      awaitingBody: false,
-      updatedAt: 0,
-    };
-  }
-  const recipient = normalizeEmailAddress(memory.pendingEmailRecipient);
-  const subject = trimToMax(String(memory.pendingEmailSubject || "").trim(), 120);
-  const updatedAt = Math.max(0, Number(memory.pendingEmailUpdatedAt || 0));
-  const awaitingBody = Boolean(memory.pendingEmailAwaitingBody) && Boolean(recipient);
-  return {
-    recipient,
-    subject,
-    awaitingBody,
-    updatedAt,
-  };
 }
 
 const LOCAL_ACTION_CONFIRM_TRIGGERS = Object.freeze([
@@ -8203,18 +7829,9 @@ function clearPendingLocalAction(memory, nowTs = Date.now()) {
 function buildPendingLocalActionSummary(type, payload = {}) {
   const actionType = normalizeLocalActionType(type);
   const body = payload && typeof payload === "object" ? payload : {};
-  if (actionType === "email_compose") {
-    const to = normalizeEmailAddress(body.recipient || body.to);
-    const subject = trimToMax(String(body.subject || "").trim(), 80);
-    return `Open email draft to ${to || "recipient"}${subject ? ` with subject "${subject}"` : ""}.`;
-  }
   if (actionType === "note_capture") {
     const noteText = normalizeSnippet(body.noteText, 120);
     return `Save note: "${noteText || "your note"}".`;
-  }
-  if (actionType === "calendar_compose") {
-    const title = normalizeSnippet(body.title, 96) || "Calendar block";
-    return `Open calendar draft "${title}".`;
   }
   if (actionType === "task_create") {
     const title = normalizeSnippet(body.title, 96) || "task";
@@ -8299,8 +7916,6 @@ function buildNoPendingLocalActionReply() {
 
 function selectExecutableLocalActionCandidate({
   noteCaptureIntent,
-  emailSendIntent,
-  calendarIntent,
   taskCreateIntent,
   taskCompleteIntent,
 } = {}) {
@@ -8310,33 +7925,6 @@ function selectExecutableLocalActionCandidate({
       payload: {
         noteText: normalizeSnippet(noteCaptureIntent.noteText, 1_600),
         trigger: normalizeSnippet(noteCaptureIntent.trigger, 64),
-      },
-    };
-  }
-  if (
-    emailSendIntent?.shouldSend &&
-    !emailSendIntent?.canceled &&
-    !emailSendIntent?.needsRecipient &&
-    !emailSendIntent?.needsContent
-  ) {
-    return {
-      type: "email_compose",
-      payload: {
-        recipient: normalizeEmailAddress(emailSendIntent.recipient),
-        subject: trimToMax(String(emailSendIntent.subject || "").trim(), 120),
-        body: normalizeSnippet(emailSendIntent.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-        trigger: normalizeSnippet(emailSendIntent.trigger, 64),
-      },
-    };
-  }
-  if (calendarIntent?.shouldCreate) {
-    return {
-      type: "calendar_compose",
-      payload: {
-        title: normalizeSnippet(calendarIntent.title, 120),
-        startAt: Math.max(0, Number(calendarIntent.startAt || 0)),
-        endAt: Math.max(0, Number(calendarIntent.endAt || 0)),
-        trigger: normalizeSnippet(calendarIntent.trigger, 64),
       },
     };
   }
@@ -8361,187 +7949,6 @@ function selectExecutableLocalActionCandidate({
     };
   }
   return null;
-}
-
-function normalizeEmailFollowupBody(text) {
-  let body = String(text || "").trim();
-  if (!body) return "";
-  const lowered = body.toLowerCase();
-  for (const hint of EMAIL_FOLLOWUP_BODY_HINTS) {
-    if (lowered.startsWith(`${hint}:`) || lowered.startsWith(`${hint} `)) {
-      body = body.slice(hint.length).replace(/^[:\s-]+/, "").trim();
-      break;
-    }
-  }
-  body = body.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
-  return body;
-}
-
-function looksLikeOpenQuestion(text) {
-  const source = String(text || "").trim().toLowerCase();
-  if (!source) return false;
-  if (source.endsWith("?")) return true;
-  return /^(how|what|why|when|where|who|can|could|would|should|do|does|did|is|are|am)\b/.test(source);
-}
-
-function resolveEmailSendIntentWithPending({
-  transcript,
-  baseIntent,
-  memory,
-  noteCaptureIntent,
-}) {
-  const base = baseIntent && typeof baseIntent === "object"
-    ? { ...baseIntent }
-    : {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  if (!SECRETARY_EMAIL_FOLLOWUP_ENABLED || !memory || typeof memory !== "object") {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const text = String(transcript || "").trim();
-  const lower = text.toLowerCase();
-  const nowTs = Date.now();
-  const pending = readPendingEmailDraft(memory);
-  const askedCancel = textContainsAny(lower, EMAIL_CANCEL_TRIGGERS);
-
-  if (askedCancel && pending.awaitingBody) {
-    clearPendingEmailDraft(memory, nowTs);
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "cancel_email_pending",
-      recipient: "",
-      subject: "",
-      body: "",
-      fromPending: false,
-      canceled: true,
-    };
-  }
-
-  if (base.shouldSend) {
-    if (!base.needsRecipient && base.needsContent && base.recipient) {
-      setPendingEmailDraft(memory, {
-        recipient: base.recipient,
-        subject: base.subject,
-      }, nowTs);
-      return {
-        ...base,
-        fromPending: false,
-        canceled: false,
-      };
-    }
-
-    if (!base.needsRecipient && !base.needsContent) {
-      clearPendingEmailDraft(memory, nowTs);
-    }
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (!pending.awaitingBody) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const pendingAgeMs = Math.max(0, nowTs - pending.updatedAt);
-  if (pending.updatedAt && pendingAgeMs > 10 * 60 * 1000) {
-    clearPendingEmailDraft(memory, nowTs);
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (noteCaptureIntent?.shouldCapture) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (textContainsAny(lower, ["linkedin", "profile analysis", "analyze profile"])) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const normalizedBody = normalizeEmailFollowupBody(text);
-  const bodyWordCount = normalizedBody.split(/\s+/).filter(Boolean).length;
-  const hintedBody = EMAIL_FOLLOWUP_BODY_HINTS.some((hint) => lower.startsWith(hint));
-  const explicitPendingConfirm = textContainsAny(lower, EMAIL_PENDING_FOLLOWUP_CONFIRM_TRIGGERS);
-  let followupBody = normalizedBody;
-  if (explicitPendingConfirm && !hintedBody) {
-    followupBody = followupBody
-      .replace(
-        /^(?:please\s+)?(?:go ahead(?: and)?\s+)?(?:send (?:it|this|that|now)|email (?:it|this|that)|use (?:this|that) message|that(?:'|’)s the message|that is the message)\b[:\s-]*/i,
-        ""
-      )
-      .trim();
-  }
-  const followupBodyWords = followupBody.split(/\s+/).filter(Boolean).length;
-  if (explicitPendingConfirm && followupBodyWords < 4) {
-    return {
-      shouldSend: true,
-      needsRecipient: false,
-      needsContent: true,
-      trigger: "pending_email_followup_confirmed",
-      recipient: pending.recipient,
-      subject: pending.subject || buildCapturedEmailSubject(""),
-      body: "",
-      fromPending: true,
-      canceled: false,
-    };
-  }
-  const safeToAssumeBody =
-    hintedBody ||
-    (
-      explicitPendingConfirm &&
-      !looksLikeOpenQuestion(followupBody) &&
-      followupBodyWords >= 4 &&
-      followupBodyWords <= 220
-    );
-
-  if (!safeToAssumeBody) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  return {
-    shouldSend: true,
-    needsRecipient: false,
-    needsContent: !followupBody,
-    trigger: "pending_email_followup",
-    recipient: pending.recipient,
-    subject: pending.subject || buildCapturedEmailSubject(followupBody),
-    body: followupBody,
-    fromPending: true,
-    canceled: false,
-  };
 }
 
 function normalizeLocalActionType(value) {
@@ -8835,207 +8242,6 @@ function buildNoteCaptureReply(result) {
     "I tried to save that, but it didn't go through.",
     "",
     "Say it one more time and I'll retry.",
-  ].join("\n");
-}
-
-function buildEmailComposeUrl({ to, subject, body, target }) {
-  const safeTo = normalizeEmailAddress(to);
-  if (!safeTo) return { url: "", target: "none", transport: "none" };
-
-  const safeSubject = trimToMax(String(subject || "").trim(), 120);
-  const safeBody = trimToMax(String(body || "").trim(), EMAIL_COMPOSE_BODY_MAX_CHARS);
-  const normalizedTarget = parseOneOf(
-    String(target || EMAIL_SEND_TARGET || "mailto").toLowerCase(),
-    EMAIL_COMPOSE_TARGETS,
-    "mailto"
-  );
-
-  if (normalizedTarget === "gmail") {
-    const gmail = new URL("https://mail.google.com/mail/");
-    gmail.searchParams.set("view", "cm");
-    gmail.searchParams.set("fs", "1");
-    gmail.searchParams.set("to", safeTo);
-    if (safeSubject) gmail.searchParams.set("su", safeSubject);
-    if (safeBody) gmail.searchParams.set("body", safeBody);
-    return { url: gmail.toString(), target: "gmail", transport: "browser" };
-  }
-
-  if (normalizedTarget === "outlook") {
-    const outlook = new URL("https://outlook.live.com/mail/0/deeplink/compose");
-    outlook.searchParams.set("to", safeTo);
-    if (safeSubject) outlook.searchParams.set("subject", safeSubject);
-    if (safeBody) outlook.searchParams.set("body", safeBody);
-    return { url: outlook.toString(), target: "outlook", transport: "browser" };
-  }
-
-  if (normalizedTarget === "yahoo") {
-    const yahoo = new URL("https://compose.mail.yahoo.com/");
-    yahoo.searchParams.set("to", safeTo);
-    if (safeSubject) yahoo.searchParams.set("subject", safeSubject);
-    if (safeBody) yahoo.searchParams.set("body", safeBody);
-    return { url: yahoo.toString(), target: "yahoo", transport: "browser" };
-  }
-
-  const params = new URLSearchParams();
-  if (safeSubject) params.set("subject", safeSubject);
-  if (safeBody) params.set("body", safeBody);
-  const query = params.toString();
-  const mailtoUrl = `mailto:${encodeURIComponent(safeTo)}${query ? `?${query}` : ""}`;
-  return { url: mailtoUrl, target: "mailto", transport: "mail_app" };
-}
-
-async function sendLocalEmail({ recipient, subject, body, reqId }) {
-  const to = normalizeEmailAddress(recipient);
-  const cleanBody = String(body || "").replace(/\s+/g, " ").trim();
-  const cleanSubject = trimToMax(String(subject || "").trim(), 120);
-
-  if (!ENABLE_LOCAL_EMAIL_SEND) {
-    return {
-      status: "disabled",
-      action: "none",
-      target: "none",
-      transport: "none",
-      to,
-      subject: cleanSubject,
-      composeUrl: "",
-      error: "Local email compose disabled.",
-    };
-  }
-
-  if (!to) {
-    return {
-      status: "needs_recipient",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to: "",
-      subject: cleanSubject,
-      composeUrl: "",
-    };
-  }
-
-  if (!cleanBody || cleanBody.length < 3) {
-    return {
-      status: "needs_content",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to,
-      subject: cleanSubject || "Message from CLEMENTINE",
-      composeUrl: "",
-    };
-  }
-
-  const finalSubject = cleanSubject || buildCapturedEmailSubject(cleanBody);
-  const finalBody = `${cleanBody}\n\n---\nDrafted by CLEMENTINE at ${formatNoteTimestamp()}`;
-  try {
-    const compose = buildEmailComposeUrl({
-      to,
-      subject: finalSubject,
-      body: finalBody,
-      target: EMAIL_SEND_TARGET,
-    });
-    if (!compose.url) {
-      return {
-        status: "failed",
-        action: "none",
-        target: EMAIL_SEND_TARGET,
-        transport: "none",
-        to,
-        subject: finalSubject,
-        composeUrl: "",
-        error: "Could not build compose URL.",
-      };
-    }
-    return {
-      status: "composed",
-      action: "compose",
-      target: compose.target,
-      transport: compose.transport,
-      to,
-      subject: finalSubject,
-      composeUrl: compose.url,
-    };
-  } catch (error) {
-    console.log(
-      `[${reqId}] email_compose_failed=${String(error?.message || error)}`
-    );
-    return {
-      status: "failed",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to,
-      subject: finalSubject,
-      composeUrl: "",
-      error: String(error?.message || error),
-    };
-  }
-}
-
-function buildEmailSendReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  const to = trimToMax(state.to || "recipient", 120);
-  const subject = trimToMax(state.subject || "your message", 120);
-
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-
-  if (state.status === "canceled") {
-    return [
-      "Okay, canceled.",
-      "",
-      "I cleared the pending email.",
-    ].join("\n");
-  }
-
-  if (state.status === "needs_recipient") {
-    return [
-      "I can draft that.",
-      "",
-      "Tell me the recipient email and the message.",
-    ].join("\n");
-  }
-
-  if (state.status === "needs_content") {
-    return [
-      "I have the recipient.",
-      "",
-      `Now say the message body and I will open a draft to ${to}${subject ? ` with subject "${subject}"` : ""}.`,
-    ].join("\n");
-  }
-
-  if (state.status === "composed") {
-    return [
-      "Done.",
-      "",
-      `I opened a draft to ${to}${subject ? ` with subject "${subject}"` : ""}. Review and hit Send in your email app.`,
-    ].join("\n");
-  }
-
-  if (state.status === "duplicate") {
-    return [
-      "That draft is already queued.",
-      "",
-      "I skipped opening another duplicate compose window.",
-    ].join("\n");
-  }
-
-  if (state.status === "disabled") {
-    return [
-      "Email compose is disabled right now.",
-      "",
-      "Enable local email compose and try again.",
-    ].join("\n");
-  }
-
-  return [
-    "I could not prepare that draft right now.",
-    "",
-    "Say \"send email to\" plus recipient, subject, and message so I can retry cleanly.",
   ].join("\n");
 }
 
@@ -11461,10 +10667,6 @@ function createEmptyEmotionMemory() {
     continuationHoldCount: 0,
     lastContinuationHoldAt: 0,
     lastContinuationReason: "",
-    pendingEmailRecipient: "",
-    pendingEmailSubject: "",
-    pendingEmailAwaitingBody: false,
-    pendingEmailUpdatedAt: 0,
     pendingLocalActionType: "",
     pendingLocalActionPayload: "",
     pendingLocalActionSummary: "",
@@ -18023,7 +17225,6 @@ SUBTLE MEMORY:
 - social_spark_memory=count:${socialSparkMoments.length} last_event:${socialSparkLastEvent} last_detail:${socialSparkLastDetail} last_affect:${socialSparkLastAffect} last_turn:${socialSparkLastTurn} last_ref_turn:${socialSparkLastReferenceTurn} last_question:${socialSparkLastQuestion}
 - social_spark_yass_state=count:${socialSparkYassCount}/${SOCIAL_SPARK_YASS_MAX_PER_SESSION} last_turn:${socialSparkLastYassTurn}
 - social_spark_recent=${socialSparkPreview}
-- secretary_email_state=awaiting_body:${memory.pendingEmailAwaitingBody ? "1" : "0"} to:${normalizeEmailAddress(memory.pendingEmailRecipient) || "none"} subject:${trimToMax(memory.pendingEmailSubject || "", 90) || "none"} updated_at:${Math.max(0, Number(memory.pendingEmailUpdatedAt || 0)) || "n/a"}
 - checkins_used=${checkIns}
 - Use memory as secondary context only.
 - Primary rule: answer the user's current message directly first, then use one relevant memory detail if helpful.
@@ -31992,10 +31193,6 @@ function clearAllMemoriesMemory(memory, nowTs = Date.now()) {
   base.backReferenceRateLast = 0;
   base.tasks = [];
   base.taskLastUpdatedAt = nowTs;
-  base.pendingEmailRecipient = "";
-  base.pendingEmailSubject = "";
-  base.pendingEmailAwaitingBody = false;
-  base.pendingEmailUpdatedAt = nowTs;
   base.pendingLocalActionType = "";
   base.pendingLocalActionPayload = "";
   base.pendingLocalActionSummary = "";
@@ -33344,7 +32541,6 @@ const handleTalkRequest = createTalkHandler({
   BARGE_IN_ENABLED,
   BARGE_IN_HINT_THRESHOLD,
   BARGE_IN_STOP_PLAYBACK,
-  CALENDAR_COMPOSE_TARGET,
   CHAT_STREAM_ENABLED,
   CHAT_TIMEOUT_MS,
   CLEMENTINE_CHAOS_FACTOR_BASELINE,
@@ -33353,13 +32549,10 @@ const handleTalkRequest = createTalkHandler({
   COMPANION_MODE_PROFILE,
   DEEP_TURN_SCORE_THRESHOLD,
   DEFAULT_ASSISTANT_SELF_NAME,
-  EMAIL_COMPOSE_BODY_MAX_CHARS,
-  EMAIL_SEND_TARGET,
   EMOTIONAL_TRAJECTORY,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_ENABLED,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_MIN_BYTES,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_STREAK,
-  ENABLE_LOCAL_EMAIL_SEND,
   ENABLE_LOCAL_NOTE_CAPTURE,
   FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
   INTERACTIVE_TTS_PROVIDER,
@@ -33415,14 +32608,11 @@ const handleTalkRequest = createTalkHandler({
   applyUserIdentityIntentToMemory,
   buildBackReferenceAddendum,
   buildBackReferencePlan,
-  buildCalendarActionReply,
-  buildCalendarComposeUrl,
   buildCharacterTextureAddendum,
   buildCinemaCheckEnvelope,
   buildCycleConsciousMemoryAddendum,
   buildCycleConsciousMemoryPlan,
   buildCycleEvolutionAddendum,
-  buildEmailSendReply,
   buildEmotionalTrajectoryAddendum,
   buildEstimatedTalkScreenplayCues,
   buildEvolvingSelfAwarenessAddendum,
@@ -33463,7 +32653,6 @@ const handleTalkRequest = createTalkHandler({
   captureTalkResponseHeaders,
   clampUnit,
   classifyActionLane,
-  clearPendingEmailDraft,
   clearPendingLocalAction,
   clearTalkIdempotencyPending,
   clientIp,
@@ -33504,8 +32693,6 @@ const handleTalkRequest = createTalkHandler({
   evaluateTurnQualityHeuristics,
   extractAnchorTerms,
   extractAssistantRenameIntent,
-  extractCalendarIntent,
-  extractEmailSendIntent,
   extractNoteCaptureIntent,
   extractTaskCompleteIntent,
   extractTaskCreateIntent,
@@ -33547,7 +32734,6 @@ const handleTalkRequest = createTalkHandler({
   normalizeAssistantSelfName,
   normalizeClientIp,
   normalizeClientToken,
-  normalizeEmailAddress,
   normalizeLocalActionType,
   normalizeMotivationOutcome,
   normalizePersonaPreset,
@@ -33575,7 +32761,6 @@ const handleTalkRequest = createTalkHandler({
   recordTalkMetric,
   recordUserTalkMetrics,
   recordUserTurnQualityMetric,
-  resolveEmailSendIntentWithPending,
   resolveTalkSessionKey,
   resolveWritableMemoryContext,
   sanitizeActiveThemes,
@@ -33587,9 +32772,7 @@ const handleTalkRequest = createTalkHandler({
   selectChatModelForTurn,
   selectChatTemperatureForTurn,
   selectExecutableLocalActionCandidate,
-  sendLocalEmail,
   setAssistantSelfNameForIp,
-  setPendingEmailDraft,
   setPendingLocalAction,
   persistWritableMemoryContext,
   shouldForceSessionCheckInOpener,

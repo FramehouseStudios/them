@@ -89,7 +89,6 @@ function createTalkHandler(deps) {
     BARGE_IN_ENABLED,
     BARGE_IN_HINT_THRESHOLD,
     BARGE_IN_STOP_PLAYBACK,
-    CALENDAR_COMPOSE_TARGET,
     CHAT_STREAM_ENABLED,
     CHAT_TIMEOUT_MS,
     CLEMENTINE_CHAOS_FACTOR_BASELINE,
@@ -98,13 +97,10 @@ function createTalkHandler(deps) {
     COMPANION_MODE_PROFILE,
     DEEP_TURN_SCORE_THRESHOLD,
     DEFAULT_ASSISTANT_SELF_NAME,
-    EMAIL_COMPOSE_BODY_MAX_CHARS,
-    EMAIL_SEND_TARGET,
     EMOTIONAL_TRAJECTORY,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_ENABLED,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_MIN_BYTES,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_STREAK,
-    ENABLE_LOCAL_EMAIL_SEND,
     ENABLE_LOCAL_NOTE_CAPTURE,
     FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
     INTERACTIVE_TTS_PROVIDER,
@@ -159,14 +155,11 @@ function createTalkHandler(deps) {
     applyUserIdentityIntentToMemory,
     buildBackReferenceAddendum,
     buildBackReferencePlan,
-    buildCalendarActionReply,
-    buildCalendarComposeUrl,
     buildCharacterTextureAddendum,
     buildCinemaCheckEnvelope,
     buildCycleConsciousMemoryAddendum,
     buildCycleConsciousMemoryPlan,
     buildCycleEvolutionAddendum,
-    buildEmailSendReply,
     buildEmotionalTrajectoryAddendum,
     buildEstimatedTalkScreenplayCues,
     buildEvolvingSelfAwarenessAddendum,
@@ -207,7 +200,6 @@ function createTalkHandler(deps) {
     captureTalkResponseHeaders,
     clampUnit,
     classifyActionLane,
-    clearPendingEmailDraft,
     clearPendingLocalAction,
     clearTalkIdempotencyPending,
     clientIp,
@@ -248,8 +240,6 @@ function createTalkHandler(deps) {
     evaluateTurnQualityHeuristics,
     extractAnchorTerms,
     extractAssistantRenameIntent,
-    extractCalendarIntent,
-    extractEmailSendIntent,
     extractNoteCaptureIntent,
     extractTaskCompleteIntent,
     extractTaskCreateIntent,
@@ -291,7 +281,6 @@ function createTalkHandler(deps) {
     normalizeAssistantSelfName,
     normalizeClientIp,
     normalizeClientToken,
-    normalizeEmailAddress,
     normalizeLocalActionType,
     normalizeMotivationOutcome,
     normalizePersonaPreset,
@@ -318,7 +307,6 @@ function createTalkHandler(deps) {
     recordTalkMetric,
     recordUserTalkMetrics,
     recordUserTurnQualityMetric,
-    resolveEmailSendIntentWithPending,
     resolveTalkSessionKey,
     resolveWritableMemoryContext,
     sanitizeActiveThemes,
@@ -330,9 +318,7 @@ function createTalkHandler(deps) {
     selectChatModelForTurn,
     selectChatTemperatureForTurn,
     selectExecutableLocalActionCandidate,
-    sendLocalEmail,
     setAssistantSelfNameForIp,
-    setPendingEmailDraft,
     setPendingLocalAction,
     persistWritableMemoryContext,
     shouldForceSessionCheckInOpener,
@@ -1828,24 +1814,10 @@ function createTalkHandler(deps) {
       };
     let rawTaskCreateIntent = extractTaskCreateIntent(transcript);
     let rawTaskCompleteIntent = extractTaskCompleteIntent(transcript);
-    let rawCalendarIntent = extractCalendarIntent(transcript);
-    let rawEmailSendIntent = ENABLE_LOCAL_EMAIL_SEND
-      ? extractEmailSendIntent(transcript)
-      : {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-      };
     const hasStrongActionTrigger = Boolean(
       noteCaptureIntent.shouldCapture ||
       rawTaskCreateIntent.shouldCreate ||
-      rawTaskCompleteIntent.shouldComplete ||
-      rawCalendarIntent.shouldCreate ||
-      rawEmailSendIntent.shouldSend
+      rawTaskCompleteIntent.shouldComplete
     );
     const shouldPromptLowConfidenceRepeat =
       isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) &&
@@ -1908,16 +1880,6 @@ function createTalkHandler(deps) {
       };
       rawTaskCreateIntent = { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
       rawTaskCompleteIntent = { shouldComplete: false, query: "", trigger: "" };
-      rawCalendarIntent = { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-      rawEmailSendIntent = {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-      };
       logger.log(
         `[${rid}] local_action_gate suppressed=1 stt_conf=${sttConfidence.toFixed(2)} min_conf=${LOCAL_ACTION_MIN_STT_CONFIDENCE.toFixed(2)}`
       );
@@ -2028,26 +1990,15 @@ function createTalkHandler(deps) {
       }
       activeSession.memory = sessionMemory;
     }
-    let emailSendIntent = resolveEmailSendIntentWithPending({
-      transcript,
-      baseIntent: rawEmailSendIntent,
-      memory: activeSession?.memory || previousMemory,
-      noteCaptureIntent,
-    });
     let taskCreateIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
+      noteCaptureIntent.shouldCapture
         ? { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" }
         : rawTaskCreateIntent;
     let taskCompleteIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
+      noteCaptureIntent.shouldCapture
         ? { shouldComplete: false, query: "", trigger: "" }
         : rawTaskCompleteIntent;
-    let calendarIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
-        ? { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" }
-        : rawCalendarIntent;
     let hasTaskIntent = Boolean(taskCreateIntent.shouldCreate || taskCompleteIntent.shouldComplete);
-    let hasCalendarIntent = Boolean(calendarIntent.shouldCreate);
     let actionGateReply = "";
     const pendingLocalActionMemory = activeSession?.memory && typeof activeSession.memory === "object"
       ? activeSession.memory
@@ -2057,8 +2008,6 @@ function createTalkHandler(deps) {
     const askedLocalActionCancel = isLocalActionCancelTranscript(transcript);
     const executableLocalActionCandidate = selectExecutableLocalActionCandidate({
       noteCaptureIntent,
-      emailSendIntent,
-      calendarIntent,
       taskCreateIntent,
       taskCompleteIntent,
     });
@@ -2070,22 +2019,9 @@ function createTalkHandler(deps) {
         noteText: "",
         trigger: "",
       };
-      emailSendIntent = {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-        fromPending: false,
-        canceled: false,
-      };
       taskCreateIntent = { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
       taskCompleteIntent = { shouldComplete: false, query: "", trigger: "" };
-      calendarIntent = { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
       hasTaskIntent = false;
-      hasCalendarIntent = false;
     };
 
     if (askedLocalActionCancel) {
@@ -2116,27 +2052,6 @@ function createTalkHandler(deps) {
             noteText: normalizeSnippet(pendingPayload.noteText, 1_600),
             trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
           };
-        } else if (pendingType === "email_compose") {
-          emailSendIntent = {
-            shouldSend: true,
-            needsRecipient: false,
-            needsContent: false,
-            trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
-            recipient: normalizeEmailAddress(pendingPayload.recipient || pendingPayload.to),
-            subject: trimToMax(String(pendingPayload.subject || "").trim(), 120),
-            body: normalizeSnippet(pendingPayload.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-            fromPending: true,
-            canceled: false,
-          };
-        } else if (pendingType === "calendar_compose") {
-          calendarIntent = {
-            shouldCreate: true,
-            title: normalizeSnippet(pendingPayload.title, 120) || "Calendar block",
-            startAt: Math.max(0, Number(pendingPayload.startAt || 0)),
-            endAt: Math.max(0, Number(pendingPayload.endAt || 0)),
-            trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
-          };
-          hasCalendarIntent = true;
         } else if (pendingType === "task_create") {
           taskCreateIntent = {
             shouldCreate: true,
@@ -2201,9 +2116,7 @@ function createTalkHandler(deps) {
       continuationGate.hold &&
       !actionGateReply &&
       !noteCaptureIntent.shouldCapture &&
-      !emailSendIntent.shouldSend &&
-      !hasTaskIntent &&
-      !hasCalendarIntent
+      !hasTaskIntent
     ) {
       if (activeSession) {
         const holdMemory = activeSession.memory && typeof activeSession.memory === "object"
@@ -2610,14 +2523,10 @@ function createTalkHandler(deps) {
       activeSession.memory = sessionMemory;
     }
 
-    const shouldProcessEmailIntent = emailSendIntent.shouldSend || emailSendIntent.canceled;
-    const shouldProcessNoteIntent = noteCaptureIntent.shouldCapture && !shouldProcessEmailIntent;
-    const shouldProcessCalendarIntent = hasCalendarIntent && !shouldProcessEmailIntent && !shouldProcessNoteIntent;
+    const shouldProcessNoteIntent = noteCaptureIntent.shouldCapture;
     const shouldProcessTaskIntent =
       hasTaskIntent &&
-      !shouldProcessEmailIntent &&
-      !shouldProcessNoteIntent &&
-      !shouldProcessCalendarIntent;
+      !shouldProcessNoteIntent;
     let noteCaptureResult = null;
     if (shouldProcessNoteIntent) {
       if (noteCaptureIntent.needsContent) {
@@ -2644,125 +2553,6 @@ function createTalkHandler(deps) {
       if (noteCaptureResult?.error) {
         logger.log(`[${rid}] note_capture error=${noteCaptureResult.error}`);
       }
-    }
-    let emailSendResult = null;
-    if (shouldProcessEmailIntent) {
-      const emailActionSignature = buildLocalActionSignature("email_send", {
-        to: emailSendIntent.recipient,
-        subject: emailSendIntent.subject,
-        body: normalizeSnippet(emailSendIntent.body, 280),
-        trigger: emailSendIntent.trigger,
-      });
-      const duplicateEmailAction = Boolean(sessionMemory) && !emailSendIntent.canceled &&
-        isLocalActionDuplicate(sessionMemory, {
-          type: "email_send",
-          signature: emailActionSignature,
-          nowTs: Date.now(),
-          windowMs: LOCAL_ACTION_DEDUPE_WINDOW_MS,
-        });
-
-      if (emailSendIntent.canceled) {
-        if (sessionMemory) {
-          clearPendingEmailDraft(sessionMemory, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "canceled",
-          target: EMAIL_SEND_TARGET,
-          to: "",
-          subject: "",
-        };
-      } else if (duplicateEmailAction) {
-        emailSendResult = {
-          status: "duplicate",
-          action: "none",
-          target: EMAIL_SEND_TARGET,
-          transport: "none",
-          to: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-          composeUrl: "",
-        };
-      } else if (emailSendIntent.needsRecipient) {
-        if (sessionMemory) {
-          clearPendingEmailDraft(sessionMemory, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "needs_recipient",
-          target: EMAIL_SEND_TARGET,
-          to: "",
-          subject: "",
-        };
-      } else if (emailSendIntent.needsContent) {
-        if (sessionMemory) {
-          setPendingEmailDraft(sessionMemory, {
-            recipient: emailSendIntent.recipient,
-            subject: emailSendIntent.subject,
-          }, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "needs_content",
-          target: EMAIL_SEND_TARGET,
-          to: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-        };
-      } else {
-        emailSendResult = await sendLocalEmail({
-          recipient: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-          body: emailSendIntent.body,
-          reqId: rid,
-        });
-        if (sessionMemory) {
-          if (emailSendResult?.status === "composed" || emailSendResult?.status === "failed") {
-            // Avoid accidental resend loops after compose/failure.
-            clearPendingEmailDraft(sessionMemory, Date.now());
-          }
-          if (emailSendResult?.status === "composed" || emailSendResult?.status === "needs_content") {
-            recordLocalAction(sessionMemory, {
-              type: "email_send",
-              signature: emailActionSignature,
-              nowTs: Date.now(),
-            });
-          }
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-      }
-      const emailLogTarget = String(emailSendResult?.target || "none");
-      const emailLogStatus = String(emailSendResult?.status || "unknown");
-      const emailLogTo = trimToMax(String(emailSendResult?.to || ""), 120);
-      const emailLogSubject = trimToMax(String(emailSendResult?.subject || ""), 96);
-      logger.log(
-        `[${rid}] email_send intent=1 trigger="${emailSendIntent.trigger}" from_pending=${emailSendIntent.fromPending ? "1" : "0"} status=${emailLogStatus} target=${emailLogTarget} to="${emailLogTo}" subject="${emailLogSubject}"`
-      );
-      if (emailSendResult?.error) {
-        logger.log(`[${rid}] email_send error=${emailSendResult.error}`);
-      }
-    }
-    let calendarActionResult = null;
-    if (shouldProcessCalendarIntent) {
-      const compose = buildCalendarComposeUrl({
-        title: calendarIntent.title,
-        startAt: calendarIntent.startAt,
-        endAt: calendarIntent.endAt,
-        details: `Drafted by CLEMENTINE at ${formatNoteTimestamp()}`,
-        target: CALENDAR_COMPOSE_TARGET,
-      });
-      calendarActionResult = {
-        status: compose?.url ? "composed" : "failed",
-        action: compose?.url ? "compose" : "none",
-        trigger: calendarIntent.trigger,
-        title: normalizeSnippet(calendarIntent.title, 120) || "Calendar block",
-        startAt: Math.max(0, Number(calendarIntent.startAt || 0)),
-        endAt: Math.max(0, Number(calendarIntent.endAt || 0)),
-        target: String(compose?.target || CALENDAR_COMPOSE_TARGET),
-        transport: String(compose?.transport || "none"),
-        composeUrl: String(compose?.url || ""),
-      };
-      logger.log(
-        `[${rid}] calendar_action intent=1 trigger="${calendarIntent.trigger}" status=${calendarActionResult.status} target=${calendarActionResult.target} title="${trimToMax(calendarActionResult.title, 96)}"`
-      );
     }
     let taskActionResult = null;
     if (shouldProcessTaskIntent) {
@@ -2843,74 +2633,17 @@ function createTalkHandler(deps) {
           reqId: rid,
         });
       }
-      if (emailSendResult) {
-        const emailStatus = String(emailSendResult.status || "");
-        const emailPayload = {
-          recipient: normalizeEmailAddress(emailSendIntent.recipient || emailSendResult.to),
-          subject: trimToMax(String(emailSendIntent.subject || emailSendResult.subject || "").trim(), 120),
-          body: normalizeSnippet(emailSendIntent.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-          trigger: normalizeSnippet(emailSendIntent.trigger, 64),
-          fromPending: Boolean(emailSendIntent.fromPending),
-        };
-        const emailActionKey = buildOutboxActionKey("email_compose", emailPayload);
-        const emailRetryableFailure = emailStatus === "failed";
-        const emailCompletedLike = emailStatus === "composed" ||
-          emailStatus === "duplicate" ||
-          emailStatus === "canceled" ||
-          emailStatus === "needs_content" ||
-          emailStatus === "needs_recipient" ||
-          emailStatus === "disabled";
-        await enqueueActionOutbox({
-          type: "email_compose",
-          actionKey: emailActionKey,
-          payload: emailPayload,
-          result: emailSendResult,
-          status: emailCompletedLike && !emailRetryableFailure ? "completed" : "pending",
-          retryAt: emailRetryableFailure ? computeOutboxRetryAt(0) : 0,
-          reqId: rid,
-        });
-      }
-      if (calendarActionResult) {
-        const calStatus = String(calendarActionResult.status || "");
-        const calPayload = {
-          title: normalizeSnippet(calendarActionResult.title, 120),
-          startAt: Math.max(0, Number(calendarActionResult.startAt || 0)),
-          endAt: Math.max(0, Number(calendarActionResult.endAt || 0)),
-          target: normalizeSnippet(calendarActionResult.target, 32),
-          details: "Drafted by CLEMENTINE",
-          trigger: normalizeSnippet(calendarIntent.trigger, 64),
-        };
-        const calActionKey = buildOutboxActionKey("calendar_compose", calPayload);
-        const calRetryableFailure = calStatus === "failed";
-        await enqueueActionOutbox({
-          type: "calendar_compose",
-          actionKey: calActionKey,
-          payload: calPayload,
-          result: calendarActionResult,
-          status: calRetryableFailure ? "pending" : "completed",
-          retryAt: calRetryableFailure ? computeOutboxRetryAt(0) : 0,
-          reqId: rid,
-        });
-      }
     }
     const noteCaptureReply = noteCaptureResult
       ? buildNoteCaptureReply(noteCaptureResult)
-      : "";
-    const emailSendReply = emailSendResult
-      ? buildEmailSendReply(emailSendResult)
-      : "";
-    const calendarActionReply = calendarActionResult
-      ? buildCalendarActionReply(calendarActionResult)
       : "";
     const taskActionReply = taskActionResult
       ? buildTaskActionReply(taskActionResult)
       : "";
     const localActionReply =
-      actionGateReply || emailSendReply || calendarActionReply || taskActionReply || noteCaptureReply;
+      actionGateReply || taskActionReply || noteCaptureReply;
     const actionLaneMeta = classifyActionLane({
-      emailResult: emailSendResult,
       noteResult: noteCaptureResult,
-      calendarResult: calendarActionResult,
       taskResult: taskActionResult,
     });
 
@@ -3114,23 +2847,6 @@ function createTalkHandler(deps) {
         const dialogueTimelineJson = JSON.stringify(talkDialogueTimeline);
         if (dialogueTimelineJson.length <= 12000) {
           res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
-        }
-      }
-      const emailComposed = emailSendResult?.status === "composed";
-      res.setHeader("x-email-sent", "0");
-      res.setHeader("x-email-composed", emailComposed ? "1" : "0");
-      if (emailSendResult) {
-        res.setHeader("x-email-action", String(emailSendResult.action || (emailComposed ? "compose" : "none")));
-        res.setHeader("x-email-status", String(emailSendResult.status || "unknown"));
-        res.setHeader("x-email-target", String(emailSendResult.target || "none"));
-        if (emailSendResult.to) {
-          res.setHeader("x-email-to", encodeURIComponent(String(emailSendResult.to)));
-        }
-        if (emailSendResult.subject) {
-          res.setHeader("x-email-subject", encodeURIComponent(String(emailSendResult.subject)));
-        }
-        if (emailSendResult.composeUrl) {
-          res.setHeader("x-email-compose-url", encodeURIComponent(String(emailSendResult.composeUrl)));
         }
       }
       commitTalkIdempotencySuccess(req, {
@@ -3955,15 +3671,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     } else if (localActionReply) {
       rawReply = localActionReply;
       chatMs = Date.now() - chatStart;
-      if (emailSendResult) {
-        logger.log(
-          `[${rid}] email_send handled_internally status=${String(emailSendResult?.status || "unknown")} target=${String(emailSendResult?.target || "none")} llm_bypassed=1`
-        );
-      } else if (calendarActionResult) {
-        logger.log(
-          `[${rid}] calendar_action handled_internally status=${String(calendarActionResult?.status || "unknown")} target=${String(calendarActionResult?.target || "none")} llm_bypassed=1`
-        );
-      } else if (taskActionResult) {
+      if (taskActionResult) {
         logger.log(
           `[${rid}] task_action handled_internally status=${String(taskActionResult?.status || "unknown")} llm_bypassed=1`
         );
@@ -4942,38 +4650,6 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         res.setHeader("x-note-path", encodeURIComponent(String(noteCaptureResult.path)));
       }
       res.setHeader("x-note-status", String(noteCaptureResult.status || "unknown"));
-    }
-    const emailComposed = emailSendResult?.status === "composed";
-    res.setHeader("x-email-sent", "0");
-    res.setHeader("x-email-composed", emailComposed ? "1" : "0");
-    if (emailSendResult) {
-      res.setHeader("x-email-action", String(emailSendResult.action || (emailComposed ? "compose" : "none")));
-      res.setHeader("x-email-status", String(emailSendResult.status || "unknown"));
-      res.setHeader("x-email-target", String(emailSendResult.target || "none"));
-      if (emailSendResult.to) {
-        res.setHeader("x-email-to", encodeURIComponent(String(emailSendResult.to)));
-      }
-      if (emailSendResult.subject) {
-        res.setHeader("x-email-subject", encodeURIComponent(String(emailSendResult.subject)));
-      }
-      if (emailSendResult.composeUrl) {
-        res.setHeader("x-email-compose-url", encodeURIComponent(String(emailSendResult.composeUrl)));
-      }
-    }
-    const calendarComposed = calendarActionResult?.status === "composed";
-    res.setHeader("x-calendar-composed", calendarComposed ? "1" : "0");
-    if (calendarActionResult) {
-      res.setHeader("x-calendar-action", String(calendarActionResult.action || (calendarComposed ? "compose" : "none")));
-      res.setHeader("x-calendar-status", String(calendarActionResult.status || "unknown"));
-      res.setHeader("x-calendar-target", String(calendarActionResult.target || "none"));
-      res.setHeader("x-calendar-start-at", String(Math.max(0, Number(calendarActionResult.startAt || 0))));
-      res.setHeader("x-calendar-end-at", String(Math.max(0, Number(calendarActionResult.endAt || 0))));
-      if (calendarActionResult.title) {
-        res.setHeader("x-calendar-title", encodeURIComponent(String(calendarActionResult.title)));
-      }
-      if (calendarActionResult.composeUrl) {
-        res.setHeader("x-calendar-compose-url", encodeURIComponent(String(calendarActionResult.composeUrl)));
-      }
     }
     if (taskActionResult) {
       res.setHeader("x-task-action", String(taskActionResult.status || "none"));

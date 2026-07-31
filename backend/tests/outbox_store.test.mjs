@@ -65,7 +65,6 @@ function defaultDeps(overrides = {}) {
     OUTBOX_RETRY_MAX_ATTEMPTS: 5,
     OUTBOX_WORKER_BATCH_SIZE: 16,
     OUTBOX_WORKER_ENABLED: true,
-    CALENDAR_COMPOSE_TARGET: "default",
     buildLocalActionSignature: (prefix, payload) =>
       `${prefix}::${JSON.stringify(payload || {})}`,
     normalizeLocalActionType: (t) => String(t || "").trim().toLowerCase(),
@@ -74,17 +73,7 @@ function defaultDeps(overrides = {}) {
       const s = String(v || "").trim();
       return s.length <= max ? s : s.slice(0, max);
     },
-    buildCalendarComposeUrl: ({ title, target }) => ({
-      url: title ? `https://calendar.example/${target || "default"}?title=${encodeURIComponent(title)}` : "",
-      transport: "url",
-      target: target || "default",
-    }),
     captureLocalNote: async ({ noteText }) => ({ status: "saved", noteText }),
-    sendLocalEmail: async ({ recipient, subject, body }) => {
-      if (!recipient) return { status: "needs_recipient" };
-      if (!body) return { status: "needs_content" };
-      return { status: "composed", recipient, subject, body };
-    },
     scaleBackplane: buildScaleBackplaneStub(),
     ...overrides,
   };
@@ -200,39 +189,14 @@ test("[outbox-store] retryOutboxAction fails note_capture with missing noteText"
   assert.equal(r.error, "missing_note_text");
 });
 
-test("[outbox-store] retryOutboxAction handles email_compose success", async () => {
+test("[outbox-store] abandoned productivity actions are terminal and unsupported", async () => {
   configureOutboxStore(defaultDeps());
-  const r = await retryOutboxAction({
-    id: "i3",
-    type: "email_compose",
-    payload: { recipient: "a@b.com", subject: "Hi", body: "Hello there" },
-  });
-  assert.equal(r.ok, true);
-  assert.equal(r.done, true);
-});
-
-test("[outbox-store] retryOutboxAction marks email_compose terminal on needs_recipient", async () => {
-  configureOutboxStore(defaultDeps());
-  const r = await retryOutboxAction({
-    id: "i4",
-    type: "email_compose",
-    payload: {},
-  });
-  assert.equal(r.ok, false);
-  assert.equal(r.done, true); // terminal
-});
-
-test("[outbox-store] retryOutboxAction handles calendar_compose success", async () => {
-  configureOutboxStore(defaultDeps());
-  const r = await retryOutboxAction({
-    id: "i5",
-    type: "calendar_compose",
-    payload: { title: "Meeting", startAt: 1000, endAt: 2000, target: "google" },
-  });
-  assert.equal(r.ok, true);
-  assert.equal(r.done, true);
-  assert.equal(r.result.status, "composed");
-  assert.ok(r.result.composeUrl.includes("google"));
+  for (const type of ["email_compose", "calendar_compose"]) {
+    const result = await retryOutboxAction({ id: `legacy_${type}`, type, payload: {} });
+    assert.equal(result.ok, false);
+    assert.equal(result.done, true);
+    assert.equal(result.error, `unsupported_type:${type}`);
+  }
 });
 
 test("[outbox-store] retryOutboxAction marks invalid type as terminal", async () => {

@@ -36,7 +36,6 @@ function sanitizePersistedSessionMemory(rawMemory) {
     createEmptyEmotionMemory,
     normalizeAffectionStyle,
     normalizeAssistantSelfName,
-    normalizeEmailAddress,
     normalizeLocalActionType,
     normalizeMotivationOutcome,
     normalizeReassuranceStyle,
@@ -267,11 +266,6 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.motivationCompletionStreak = Math.max(0, Number(merged.motivationCompletionStreak || 0));
   merged.motivationSetbackCount = Math.max(0, Number(merged.motivationSetbackCount || 0));
   merged.motivationLastStatusAt = Math.max(0, Number(merged.motivationLastStatusAt || 0));
-  merged.pendingEmailRecipient = normalizeEmailAddress(merged.pendingEmailRecipient);
-  merged.pendingEmailSubject = trimToMax(String(merged.pendingEmailSubject || "").trim(), 120);
-  merged.pendingEmailAwaitingBody = Boolean(merged.pendingEmailAwaitingBody) &&
-    Boolean(merged.pendingEmailRecipient);
-  merged.pendingEmailUpdatedAt = Math.max(0, Number(merged.pendingEmailUpdatedAt || 0));
   merged.pendingLocalActionType = normalizeLocalActionType(merged.pendingLocalActionType);
   merged.pendingLocalActionPayload = normalizeSnippet(merged.pendingLocalActionPayload, 2_400);
   merged.pendingLocalActionSummary = normalizeSnippet(merged.pendingLocalActionSummary, 220);

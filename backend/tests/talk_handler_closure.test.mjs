@@ -118,6 +118,21 @@ test("[phase7c] extracted talk handler uses support-safe provider diagnostics", 
   );
 });
 
+test("[product-focus] talk handler excludes abandoned email and calendar action lanes", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  for (const forbidden of [
+    "extractEmailSendIntent",
+    "resolveEmailSendIntentWithPending",
+    "sendLocalEmail",
+    "extractCalendarIntent",
+    "buildCalendarComposeUrl",
+    "x-email-compose-url",
+    "x-calendar-compose-url",
+  ]) {
+    assert.equal(src.includes(forbidden), false, `${forbidden} must stay outside /talk`);
+  }
+});
+
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {
   // bound by params / locals -> not free
   assert.deepEqual(

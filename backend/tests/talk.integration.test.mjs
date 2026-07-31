@@ -463,51 +463,31 @@ test(
 );
 
 test(
-  "local actions are confirmation-gated and support cancel",
+  "unrelated productivity requests stay in Clementine's companion lane",
   { timeout: 180_000, skip: !TALK_TESTS_ENABLED || RECOVERY_ONLY_MODE },
   async () => {
-    const firstActionPrompt =
-      "send email to qa@example.com subject Integration Check body This is a confirmation gate test";
+    for (const prompt of [
+      "send email to qa@example.com subject Integration Check body This should stay conversational",
+      "put a production meeting on my calendar tomorrow at three",
+    ]) {
+      const turn = await postTalk(prompt);
+      assert.equal(turn.res.status, 200);
+      assert.equal(turn.headers["x-email-status"], undefined);
+      assert.equal(turn.headers["x-email-compose-url"], undefined);
+      assert.equal(turn.headers["x-calendar-status"], undefined);
+      assert.equal(turn.headers["x-calendar-compose-url"], undefined);
+      assert.equal(String(turn.headers["x-action-lane"] || "chat"), "chat");
 
-    const pendingTurn = await postTalk(firstActionPrompt);
-    assert.equal(pendingTurn.res.status, 200);
-    const pendingTurnId = String(pendingTurn.headers["x-turn-id"] || "").trim();
-    assert.ok(pendingTurnId, "pending turn missing x-turn-id");
-    assert.equal(pendingTurn.headers["x-email-status"], undefined, "email executed before confirmation");
-
-    const pendingMeta = await getTurnMeta(pendingTurnId);
-    assert.equal(pendingMeta.response.status, 200);
-    const pendingReply = String(pendingMeta.body.reply || "").toLowerCase();
-    assert.equal(
-      pendingReply.includes("say \"confirm\" to run it"),
-      true,
-      `pending reply missing confirmation gate text: ${pendingMeta.raw}`
-    );
-
-    const cancelTurn = await postTalk("cancel action");
-    assert.equal(cancelTurn.res.status, 200);
-    assert.equal(cancelTurn.headers["x-email-status"], undefined, "cancel turn should not execute email action");
-    const cancelTurnId = String(cancelTurn.headers["x-turn-id"] || "").trim();
-    assert.ok(cancelTurnId, "cancel turn missing x-turn-id");
-
-    const postCancelConfirm = await postTalk("confirm");
-    assert.equal(postCancelConfirm.res.status, 200);
-    assert.equal(
-      postCancelConfirm.headers["x-email-status"],
-      undefined,
-      "confirm after cancel should not execute pending email action"
-    );
-
-    const rependingTurn = await postTalk(firstActionPrompt);
-    assert.equal(rependingTurn.res.status, 200);
-
-    const confirmTurn = await postTalk("confirm");
-    assert.equal(confirmTurn.res.status, 200);
-    const emailStatus = String(confirmTurn.headers["x-email-status"] || "").trim().toLowerCase();
-    assert.ok(
-      ["composed", "failed", "needs_recipient", "needs_content", "duplicate", "disabled"].includes(emailStatus),
-      `confirm did not execute email action. x-email-status=${emailStatus || "(missing)"}`
-    );
+      const turnId = String(turn.headers["x-turn-id"] || "").trim();
+      assert.ok(turnId, "turn missing x-turn-id");
+      const meta = await getTurnMeta(turnId);
+      assert.equal(meta.response.status, 200);
+      assert.equal(
+        String(meta.body.reply || "").toLowerCase().includes("say \"confirm\" to run it"),
+        false,
+        `abandoned productivity confirmation leaked into reply: ${meta.raw}`
+      );
+    }
   }
 );
 
