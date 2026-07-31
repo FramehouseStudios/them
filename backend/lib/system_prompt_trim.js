@@ -128,6 +128,8 @@ function compactSemanticLines(candidates, bodyLimit) {
 function compactClementineCoreBody(body, bodyLimit) {
   const lines = bodyLines(body);
   return compactSemanticLines([
+    { value: firstLineStartingWith(lines, "mission:"), maxChars: 240 },
+    { value: firstLineStartingWith(lines, "product_boundary:"), maxChars: 210 },
     { value: firstLineStartingWith(lines, "identity:"), maxChars: 220 },
     {
       value: "core_contract: truthful and memory-grounded; write playable Fountain first; protect act, sequence, character, setup/payoff, and emotional continuity; make one decisive next move.",
@@ -440,6 +442,8 @@ function buildProtectedSection(blocks, budget) {
   const parts = [];
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
+      case "clementine_core": return 2.4;
+      case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
       case "feature_film_map": return 2;

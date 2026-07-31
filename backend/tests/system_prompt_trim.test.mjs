@@ -226,6 +226,8 @@ test("[system-prompt-trim] semantically preserves a feature page assignment unde
     [
       "<clementine_core>",
       "identity: CLEMENTINE is a truthful, emotionally intelligent feature-film writing companion.",
+      "mission: Help this specific writer turn ideas and unfinished pages into a finished, emotionally truthful feature screenplay, page by page, while preserving their authorship, voice, canon, creative intent, and long-term story continuity.",
+      "product_boundary: CLEMENTINE is not a generic chatbot or productivity assistant; conversation, memory, voice, and craft all serve the writer and the active screenplay.",
       "priority_order:",
       "1. Truth and safety: never fabricate memory or certainty.",
       "2. Screenwriting usefulness: make the strongest next cinematic move.",
@@ -325,6 +327,9 @@ test("[system-prompt-trim] semantically preserves a feature page assignment unde
   });
 
   assert.ok(out.length <= 6_200);
+  assert.ok(out.includes("mission: Help this specific writer"));
+  assert.ok(out.includes("finished, emotionally truthful feature screenplay"));
+  assert.ok(out.includes("product_boundary: CLEMENTINE is not a generic chatbot or productivity assistant"));
   assert.ok(out.includes("core_contract: truthful and memory-grounded"));
   assert.ok(out.includes("truthfulness: never fabricate memory"));
   assert.ok(out.includes("real_world_safety:"));
@@ -345,6 +350,54 @@ test("[system-prompt-trim] semantically preserves a feature page assignment unde
   assert.ok(out.includes("planning returns an immediate page assignment."));
   assert.ok(out.includes("Continue the next ten pages of Act Two from the courtroom."));
   assert.ok(!/^craft_contract:.*\.\.\.$/m.test(out));
+});
+
+test("[system-prompt-trim] keeps Clementine's product mission inside the crowded fast-turn budget", () => {
+  const core = [
+    "<clementine_core>",
+    "identity: CLEMENTINE is one coherent AI writing companion.",
+    "mission: Help this specific writer turn ideas and unfinished pages into a finished, emotionally truthful feature screenplay, page by page, while preserving their authorship, voice, canon, creative intent, and long-term story continuity.",
+    "product_boundary: CLEMENTINE is not a generic chatbot or productivity assistant; conversation, memory, voice, and craft all serve the writer and the active screenplay.",
+    "priority_order:",
+    "1. Truth and safety: never fabricate memory or certainty.",
+    "2. Screenwriting usefulness: make the strongest next cinematic move.",
+    "3. Feature-film continuity: protect act, sequence, character, setup, payoff, and emotional handoff.",
+    "detail: " + "relationship texture. ".repeat(240),
+    "</clementine_core>",
+  ].join("\n");
+  const protectedBlock = (tag, body) => [
+    `<${tag}>`,
+    body,
+    "detail: " + "continuity signal. ".repeat(180),
+    `</${tag}>`,
+  ].join("\n");
+  const prompt = [
+    "CLEMENTINE PERSONA " + "voice guidance. ".repeat(260),
+    core,
+    protectedBlock("clementine_safety_contract", "truthfulness: never fabricate memory, facts, sources, or certainty."),
+    protectedBlock("creative_memory", "project-continuity:\ncurrent_beat: Mara commits to the crossing."),
+    protectedBlock("session", "project: split-ferries\ncurrent_act: Act II\ncurrent_beat: Mara commits to the crossing."),
+    protectedBlock("feature_film_map", "current_position: p54 / 110\ncurrent_sequence: Midpoint Pressure"),
+    protectedBlock("writer_block_memory", "rank_1: engine=relationship_pressure; score=90; evidence=Mara chose the crossing; move=Make Eli refuse the cost.; success_check=Mara changes tactic."),
+    protectedBlock("screenplay_task", "intent: continue_script\noutput: Continue in playable Fountain pages."),
+    "DIRECTOR " + "runtime behavior. ".repeat(260),
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    routingLane: "normal_rotation",
+    chatModelPlan: { tier: "fast" },
+    fastMaxChars: 3_800,
+    richMaxChars: 6_200,
+  });
+
+  assert.ok(prompt.length > 3_800);
+  assert.ok(out.length <= 3_800);
+  assert.ok(out.includes("mission: Help this specific writer"));
+  assert.ok(out.includes("finished, emotionally truthful feature screenplay"));
+  assert.ok(out.includes("preserving their authorship, voice, canon"));
+  assert.ok(out.includes("product_boundary: CLEMENTINE is not a generic chatbot or productivity assistant"));
+  assert.ok(out.includes("project: split-ferries"));
+  assert.ok(out.includes("intent: continue_script"));
 });
 
 test("[system-prompt-trim] adds the Scene Doctor mode contract when its small task block fits", () => {

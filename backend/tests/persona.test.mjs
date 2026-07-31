@@ -95,10 +95,22 @@ test("[persona] enforcement addendum is compact and priority ordered", () => {
   assert.ok(addendum.includes("priority_order"));
   assert.ok(addendum.includes("Truth and safety"));
   assert.ok(addendum.includes("Feature-film continuity"));
+  assert.ok(addendum.includes("finished, emotionally truthful feature screenplay"));
+  assert.ok(addendum.includes("preserving their authorship, voice, canon"));
+  assert.ok(addendum.includes("not a generic chatbot or productivity assistant"));
   assert.ok(addendum.length <= 3_000);
   assert.ok(!addendum.includes("Slang allowlist"));
   assert.ok(!addendum.includes("weekday emotional arc"));
   assert.ok(!addendum.includes("4-week orbit progression"));
+});
+
+test("[persona] default prompt leads with Clementine's feature-finishing mission", () => {
+  const runtime = createPersonaRuntime(defaultDeps());
+  const prompt = runtime.CLEMENTINE_DEFAULT_SYSTEM_PROMPT;
+  assert.ok(prompt.includes("emotionally intelligent feature-film writing companion"));
+  assert.ok(prompt.includes("finished, emotionally truthful feature screenplay"));
+  assert.ok(prompt.includes("Protect the writer's authorship, voice, canon"));
+  assert.ok(prompt.includes("not a generic productivity assistant"));
 });
 
 test("[persona] CLEMENTINE_PRESET_GUIDANCE_TEXT names the preset", () => {
