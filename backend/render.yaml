@@ -15,6 +15,12 @@ services:
     dockerContext: .
     healthCheckPath: /healthz
     autoDeploy: false  # require explicit promotion; CI runs the quality gate
+    # Apply pending DB migrations before the new image serves traffic. The
+    # runner is idempotent + atomic (each migration's DDL and its tracking row
+    # commit in one transaction) and takes a Postgres advisory lock so two
+    # instances can't migrate concurrently. Any failure exits non-zero and
+    # fails the deploy, so code never ships ahead of its schema.
+    preDeployCommand: npm run migrate
     envVars:
       - key: NODE_ENV
         value: production

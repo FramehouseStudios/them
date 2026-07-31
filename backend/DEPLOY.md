@@ -9,9 +9,19 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
 1. **Migrations are up to date.**
 
-   Inspect `backend/migrations/` and confirm every `*.sql` has been applied
-   to the production Postgres instance. New migrations need to land before
-   code that depends on them.
+   Apply pending migrations with the idempotent, atomic runner (each migration's
+   DDL and its `_schema_migrations` tracking row commit in one transaction; a
+   Postgres advisory lock prevents concurrent runs; checksums are enforced):
+
+   ```sh
+   DATABASE_URL=... npm run migrate:status   # preview pending
+   DATABASE_URL=... npm run migrate          # apply
+   ```
+
+   On Render this runs automatically via `preDeployCommand: npm run migrate` in
+   `render.yaml`, and a non-zero exit fails the deploy. Run it by hand on any
+   host without a pre-deploy hook. New migrations must land before code that
+   depends on them.
 
 2. **Quality gate is green.**
 

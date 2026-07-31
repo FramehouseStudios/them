@@ -7,6 +7,8 @@
   "type": "module",
   "scripts": {
     "test": "TEST_SPAWN_BACKEND=1 node --test tests/*.test.mjs",
+    "migrate": "node scripts/apply_migrations.mjs",
+    "migrate:status": "node scripts/apply_migrations.mjs --status",
     "test:talk-recovery": "TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs",
     "start": "node index.js",
     "start:local": "PORT=3000 node index.js",
