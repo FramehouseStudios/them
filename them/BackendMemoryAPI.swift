@@ -2009,6 +2009,13 @@ nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
     }
 }
 
+nonisolated struct BackendFirstPageTelemetryResponse: Decodable {
+    let schemaVersion: Int?
+    let ok: Bool
+    let action: String
+    let reason: String?
+}
+
 nonisolated struct BackendScreenplayProjectsResponse: Decodable {
     let stage: String?
     let source: String?
@@ -5663,6 +5670,47 @@ actor BackendMemoryAPI {
             backendBootId: parsed.backendBootId
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func recordFirstPageWritten(
+        occurredAt: Date,
+        source: String,
+        projectId: String,
+        versionId: String
+    ) async throws -> BackendReadResult<BackendFirstPageTelemetryResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/telemetry/first-page-written")
+        var payload: [String: Any] = [
+            "occurred_at_ms": Int((occurredAt.timeIntervalSince1970 * 1_000).rounded()),
+        ]
+        let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedSource.isEmpty {
+            payload["source"] = normalizedSource
+        }
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedProjectId.isEmpty {
+            payload["project_id"] = normalizedProjectId
+        }
+        let normalizedVersionId = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedVersionId.isEmpty {
+            payload["version_id"] = normalizedVersionId
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendFirstPageTelemetryResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(mergeSyncStates(base: syncState, incoming: headerSync), emitTurnEvent: false)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 

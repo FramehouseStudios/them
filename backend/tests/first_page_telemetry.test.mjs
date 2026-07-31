@@ -109,15 +109,18 @@ test("[first-page] summarizeFirstPageEvents handles empty + no-timing inputs", (
 
 // ---------- endpoint integration ----------
 
-async function withTestServer(fn, { userId = "u-test" } = {}) {
+async function withTestServer(fn, { userId = "u-test", userCreatedAt = null, now = () => Date.now() } = {}) {
   const persistence = freshPersistence();
   configureFirstPageTelemetry({ persistence });
   const app = express();
   app.use(express.json());
   if (userId !== null) {
-    app.use((req, _res, next) => { req.user = { id: userId }; next(); });
+    app.use((req, _res, next) => {
+      req.authUser = { id: userId, createdAt: userCreatedAt };
+      next();
+    });
   }
-  mountFirstPageTelemetryRoute(app);
+  mountFirstPageTelemetryRoute(app, { now });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
@@ -143,7 +146,7 @@ async function get(baseURL, p) {
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 
-test("[first-page] POST records an event resolved from req.user", async () => {
+test("[first-page] POST records an event resolved from req.authUser", async () => {
   await withTestServer(async ({ baseURL, persistence }) => {
     const { status, body } = await postJson(baseURL, "/telemetry/first-page-written", {
       projectId: "p1", versionId: "v1", source: "magic-moment", secondsToFirstPage: 45,
@@ -170,15 +173,46 @@ test("[first-page] POST accepts snake_case keys", async () => {
   });
 });
 
-test("[first-page] POST without user returns 200 skipped (not 401)", async () => {
+test("[first-page] POST uses authenticated account age instead of caller-supplied timing", async () => {
   await withTestServer(
     async ({ baseURL }) => {
-      const { status, body } = await postJson(baseURL, "/telemetry/first-page-written", {});
+      const { status, body } = await postJson(baseURL, "/telemetry/first-page-written", {
+        secondsToFirstPage: 1,
+      });
       assert.equal(status, 200);
-      assert.equal(body.action, "skipped");
+      assert.equal(body.entry.secondsToFirstPage, 60);
+    },
+    { userCreatedAt: 1_000, now: () => 61_000 },
+  );
+});
+
+test("[first-page] POST without authenticated user returns 401", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/telemetry/first-page-written", {
+        userId: "spoofed-body-user",
+        user_id: "spoofed-snake-user",
+      });
+      assert.equal(status, 401);
+      assert.equal(body.stage, "first_page_telemetry");
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );
+});
+
+test("[first-page] POST ignores body identity and records only for the authenticated user", async () => {
+  await withTestServer(async ({ baseURL, persistence }) => {
+    const { status, body } = await postJson(baseURL, "/telemetry/first-page-written", {
+      userId: "victim-user",
+      user_id: "second-victim-user",
+      projectId: "project-authenticated",
+    });
+    assert.equal(status, 200);
+    assert.equal(body.entry.userId, "u-test");
+    assert.equal(await getFirstPageEventForUser({ persistence, userId: "victim-user" }), null);
+    assert.equal(await getFirstPageEventForUser({ persistence, userId: "second-victim-user" }), null);
+  });
 });
 
 test("[first-page] GET /stats returns aggregate values", async () => {

@@ -257,6 +257,40 @@ test("[exposure-lock] GET /realtime/health remains unauthenticated (health/proxy
   }
 });
 
+test("[exposure-lock] first-page telemetry requires auth and ignores caller-supplied identity", async () => {
+  const server = await startBackend();
+  try {
+    const anonymousWrite = await apiRequest(server, "/telemetry/first-page-written", {
+      method: "POST",
+      json: { user_id: "victim-user", source: "voice" },
+    });
+    assert.equal(anonymousWrite.status, 401);
+    assert.equal(anonymousWrite.json?.stage, "auth_user");
+
+    const anonymousStats = await apiRequest(server, "/telemetry/first-page-written/stats");
+    assert.equal(anonymousStats.status, 401);
+
+    const writer = await signupReturningToken(server, "first-page-writer@example.com");
+    const authenticatedWrite = await apiRequest(server, "/telemetry/first-page-written", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + writer.token,
+        "X-User-Id": "victim-header-user",
+      },
+      json: {
+        user_id: "victim-body-user",
+        project_id: "project-first-page",
+        source: "typed",
+      },
+    });
+    assert.equal(authenticatedWrite.status, 200);
+    assert.equal(authenticatedWrite.json?.entry?.userId, writer.userId);
+    assert.notEqual(authenticatedWrite.json?.entry?.userId, "victim-body-user");
+  } finally {
+    await server.stop();
+  }
+});
+
 // ---------- IDOR: client-supplied X-User-Id cannot impersonate ----------
 
 test("[exposure-lock] IDOR — client-supplied X-User-Id cannot select another user's screenplay owner", async () => {

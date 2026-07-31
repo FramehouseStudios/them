@@ -3001,6 +3001,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var projectBindingContext: ProjectBindingContext?
     private var isHydratingBackendCompanionState = false
     private var companionBackendSyncTask: Task<Void, Never>?
+    private var firstPageTelemetrySyncTask: Task<Void, Never>?
     private var activeSyncedVoiceInsertStartedAt: Date?
     private var activeSyncedVoiceLastPlaybackAdvanceAt: Date?
     private var activeSyncedVoiceLastObservedPlaybackTimeMs: Int = 0
@@ -4239,6 +4240,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             companionRecentTurns = Array(result.payload.recentTurns.suffix(6))
             companionAnalytics = result.payload.analytics
             companionSignalState = result.payload.signals
+            if let occurredAt = companionAnalytics.firstPageWrittenAt {
+                scheduleFirstPageTelemetrySync(
+                    occurredAt: occurredAt,
+                    source: companionAnalytics.firstPageWrittenSourceRaw,
+                    projectId: companionAnalytics.firstPageWrittenProjectId,
+                    versionId: companionAnalytics.firstPageWrittenVersionId
+                )
+            }
         } catch {
             // Keep local state as fallback when the backend companion lane is unavailable.
         }
@@ -4313,6 +4322,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             firstPageWrittenVersionId: versionId
         )
         schedulePersistBackendCompanionState()
+        scheduleFirstPageTelemetrySync(
+            occurredAt: committedWrite.committedAt,
+            source: sourceRaw,
+            projectId: projectId,
+            versionId: versionId
+        )
     }
 
     static func replySideCharacterMentions(
@@ -4377,6 +4392,35 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 analytics: analytics,
                 signals: signals
             )
+        }
+    }
+
+    private func scheduleFirstPageTelemetrySync(
+        occurredAt: Date,
+        source: String,
+        projectId: String,
+        versionId: String
+    ) {
+        firstPageTelemetrySyncTask?.cancel()
+        firstPageTelemetrySyncTask = Task {
+            let retryDelays: [UInt64] = [0, 1_000_000_000, 4_000_000_000]
+            for delay in retryDelays {
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                guard !Task.isCancelled else { return }
+                do {
+                    _ = try await BackendMemoryAPI.shared.recordFirstPageWritten(
+                        occurredAt: occurredAt,
+                        source: source,
+                        projectId: projectId,
+                        versionId: versionId
+                    )
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                }
+            }
         }
     }
 
