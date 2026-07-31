@@ -310,3 +310,63 @@ test("[exposure-lock] IDOR — client-supplied X-User-Id cannot select another u
     await server.stop();
   }
 });
+
+test("[exposure-lock] IDOR — cannot directly read / update / delete another user's project by id", async () => {
+  // New coverage beyond the list-enumeration case above: direct-by-id READ,
+  // mutation (UPDATE), and DELETE of another user's project.
+  const server = await startBackend();
+  try {
+    const alice = await signupReturningToken(server, "alice-idor2@example.com");
+    const bob = await signupReturningToken(server, "bob-idor2@example.com");
+    const bobAuth = { Authorization: "Bearer " + bob.token };
+
+    const created = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + alice.token },
+      json: { title: "Alice's private draft" },
+    });
+    assert.equal(created.status, 201);
+    const projectId = String(created.json?.project_id || created.json?.project?.id || "");
+    assert.ok(projectId, "alice project id");
+
+    // Direct READ by id + sub-resources -> 404, and no content leak.
+    for (const path of [
+      `/screenplay/projects/${projectId}`,
+      `/screenplay/projects/${projectId}/outline`,
+      `/screenplay/projects/${projectId}/collaborators`,
+      `/screenplay/projects/${projectId}/comments`,
+    ]) {
+      const r = await apiRequest(server, path, { headers: bobAuth });
+      assert.equal(r.status, 404, `bob direct read ${path} must 404`);
+      assert.ok(
+        !JSON.stringify(r.json || {}).includes("Alice's private draft"),
+        `bob must not receive alice's content from ${path}`,
+      );
+    }
+
+    // UPDATE / mutation by id -> 404 (cannot mutate another user's project).
+    const activate = await apiRequest(server, `/screenplay/projects/${projectId}/activate`, {
+      method: "POST", headers: bobAuth, json: {},
+    });
+    assert.equal(activate.status, 404, "bob cannot activate alice's project");
+    const version = await apiRequest(server, `/screenplay/projects/${projectId}/version`, {
+      method: "POST", headers: bobAuth, json: { text: "hijacked" },
+    });
+    assert.equal(version.status, 404, "bob cannot write a version onto alice's project");
+
+    // DELETE: no delete route is exposed, so deletion is not a cross-user
+    // vector (404 no-route, or 405 method-not-allowed).
+    const del = await apiRequest(server, `/screenplay/projects/${projectId}`, {
+      method: "DELETE", headers: bobAuth,
+    });
+    assert.ok([404, 405].includes(del.status), `delete must not be exposed cross-user (got ${del.status})`);
+
+    // Alice's project is untouched and still readable by her.
+    const aliceRead = await apiRequest(server, `/screenplay/projects/${projectId}`, {
+      headers: { Authorization: "Bearer " + alice.token },
+    });
+    assert.equal(aliceRead.status, 200, "alice still reads her own project");
+  } finally {
+    await server.stop();
+  }
+});
