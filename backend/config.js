@@ -74,6 +74,14 @@ const SHOULD_START_SERVER = process.env.RUN_SERVER == null
   ? true
   : parseBool(process.env.RUN_SERVER);
 
+// Structured request logging (T-backend-structured-logs). JSON by default in
+// production (for log aggregators); human-readable text in dev. LOG_LEVEL
+// gates request-log verbosity: error | warn | info | debug.
+const LOG_FORMAT = String(
+  process.env.LOG_FORMAT || (NODE_ENV === "production" ? "json" : "text")
+).trim().toLowerCase();
+const LOG_LEVEL = String(process.env.LOG_LEVEL || "info").trim().toLowerCase();
+
 // Production startup guard. Throws a clear, multi-line error listing every
 // missing required environment variable. Callable from app/index startup or
 // from tests with a process-like env arg. Returns nothing on success.
@@ -122,6 +130,8 @@ export {
   DEFAULT_ASSISTANT_SELF_NAME,
   JWT_SECRET,
   JWT_TTL_SECONDS,
+  LOG_FORMAT,
+  LOG_LEVEL,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   NODE_ENV,
