@@ -41,6 +41,12 @@ test("[assertProductionEnv] throws when APP_TOKEN is missing", () => {
   assert.throws(() => assertProductionEnv(env), /APP_TOKEN/);
 });
 
+test("[assertProductionEnv] does NOT require the spend cap (that is release preflight, optional at boot/tests)", () => {
+  // The cap is enforced by assertReleaseConfig at deploy time, not at runtime
+  // boot — so spawned production test backends do not need it.
+  assert.doesNotThrow(() => assertProductionEnv({ ...FULL_PROD_ENV }));
+});
+
 test("[assertProductionEnv] throws when production user auth is explicitly disabled", () => {
   assert.throws(
     () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "0" }),

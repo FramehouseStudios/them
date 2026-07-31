@@ -20,7 +20,7 @@ services:
     # commit in one transaction) and takes a Postgres advisory lock so two
     # instances can't migrate concurrently. Any failure exits non-zero and
     # fails the deploy, so code never ships ahead of its schema.
-    preDeployCommand: npm run migrate
+    preDeployCommand: npm run migrate && npm run preflight:release
     envVars:
       - key: NODE_ENV
         value: production

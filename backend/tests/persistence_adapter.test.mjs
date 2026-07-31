@@ -227,6 +227,7 @@ test("KNOWN_DOMAINS includes the canonical domains", () => {
       "creative_memory",
       "knowledge_embeddings",
       "outbox",
+      "provider_spend",
       "screenplay",
       "telemetry_first_page_written",
       "user_memory",

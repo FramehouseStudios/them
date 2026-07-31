@@ -26,6 +26,9 @@ import {
   NODE_ENV,
   OPENAI_API_KEY,
   PORT,
+  PROVIDER_DAILY_USD_CAP,
+  PROVIDER_SPEND_FAIL_OPEN,
+  PROVIDER_SPEND_PRICES,
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
@@ -4822,16 +4825,38 @@ const backendRateLimiter = createRateLimiter({
   },
   isProduction: () => NODE_ENV === "production",
 });
+// Shared trusted-identity resolver for the request counter, the durable dollar
+// ledger, and realtime eligibility — so metering accumulates under the exact
+// key the gate checks. Authenticated identity only; never the spoofable
+// X-User-Id header.
+function resolveProviderIdentity(req) {
+  const userId = String(req?.authUser?.id || req?.userId || "").trim();
+  if (userId) return `user:${userId}`;
+  return `ip:${normalizeClientIp(req?.ip || req?.socket?.remoteAddress || "unknown")}`;
+}
+
 const providerBudgetGuard = createProviderBudgetGuard({
   dailyLimit: PROVIDER_DAILY_BUDGET_LIMIT,
   isEnabled: () => PROVIDER_BUDGET_ENABLED,
   isProduction: () => NODE_ENV === "production",
-  resolveIdentity: (req) => {
-    const userId = String(req?.authUser?.id || req?.userId || "").trim();
-    if (userId) return `user:${userId}`;
-    return `ip:${normalizeClientIp(req?.ip || req?.socket?.remoteAddress || "unknown")}`;
-  },
+  resolveIdentity: resolveProviderIdentity,
+  // Durable per-user daily dollar cap (inert unless PROVIDER_DAILY_USD_CAP > 0).
+  persistence: sharedPersistence,
+  dailyUsdCap: PROVIDER_DAILY_USD_CAP,
+  prices: PROVIDER_SPEND_PRICES,
+  failOpen: PROVIDER_SPEND_FAIL_OPEN,
 });
+
+// Meter a completed turn's estimated $ into the per-user daily ledger. Keyed by
+// trusted identity; idempotent per turnId so retries/replays can't double-count.
+function recordProviderSpend({ req, transcriptChars = 0, replyChars = 0, audioDurationMs = 0, turnId = "" } = {}) {
+  if (!providerBudgetGuard.spendEnabled) return;
+  void providerBudgetGuard.recordSpend(
+    resolveProviderIdentity(req),
+    { transcriptChars, replyChars, audioDurationMs },
+    { turnId },
+  );
+}
 
 function createAdapterAccountLifecycleStore(persistence) {
   const domain = "account_lifecycle";
@@ -34200,6 +34225,7 @@ const handleTalkRequest = createTalkHandler({
   startsWithDayFeelingCheckIn,
   storeSpeculativeTalkPrepared,
   storeTalkTurnMeta,
+  recordProviderSpend,
   streamChatReplyWithFirstSentence,
   stripLeadingId3Tag,
   synthesizeSpeechMp3,
@@ -34214,6 +34240,7 @@ const handleTalkRequest = createTalkHandler({
 });
 
 app.post("/talk", providerBudgetGuard.middleware("talk"));
+app.post("/talk", providerBudgetGuard.spendMiddleware());
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,

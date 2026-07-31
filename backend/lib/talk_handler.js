@@ -343,6 +343,10 @@ function createTalkHandler(deps) {
     startsWithDayFeelingCheckIn,
     storeSpeculativeTalkPrepared,
     storeTalkTurnMeta,
+    // Optional: meter estimated provider $ for this turn against the per-user
+    // daily cap (keyed off trusted req identity, idempotent per turn id).
+    // No-op default so handler callers/tests that don't wire it stay valid.
+    recordProviderSpend = () => {},
     streamChatReplyWithFirstSentence,
     stripLeadingId3Tag,
     synthesizeSpeechMp3,
@@ -3051,6 +3055,13 @@ function createTalkHandler(deps) {
           renderContract: talkRenderContract,
           requestId: rid,
         });
+        recordProviderSpend({
+          req,
+          transcriptChars: (transcript || "").length,
+          replyChars: (talkReplyPreview || "").length,
+          audioDurationMs: talkAudioDurationMs,
+          turnId: committedTurnId,
+        });
         res.setHeader("x-turn-meta-available", "1");
       } else {
         res.setHeader("x-turn-meta-available", "0");
@@ -4916,6 +4927,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           renderContract: talkRenderContract,
           requestId: rid,
         });
+      recordProviderSpend({
+        req,
+        transcriptChars: (transcript || "").length,
+        replyChars: (talkReplyPreview || "").length,
+        audioDurationMs: talkAudioDurationMs,
+        turnId: committedTurnId,
+      });
       res.setHeader("x-turn-meta-available", "1");
     } else {
       res.setHeader("x-turn-meta-available", "0");

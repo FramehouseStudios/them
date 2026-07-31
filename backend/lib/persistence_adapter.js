@@ -43,6 +43,10 @@ const KNOWN_DOMAINS = Object.freeze([
   "telemetry_first_page_written",
   "account_lifecycle",
   "account_audit_log",
+  // T-provider-spend-cap: per-user daily estimated provider-spend ledger
+  // (key "${identity}:${utcDayMs}"). Backs a durable hard dollar cap that
+  // survives restarts, upgrading the in-memory request counter.
+  "provider_spend",
 ]);
 
 function isKnownDomain(domain) {

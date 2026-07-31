@@ -82,6 +82,26 @@ const LOG_FORMAT = String(
 ).trim().toLowerCase();
 const LOG_LEVEL = String(process.env.LOG_LEVEL || "info").trim().toLowerCase();
 
+// Durable per-user daily provider-spend cap (USD). Required > 0 in production
+// (see assertProductionEnv); optional/inert in dev + tests. Optional price
+// overrides feed the per-turn cost estimate in lib/provider_budget.js.
+function parseNonNegativeFloat(raw, fallback) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+const PROVIDER_DAILY_USD_CAP = parseNonNegativeFloat(process.env.PROVIDER_DAILY_USD_CAP, 0);
+// Meter failures fail CLOSED (503) by default. Fail-open is permitted ONLY in
+// non-production, and ONLY when this is explicitly enabled.
+const PROVIDER_SPEND_FAIL_OPEN =
+  NODE_ENV !== "production" && parseBool(process.env.PROVIDER_SPEND_FAIL_OPEN);
+const PROVIDER_SPEND_PRICES = {
+  chatInputPer1kTokens: process.env.PROVIDER_PRICE_CHAT_INPUT_PER_1K,
+  chatOutputPer1kTokens: process.env.PROVIDER_PRICE_CHAT_OUTPUT_PER_1K,
+  ttsPer1kChars: process.env.PROVIDER_PRICE_TTS_PER_1K_CHARS,
+  sttPerMinute: process.env.PROVIDER_PRICE_STT_PER_MIN,
+  promptOverheadTokens: process.env.PROVIDER_PRICE_PROMPT_OVERHEAD_TOKENS,
+};
+
 // Production startup guard. Throws a clear, multi-line error listing every
 // missing required environment variable. Callable from app/index startup or
 // from tests with a process-like env arg. Returns nothing on success.
@@ -109,6 +129,23 @@ function assertProductionEnv(env = process.env) {
   throw new Error(banner + "\n" + detail);
 }
 
+// Release preflight — NOT runtime boot. Production releases require a positive
+// per-user daily spend cap so a deploy cannot ship without cost protection.
+// Deliberately separate from assertProductionEnv so the cap stays OPTIONAL in
+// dev and in tests (which spawn NODE_ENV=production backends without a cap).
+// Invoked at deploy time via scripts/release_preflight.mjs (render.yaml
+// preDeployCommand), so a missing cap fails the deploy visibly.
+function assertReleaseConfig(env = process.env) {
+  const problems = [];
+  const capRaw = Number(env.PROVIDER_DAILY_USD_CAP);
+  if (!(Number.isFinite(capRaw) && capRaw > 0)) {
+    problems.push("PROVIDER_DAILY_USD_CAP — a positive per-user daily spend cap is required for release.");
+  }
+  if (problems.length === 0) return;
+  const banner = "Release preflight failed: production release configuration is incomplete.";
+  throw new Error(banner + "\n" + problems.map((p) => "  - " + p).join("\n"));
+}
+
 export {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -121,6 +158,7 @@ export {
   AUTH_REFRESH_TTL_SECONDS,
   AUTH_REQUIRE_EMAIL_VERIFIED,
   assertProductionEnv,
+  assertReleaseConfig,
   BACKEND_BOOT_ID,
   BACKEND_BUILD,
   CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT,
@@ -133,6 +171,9 @@ export {
   LOG_FORMAT,
   LOG_LEVEL,
   MAX_FILE_BYTES,
+  PROVIDER_DAILY_USD_CAP,
+  PROVIDER_SPEND_FAIL_OPEN,
+  PROVIDER_SPEND_PRICES,
   MAX_FILE_MB,
   NODE_ENV,
   OPENAI_API_KEY,
