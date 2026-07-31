@@ -1,4 +1,5 @@
 import Combine
+import ScreenplayStudio
 import SwiftUI
 
 enum StudioStoryMovePreferencePresentation {
@@ -228,7 +229,7 @@ struct StudioCreativeInstinctsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(projectName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(IOThemTypography.UI.caption.weight(.medium))
                     .foregroundStyle(Color.herText.opacity(0.68))
                     .lineLimit(1)
 
@@ -241,7 +242,7 @@ struct StudioCreativeInstinctsView: View {
                 } else {
                     Button(action: onRefresh) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(IOThemTypography.UI.caption.weight(.semibold))
                             .frame(width: 26, height: 26)
                     }
                     .buttonStyle(.plain)
@@ -254,7 +255,7 @@ struct StudioCreativeInstinctsView: View {
                     showsResetConfirmation = true
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(IOThemTypography.UI.caption.weight(.semibold))
                         .frame(width: 26, height: 26)
                 }
                 .buttonStyle(.plain)
@@ -266,7 +267,7 @@ struct StudioCreativeInstinctsView: View {
 
             if preferences.isEmpty, !isLoading {
                 Text("No creative preference evidence yet.")
-                    .font(.system(size: 12))
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.62))
             } else {
                 ForEach(preferences.prefix(6)) { preference in
@@ -282,11 +283,11 @@ struct StudioCreativeInstinctsView: View {
             if !errorText.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(errorText)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(IOThemTypography.UI.label.weight(.medium))
                         .foregroundStyle(Color.red.opacity(0.82))
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Try Again", action: onRefresh)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(IOThemTypography.UI.label)
                         .buttonStyle(.plain)
                 }
                 .accessibilityIdentifier("studio.story-preferences.error")
@@ -323,11 +324,11 @@ private struct StudioCreativeInstinctRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(preference.displayName)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(IOThemTypography.UI.caption.weight(.semibold))
                         .foregroundStyle(Color.herText.opacity(0.88))
                     if preference.isExplicitlyCorrected {
                         Text("Corrected")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(IOThemTypography.UI.micro)
                             .foregroundStyle(Color.herText.opacity(0.72))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -337,12 +338,12 @@ private struct StudioCreativeInstinctRow: View {
                 }
 
                 Text(preferenceSummary)
-                    .font(.system(size: 11))
+                    .font(IOThemTypography.UI.label.weight(.regular))
                     .foregroundStyle(Color.herText.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(evidenceLine)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(IOThemTypography.UI.micro.weight(.medium))
                     .foregroundStyle(Color.herText.opacity(0.58))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -372,7 +373,7 @@ private struct StudioCreativeInstinctRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(IOThemTypography.UI.body.weight(.medium))
                         .frame(width: 26, height: 26)
                 }
                 .buttonStyle(.plain)
