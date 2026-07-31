@@ -556,11 +556,19 @@ async function deleteUserById(userId, now = Date.now()) {
 
 function createUser(input = {}, now = Date.now(), options = {}) {
   const normalizedEmail = normalizeEmail(input.email);
+  const appleSubject = String(input.appleSubject || "").trim();
   if (!normalizedEmail) {
     return { ok: false, status: "email_required", message: "Email is required." };
   }
   if (getUserByEmail(normalizedEmail)) {
     return { ok: false, status: "email_taken", message: "Email already exists." };
+  }
+  if (appleSubject && getUserByAppleSubject(appleSubject)) {
+    return {
+      ok: false,
+      status: "apple_subject_taken",
+      message: "Apple identity already exists.",
+    };
   }
   const allowPasswordless = Boolean(options.allowPasswordless);
   const cleanPassword = String(input.password || "");
@@ -575,8 +583,8 @@ function createUser(input = {}, now = Date.now(), options = {}) {
     id: "user_" + randomUUID().replace(/-/g, "").slice(0, 16),
     email: normalizedEmail,
     name: sanitizeSnippetLocal(input.name || "", 80),
-    authProvider: String(input.authProvider || (String(input.appleSubject || "").trim() ? "apple" : "password")).trim() || "password",
-    appleSubject: String(input.appleSubject || "").trim(),
+    authProvider: String(input.authProvider || (appleSubject ? "apple" : "password")).trim() || "password",
+    appleSubject,
     emailVerified: normalizeBoolean(input.emailVerified, false),
     emailVerifiedAt: normalizeBoolean(input.emailVerified, false) ? now : 0,
     password: cleanPassword
