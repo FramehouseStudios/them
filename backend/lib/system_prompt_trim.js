@@ -7,6 +7,7 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "accepted_twists",
   "writer_block_memory",
   "screenplay_task",
+  "screenplay_page_output",
   "block_signal",
 ]);
 
@@ -321,6 +322,19 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   ], bodyLimit);
 }
 
+function compactScreenplayPageOutputBody(body, bodyLimit) {
+  const lines = bodyLines(body);
+  return compactSemanticLines([
+    { value: firstLineStartingWith(lines, "mode:"), maxChars: 90 },
+    { value: firstLineStartingWith(lines, "priority:"), maxChars: 190 },
+    { value: firstLineStartingWith(lines, "delivery:"), maxChars: 180 },
+    { value: firstLineStartingWith(lines, "length:"), maxChars: 180 },
+    { value: firstLineStartingWith(lines, "continuity:"), maxChars: 200 },
+    { value: firstLineStartingWith(lines, "forbidden:"), maxChars: 190 },
+    { value: firstLineStartingWith(lines, "completion:"), maxChars: 170 },
+  ], bodyLimit);
+}
+
 function compactWriterBlockBody(body, bodyLimit) {
   const limit = Math.max(40, Math.floor(Number(bodyLimit || 0)));
   const lines = String(body || "")
@@ -403,6 +417,7 @@ function compactTaggedBlock(block, maxChars) {
     session: compactSessionBody,
     feature_film_map: compactFeatureFilmMapBody,
     screenplay_task: compactScreenplayTaskBody,
+    screenplay_page_output: compactScreenplayPageOutputBody,
   };
   const semanticCompactor = semanticCompactors[normalizedTag];
   if (semanticCompactor) {
@@ -446,6 +461,7 @@ function buildProtectedSection(blocks, budget) {
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
+      case "screenplay_page_output": return 2.6;
       case "feature_film_map": return 2;
       case "session": return 1.6;
       case "screenplay_task": return 1.3;

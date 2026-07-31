@@ -151,14 +151,17 @@ evolution:
   const activePresetGuidance =
     personaPresetGuidance[personaPreset] || personaPresetGuidance[UNIFIED_PERSONA_PRESET];
 
-  function normalizeSystemPrompt(systemPrompt) {
+  function normalizeSystemPromptText(systemPrompt) {
     if (!systemPrompt) return "";
     return String(systemPrompt)
       .replace(/\r\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .replace(/[ \t]{2,}/g, " ")
-      .trim()
-      .slice(0, MAX_SYSTEM_PROMPT_CHARS);
+      .trim();
+  }
+
+  function normalizeSystemPrompt(systemPrompt) {
+    return normalizeSystemPromptText(systemPrompt).slice(0, MAX_SYSTEM_PROMPT_CHARS);
   }
 
   function appendDirectorAddendum(systemPrompt, addendum) {
@@ -168,8 +171,20 @@ evolution:
     return `${base}\n\n${extra}`.trim();
   }
 
-  function withOutputContract(systemPrompt) {
-    const contract = `
+  function withOutputContract(systemPrompt, { screenplayPageWrite = false } = {}) {
+    const contract = screenplayPageWrite
+      ? `
+<screenplay_page_output>
+mode: AUTHORITATIVE SCREENPLAY PAGES
+priority: This contract overrides every conversational length, check-in, opener, reflection, and question instruction for this turn.
+delivery: Start immediately with playable Fountain screenplay text and continue from the supplied live draft position.
+length: Use the available page-writing token budget to deliver the requested page batch; never collapse pages into 2-5 conversational lines.
+continuity: Preserve writer canon, accepted pages, character voice, act/sequence pressure, unresolved setups, emotional handoff, and the next due story turn.
+forbidden: No greeting, day/feeling check-in, preamble, diagnosis, summary, markdown fence, options menu, craft lecture, or closing question.
+completion: End on a playable turn, consequence, reveal, decision, or image that hands pressure into the next page.
+</screenplay_page_output>
+`.trim()
+      : `
 OUTPUT CONTRACT (must follow exactly):
 - Target 2–3 short lines (2–5 acceptable when needed).
 - If the user asks a substantial question, use 3–5 lines with more substance.
@@ -193,7 +208,9 @@ OUTPUT CONTRACT (must follow exactly):
 If you cannot follow the contract, output exactly:
 Okay.
 `.trim();
-    return normalizeSystemPrompt(`${String(systemPrompt || "").trim()}\n\n${contract}`.trim());
+    // The caller's prompt is bounded at ingress. Keep protected addenda intact
+    // here so the semantic latency trimmer can prioritize complete blocks.
+    return normalizeSystemPromptText(`${String(systemPrompt || "").trim()}\n\n${contract}`.trim());
   }
 
   return {

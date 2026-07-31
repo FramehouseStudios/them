@@ -2919,7 +2919,9 @@ function createTalkHandler(deps) {
       ACTIVE_PRESET_GUIDANCE ||
       CLEMENTINE_PROFILE.prompts.presetGuidance;
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
-    const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
+    const systemBaseRaw = withOutputContract(presetBoundSystem, {
+      screenplayPageWrite: isScreenplayPageWriteTurn,
+    });
     // T08: augment with per-user creative memory when present (no-op for cold users).
     const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
       screenplayTaskHint: transcript,
@@ -3319,6 +3321,9 @@ EVOLVING SELF-AWARENESS:
         : screenplayQuestionPlan?.objective
           ? `${screenplayQuestionPlan.objective} Do not invent another screenplay-learning question this turn.`
         : "Do not invent a screenplay-learning question this turn.";
+    const directorOutputRule = isScreenplayPageWriteTurn
+      ? "OUTPUT_SCREENPLAY_PAGE_MODE: override all conversational length/check-in/question guidance; begin with Fountain text, use the full page budget, and emit no greeting, preamble, reflection, or closing question."
+      : "OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.";
     let directorAddendum = "";
     try {
       directorAddendum = `
@@ -3485,7 +3490,7 @@ ${backReferenceHintLine ? `- back_reference_hint -> ${backReferenceHintLine}` : 
 ${opening ? `- optional opener: "${opening}" (use only if natural).` : ""}
 ${memoryAddendum ? `${memoryAddendum}` : ""}
 ${clientMemoryAddendum}
-OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.
+${directorOutputRule}
 OUTPUT_QUESTION_MODE: when substantial_question=1, use 3-5 lines with higher substance; include one short perspective line with varied opener wording, avoid generic praise openers.
 `.trim();
     } catch (directorErr) {
@@ -3501,7 +3506,7 @@ GUIDANCE:
 - self_name_lock -> current self-name is "${assistantSelfName}" and remains until explicit rename.
 - continuity -> answer the latest user question directly, then build from recent context.
 - response_structure_rule -> reflection -> insight -> gentle continuation; ask one question max.
-OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.
+${directorOutputRule}
 `.trim();
     }
 

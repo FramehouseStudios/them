@@ -380,6 +380,7 @@ test("[system-prompt-trim] keeps Clementine's product mission inside the crowded
     protectedBlock("feature_film_map", "current_position: p54 / 110\ncurrent_sequence: Midpoint Pressure"),
     protectedBlock("writer_block_memory", "rank_1: engine=relationship_pressure; score=90; evidence=Mara chose the crossing; move=Make Eli refuse the cost.; success_check=Mara changes tactic."),
     protectedBlock("screenplay_task", "intent: continue_script\noutput: Continue in playable Fountain pages."),
+    protectedBlock("screenplay_page_output", "mode: AUTHORITATIVE SCREENPLAY PAGES\npriority: This contract overrides every conversational length, check-in, opener, reflection, and question instruction for this turn.\ndelivery: Start immediately with playable Fountain screenplay text.\nlength: Use the available page-writing token budget; never collapse pages into 2-5 conversational lines.\nforbidden: No greeting, day/feeling check-in, preamble, diagnosis, summary, markdown fence, options menu, craft lecture, or closing question."),
     "DIRECTOR " + "runtime behavior. ".repeat(260),
   ].join("\n\n");
 
@@ -398,6 +399,10 @@ test("[system-prompt-trim] keeps Clementine's product mission inside the crowded
   assert.ok(out.includes("product_boundary: CLEMENTINE is not a generic chatbot or productivity assistant"));
   assert.ok(out.includes("project: split-ferries"));
   assert.ok(out.includes("intent: continue_script"));
+  assert.ok(out.includes("<screenplay_page_output>"));
+  assert.ok(out.includes("AUTHORITATIVE SCREENPLAY PAGES"));
+  assert.ok(out.includes("never collapse pages into 2-5 conversational lines"));
+  assert.ok(out.includes("No greeting, day/feeling check-in"));
 });
 
 test("[system-prompt-trim] adds the Scene Doctor mode contract when its small task block fits", () => {

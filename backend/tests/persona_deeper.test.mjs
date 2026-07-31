@@ -104,6 +104,31 @@ test("[persona-deeper] withOutputContract is deterministic for same input", () =
   assert.equal(a, b);
 });
 
+test("[persona-deeper] screenplay page output contract overrides conversational brevity", () => {
+  const r = createPersonaRuntime(defaultDeps());
+  const out = r.withOutputContract("You are Clementine.", { screenplayPageWrite: true });
+  assert.ok(out.includes("<screenplay_page_output>"));
+  assert.ok(out.includes("AUTHORITATIVE SCREENPLAY PAGES"));
+  assert.ok(out.includes("never collapse pages into 2-5 conversational lines"));
+  assert.ok(out.includes("No greeting, day/feeling check-in"));
+  assert.ok(!out.includes("Target 2–3 short lines"));
+});
+
+test("[persona-deeper] output contracts remain intact until semantic prompt trimming", () => {
+  const r = createPersonaRuntime(defaultDeps({ MAX_SYSTEM_PROMPT_CHARS: 500 }));
+  const longBase = [
+    "CUSTOM " + "voice instruction. ".repeat(80),
+    "<clementine_core>",
+    "mission: Help this writer finish the feature.",
+    "</clementine_core>",
+  ].join("\n");
+  const out = r.withOutputContract(longBase, { screenplayPageWrite: true });
+  assert.ok(out.length > 500);
+  assert.ok(out.includes("mission: Help this writer finish the feature."));
+  assert.ok(out.includes("<screenplay_page_output>"));
+  assert.ok(out.includes("</screenplay_page_output>"));
+});
+
 // ---------- runtime invariants ----------
 
 test("[persona-deeper] CLEMENTINE_PROFILE includes the configured voice + model ids", () => {
