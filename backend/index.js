@@ -301,6 +301,7 @@ const TALK_TURN_META_MAX_ENTRIES = parsePositiveInt(
   process.env.TALK_TURN_META_MAX_ENTRIES,
   4_000
 );
+const TALK_TURN_META_SCREENPLAY_MAX_CHARS = 32_000;
 const TALK_TEST_DEBUG_TRANSCRIPT_ENABLED = process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED == null
   ? false
   : parseBool(process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED);
@@ -5291,7 +5292,10 @@ function storeTalkTurnMeta({
             reason: String(screenplayOutput.target || "").trim().toLowerCase() === "page" ? "ok" : "unavailable",
             source: screenplayOutput.source,
           }),
-        text: normalizeTalkMultilineSnippet(screenplayOutput.text, 8_000),
+        text: normalizeTalkMultilineSnippet(
+          screenplayOutput.text,
+          TALK_TURN_META_SCREENPLAY_MAX_CHARS
+        ),
         lines: Array.isArray(screenplayOutput.lines)
           ? screenplayOutput.lines
             .filter((line) => line && typeof line === "object")
@@ -33029,8 +33033,10 @@ export {
   enforceReplyCompletenessGuard,
   createEmptyEmotionMemory,
   normalizeTalkPageReply,
+  readTalkTurnMeta,
   sanitizeScreenplayProjectMemoryItems,
   sanitizeStudioTurnMetadata,
+  storeTalkTurnMeta,
   updateMemoryCardInMemory,
   updateSessionAfterReply,
   upsertScreenplayProjectMemory,
