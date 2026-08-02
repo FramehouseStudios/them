@@ -165,6 +165,20 @@ test("[screenplay-budget] live talk handler budgets against the full Studio gene
     /studioMeta\?\.screenplayTargetPages \?\?\s*""/,
     "the repair request must never confuse the feature target with the requested batch"
   );
+  const qualityGateIndex = src.indexOf("screenplay_page_quality_exhausted");
+  const memoryCommitIndex = src.indexOf("activeSession.memory = updateSessionAfterReply(");
+  assert.ok(qualityGateIndex > 0, "the live handler must expose an exhausted page-quality gate");
+  assert.ok(memoryCommitIndex > qualityGateIndex, "page quality must pass before the assistant reply reaches memory");
+  assert.match(
+    src,
+    /errorClass:\s*"screenplay_page_quality_failed"/,
+    "exhausted page generation must use the recoverable screenplay-specific error contract"
+  );
+  assert.match(
+    src,
+    /x-screenplay-repair-outcome",\s*"exhausted"/,
+    "recovered audio must explicitly report that page repair was exhausted"
+  );
 });
 
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {

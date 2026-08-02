@@ -117,6 +117,14 @@ function publicStageLabel(stage) {
   }
 }
 
+function buildPublicMessage({ requestId = "", stage = "server", errorClass = "" } = {}) {
+  const reference = requestId ? ` Reference ${requestId}.` : "";
+  if (errorClass === "screenplay_page_quality_failed") {
+    return `The screenplay pages did not pass Clementine's quality check, so the draft was left unchanged.${reference}`;
+  }
+  return `Talk failed during ${publicStageLabel(stage)} (${errorClass}).${reference}`;
+}
+
 function buildTalkFailureDiagnostics(error, {
   requestId = "",
   providerStage = "",
@@ -146,9 +154,11 @@ function buildTalkFailureDiagnostics(error, {
     providerCode,
   }), 80);
   const cleanRequestId = trimString(requestId || error?.requestId || "", 120);
-  const publicMessage = cleanRequestId
-    ? `Talk failed during ${publicStageLabel(stage)} (${resolvedClass}). Reference ${cleanRequestId}.`
-    : `Talk failed during ${publicStageLabel(stage)} (${resolvedClass}).`;
+  const publicMessage = buildPublicMessage({
+    requestId: cleanRequestId,
+    stage,
+    errorClass: resolvedClass,
+  });
   const supportParts = [
     `stage=${stage}`,
     `class=${resolvedClass}`,

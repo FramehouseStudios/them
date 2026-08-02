@@ -3953,6 +3953,82 @@ ${directorOutputRule}
         });
       }
     }
+    const talkScreenplayModeEnabled = Boolean(
+      studioMeta?.screenplayProjectId ||
+      studioMeta?.screenplayTarget ||
+      studioMeta?.screenplayPromptSource
+    );
+    const talkScreenplayPhase = talkScreenplayModeEnabled
+      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
+      : "";
+    const talkScreenplayContinuityStudioMeta = isScreenplayPageWriteTurn
+      ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
+      : studioMeta;
+    let talkScreenplayOutput = null;
+    const talkScreenplayRepairTrace = {
+      attempted: false,
+      outcome: "none",
+      elapsedMs: 0,
+      reason: "",
+    };
+    if (isScreenplayPageWriteTurn && !localActionReply) {
+      talkScreenplayOutput = buildTalkScreenplayOutput({
+        reply,
+        transcript: talkGenerationTranscript,
+        studioMeta: talkScreenplayContinuityStudioMeta,
+      });
+      if (String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page") {
+        talkScreenplayRepairTrace.attempted = true;
+        talkScreenplayRepairTrace.reason = normalizeSnippet(
+          talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_low_page_quality",
+          96
+        );
+        const repairPass = await attemptTalkScreenplayRepairPass({
+          currentOutput: talkScreenplayOutput,
+          rawReply,
+          transcript: talkGenerationTranscript,
+          studioMeta: talkScreenplayContinuityStudioMeta,
+          chatModelPlan,
+          chatTemperature,
+          chatMaxTokens,
+          screenplayRequestedPages,
+          rid,
+        });
+        if (repairPass?.elapsedMs) {
+          talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
+          chatMs += talkScreenplayRepairTrace.elapsedMs;
+        }
+        talkScreenplayRepairTrace.outcome = normalizeSnippet(
+          repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
+          48
+        ) || "not_repaired";
+        if (repairPass?.repaired && repairPass.output) {
+          talkScreenplayOutput = repairPass.output;
+          reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
+          rawReply = reply;
+          replyRepaired = true;
+          heuristicTurnQuality = evaluateTurnQualityHeuristics({
+            transcript,
+            reply,
+            flags,
+            routingLane,
+            turnIntent: String(turnPlanner.intent || "unknown"),
+          });
+        }
+      }
+      if (String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page") {
+        logger.log(
+          `[${rid}] screenplay_page_quality_exhausted reason=${talkScreenplayRepairTrace.reason || "unknown"} outcome=${talkScreenplayRepairTrace.outcome}`
+        );
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Screenplay generation did not pass the requested page-quality contract.",
+          errorClass: "screenplay_page_quality_failed",
+        });
+      }
+    }
     const usedBoundaryEdgeLine = hasBoundaryEdgeStatement(reply);
     logger.log(`\n[${reqId}] assistant reply:\n${reply}\n`);
     const didUseCheckInOpener = startsWithDayFeelingCheckIn(reply);
@@ -4086,63 +4162,12 @@ ${directorOutputRule}
       }
     }
 
-    const talkScreenplayModeEnabled = Boolean(
-      studioMeta?.screenplayProjectId ||
-      studioMeta?.screenplayTarget ||
-      studioMeta?.screenplayPromptSource
-    );
-    const talkScreenplayPhase = talkScreenplayModeEnabled
-      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
-      : "";
-    const talkScreenplayContinuityStudioMeta = isScreenplayPageWriteTurn
-      ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
-      : studioMeta;
-    let talkScreenplayOutput = buildTalkScreenplayOutput({
-      reply,
-      transcript: talkGenerationTranscript,
-      studioMeta: talkScreenplayContinuityStudioMeta,
-    });
-    const talkScreenplayRepairTrace = {
-      attempted: false,
-      outcome: "none",
-      elapsedMs: 0,
-      reason: "",
-    };
-    if (
-      isScreenplayPageWriteTurn &&
-      !localActionReply &&
-      String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page"
-    ) {
-      talkScreenplayRepairTrace.attempted = true;
-      talkScreenplayRepairTrace.reason = normalizeSnippet(
-        talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_low_page_quality",
-        96
-      );
-      const repairPass = await attemptTalkScreenplayRepairPass({
-        currentOutput: talkScreenplayOutput,
-        rawReply,
+    if (!talkScreenplayOutput) {
+      talkScreenplayOutput = buildTalkScreenplayOutput({
+        reply,
         transcript: talkGenerationTranscript,
         studioMeta: talkScreenplayContinuityStudioMeta,
-        chatModelPlan,
-        chatTemperature,
-        chatMaxTokens,
-        screenplayRequestedPages,
-        rid,
       });
-      if (repairPass?.elapsedMs) {
-        talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
-        chatMs += talkScreenplayRepairTrace.elapsedMs;
-      }
-      talkScreenplayRepairTrace.outcome = normalizeSnippet(
-        repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
-        48
-      ) || "not_repaired";
-      if (repairPass?.repaired && repairPass.output) {
-        talkScreenplayOutput = repairPass.output;
-        reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
-        rawReply = reply;
-        replyRepaired = true;
-      }
     }
     if (
       !isScreenplayPageWriteTurn &&
@@ -4948,8 +4973,11 @@ ${directorOutputRule}
           recoveryProvider = "fixture";
         }
         if (!recoveryAudio.length || !isLikelyMp3Buffer(recoveryAudio)) {
+          const recoveryPromptText = diagnostic.errorClass === "screenplay_page_quality_failed"
+            ? "Those pages did not meet my quality bar, so I left your draft unchanged. Try that page batch again."
+            : TALK_RUNTIME_RECOVERY_PROMPT_TEXT;
           const recoveryResult = await ttsSupplier.synthesizeOpenAI({
-            inputText: TALK_RUNTIME_RECOVERY_PROMPT_TEXT,
+            inputText: recoveryPromptText,
             speed: 1.0,
             voice: CLEMENTINE_PROFILE.voice.openaiVoice,
           });
@@ -4965,6 +4993,13 @@ ${directorOutputRule}
           res.setHeader("x-tts-provider", recoveryProvider);
           res.setHeader("x-tts-segments", "1");
           res.setHeader("x-turn-meta-available", "0");
+          if (diagnostic.errorClass === "screenplay_page_quality_failed") {
+            res.setHeader("x-screenplay-output-available", "0");
+            res.setHeader("x-screenplay-authoritative", "0");
+            res.setHeader("x-screenplay-sync-ready", "0");
+            res.setHeader("x-screenplay-quality-ok", "0");
+            res.setHeader("x-screenplay-repair-outcome", "exhausted");
+          }
           res.setHeader("x-schema-version", String(API_SCHEMA_VERSION));
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);

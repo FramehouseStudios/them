@@ -103,3 +103,19 @@ test("[talk-diagnostics] created errors carry canonical diagnostics", () => {
   assert.equal(err.talkFailureDiagnostic.requestId, "req_created");
   assert.equal(err.talkFailureDiagnostic.providerStage, "chat");
 });
+
+test("[talk-diagnostics] screenplay quality failures explain that the draft was not changed", () => {
+  const err = createTalkFailureError({
+    requestId: "req_screenplay_quality",
+    providerStage: "chat",
+    status: 502,
+    message: "Rejected page output.",
+    errorClass: "screenplay_page_quality_failed",
+  });
+
+  assert.equal(err.errorClass, "screenplay_page_quality_failed");
+  assert.match(err.message, /quality check/i);
+  assert.match(err.message, /draft was left unchanged/i);
+  assert.match(err.message, /req_screenplay_quality/);
+  assert.doesNotMatch(err.message, /Rejected page output/);
+});
