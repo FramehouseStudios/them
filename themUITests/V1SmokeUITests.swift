@@ -8,6 +8,9 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_home_and_studio_primary_surfaces_remain_available() {
         let home = launchApp()
+#if os(macOS)
+        openHomeSurface(in: home)
+#endif
         XCTAssertTrue(element(identifier: "home.surface", in: home).waitForExistence(timeout: 8))
         XCTAssertTrue(home.buttons["home.open-studio"].waitForExistence(timeout: 5))
         home.terminate()
@@ -47,6 +50,54 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
         XCTAssertTrue(waitForDraft(in: app, containing: "LUCY", timeout: 5))
+    }
+
+    func test_sequential_screenplay_batches_insert_once_and_survive_relaunch() throws {
+        let firstAnchor = "INT. KITCHEN - DAY"
+        let secondAnchor = "EXT. FERRY TERMINAL - DAWN"
+        var app = launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            routePage: true
+        )
+
+        try submitStudioWriterBlockPrompt(
+            "Write the first page batch for Lucy and Frank.",
+            in: app
+        )
+        XCTAssertTrue(waitForDraft(in: app, containing: firstAnchor, timeout: 10))
+        try submitStudioWriterBlockPrompt(
+            "Continue with the second batch at the ferry terminal.",
+            in: app
+        )
+        XCTAssertTrue(waitForDraft(in: app, containing: secondAnchor, timeout: 10))
+        XCTAssertTrue(
+            waitForDraftOccurrences(
+                in: app,
+                expected: [firstAnchor: 1, secondAnchor: 1],
+                timeout: 5
+            ),
+            "Sequential page batches were missing or duplicated before relaunch."
+        )
+        app.terminate()
+
+        app = launchApp(
+            openStudio: true,
+            routePage: true,
+            resetState: false
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(waitForDraft(in: app, containing: firstAnchor, timeout: 10))
+        XCTAssertTrue(waitForDraft(in: app, containing: secondAnchor, timeout: 5))
+        XCTAssertTrue(
+            waitForDraftOccurrences(
+                in: app,
+                expected: [firstAnchor: 1, secondAnchor: 1],
+                timeout: 5
+            ),
+            "Sequential page batches did not restore exactly once after relaunch."
+        )
     }
 
     func test_screenplay_export_returns_a_file() {
@@ -812,17 +863,22 @@ final class V1SmokeUITests: XCTestCase {
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
         submitTransportMode: String = "stub",
+        resetState: Bool = true,
         launchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
         var arguments = [
             "--ui-testing",
-            "--ui-reset-state",
             "-studio_debug_submit_transport_mode",
             submitTransportMode,
             "-studio_auto_insert",
             "1"
         ]
+        if resetState {
+            arguments.append("--ui-reset-state")
+        } else {
+            arguments.append("--ui-preserve-state")
+        }
         if skipOnboarding {
             arguments.append("--ui-skip-onboarding")
         }
@@ -918,9 +974,30 @@ final class V1SmokeUITests: XCTestCase {
                 }
             }
         }
+        if openStudio,
+           !element(identifier: "studio.surface", in: app).waitForExistence(timeout: 2) {
+            let openStudioButton = app.buttons["home.open-studio"]
+            if openStudioButton.waitForExistence(timeout: 5), openStudioButton.isHittable {
+                openStudioButton.click()
+            }
+        }
 #endif
         return app
     }
+
+#if os(macOS)
+    private func openHomeSurface(in app: XCUIApplication) {
+        if element(identifier: "home.surface", in: app).exists {
+            return
+        }
+        let workspaceMenu = app.menuBars.menuBarItems["Workspace"]
+        XCTAssertTrue(workspaceMenu.waitForExistence(timeout: 3))
+        workspaceMenu.click()
+        let homeItem = app.menuItems["Home"]
+        XCTAssertTrue(homeItem.waitForExistence(timeout: 3))
+        homeItem.click()
+    }
+#endif
 
     private func revealStudioPendingQuestion(in app: XCUIApplication) {
         let card = element(identifier: "studio.pending-question", in: app)
@@ -956,7 +1033,7 @@ final class V1SmokeUITests: XCTestCase {
         )
         sendKey.tap()
 #elseif os(macOS)
-        field.typeKey(.return, modifierFlags: [])
+        field.typeKey(.return, modifierFlags: [.command])
 #else
         field.typeText("\n")
 #endif
@@ -1056,9 +1133,14 @@ final class V1SmokeUITests: XCTestCase {
         let snapshot = app.staticTexts["studio.draft.snapshot"]
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if snapshot.exists,
-               snapshot.label.localizedCaseInsensitiveContains(text) {
-                return true
+            if snapshot.exists {
+                if snapshot.label.localizedCaseInsensitiveContains(text) {
+                    return true
+                }
+                if let value = snapshot.value as? String,
+                   value.localizedCaseInsensitiveContains(text) {
+                    return true
+                }
             }
             if surface.waitForExistence(timeout: 0.5),
                let value = surface.value as? String,
@@ -1068,6 +1150,47 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return false
+    }
+
+    private func waitForDraftOccurrences(
+        in app: XCUIApplication,
+        expected: [String: Int],
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let draft = accessibleDraftText(in: app)
+            if expected.allSatisfy({ occurrenceCount(of: $0.key, in: draft) == $0.value }) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
+    }
+
+    private func accessibleDraftText(in app: XCUIApplication) -> String {
+        let snapshot = app.staticTexts["studio.draft.snapshot"]
+        if snapshot.exists {
+            if let value = snapshot.value as? String, !value.isEmpty {
+                return value
+            }
+            if !snapshot.label.isEmpty {
+                return snapshot.label
+            }
+        }
+        let surface = app.otherElements["studio.draft.surface"]
+        return surface.value as? String ?? ""
+    }
+
+    private func occurrenceCount(of needle: String, in haystack: String) -> Int {
+        guard !needle.isEmpty else { return 0 }
+        var count = 0
+        var searchRange = haystack.startIndex..<haystack.endIndex
+        while let range = haystack.range(of: needle, options: .caseInsensitive, range: searchRange) {
+            count += 1
+            searchRange = range.upperBound..<haystack.endIndex
+        }
+        return count
     }
 
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {

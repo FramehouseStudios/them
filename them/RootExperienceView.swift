@@ -3739,6 +3739,7 @@ struct RootExperienceView: View {
             }
             .allowsHitTesting(!evolution.needsOnboardingName)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("home.surface")
     }
 

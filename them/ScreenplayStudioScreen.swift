@@ -1592,6 +1592,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var clientTokenOwnedProjectIDs: Set<String> = []
 
     init() {
+        fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates()
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
@@ -26663,16 +26664,7 @@ Return revised screenplay lines only.
         let developmentText: String?
 
         if routesToPage {
-            let insertedText = """
-INT. KITCHEN - DAY
-
-LUCY reaches the threshold before FRANK can answer, taking the room's silence with her.
-
-FRANK
-Lucy--
-
-The door closes softly. That is worse than a slam.
-"""
+            let insertedText = debugStudioPageStubText(for: prompt)
             let previousDraft = vm.fountainDraft
             let separator = previousDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
             let committedDraft = previousDraft + separator + insertedText
@@ -26722,6 +26714,7 @@ The door closes softly. That is worse than a slam.
         lastCommittedStudioPromptSource = .typed
         if routesToPage {
             let committedWrite = liveDraftBridge.lastCommittedWrite
+            let anchorSceneLabel = firstFountainSlugline(in: committedWrite?.insertedText ?? noteBody)
             let entry = StudioAskNoteExchange(
                 id: UUID(),
                 backendThreadID: nil,
@@ -26737,7 +26730,7 @@ The door closes softly. That is worse than a slam.
                 replacedWriteID: committedWrite?.replacedWriteID,
                 anchorLine: committedWrite?.startLine,
                 anchorEndLine: committedWrite?.endLine,
-                anchorSceneLabel: "INT. KITCHEN - DAY",
+                anchorSceneLabel: anchorSceneLabel,
                 anchorExcerpt: noteBodyForAnchor(committedWrite?.insertedText ?? noteBody),
                 insertedText: committedWrite?.insertedText ?? noteBody,
                 replacementApplied: committedWrite?.replacementApplied,
@@ -26802,6 +26795,32 @@ The door closes softly. That is worse than a slam.
         vm.infoText = successMessage
         mirrorStudioDebugString(memoryDomain.rawValue, forKey: "studio_debug_last_memory_domain")
         publishDebugStudioDiffState()
+    }
+
+    private func debugStudioPageStubText(for prompt: String) -> String {
+        let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedPrompt.contains("second batch") || normalizedPrompt.contains("ferry terminal") {
+            return """
+EXT. FERRY TERMINAL - DAWN
+
+MARA reaches the locked gate as the last ferry pulls away. Across the water, ELI raises the red flare.
+
+MARA
+You said we still had time.
+
+She grips the chain, then turns toward the maintenance skiff.
+"""
+        }
+        return """
+INT. KITCHEN - DAY
+
+LUCY reaches the threshold before FRANK can answer, taking the room's silence with her.
+
+FRANK
+Lucy--
+
+The door closes softly. That is worse than a slam.
+"""
     }
 
     private func debugStudioPromptMemoryDomain(for prompt: String, routesToPage: Bool) -> StudioMemoryDomain {

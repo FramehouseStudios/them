@@ -10,8 +10,10 @@ nonisolated enum UITestLaunchConfiguration {
         guard arguments.contains("--ui-testing") else { return }
 
         if arguments.contains("--ui-reset-state"),
+           !arguments.contains("--ui-preserve-state"),
            let bundleID = Bundle.main.bundleIdentifier {
             defaults.removePersistentDomain(forName: bundleID)
+            ScreenplayLiveDraftFileStore.remove()
         }
 
         defaults.set("stub", forKey: "studio_debug_submit_transport_mode")

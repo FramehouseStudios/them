@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import ScreenplayStudio
+import os.log
 #if os(macOS)
 import AppKit
 #endif
@@ -2579,7 +2580,7 @@ private func reconcileScreenplayParagraphElements(
     return result
 }
 
-struct ScreenplayLiveDraftTextPersistencePolicy {
+nonisolated struct ScreenplayLiveDraftTextPersistencePolicy {
     static func draftForStorage(_ draft: String) -> String? {
         draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft
     }
@@ -2590,6 +2591,51 @@ struct ScreenplayLiveDraftTextPersistencePolicy {
             return ""
         }
         return storedDraft
+    }
+}
+
+nonisolated struct ScreenplayLiveDraftFileStore {
+    private static let directoryName = "io.them"
+    private static let fileName = "live-screenplay-draft.fountain"
+
+    static func restoredDraft(fileManager: FileManager = .default) -> String {
+        guard let data = try? Data(contentsOf: draftURL(fileManager: fileManager)),
+              let draft = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: draft)
+    }
+
+    static func persist(_ draft: String?, fileManager: FileManager = .default) {
+        let url = draftURL(fileManager: fileManager)
+        guard let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft ?? "") else {
+            try? fileManager.removeItem(at: url)
+            return
+        }
+        do {
+            try fileManager.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(draft.utf8).write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "io.them.them", category: "ui")
+                .error("Live screenplay draft journal write failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func remove(fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: draftURL(fileManager: fileManager))
+    }
+
+    private static func draftURL(fileManager: FileManager) -> URL {
+        let applicationSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        return applicationSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
     }
 }
 
@@ -2842,6 +2888,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var editorSelection: ScreenplayEditorSelectionSnapshot?
     @Published var lastCommittedWrite: ScreenplayCommittedWrite? {
         didSet {
+            persistAuthoritativeCommittedDraft(lastCommittedWrite)
             refreshIntelligenceReport()
             recordFirstPageWrittenIfNeeded(lastCommittedWrite)
             recordReplySideCharacterMentionsIfNeeded(lastCommittedWrite)
@@ -3093,9 +3140,13 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private static func restoreDraftText() -> String {
-        ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
+        let storedDraft = ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
             from: UserDefaults.standard.string(forKey: draftTextStorageKey)
         )
+        if !storedDraft.isEmpty {
+            return storedDraft
+        }
+        return ScreenplayLiveDraftFileStore.restoredDraft()
     }
 
     private static func restorePreferredProjectID(bindingProjectID: String) -> String {
@@ -3212,9 +3263,17 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistDraftOriginForCurrentContext()
         } else {
             UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
+            ScreenplayLiveDraftFileStore.remove()
             draftOrigin = .empty
             UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
         }
+    }
+
+    private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
+        guard let committedWrite, committedWrite.isAuthoritativeWrite else { return }
+        persistDraftText(committedWrite.committedDraft)
+        ScreenplayLiveDraftFileStore.persist(committedWrite.committedDraft)
+        UserDefaults.standard.synchronize()
     }
 
     private func persistDraftOriginForCurrentContext() {
