@@ -24940,8 +24940,9 @@ function screenplayPageWriteTokenFloor({ transcript = "", requestedPages = 0 } =
     )
   );
   if (pages >= 15) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3200);
-  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2800);
-  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2300);
+  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3200);
+  if (pages >= 10) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3000);
+  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2600);
   if (pages >= 5) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1750);
   if (pages >= 3) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1350);
   if (pages >= 2) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1100);

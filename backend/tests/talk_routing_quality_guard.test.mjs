@@ -112,7 +112,7 @@ test("[screenplay-budget] page-write turns get enough budget for feature page sp
     chatModelPlan: modelPlan,
     screenplayPageWrite: true,
   });
-  assert.ok(maxTokens >= 2300, `ten-page page-write needs a larger budget, got ${maxTokens}`);
+  assert.ok(maxTokens >= 3000, `ten-page page-write needs a larger budget, got ${maxTokens}`);
   assert.ok(maxTokens <= 3200, `screenplay page-write budget should remain bounded, got ${maxTokens}`);
 });
 
@@ -158,7 +158,7 @@ test("[screenplay-budget] explicit requested page count overrides missing transc
     screenplayPageWrite: true,
     screenplayRequestedPages: 8,
   });
-  assert.ok(maxTokens >= 2300, `explicit eight-page request needs batch budget, got ${maxTokens}`);
+  assert.ok(maxTokens >= 2600, `explicit eight-page request needs batch budget, got ${maxTokens}`);
   assert.ok(maxTokens <= 3200, `explicit requested-page budget should remain bounded, got ${maxTokens}`);
 });
 
@@ -184,7 +184,7 @@ test("[screenplay-budget] Studio generation brief preserves its requested page b
     screenplayPageWrite: true,
     screenplayRequestedPages: requestedPages,
   });
-  assert.ok(maxTokens >= 2300, "ten-page Studio brief needs batch budget, got " + maxTokens);
+  assert.ok(maxTokens >= 3000, "ten-page Studio brief needs batch budget, got " + maxTokens);
   assert.ok(maxTokens <= 3200, "Studio batch budget should remain bounded, got " + maxTokens);
 });
 

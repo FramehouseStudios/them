@@ -803,6 +803,7 @@ function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
   if (pages === 2) return 70;
   if (pages === 3) return 120;
   if (pages === 4) return 170;
+  if (pages >= 8) return Math.min(1_800, pages * 110);
   return Math.min(420, 170 + ((pages - 4) * 45));
 }
 

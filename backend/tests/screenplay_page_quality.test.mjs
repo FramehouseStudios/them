@@ -269,8 +269,11 @@ test("[screenplay-page-quality] rejects underfilled multi-page requests", () => 
 
 test("[screenplay-page-quality] caps requested-page floors below full-feature targets", () => {
   assert.equal(minimumExpectedWordsForRequestedPages(1), 4);
-  assert.equal(minimumExpectedWordsForRequestedPages(8), 350);
-  assert.equal(minimumExpectedWordsForRequestedPages(30), 420);
+  assert.equal(minimumExpectedWordsForRequestedPages(7), 305);
+  assert.equal(minimumExpectedWordsForRequestedPages(8), 880);
+  assert.equal(minimumExpectedWordsForRequestedPages(10), 1_100);
+  assert.equal(minimumExpectedWordsForRequestedPages(15), 1_650);
+  assert.equal(minimumExpectedWordsForRequestedPages(30), 1_800);
 });
 
 test("[screenplay-page-quality] rejects on-the-nose dialogue-heavy batches", () => {
