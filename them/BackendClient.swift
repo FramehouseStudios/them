@@ -2086,6 +2086,7 @@ final class BackendClient {
     private let preferStreamedTalkAudio = true
     private let sessionRefreshSkew: TimeInterval = 30
     private let maxTalkAttempts = 2
+    private let maxTurnMetaAttempts = 3
     private let maxAudioValidationRetries = 1
     private let minPlayableSegmentBytes = 900
     private let streamChunkFlushBytes = 4096
@@ -4936,30 +4937,70 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendError.http(-1, "Invalid turn metadata response")
-        }
-        if let notice = BackendTalkTurnMetaRateLimitNotice(
-            turnId: normalizedTurnID,
-            statusCode: http.statusCode,
-            data: data,
-            retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-        ) {
-            throw BackendTalkTurnMetaRateLimitError(notice: notice)
-        }
-        guard http.statusCode == 200 else {
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            throw BackendError.http(http.statusCode, raw)
-        }
+        var attempt = 0
+        while true {
+            let result: (Data, URLResponse)
+            do {
+                result = try await urlSession.data(for: request)
+            } catch {
+                guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
+                    throw error
+                }
+                attempt += 1
+                let delayNs = UInt64(200 * attempt) * 1_000_000
+                print("GET /talk/turn/\(normalizedTurnID) -> transient network retry \(attempt + 1)/\(maxTurnMetaAttempts)")
+                try await Task.sleep(nanoseconds: delayNs)
+                continue
+            }
 
-        do {
-            return try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: data)
-        } catch {
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            throw BackendError.http(502, raw.isEmpty ? "Invalid turn metadata payload" : raw)
+            let (data, response) = result
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendError.http(-1, "Invalid turn metadata response")
+            }
+            if let notice = BackendTalkTurnMetaRateLimitNotice(
+                turnId: normalizedTurnID,
+                statusCode: http.statusCode,
+                data: data,
+                retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+            ) {
+                throw BackendTalkTurnMetaRateLimitError(notice: notice)
+            }
+            if retryableHTTPStatus.contains(http.statusCode), attempt + 1 < maxTurnMetaAttempts {
+                attempt += 1
+                let delayNs = UInt64(200 * attempt) * 1_000_000
+                print("GET /talk/turn/\(normalizedTurnID) -> transient status \(http.statusCode), retry \(attempt + 1)/\(maxTurnMetaAttempts)")
+                try await Task.sleep(nanoseconds: delayNs)
+                continue
+            }
+            guard http.statusCode == 200 else {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(http.statusCode, raw)
+            }
+
+            do {
+                return try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: data)
+            } catch {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(502, raw.isEmpty ? "Invalid turn metadata payload" : raw)
+            }
         }
     }
+
+#if DEBUG
+    func fetchScreenplayOutputForTesting(
+        baseURL: URL,
+        userID: String,
+        clientToken: String,
+        turnID: String
+    ) async throws -> BackendTalkScreenplayOutput? {
+        try await fetchTurnMeta(
+            baseURL: baseURL,
+            userID: userID,
+            clientToken: clientToken,
+            turnID: turnID
+        ).screenplayOutput
+    }
+#endif
 
     private func resolveClientToken(for baseURL: URL, userID: String) async throws -> String {
         let now = Date()
