@@ -24627,6 +24627,7 @@ function selectChatModelForTurn({
   flags,
   routingLane,
   runtimeStatus = null,
+  screenplayPageWrite = false,
 }) {
   const t = String(transcript || "").toLowerCase();
   const words = countWords(t);
@@ -24743,6 +24744,7 @@ function selectChatModelForTurn({
     (words >= 8 || vulnerable || venting || substantial);
   const substantiveNeed = substantial && words >= 16 && !directSimple;
   const richRequired =
+    screenplayPageWrite ||
     distress ||
     therapeutic ||
     motivationalDepthNeed ||
@@ -24771,9 +24773,11 @@ function selectChatModelForTurn({
   if (richRequired) {
     model = CHAT_MODEL_RICH || CHAT_MODEL_FAST;
     tier = "rich";
-    reason = distress
-      ? "distress_safety"
-      : therapeutic
+    reason = screenplayPageWrite
+      ? "screenplay_page_write"
+      : distress
+        ? "distress_safety"
+        : therapeutic
         ? "therapeutic_depth"
         : philosophical
           ? "philosophical_depth"
@@ -24818,13 +24822,17 @@ function selectChatModelForTurn({
     ) ||
     String(runtime?.status || "up") === "degraded";
   const criticalTurn =
+    screenplayPageWrite ||
     distress ||
     therapeutic ||
     motivationMode ||
     ideaDevelopmentMode ||
     Boolean(flags?.therapeuticDepth) ||
     lane === "high_distress_safety";
-  const shouldShed = loadPressure && (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
+  const shouldShed =
+    loadPressure &&
+    !screenplayPageWrite &&
+    (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
 
   if (shouldShed) {
     const shedCause = readTalkInFlight() >= CHAT_LOAD_SHED_IN_FLIGHT

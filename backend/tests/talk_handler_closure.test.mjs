@@ -137,6 +137,11 @@ test("[screenplay-budget] live talk handler budgets against the full Studio gene
   const src = fs.readFileSync(LIB, "utf8");
   assert.match(
     src,
+    /selectChatModelForTurn\(\{\s*transcript:\s*talkGenerationTranscript,[\s\S]*?screenplayPageWrite:\s*isScreenplayPageWriteTurn,/,
+    "the live handler must route Studio pages from the full brief and explicit page-write mode"
+  );
+  assert.match(
+    src,
     /resolveTalkScreenplayRequestedPageBatch\(\{\s*transcript:\s*talkGenerationTranscript,\s*studioMeta,\s*\}\)/,
     "the live handler must resolve the requested page batch from Studio's full generation brief"
   );

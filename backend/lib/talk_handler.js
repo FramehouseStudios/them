@@ -2452,11 +2452,12 @@ function createTalkHandler(deps) {
     });
     const runtimeStatusSnapshot = deriveBackendRuntimeStatus();
     const chatModelPlan = selectChatModelForTurn({
-      transcript,
+      transcript: talkGenerationTranscript,
       turnPlanner,
       flags,
       routingLane,
       runtimeStatus: runtimeStatusSnapshot,
+      screenplayPageWrite: isScreenplayPageWriteTurn,
     });
     const boundaryEdgeSignal = deriveBoundaryEdgeSignal({
       transcript,

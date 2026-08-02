@@ -187,3 +187,30 @@ test("[screenplay-budget] Studio generation brief preserves its requested page b
   assert.ok(maxTokens >= 2300, "ten-page Studio brief needs batch budget, got " + maxTokens);
   assert.ok(maxTokens <= 3200, "Studio batch budget should remain bounded, got " + maxTokens);
 });
+
+test("[screenplay-model] short Studio commands keep the rich screenplay model under load", () => {
+  const voiceTranscript = "Continue.";
+  const generationTranscript = [
+    voiceTranscript,
+    "- Requested page batch: 10 pages",
+    "- Active act: Act II",
+    "- Continue as playable Fountain pages with causal scene turns.",
+  ].join("\n");
+  const { flags, routingPlan, turnPlanner } = plan(voiceTranscript);
+  const modelPlan = selectChatModelForTurn({
+    transcript: generationTranscript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    runtimeStatus: {
+      status: "degraded",
+      metrics: { sampleCount: 20, p95TotalMs: 12_000 },
+    },
+    screenplayPageWrite: true,
+  });
+
+  assert.equal(modelPlan.tier, "rich");
+  assert.equal(modelPlan.reason, "screenplay_page_write");
+  assert.equal(modelPlan.loadShed, false, "feature pages must not fall back to the chat model");
+  assert.notEqual(modelPlan.model, "gpt-4o-mini");
+});
