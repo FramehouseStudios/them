@@ -5800,8 +5800,7 @@ function resolveTalkScreenplayRequestedPageBatch({ transcript = "", studioMeta =
     ) || 0)
   );
   if (explicitBatchPages > 0 && explicitBatchPages <= 30) return explicitBatchPages;
-  const targetPages = Math.max(0, Math.round(Number(studioMeta?.screenplayTargetPages || 0) || 0));
-  return targetPages > 0 && targetPages <= 30 ? targetPages : 0;
+  return 0;
 }
 
 function compactTalkScreenplayQualityCounts(counts = {}) {

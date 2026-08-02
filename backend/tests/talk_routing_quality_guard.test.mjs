@@ -188,6 +188,17 @@ test("[screenplay-budget] Studio generation brief preserves its requested page b
   assert.ok(maxTokens <= 3200, "Studio batch budget should remain bounded, got " + maxTokens);
 });
 
+test("[screenplay-budget] project target length is never treated as a per-turn batch", () => {
+  assert.equal(
+    resolveTalkScreenplayRequestedPageBatch({
+      transcript: "Continue the screenplay.",
+      studioMeta: { screenplayTargetPages: 20 },
+    }),
+    0,
+    "a short-film target is project scope, not a request to write twenty pages now"
+  );
+});
+
 test("[screenplay-model] short Studio commands keep the rich screenplay model under load", () => {
   const voiceTranscript = "Continue.";
   const generationTranscript = [

@@ -1073,6 +1073,7 @@ function createTalkHandler(deps) {
     chatModelPlan = null,
     chatTemperature = 0.4,
     chatMaxTokens = 1_500,
+    screenplayRequestedPages = 0,
     rid = "",
   } = {}) {
     if (typeof applyTalkScreenplayRepairCandidate !== "function") return null;
@@ -1083,16 +1084,18 @@ function createTalkHandler(deps) {
     if (currentSource && !currentSource.startsWith("guard_")) return null;
 
     const failedReason = normalizeSnippet(currentOutput?.quality?.reason || currentSource || "guard_low_page_quality", 120);
-    const requestedPages = normalizeSnippet(
-      studioMeta?.screenplayRequestedPages ??
-        studioMeta?.screenplay_requested_pages ??
-        studioMeta?.screenplayPageBatch ??
-        studioMeta?.screenplay_page_batch ??
-        studioMeta?.screenplayTargetPages ??
-        "",
-      32
+    const requestedPageCount = Math.max(
+      0,
+      Math.min(
+        30,
+        Math.round(Number(
+          screenplayRequestedPages ||
+            resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }) ||
+            0
+        ))
+      )
     );
-    const requestedPageCount = Math.max(0, Math.round(Number(requestedPages || 0)));
+    const requestedPages = requestedPageCount > 0 ? String(requestedPageCount) : "";
     const failedDraftLimit = (() => {
       if (failedReason === "outline_or_craft_artifact" || failedReason === "non_screenplay_output") return 1_800;
       if (failedReason === "summary_like_page_batch") return 2_800;
@@ -1343,7 +1346,7 @@ function createTalkHandler(deps) {
       }
       const candidateReply = normalizeTalkMultilineSnippet(
         repairJson?.choices?.[0]?.message?.content || "",
-        8_000
+        32_000
       );
       const repairedOutput = applyTalkScreenplayRepairCandidate({
         currentOutput,
@@ -4123,6 +4126,7 @@ ${directorOutputRule}
         chatModelPlan,
         chatTemperature,
         chatMaxTokens,
+        screenplayRequestedPages,
         rid,
       });
       if (repairPass?.elapsedMs) {

@@ -150,6 +150,21 @@ test("[screenplay-budget] live talk handler budgets against the full Studio gene
     /computeChatMaxTokensForTurn\(\{\s*transcript:\s*talkGenerationTranscript,[\s\S]*?screenplayRequestedPages,/,
     "the live handler must pass the resolved batch count into the page-write token budget"
   );
+  assert.match(
+    src,
+    /attemptTalkScreenplayRepairPass\(\{[\s\S]*?screenplayRequestedPages,[\s\S]*?rid,/,
+    "the screenplay repair pass must receive the same resolved page batch"
+  );
+  assert.match(
+    src,
+    /repairJson\?\.choices\?\.\[0\]\?\.message\?\.content \|\| "",\s*32_000/,
+    "screenplay repairs must retain the full cross-device screenplay envelope"
+  );
+  assert.doesNotMatch(
+    src,
+    /studioMeta\?\.screenplayTargetPages \?\?\s*""/,
+    "the repair request must never confuse the feature target with the requested batch"
+  );
 });
 
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {
