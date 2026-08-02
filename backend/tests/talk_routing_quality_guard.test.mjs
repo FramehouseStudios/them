@@ -34,6 +34,7 @@ const {
   buildTurnPlanner,
   selectChatModelForTurn,
   computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
 } = await import("../index.js");
 
 function plan(transcript) {
@@ -159,4 +160,30 @@ test("[screenplay-budget] explicit requested page count overrides missing transc
   });
   assert.ok(maxTokens >= 2300, `explicit eight-page request needs batch budget, got ${maxTokens}`);
   assert.ok(maxTokens <= 3200, `explicit requested-page budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] Studio generation brief preserves its requested page batch", () => {
+  const generationTranscript = [
+    "Continue the feature from the remembered turn.",
+    "- Requested page batch: 10 pages",
+    "- Target act from request: Act II",
+  ].join("\n");
+  const requestedPages = resolveTalkScreenplayRequestedPageBatch({
+    transcript: generationTranscript,
+    studioMeta: { screenplayTargetPages: 110 },
+  });
+  assert.equal(requestedPages, 10, "the batch count must not be confused with the feature target");
+
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan("Continue the feature from the remembered turn.");
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript: generationTranscript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+    screenplayRequestedPages: requestedPages,
+  });
+  assert.ok(maxTokens >= 2300, "ten-page Studio brief needs batch budget, got " + maxTokens);
+  assert.ok(maxTokens <= 3200, "Studio batch budget should remain bounded, got " + maxTokens);
 });

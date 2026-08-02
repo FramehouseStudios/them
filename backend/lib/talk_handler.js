@@ -206,6 +206,7 @@ function createTalkHandler(deps) {
     commitTalkIdempotencySuccess,
     completeTaskInMemory,
     computeChatMaxTokensForTurn,
+    resolveTalkScreenplayRequestedPageBatch,
     computeMemoryTurnNumber,
     computeOutboxRetryAt,
     computeSpeculativePromptHash,
@@ -3551,13 +3552,20 @@ ${directorOutputRule}
         `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier}`
       );
     }
+    const screenplayRequestedPages = isScreenplayPageWriteTurn
+      ? resolveTalkScreenplayRequestedPageBatch({
+          transcript: talkGenerationTranscript,
+          studioMeta,
+        })
+      : 0;
     const chatMaxTokens = computeChatMaxTokensForTurn({
-      transcript,
+      transcript: talkGenerationTranscript,
       turnPlanner,
       flags,
       routingLane,
       chatModelPlan,
       screenplayPageWrite: isScreenplayPageWriteTurn,
+      screenplayRequestedPages,
     });
 
     if (process.env.NODE_ENV !== "production") {

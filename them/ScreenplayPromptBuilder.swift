@@ -459,7 +459,7 @@ struct ScreenplayPromptBuilder {
             "- Protect setups/payoffs, character need, theme argument, emotional handoff, and ending image.",
             "- Carry one unresolved setup forward and plant, echo, or pay off one image toward the final image.",
             "- For Act I -> Act II -> Act III requests, keep every beat causally linked to protagonist want/need.",
-            "- When asked to finish pages, give one concise strategy note, then write playable Fountain immediately.",
+            "- When asked to finish pages, write playable Fountain immediately with no strategy preface.",
             "- Production format: present-tense action, clean white space, actable lines, and no novelistic interiority.",
         ]
 

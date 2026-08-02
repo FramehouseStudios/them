@@ -250,6 +250,8 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Page quality gate: no placeholder scenes"))
         XCTAssertTrue(result.prompt.contains("Carry one unresolved setup forward"))
         XCTAssertTrue(result.prompt.contains("write playable Fountain immediately"))
+        XCTAssertTrue(result.prompt.contains("with no strategy preface"))
+        XCTAssertFalse(result.prompt.contains("give one concise strategy note"))
         XCTAssertTrue(result.prompt.contains("Production format: present-tense action"))
         XCTAssertTrue(result.prompt.contains("For Act I -> Act II -> Act III requests"))
         XCTAssertTrue(result.prompt.contains("Active act: Act II"))

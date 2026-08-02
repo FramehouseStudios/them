@@ -133,6 +133,20 @@ test("[product-focus] talk handler excludes abandoned email and calendar action 
   }
 });
 
+test("[screenplay-budget] live talk handler budgets against the full Studio generation brief", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(
+    src,
+    /resolveTalkScreenplayRequestedPageBatch\(\{\s*transcript:\s*talkGenerationTranscript,\s*studioMeta,\s*\}\)/,
+    "the live handler must resolve the requested page batch from Studio's full generation brief"
+  );
+  assert.match(
+    src,
+    /computeChatMaxTokensForTurn\(\{\s*transcript:\s*talkGenerationTranscript,[\s\S]*?screenplayRequestedPages,/,
+    "the live handler must pass the resolved batch count into the page-write token budget"
+  );
+});
+
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {
   // bound by params / locals -> not free
   assert.deepEqual(

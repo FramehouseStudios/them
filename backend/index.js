@@ -24911,6 +24911,7 @@ function inferRequestedScreenplayPagesFromText(text = "") {
   if (rangeEnd > 0 && rangeEnd <= 30) return rangeEnd;
 
   const patterns = [
+    new RegExp(`\\brequested\\s+page\\s+batch\\s*:\\s*(${token})\\s+pages?\\b`),
     new RegExp(`\\b(?:next|another|first|final|last)\\s+(${token})\\s+pages?\\b`),
     new RegExp(`\\b(?:write|draft|continue|generate|give me|do|finish|complete)\\b[\\s\\S]{0,80}\\b(${token})\\s+pages?\\b`),
   ];
@@ -32663,6 +32664,7 @@ const handleTalkRequest = createTalkHandler({
   commitTalkIdempotencySuccess,
   completeTaskInMemory,
   computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
   computeMemoryTurnNumber,
   computeOutboxRetryAt,
   computeSpeculativePromptHash,
@@ -33018,6 +33020,7 @@ export {
   buildTurnPlanner,
   selectChatModelForTurn,
   computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
   buildKnowledgeRetrievalAddendum,
   buildMemoryAddendum,
   buildMemoryCards,
