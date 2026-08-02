@@ -258,6 +258,23 @@ async function getTurnMeta(turnId) {
   return { response, body, raw: text };
 }
 
+async function getState() {
+  const response = await fetch(`${baseUrl}/state`, {
+    headers: {
+      "X-APP-TOKEN": appToken,
+      "X-Client-Token": clientToken,
+    },
+  });
+  const text = await response.text();
+  let body = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch (_) {
+    body = {};
+  }
+  return { response, body, raw: text };
+}
+
 test(
   "talk returns audio with commit headers",
   { timeout: 120_000, skip: !TALK_TESTS_ENABLED || RECOVERY_ONLY_MODE },
@@ -540,5 +557,56 @@ test(
       const logs = `${serverProc.stdout.join("")}\n${serverProc.stderr.join("")}`;
       assert.ok(!logs.includes(secretTranscript), "talk failure logs must not include transcript text");
     }
+  }
+);
+
+test(
+  "talk exhausted screenplay quality returns recovery without mutating the draft session",
+  { timeout: 120_000, skip: !SPAWN_BACKEND_FOR_TESTS || RECOVERY_ONLY_MODE },
+  async () => {
+    const before = await getState();
+    assert.equal(before.response.status, 200, `GET /state before failed: ${before.raw}`);
+
+    const { res, audio, headers } = await postTalk("", {
+      headers: { "X-Debug-Force-Error": "screenplay_quality" },
+      fields: {
+        client_transcript: "Continue the screenplay with the prepared page.",
+        screenplay_generation_transcript: [
+          "INT. FERRY TERMINAL - NIGHT",
+          "",
+          "Mara closes her hand around the final ticket.",
+          "",
+          "MARA",
+          "We go together.",
+        ].join("\n"),
+        screenplay_project_id: "integration-quality-recovery-project",
+        screenplay_target: "page",
+        screenplay_prompt_source: "voice",
+        screenplay_anchor_scene_label: "INT. FERRY TERMINAL - NIGHT",
+      },
+    });
+
+    assert.equal(res.status, 200, `POST /talk screenplay-quality status=${res.status}`);
+    assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
+    assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
+    assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]), "chat");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]), "screenplay_page_quality_failed");
+    assert.equal(String(headers["x-screenplay-output-available"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-authoritative"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-sync-ready"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-quality-ok"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-repair-outcome"] || ""), "exhausted");
+    assert.equal(String(headers["x-turn-meta-available"] || ""), "0");
+    assert.equal(String(headers["x-turn-id"] || ""), "");
+    assert.match(decodeHeaderValue(headers["x-turn-error-message"]), /draft was left unchanged/i);
+
+    const after = await getState();
+    assert.equal(after.response.status, 200, `GET /state after failed: ${after.raw}`);
+    assert.deepEqual(
+      after.body.history_delta,
+      before.body.history_delta,
+      "an exhausted page-quality turn must not persist a user/assistant history pair"
+    );
   }
 );

@@ -1761,7 +1761,7 @@ function createTalkHandler(deps) {
         24
       ).toLowerCase()
       : "";
-    if (forcedErrorStageRaw) {
+    if (forcedErrorStageRaw && forcedErrorStageRaw !== "screenplay_quality") {
       const allowedStages = new Set(["server", "stt", "chat", "tts"]);
       const forcedStage = allowedStages.has(forcedErrorStageRaw) ? forcedErrorStageRaw : "server";
       const forcedErr = new Error(`Forced /talk failure (${forcedStage})`);
@@ -2722,6 +2722,16 @@ function createTalkHandler(deps) {
         authoritative_page_text_available: hasAuthoritativeScreenplayText,
         sync_ready: hasAuthoritativeScreenplayText,
       };
+      if (forcedErrorStageRaw === "screenplay_quality" && isScreenplayPageWriteTurn) {
+        logger.log(`[${rid}] debug_force_error stage=screenplay_quality`);
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Forced screenplay page-quality failure.",
+          errorClass: "screenplay_page_quality_failed",
+        });
+      }
       const creativeMemoryWritePromise = commitCreativeMemoryAfterTurn({
         transcript,
         reply,
