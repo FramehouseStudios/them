@@ -40,7 +40,7 @@ test("[screenplay-save-network-fault-smokes] runs the recovery UI smoke on iPhon
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Screenplay Save Network-Fault Smokes/);
-  assert.match(result.stdout, /survive termination and reconnect exactly once/);
+  assert.match(result.stdout, /recover exactly once across reconnect, expired auth, and stale-version resolution/);
 
   const calls = fs.readFileSync(log, "utf8")
     .split("--- call ---\n")
@@ -62,5 +62,6 @@ test("[screenplay-save-network-fault-smokes] runs the recovery UI smoke on iPhon
     assert.ok(call.includes("-xcconfig"));
     assert.ok(call.includes(xcconfig));
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"));
+    assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"));
   }
 });

@@ -13,6 +13,7 @@ final class BackendAccountDataControlsTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "user_id")
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_refresh_token")
     }
 
     override func tearDown() {
@@ -26,6 +27,7 @@ final class BackendAccountDataControlsTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "user_id")
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_refresh_token")
         super.tearDown()
     }
 
@@ -910,6 +912,7 @@ final class BackendCredentialMigrationTests: XCTestCase {
                 "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "1780689600",
                 "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": " access-ios ",
                 "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "true",
+                "THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN": " refresh-ios ",
                 "THEM_UITEST_AUTH_SIGNED_IN": "1",
                 "THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON": #"{"project:project-ios-restore":{"focusedDiffKey":"write:one"}}"#,
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": #"{"project:project-ios-restore":[]}"#,
@@ -928,6 +931,7 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(suiteDefaults.string(forKey: "client_token_expiry"), "2026-06-05T20:00:00.000Z")
         XCTAssertEqual(suiteDefaults.string(forKey: "auth_debug_access_token"), "access-ios")
         XCTAssertTrue(suiteDefaults.bool(forKey: "auth_debug_access_token_enabled"))
+        XCTAssertEqual(suiteDefaults.string(forKey: "auth_debug_refresh_token"), "refresh-ios")
         XCTAssertTrue(suiteDefaults.bool(forKey: "auth_signed_in"))
         XCTAssertEqual(suiteDefaults.string(forKey: "studio_debug_load_project_id"), "project-ios-restore")
         XCTAssertEqual(suiteDefaults.string(forKey: "studio_debug_load_project_version_id"), "version-ios-restore")

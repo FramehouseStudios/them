@@ -583,6 +583,173 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once() async throws {
+        let configuredPort = Int(
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+        ) ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
+        }
+
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        var app = launchApp(
+            openStudio: true,
+            screenplaySaveNetworkFaultMarker: marker,
+            restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var queuedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+                queuedSnapshot = snapshot
+                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 1
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
+        )
+        app.terminate()
+
+        let ownerHeaders = [
+            "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+            "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+            "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+        ]
+        let competingDraft = "\(fixture.expectedDraft)\n\nSERVER-COLLABORATOR-\(UUID().uuidString.uppercased())"
+        let competingSave = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST",
+            headers: ownerHeaders,
+            body: [
+                "draft": competingDraft,
+                "title": "Concurrent server revision",
+                "phase": "scene_draft",
+                "source": "ui_network_fault_competitor",
+                "base_version_id": fixture.versionID,
+                "conflict_strategy": "reject_if_stale",
+                "client_request_id": "ui-competitor-\(UUID().uuidString.lowercased())",
+            ]
+        )
+        try assertHTTP(competingSave, context: "competing screenplay version")
+        let competingVersionID = try firstNonEmptyString(
+            competingSave.payload["version_id"],
+            competingSave.payload["server_version_id"],
+            message: "Competing screenplay save did not return a version id."
+        )
+
+        app = launchApp(
+            openStudio: true,
+            screenplaySaveExpireAuthOnce: true,
+            resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var conflictSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+                conflictSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Expired auth was not refreshed into a clean stale-version decision. Snapshot: \(conflictSnapshot)"
+        )
+
+        let preResolutionProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(preResolutionProject, context: "pre-resolution screenplay project")
+        let preResolutionEnvelope = preResolutionProject.payload["payload"] as? [String: Any]
+            ?? preResolutionProject.payload
+        let preResolutionBody = preResolutionEnvelope["project"] as? [String: Any]
+            ?? preResolutionEnvelope
+        let preResolutionVersions = preResolutionBody["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(
+            preResolutionVersions.filter { stringValue($0["draft"]).contains(marker) }.count,
+            0,
+            "A stale queued save must not commit before the writer chooses a resolution."
+        )
+
+        let keepMine = app.buttons["studio.conflict.keep-mine"]
+        if !keepMine.isHittable { app.swipeUp() }
+        XCTAssertTrue(keepMine.waitForExistence(timeout: 5), "Keep Mine was not exposed for the recovered conflict.")
+        XCTAssertTrue(keepMine.isHittable, "Keep Mine was visible but not hittable for the recovered conflict.")
+        keepMine.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        var resolvedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+                resolvedSnapshot = snapshot
+                return stringValue(snapshot["conflict_project_id"]).isEmpty
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && !boolValue(snapshot["has_unsaved_draft_changes"])
+                    && !boolValue(snapshot["is_saving"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Keep Mine did not resolve the recovered conflict cleanly. Snapshot: \(resolvedSnapshot)"
+        )
+
+        let resolvedProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(resolvedProject, context: "resolved screenplay project")
+        let resolvedEnvelope = resolvedProject.payload["payload"] as? [String: Any] ?? resolvedProject.payload
+        let resolvedBody = resolvedEnvelope["project"] as? [String: Any] ?? resolvedEnvelope
+        let resolvedVersions = resolvedBody["versions"] as? [[String: Any]] ?? []
+        let localVersions = resolvedVersions.filter { stringValue($0["draft"]).contains(marker) }
+        XCTAssertEqual(localVersions.count, 1, "Keep Mine must commit exactly one recovered local version.")
+        let localVersion = try XCTUnwrap(localVersions.first)
+        XCTAssertEqual(stringValue(localVersion["source"]), "studio_conflict_resolve")
+        XCTAssertFalse(
+            stringValue(localVersion["client_request_id"] ?? localVersion["clientRequestId"]).isEmpty,
+            "The resolved local version must retain an idempotency key."
+        )
+        let localVersionID = try firstNonEmptyString(
+            localVersion["id"],
+            localVersion["version_id"],
+            message: "Resolved local version did not expose an id."
+        )
+        XCTAssertEqual(
+            stringValue(resolvedBody["active_version_id"] ?? resolvedBody["activeVersionId"]).lowercased(),
+            localVersionID.lowercased()
+        )
+    }
+
+    @MainActor
     func test_cross_platform_backend_project_restore_loads_preseeded_screenplay_session() async throws {
         guard let fixture = try restoreContractFixtureFromEnvironment() else {
             throw XCTSkip("No cross-platform restore fixture was provided.")
@@ -986,6 +1153,7 @@ final class V1SmokeUITests: XCTestCase {
         showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
+        screenplaySaveExpireAuthOnce: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         restoreProjectID: String? = nil,
@@ -1074,6 +1242,9 @@ final class V1SmokeUITests: XCTestCase {
                 "--ui-screenplay-save-network-fault-url",
                 "http://127.0.0.1:3999",
             ])
+        }
+        if screenplaySaveExpireAuthOnce {
+            arguments.append("--ui-screenplay-save-expire-auth-once")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])
@@ -2002,6 +2173,11 @@ final class V1SmokeUITests: XCTestCase {
             signup.payload["accessToken"],
             message: "Signup did not return an access token."
         )
+        let refreshToken = try firstNonEmptyString(
+            signup.payload["refresh_token"],
+            signup.payload["refreshToken"],
+            message: "Signup did not return a refresh token."
+        )
         let userID = try firstNonEmptyString(
             user["id"],
             user["user_id"],
@@ -2166,6 +2342,7 @@ final class V1SmokeUITests: XCTestCase {
                 "THEM_UITEST_CLIENT_TOKEN_EXPIRY": clientTokenExpiry,
                 "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": accessToken,
                 "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "1",
+                "THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN": refreshToken,
                 "THEM_UITEST_AUTH_SIGNED_IN": "1",
                 "THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON": fullThreadStateJSON,
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,

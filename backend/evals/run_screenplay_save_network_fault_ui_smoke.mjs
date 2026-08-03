@@ -47,7 +47,7 @@ try {
     ok: true,
     backend: server.baseUrl,
     targets: ["iPhone", "macOS"],
-    contract: "queued save survives termination and creates exactly one server version",
+    contract: "queued saves recover exactly once across reconnect, expired auth, and stale-version resolution",
   }, null, 2));
   console.log("screenplay-save-network-fault-ui-smoke: ok");
 } catch (error) {

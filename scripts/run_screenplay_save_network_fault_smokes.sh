@@ -8,7 +8,14 @@ IOS_CONFIGURATION="${IOS_CONFIGURATION:-Debug}"
 MACOS_SCHEME="${MACOS_SCHEME:-them-macOS-scaffold}"
 MACOS_CONFIGURATION="${MACOS_CONFIGURATION:-Mac Scaffold Debug}"
 XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
-TEST_IDENTIFIER="${SCREENPLAY_SAVE_TEST_IDENTIFIER:-themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once}"
+if [[ -n "${SCREENPLAY_SAVE_TEST_IDENTIFIER:-}" ]]; then
+  test_identifiers=("${SCREENPLAY_SAVE_TEST_IDENTIFIER}")
+else
+  test_identifiers=(
+    "themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"
+    "themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"
+  )
+fi
 
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
   ios_destination="${IOS_SIMULATOR_DESTINATION}"
@@ -34,6 +41,11 @@ if [[ -n "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" ]]; then
   xcconfig_args+=("-xcconfig" "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH}")
 fi
 
+only_testing_args=()
+for test_identifier in "${test_identifiers[@]}"; do
+  only_testing_args+=("-only-testing:${test_identifier}")
+done
+
 echo "=== Screenplay Save Network-Fault Smokes ==="
 echo "Project:            ${PROJECT}"
 echo "iPhone destination: ${ios_destination}"
@@ -44,7 +56,7 @@ echo "macOS destination:  platform=macOS"
   -scheme "${IOS_SCHEME}" \
   -configuration "${IOS_CONFIGURATION}" \
   -destination "${ios_destination}" \
-  -only-testing:"${TEST_IDENTIFIER}" \
+  "${only_testing_args[@]}" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO
 
@@ -53,11 +65,11 @@ echo "macOS destination:  platform=macOS"
   -scheme "${MACOS_SCHEME}" \
   -configuration "${MACOS_CONFIGURATION}" \
   -destination "platform=macOS" \
-  -only-testing:"${TEST_IDENTIFIER}" \
+  "${only_testing_args[@]}" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY=- \
   CODE_SIGN_ENTITLEMENTS= \
   ENABLE_APP_SANDBOX=NO \
   REGISTER_APP_GROUPS=NO
 
-echo "[OK] iPhone and macOS queued screenplay saves survive termination and reconnect exactly once."
+echo "[OK] iPhone and macOS queued screenplay saves recover exactly once across reconnect, expired auth, and stale-version resolution."

@@ -58,6 +58,7 @@ nonisolated enum UITestLaunchConfiguration {
         copyEnvironmentDouble("THEM_UITEST_CLIENT_TOKEN_CACHED_AT", from: environment, to: "client_token_cached_at", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
         copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
+        copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN", from: environment, to: "auth_debug_refresh_token", defaults: defaults)
         copyEnvironmentBool("THEM_UITEST_AUTH_SIGNED_IN", from: environment, to: "auth_signed_in", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON", from: environment, to: "studio.full.thread.state.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON", from: environment, to: "studio.ask.note.history.v2", defaults: defaults)

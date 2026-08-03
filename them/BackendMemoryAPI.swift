@@ -2890,6 +2890,11 @@ nonisolated enum BackendAuthClient {
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
         persistAuthEnvelope(payload)
+#if DEBUG
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_refresh_token")
+#endif
         return currentAuthSessionState()
     }
 
@@ -3239,6 +3244,13 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func refreshToken() -> String? {
+#if DEBUG
+        let debugToken = preferenceString(forKey: "auth_debug_refresh_token")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !debugToken.isEmpty {
+            return debugToken
+        }
+#endif
         guard !IOThemRuntime.isRunningTests else { return nil }
 #if os(macOS)
         let defaultsToken = UserDefaults.standard.string(forKey: DefaultsKey.authRefreshToken) ?? ""
@@ -3931,6 +3943,7 @@ actor BackendMemoryAPI {
     private var latestSeenStateVersion: String = ""
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
+    private var didInjectExpiredScreenplaySaveAuthForUITest = false
     private let forcedSessionRefreshCooldown: TimeInterval = 8
     private let sessionCacheTTL: TimeInterval = 90
     private let storedSessionRefreshSkew: TimeInterval = 30
@@ -5513,13 +5526,6 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
 
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
-        applyProjectOwnerHeaders(
-            to: &request,
-            includeUserIdentity: includeUserIdentity,
-            includeAuthToken: includeAuthToken,
-            clientTokenOverride: clientTokenOverride
-        )
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
@@ -5558,12 +5564,54 @@ actor BackendMemoryAPI {
         if !normalizedClientRequestId.isEmpty {
             payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
+#if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
+           !didInjectExpiredScreenplaySaveAuthForUITest {
+            didInjectExpiredScreenplaySaveAuthForUITest = true
+            UserDefaults.standard.set("expired-screenplay-save-access-token", forKey: "auth_debug_access_token")
+            UserDefaults.standard.set(true, forKey: "auth_debug_access_token_enabled")
         }
+#endif
+
+        var data = Data()
+        var http: HTTPURLResponse?
+        var didAttemptAuthRefresh = false
+        while true {
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
+            applyProjectOwnerHeaders(
+                to: &request,
+                includeUserIdentity: includeUserIdentity,
+                includeAuthToken: includeAuthToken,
+                clientTokenOverride: clientTokenOverride
+            )
+            request.httpBody = requestBody
+            let responsePair = try await session.data(for: request)
+            guard let response = responsePair.1 as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            data = responsePair.0
+            http = response
+
+            guard response.statusCode == 401,
+                  includeAuthToken,
+                  !didAttemptAuthRefresh else {
+                break
+            }
+            didAttemptAuthRefresh = true
+            do {
+                let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+                if refreshed.isAuthenticated {
+                    continue
+                }
+            } catch {
+                // Preserve the original authorization failure when refresh is unavailable.
+            }
+            break
+        }
+        guard let http else { throw BackendMemoryAPIError.invalidResponse }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         if http.statusCode == 409 {
