@@ -1696,6 +1696,7 @@ nonisolated struct BackendScreenplayVersion: Decodable, Hashable {
     let projectId: String?
     let phase: String?
     let source: String?
+    let clientRequestId: String?
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
     let prompt: String?
@@ -2180,6 +2181,7 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let serverVersionId: String?
     let serverVersion: BackendScreenplayVersion?
     let conflict: Bool?
+    let replayed: Bool?
     let sessionId: String?
     let stateVersion: String?
     let lastUpdatedAt: TimeInterval?
@@ -5496,6 +5498,7 @@ actor BackendMemoryAPI {
         screenplayBindings: [BackendScreenplayBindingRecord] = [],
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
+        clientRequestId: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
         clientTokenOverride: String? = nil
@@ -5550,6 +5553,10 @@ actor BackendMemoryAPI {
         let normalizedConflictStrategy = conflictStrategy.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedConflictStrategy.isEmpty {
             payload["conflict_strategy"] = normalizedConflictStrategy
+        }
+        let normalizedClientRequestId = clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedClientRequestId.isEmpty {
+            payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 

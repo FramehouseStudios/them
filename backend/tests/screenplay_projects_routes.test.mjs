@@ -599,7 +599,7 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
 });
 
 test("[screenplay-projects-routes] POST /version surfaces adapter persistence failure", async () => {
-  await withTestServer(defaultDeps({
+  const deps = defaultDeps({
     markScreenplayOwnerDirty: () => ({
       ok: true,
       fileOk: true,
@@ -610,7 +610,11 @@ test("[screenplay-projects-routes] POST /version surfaces adapter persistence fa
         persistenceFailureCount: 1,
       }),
     }),
-  }), async (baseURL) => {
+  });
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  const versionCountBeforeSave = Array.isArray(project.versions) ? project.versions.length : 0;
+  const activeVersionBeforeSave = project.activeVersionId;
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
       draft: "FADE IN:\n\nINT. ROOM - DAY\n\nAction.",
     });
@@ -618,6 +622,8 @@ test("[screenplay-projects-routes] POST /version surfaces adapter persistence fa
     assert.equal(r.body.error, "screenplay_persistence_failed");
     assert.equal(r.body.persistence, "postgres");
     assert.equal(r.body.persistence_failure_count, 1);
+    assert.equal(Array.isArray(project.versions) ? project.versions.length : 0, versionCountBeforeSave);
+    assert.equal(project.activeVersionId, activeVersionBeforeSave);
   });
 });
 
@@ -653,6 +659,87 @@ test("[screenplay-projects-routes] POST /version saves Clementine page writes as
     assert.equal(project.versions[0].id, r.body.version_id);
     assert.equal(project.versions[0].source, "studio_clementine_page_write");
     assert.equal(project.versions[0].draft, generatedDraft);
+  });
+});
+
+test("[screenplay-projects-routes] POST /version replays a committed client request exactly once", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Old draft.", updatedAt: 1000 }];
+  const body = {
+    draft: "FADE IN:\n\nINT. KITCHEN - NIGHT\n\nLucy waits.",
+    base_version_id: "base_v1",
+    conflict_strategy: "reject_if_stale",
+    client_request_id: "device-save-001",
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+
+    assert.equal(first.status, 201);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.status, "replayed");
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(project.versions.length, 2);
+    assert.equal(project.versions[0].clientRequestId, "device-save-001");
+  });
+});
+
+test("[screenplay-projects-routes] POST /version does not replay before durable persistence completes", async () => {
+  let releasePersistence;
+  const persistencePromise = new Promise((resolve) => {
+    releasePersistence = () => resolve({ ok: true });
+  });
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: () => ({ ok: true, persistencePromise }),
+  });
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  const body = {
+    draft: "FADE IN:\n\nINT. KITCHEN - NIGHT\n\nLucy waits.",
+    client_request_id: "device-save-pending",
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const firstRequest = postJson(baseURL, "/screenplay/projects/p1/version", body);
+    while (!project.versions?.some((version) => version.clientRequestId === "device-save-pending")) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    const earlyReplay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(earlyReplay.status, 425);
+    assert.equal(earlyReplay.body.status, "persistence_pending");
+    assert.equal(earlyReplay.body.replayed, false);
+
+    releasePersistence();
+    const first = await firstRequest;
+    assert.equal(first.status, 201);
+    assert.equal(project.versions[0].persistencePending, false);
+  });
+});
+
+test("[screenplay-projects-routes] POST /version rejects a reused client request with different content", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nFirst draft.",
+      client_request_id: "device-save-reused",
+    });
+    const versionCountAfterFirstSave = project.versions.length;
+    const reused = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nDifferent draft.",
+      client_request_id: "device-save-reused",
+    });
+
+    assert.equal(first.status, 201);
+    assert.equal(reused.status, 409);
+    assert.equal(reused.body.status, "client_request_id_reused");
+    assert.equal(reused.body.replayed, false);
+    assert.equal(reused.body.conflict, true);
+    assert.equal(project.versions.length, versionCountAfterFirstSave);
   });
 });
 

@@ -120,6 +120,23 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testDraftSaveRetryPolicyRetriesOnlyTransientFailures() {
+        XCTAssertTrue(ScreenplayDraftSaveRetryPolicy.shouldRetry(URLError(.notConnectedToInternet)))
+        XCTAssertTrue(ScreenplayDraftSaveRetryPolicy.shouldRetry(BackendMemoryAPIError.invalidResponse))
+        XCTAssertTrue(ScreenplayDraftSaveRetryPolicy.shouldRetry(
+            BackendMemoryAPIError.server(status: 503, message: "unavailable")
+        ))
+        XCTAssertTrue(ScreenplayDraftSaveRetryPolicy.shouldRetry(
+            BackendMemoryAPIError.server(status: 429, message: "slow_down")
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveRetryPolicy.shouldRetry(
+            BackendMemoryAPIError.server(status: 401, message: "auth_required")
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveRetryPolicy.shouldRetry(
+            BackendMemoryAPIError.server(status: 422, message: "invalid_draft")
+        ))
+    }
+
     func testRemoteDraftProtectsDirtyLocalPageAndSurfacesNewerVersionConflict() {
         let protected = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
             selectedProjectId: "project-a",
@@ -1164,6 +1181,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             projectId: "project",
             phase: "scene_draft",
             source: source,
+            clientRequestId: nil,
             createdAt: createdAt,
             updatedAt: updatedAt,
             prompt: nil,

@@ -744,9 +744,49 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const studioWriteAnchors = normalizeStoredScreenplayWriteAnchors(req.body?.studio_write_anchors);
     const screenplayBindings = normalizeStoredScreenplayBindings(req.body?.screenplay_bindings);
     const baseVersionId = normalizeSnippet(req.body?.base_version_id, 64);
+    const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
     const latestVersion = getLatestScreenplayVersion(project);
     const currentVersionId = project.activeVersionId || latestVersion?.id || "";
+    const replayedVersion = clientRequestId
+      ? (project.versions || []).find((item) => item.clientRequestId === clientRequestId)
+      : null;
+    if (replayedVersion) {
+      if (replayedVersion.persistencePending === true) {
+        applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+        return res.status(425).json(buildScreenplayEnvelope(req, owner, {
+          stage: "screenplay_version",
+          status: "persistence_pending",
+          project_id: project.id,
+          version_id: replayedVersion.id,
+          conflict: false,
+          replayed: false,
+        }));
+      }
+      const requestMatches = String(replayedVersion.draft || "").replace(/\r\n/g, "\n").trim() === draft;
+      const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
+      applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+      return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
+        stage: "screenplay_version",
+        status: requestMatches
+          ? (replayWasSuperseded ? "replayed_superseded" : "replayed")
+          : "client_request_id_reused",
+        created_project: false,
+        project_id: project.id,
+        version_id: replayedVersion.id,
+        version: toScreenplayVersionPayload(replayedVersion, { includeDraft: true }),
+        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+        format_score: Number(replayedVersion.formatScore || 0),
+        story_score: Number(replayedVersion.storyScore || 0),
+        confidence_class: replayedVersion.confidenceClass || "medium",
+        warnings: replayedVersion.warnings || [],
+        base_version_id: baseVersionId,
+        server_version_id: currentVersionId,
+        server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
+        conflict: !requestMatches || replayWasSuperseded,
+        replayed: requestMatches,
+      }));
+    }
     if (conflictStrategy === "reject_if_stale" && baseVersionId && currentVersionId && baseVersionId !== currentVersionId) {
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(409).json(buildScreenplayEnvelope(req, owner, {
@@ -765,15 +805,28 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         server_version_id: currentVersionId,
         server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
         conflict: true,
+        replayed: false,
       }));
     }
 
     const score = scoreScreenplayDraft(draft);
+    const priorProjectState = {
+      versions: [...(project.versions || [])],
+      activeVersionId: project.activeVersionId,
+      lastVersionId: project.lastVersionId,
+      lastVersionAt: project.lastVersionAt,
+      lastPhase: project.lastPhase,
+      title: project.title,
+      updatedAt: project.updatedAt,
+      ownerActiveProjectId: owner.activeProjectId,
+      ownerUpdatedAt: owner.updatedAt,
+    };
     const version = {
       id: createScreenplayId("version"),
       projectId: project.id,
       phase,
       source,
+      clientRequestId,
       createdAt: now,
       updatedAt: now,
       prompt: "",
@@ -786,6 +839,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       draftExcerpt: buildDraftExcerpt(draft, 220),
       studioWriteAnchors,
       screenplayBindings,
+      persistencePending: Boolean(clientRequestId),
     };
     project.versions = Array.isArray(project.versions) ? project.versions : [];
     project.versions.unshift(version);
@@ -798,7 +852,19 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     project.updatedAt = now;
     owner.activeProjectId = project.id;
-    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_version"))) return;
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_version"))) {
+      project.versions = priorProjectState.versions;
+      project.activeVersionId = priorProjectState.activeVersionId;
+      project.lastVersionId = priorProjectState.lastVersionId;
+      project.lastVersionAt = priorProjectState.lastVersionAt;
+      project.lastPhase = priorProjectState.lastPhase;
+      project.title = priorProjectState.title;
+      project.updatedAt = priorProjectState.updatedAt;
+      owner.activeProjectId = priorProjectState.ownerActiveProjectId;
+      owner.updatedAt = priorProjectState.ownerUpdatedAt;
+      return;
+    }
+    version.persistencePending = false;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(201).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_version",
@@ -816,6 +882,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       server_version_id: version.id,
       server_version: toScreenplayVersionPayload(version, { includeDraft: true }),
       conflict: false,
+      replayed: false,
     }));
   });
 }
