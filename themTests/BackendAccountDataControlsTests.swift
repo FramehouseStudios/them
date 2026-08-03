@@ -681,6 +681,18 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testBackendDefaultBaseURLPolicyAllowsNetworkFaultSmokeToSwitchStoredBackend() {
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.uiTestOverrideBaseURL(
+                isDebug: true,
+                launchArguments: ["them", "--ui-testing", "--ui-screenplay-save-network-fault"],
+                environment: ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:31337"],
+                storedBaseURL: "http://localhost:3999"
+            )?.absoluteString,
+            "http://127.0.0.1:3999"
+        )
+    }
+
     func testBackendDefaultBaseURLPolicyUsesHostedAPIForReleaseBuilds() {
         XCTAssertEqual(
             BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: true, isDebug: false).absoluteString,

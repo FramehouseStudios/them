@@ -107,6 +107,7 @@
     "eval:studio-first-project-promotion": "node evals/run_studio_first_project_promotion_smoke.mjs",
     "eval:studio-feature-context": "node evals/run_studio_feature_prompt_context_smoke.mjs",
     "eval:studio-save-recovery": "node evals/run_studio_save_recovery_smoke.mjs",
+    "eval:screenplay-save-network-fault": "node evals/run_screenplay_save_network_fault_ui_smoke.mjs",
     "eval:studio-conflict-collaboration-restore": "node evals/run_studio_conflict_collaboration_restore_smoke.mjs",
     "eval:studio-merged-restore": "node evals/run_studio_merged_restore_smoke.mjs",
     "eval:studio-owner-restore": "node evals/run_studio_owner_restore_smoke.mjs",

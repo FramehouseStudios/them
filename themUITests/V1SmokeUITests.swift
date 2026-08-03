@@ -476,6 +476,113 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
+        let configuredPort = Int(
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+        ) ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
+        }
+
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        var app = launchApp(
+            openStudio: true,
+            screenplaySaveNetworkFaultMarker: marker,
+            restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var queuedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+                queuedSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 1
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["autosave_status_text"])
+                        .localizedCaseInsensitiveContains("queued locally")
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
+        )
+        app.terminate()
+
+        app = launchApp(
+            openStudio: true,
+            resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var recoveredSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+                recoveredSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && !boolValue(snapshot["has_unsaved_draft_changes"])
+                    && !boolValue(snapshot["is_saving"])
+                    && stringValue(snapshot["latest_version_id"]).lowercased() != fixture.versionID.lowercased()
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Queued screenplay save did not reconnect automatically after relaunch. Snapshot: \(recoveredSnapshot)"
+        )
+
+        let projectResponse = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: [
+                "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+                "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+            ],
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(projectResponse, context: "recovered screenplay project")
+        let envelope = projectResponse.payload["payload"] as? [String: Any] ?? projectResponse.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        let recoveredVersions = versions.filter { version in
+            stringValue(version["draft"]).contains(marker)
+        }
+        XCTAssertEqual(
+            recoveredVersions.count,
+            1,
+            "The recovered local save must create exactly one server version: \(versions)"
+        )
+        let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
+        let recoveredVersionID = try firstNonEmptyString(
+            recoveredVersion["id"],
+            recoveredVersion["version_id"],
+            message: "Recovered server version did not expose an id."
+        )
+        XCTAssertEqual(
+            stringValue(project["active_version_id"] ?? project["activeVersionId"]).lowercased(),
+            recoveredVersionID.lowercased()
+        )
+        XCTAssertEqual(stringValue(recoveredVersion["source"]), "studio_manual")
+        XCTAssertFalse(
+            stringValue(recoveredVersion["client_request_id"] ?? recoveredVersion["clientRequestId"]).isEmpty,
+            "The recovered version must retain its idempotency key."
+        )
+    }
+
+    @MainActor
     func test_cross_platform_backend_project_restore_loads_preseeded_screenplay_session() async throws {
         guard let fixture = try restoreContractFixtureFromEnvironment() else {
             throw XCTSkip("No cross-platform restore fixture was provided.")
@@ -878,6 +985,7 @@ final class V1SmokeUITests: XCTestCase {
         showPendingScreenplayQuestion: Bool = false,
         showProvisionalScreenplayOptions: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
+        screenplaySaveNetworkFaultMarker: String? = nil,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         restoreProjectID: String? = nil,
@@ -956,6 +1064,15 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append(contentsOf: [
                 "--ui-realtime-network-fault",
                 realtimeNetworkFaultStage,
+            ])
+        }
+        if let screenplaySaveNetworkFaultMarker {
+            arguments.append(contentsOf: [
+                "--ui-screenplay-save-network-fault",
+                "--ui-screenplay-save-network-fault-marker",
+                screenplaySaveNetworkFaultMarker,
+                "--ui-screenplay-save-network-fault-url",
+                "http://127.0.0.1:3999",
             ])
         }
         if let autoSubmitPagePrompt {
@@ -2100,10 +2217,14 @@ final class V1SmokeUITests: XCTestCase {
         path: String,
         method: String,
         headers: [String: String],
-        body: [String: Any]?
+        body: [String: Any]?,
+        queryItems: [URLQueryItem] = []
     ) async throws -> JSONResponse {
         var components = try XCTUnwrap(URLComponents(url: baseURL, resolvingAgainstBaseURL: false))
         components.path = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
         let url = try XCTUnwrap(components.url)
         var request = URLRequest(url: url)
         request.httpMethod = method

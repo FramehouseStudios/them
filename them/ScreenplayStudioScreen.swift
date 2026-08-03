@@ -3639,6 +3639,24 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         await saveCurrentDraft(source: "studio_manual")
     }
 
+    #if DEBUG
+    func runQueuedSaveNetworkFaultUITest(marker: String, offlineBaseURL: String) async {
+        let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanMarker.isEmpty, selectedProject != nil else { return }
+        autosaveEnabled = false
+        if !fountainDraft.contains(cleanMarker) {
+            let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? ""
+                : "\n\n"
+            fountainDraft += separator + cleanMarker
+            noteManualDraftEdit()
+        }
+        UserDefaults.standard.set(offlineBaseURL, forKey: "backend_base_url")
+        UserDefaults.standard.synchronize()
+        await manualSaveDraft()
+    }
+    #endif
+
     func createRevisionSnapshot() async {
         let label = snapshotLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = label.isEmpty ? "Snapshot" : label
@@ -6514,6 +6532,7 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
     @State private var didApplyUITestLaunchActions = false
     @State private var didApplyUITestDraftConflictFixture = false
+    @State private var didApplyUITestSaveNetworkFault = false
     @State private var didResolveUITestPendingQuestionFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
@@ -6615,6 +6634,14 @@ struct ScreenplayStudioScreen: View {
             "draft_tail_preview": String(normalizedDraft.suffix(260)),
             "draft_character_count": normalizedDraft.count,
             "draft_fingerprint": ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
+            "has_unsaved_draft_changes": vm.hasUnsavedDraftChanges,
+            "is_manual_draft_editing": vm.isManualDraftEditing,
+            "is_saving": vm.isSaving,
+            "queued_draft_save_count": vm.queuedDraftSaveCount,
+            "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "autosave_status_text": vm.autosaveStatusText,
+            "info_text": vm.infoText,
+            "error_text": vm.errorText,
             "collaborator_count": vm.collaborators.count,
             "approved_emails": vm.approvedEmails,
             "comment_count": vm.comments.count,
@@ -7216,6 +7243,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 await restoreStudioWorkspaceAfterProjectHydration()
                 #if DEBUG
                 applyUITestPendingScreenplayQuestionFixtureIfNeeded()
+                await applyUITestSaveNetworkFaultIfNeeded()
                 #endif
                 await vm.refreshScreenplayExportFormatsAutomatically()
                 if directionOneRightPanelTab == .them {
@@ -28554,6 +28582,29 @@ Look at the city.
     }
 
     #if DEBUG
+    private func applyUITestSaveNetworkFaultIfNeeded() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard IOThemRuntime.isRunningUITests,
+              arguments.contains("--ui-screenplay-save-network-fault"),
+              !didApplyUITestSaveNetworkFault,
+              let marker = uiTestLaunchArgumentValue(
+                "--ui-screenplay-save-network-fault-marker",
+                in: arguments
+              ) else {
+            return
+        }
+        didApplyUITestSaveNetworkFault = true
+        let offlineBaseURL = uiTestLaunchArgumentValue(
+            "--ui-screenplay-save-network-fault-url",
+            in: arguments
+        ) ?? "http://127.0.0.1:3999"
+        await vm.runQueuedSaveNetworkFaultUITest(
+            marker: marker,
+            offlineBaseURL: offlineBaseURL
+        )
+        publishDebugStudioDiffState()
+    }
+
     private func uiTestLaunchArgumentValue(_ key: String, in arguments: [String]) -> String? {
         guard let index = arguments.firstIndex(of: key) else { return nil }
         let valueIndex = arguments.index(after: index)

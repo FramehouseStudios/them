@@ -67,13 +67,17 @@ nonisolated enum BackendDefaultBaseURLPolicy {
     static func uiTestOverrideBaseURL(
         isDebug: Bool,
         launchArguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        storedBaseURL: String? = nil
     ) -> URL? {
         guard isDebug, launchArguments.contains("--ui-testing") else { return nil }
-        let raw = (environment["THEM_UITEST_BACKEND_BASE_URL"] ?? "")
+        let useDynamicStoredURL = launchArguments.contains("--ui-screenplay-save-network-fault")
+        let normalizedRaw = (useDynamicStoredURL
+            ? storedBaseURL ?? ""
+            : environment["THEM_UITEST_BACKEND_BASE_URL"] ?? storedBaseURL ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isUsableConfigValue(raw),
-              let url = URL(string: raw),
+        guard isUsableConfigValue(normalizedRaw),
+              let url = URL(string: normalizedRaw),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -93,7 +97,8 @@ nonisolated enum BackendDefaultBaseURLPolicy {
         return uiTestOverrideBaseURL(
             isDebug: true,
             launchArguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            storedBaseURL: UserDefaults.standard.string(forKey: "backend_base_url")
         )
         #else
         return nil
