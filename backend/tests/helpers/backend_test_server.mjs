@@ -53,6 +53,7 @@ export async function startBackend({
   const childEnv = {
     ...process.env,
     PORT: String(port),
+    HOST: "127.0.0.1",
     RUN_SERVER: "1",
     NODE_ENV: "test",
     APP_TOKEN: "them-test-app-token",

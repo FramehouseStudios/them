@@ -3339,6 +3339,11 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func preferenceValues(forKey key: String) -> [Any] {
+        #if DEBUG
+        if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
+            return [fileValue]
+        }
+        #endif
         var values: [Any] = []
         var seenFingerprints: Set<String> = []
 

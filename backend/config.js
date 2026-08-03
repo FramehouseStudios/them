@@ -8,6 +8,7 @@ const MAX_FILE_MB = 25;
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 const PORT = process.env.PORT || 3000;
+const HOST = String(process.env.HOST || "").trim();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const APP_TOKEN = process.env.APP_TOKEN || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -122,6 +123,7 @@ export {
   DEFAULT_ASSISTANT_SELF_NAME,
   JWT_SECRET,
   JWT_TTL_SECONDS,
+  HOST,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   NODE_ENV,

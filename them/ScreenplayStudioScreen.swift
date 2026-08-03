@@ -156,6 +156,129 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
     }
 }
 
+struct ScreenplayDraftSaveIntent: Equatable {
+    let source: String
+    let notes: String
+
+    static let autosave = ScreenplayDraftSaveIntent(source: "studio_autosave", notes: "")
+    static let clementinePageWrite = ScreenplayDraftSaveIntent(
+        source: "studio_clementine_page_write",
+        notes: "Saved from Clementine page write"
+    )
+}
+
+struct ScreenplayDraftSaveIntentPolicy {
+    static func intent(
+        draft: String,
+        selectedProjectID: String,
+        isManualDraftEditing: Bool,
+        committedWrite: ScreenplayCommittedWrite?
+    ) -> ScreenplayDraftSaveIntent {
+        guard !isManualDraftEditing,
+              let committedWrite,
+              committedWrite.isAuthoritativeWrite else {
+            return .autosave
+        }
+
+        let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedProject.isEmpty,
+              selectedProject == committedWrite.normalizedProjectID,
+              normalizedDraft(draft) == normalizedDraft(committedWrite.committedDraft) else {
+            return .autosave
+        }
+        return .clementinePageWrite
+    }
+
+    private static func normalizedDraft(_ draft: String) -> String {
+        draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ScreenplayDraftSaveCompletionPolicy {
+    static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
+        normalizedDraft(currentDraft) != normalizedDraft(savedDraft)
+    }
+
+    private static func normalizedDraft(_ draft: String) -> String {
+        draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ScreenplayDraftIntegrityFingerprint {
+    static func value(for draft: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in draft.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+}
+
+struct ScreenplayDraftSaveCoalescingPolicy {
+    static func shouldCoalesce(
+        activeDraft: String,
+        activeSource: String,
+        activeNotes: String,
+        activeBaseVersionOverride: String?,
+        pendingDraft: String,
+        pendingSource: String,
+        pendingNotes: String,
+        pendingBaseVersionOverride: String?
+    ) -> Bool {
+        normalizedDraft(activeDraft) == normalizedDraft(pendingDraft) &&
+            activeSource == pendingSource &&
+            activeNotes == pendingNotes &&
+            normalizedKey(activeBaseVersionOverride) == normalizedKey(pendingBaseVersionOverride)
+    }
+
+    private static func normalizedDraft(_ draft: String) -> String {
+        draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedKey(_ value: String?) -> String {
+        (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ScreenplayCommittedDraftAdoptionPolicy {
+    static func shouldAdopt(
+        selectedProjectID: String,
+        committedProjectID: String,
+        currentDraft: String,
+        previousDraft: String,
+        committedDraft: String
+    ) -> Bool {
+        let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let committedProject = committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = normalizedDraft(currentDraft)
+        let previous = normalizedDraft(previousDraft)
+        let committed = normalizedDraft(committedDraft)
+        guard !selectedProject.isEmpty,
+              selectedProject == committedProject,
+              !committed.isEmpty else {
+            return false
+        }
+        return current == previous || current == committed
+    }
+
+    private static func normalizedDraft(_ draft: String) -> String {
+        draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct ScreenplayFeatureProgressionGuide: Equatable {
     struct Step: Equatable {
         let act: String
@@ -1149,6 +1272,7 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
 }
 
 private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
         if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
@@ -1165,6 +1289,7 @@ private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: Str
 }
 
 private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
         if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
@@ -1181,6 +1306,9 @@ private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey ke
 }
 
 private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
+    if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
+        return [fileValue]
+    }
     var values: [Any] = []
     var seenFingerprints: Set<String> = []
 
@@ -1385,6 +1513,13 @@ private extension View {
 
 @MainActor
 private final class ScreenplayStudioViewModel: ObservableObject {
+    private struct DraftSaveRequest {
+        let draft: String
+        let source: String
+        let notes: String
+        let baseVersionOverride: String?
+    }
+
     private struct CharacterTraitsRefreshResult {
         let traits: BackendCharacterTraitsResponse
         let archetypes: BackendCharacterArchetypesResponse?
@@ -1586,6 +1721,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
     private var isCrossDeviceRefreshInFlight = false
+    private var isDraftSaveInFlight = false
+    private var pendingDraftSaveRequest: DraftSaveRequest?
     private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
@@ -1727,6 +1864,52 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
+    }
+
+    @discardableResult
+    func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
+        guard committedWrite.isAuthoritativeWrite else { return false }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let committedProjectID = ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: bridge.preferredProjectID,
+            bindingProjectID: bridge.projectBinding.projectID
+        )
+        guard ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: selectedProjectID,
+            committedProjectID: committedProjectID,
+            currentDraft: fountainDraft,
+            previousDraft: committedWrite.previousDraft,
+            committedDraft: committedWrite.committedDraft
+        ) else {
+            return false
+        }
+
+        let committedDraft = committedWrite.committedDraft
+        if fountainDraft != committedDraft {
+            fountainDraft = committedDraft
+        }
+        isManualDraftEditing = false
+        lastManualDraftEditAt = .distantPast
+        hasUnsavedDraftChanges = fingerprint(for: committedDraft) != lastSavedDraftFingerprint
+        guard hasUnsavedDraftChanges else { return true }
+
+        autosaveStatusText = "Saving Clementine’s page..."
+        persistLocalDraftRecovery(
+            projectId: selectedProjectID,
+            draft: committedDraft,
+            baseVersionId: latestVersionID,
+            dirty: true
+        )
+        let saveIntent = resolvedDraftSaveIntent(for: committedDraft)
+        Task {
+            await saveCurrentDraft(
+                source: saveIntent.source,
+                notes: saveIntent.notes,
+                draftOverride: committedDraft
+            )
+        }
+        return true
     }
 
     @discardableResult
@@ -4654,27 +4837,106 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             autosaveStatusText = "Saved"
             return
         }
-        await saveCurrentDraft(source: "studio_autosave")
+        let saveIntent = resolvedDraftSaveIntent(for: draft)
+        await saveCurrentDraft(source: saveIntent.source, notes: saveIntent.notes)
+    }
+
+    private func resolvedDraftSaveIntent(for draft: String) -> ScreenplayDraftSaveIntent {
+        ScreenplayDraftSaveIntentPolicy.intent(
+            draft: draft,
+            selectedProjectID: selectedProjectID,
+            isManualDraftEditing: isManualDraftEditing,
+            committedWrite: ScreenplayLiveDraftBridge.shared.lastCommittedWrite
+        )
     }
 
     private func saveCurrentDraft(
         source: String,
         notes: String = "",
-        baseVersionOverride: String? = nil
+        baseVersionOverride: String? = nil,
+        draftOverride: String? = nil
     ) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = DraftSaveRequest(
+            draft: draftOverride ?? fountainDraft,
+            source: source,
+            notes: notes,
+            baseVersionOverride: baseVersionOverride
+        )
+        let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             autosaveStatusText = "Draft empty"
             return
         }
 
+        if isDraftSaveInFlight {
+            pendingDraftSaveRequest = request
+            return
+        }
+
+        isDraftSaveInFlight = true
+        defer { isDraftSaveInFlight = false }
+
+        var nextRequest: DraftSaveRequest? = request
+        while let activeRequest = nextRequest {
+            pendingDraftSaveRequest = nil
+            let didSave = await performDraftSave(activeRequest)
+            guard didSave else {
+                pendingDraftSaveRequest = nil
+                return
+            }
+            if let queuedRequest = pendingDraftSaveRequest {
+                if ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+                    activeDraft: activeRequest.draft,
+                    activeSource: activeRequest.source,
+                    activeNotes: activeRequest.notes,
+                    activeBaseVersionOverride: activeRequest.baseVersionOverride,
+                    pendingDraft: queuedRequest.draft,
+                    pendingSource: queuedRequest.source,
+                    pendingNotes: queuedRequest.notes,
+                    pendingBaseVersionOverride: queuedRequest.baseVersionOverride
+                ) {
+                    nextRequest = nil
+                } else {
+                    nextRequest = queuedRequest
+                }
+                continue
+            }
+
+            let currentDraft = fountainDraft
+            guard ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+                currentDraft: currentDraft,
+                savedDraft: activeRequest.draft
+            ),
+            selectedProject != nil,
+            autosaveEnabled,
+            !isStreamingDraftPreviewActive else {
+                nextRequest = nil
+                continue
+            }
+            let intent = resolvedDraftSaveIntent(for: currentDraft)
+            nextRequest = DraftSaveRequest(
+                draft: currentDraft,
+                source: intent.source,
+                notes: intent.notes,
+                baseVersionOverride: nil
+            )
+        }
+    }
+
+    private func performDraftSave(_ request: DraftSaveRequest) async -> Bool {
+        guard let project = selectedProject else {
+            errorText = "Select a project first."
+            return false
+        }
+        let normalized = request.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            autosaveStatusText = "Draft empty"
+            return false
+        }
+
         #if DEBUG
         if IOThemRuntime.isRunningUITests,
-           source == "studio_conflict_resolve",
+           request.source == "studio_conflict_resolve",
            ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
             latestVersionID = "ui-local-version"
             lastSavedDraftFingerprint = fingerprint(for: normalized)
@@ -4687,7 +4949,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             errorText = ""
             infoText = "Local draft saved."
             clearLocalDraftRecovery(projectId: project.id)
-            return
+            return true
         }
         #endif
 
@@ -4695,17 +4957,17 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isSaving = false }
         do {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
-            let baseVersionId = (baseVersionOverride ?? latestVersionID)
+            let baseVersionId = (request.baseVersionOverride ?? latestVersionID)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let result: BackendReadResult<BackendScreenplayVersionMutationResponse>
             do {
                 result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
                     projectId: project.id,
-                    draft: fountainDraft,
+                    draft: request.draft,
                     title: project.title,
                     phase: project.lastPhase ?? "scene_draft",
-                    notes: notes,
-                    source: source,
+                    notes: request.notes,
+                    source: request.source,
                     studioWriteAnchors: studioWriteAnchors,
                     screenplayBindings: screenplayBindings,
                     baseVersionId: baseVersionId,
@@ -4718,11 +4980,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                         where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
                 result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
                     projectId: project.id,
-                    draft: fountainDraft,
+                    draft: request.draft,
                     title: project.title,
                     phase: project.lastPhase ?? "scene_draft",
-                    notes: notes,
-                    source: source,
+                    notes: request.notes,
+                    source: request.source,
                     studioWriteAnchors: studioWriteAnchors,
                     screenplayBindings: screenplayBindings,
                     baseVersionId: baseVersionId,
@@ -4753,7 +5015,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                     baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
                     surfaceCandidate: false
                 )
-                return
+                return false
             }
             conflictState = nil
             if let nextProject = result.payload.project {
@@ -4777,33 +5039,44 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             syncLiveDraftBridgeProjectContext()
             lastSavedDraftFingerprint = fingerprint(for: normalized)
             lastRevisionBaseDraft = normalized
-            hasUnsavedDraftChanges = false
-            isManualDraftEditing = false
-            lastManualDraftEditAt = .distantPast
+            hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+                currentDraft: fountainDraft,
+                savedDraft: request.draft
+            )
+            if !hasUnsavedDraftChanges {
+                isManualDraftEditing = false
+                lastManualDraftEditAt = .distantPast
+            }
             loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            autosaveStatusText = source == "studio_manual" ? "Saved now" : "Autosaved"
-            if source == "studio_manual" {
+            if hasUnsavedDraftChanges {
+                autosaveStatusText = "Unsaved changes"
+            } else {
+                autosaveStatusText = request.source == "studio_manual" ? "Saved now" : "Autosaved"
+            }
+            if request.source == "studio_manual" && !hasUnsavedDraftChanges {
                 infoText = "Draft saved."
-            } else if source == "studio_snapshot" {
+            } else if request.source == "studio_snapshot" && !hasUnsavedDraftChanges {
                 infoText = "Snapshot saved."
-            } else if source == "studio_conflict_resolve" {
+            } else if request.source == "studio_conflict_resolve" && !hasUnsavedDraftChanges {
                 infoText = "Local draft saved."
-            } else if ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(infoText) {
+            } else if !hasUnsavedDraftChanges,
+                      ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(infoText) {
                 infoText = ""
             }
-            if source == "studio_snapshot" || source == "studio_conflict_resolve" {
+            if request.source == "studio_snapshot" || request.source == "studio_conflict_resolve" {
                 await loadSelectedProjectOutline()
             }
             persistLocalDraftRecovery(
                 projectId: project.id,
-                draft: normalized,
+                draft: fountainDraft,
                 baseVersionId: latestVersionID,
-                dirty: false
+                dirty: hasUnsavedDraftChanges
             )
-            await recomputeRevision(for: fountainDraft, source: source)
+            await recomputeRevision(for: fountainDraft, source: request.source)
             if !errorText.isEmpty {
                 errorText = ""
             }
+            return true
         } catch {
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(
@@ -4811,12 +5084,13 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: latestVersionID
             )
-            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: source)
-            infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: source)
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
+            infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: request.source)
             errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
-                source: source,
+                source: request.source,
                 underlying: error.localizedDescription
             )
+            return false
         }
     }
 
@@ -5107,12 +5381,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func fingerprint(for value: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
+        ScreenplayDraftIntegrityFingerprint.value(for: value)
     }
 
     private func evaluateLocalDraftRecovery(
@@ -6056,6 +6325,8 @@ struct ScreenplayStudioScreen: View {
             "latest_ask_note_inserted_text": studioAskNoteHistory.first?.insertedText ?? "",
             "draft_preview": String(normalizedDraft.prefix(260)),
             "draft_tail_preview": String(normalizedDraft.suffix(260)),
+            "draft_character_count": normalizedDraft.count,
+            "draft_fingerprint": ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
             "collaborator_count": vm.collaborators.count,
             "approved_emails": vm.approvedEmails,
             "comment_count": vm.comments.count,
@@ -6758,12 +7029,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                let previousDraft = committedWrite.previousDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                let committedDraft = committedWrite.committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if currentDraft == previousDraft, currentDraft != committedDraft {
-                    vm.fountainDraft = committedWrite.committedDraft
-                }
+                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -18169,6 +18435,8 @@ private var projectsSidebarContent: some View {
         let infoText: String
         let draftPreview: String
         let draftTailPreview: String
+        let draftCharacterCount: Int
+        let draftFingerprint: String
         let focusedDiffKey: String
         let latestThreadRequestID: String
         let latestThreadWriteID: String
@@ -29357,6 +29625,8 @@ Look at the city.
             infoText: vm.infoText,
             draftPreview: draftPreview,
             draftTailPreview: draftTailPreview,
+            draftCharacterCount: normalizedDraft.count,
+            draftFingerprint: ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
             focusedDiffKey: focusedPageDiffPersistentKey,
             latestThreadRequestID: latestThreadEntry?.requestID ?? "",
             latestThreadWriteID: latestThreadEntry?.writeID ?? "",

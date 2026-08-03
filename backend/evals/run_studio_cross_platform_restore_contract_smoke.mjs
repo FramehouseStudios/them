@@ -33,6 +33,22 @@ const CANON_FACTS = Object.freeze([
 ]);
 const CANON_CORRECTION = "Mara never abandons anyone at the east ferry dock. She goes back for both of them. The unresolved setup is Mara promised to return for Eli and June.";
 const LIVE_SYNC_DRAFT_MARKER = "Mara hears both ferry horns answer from the dark water.";
+const MAC_PAGE_WRITE_ONE = `INT. KITCHEN - DAY
+
+LUCY reaches the threshold before FRANK can answer, taking the room's silence with her.
+
+FRANK
+Lucy--
+
+The door closes softly. That is worse than a slam.`;
+const MAC_PAGE_WRITE_TWO = `EXT. FERRY TERMINAL - DAWN
+
+MARA reaches the locked gate as the last ferry pulls away. Across the water, ELI raises the red flare.
+
+MARA
+You said we still had time.
+
+She grips the chain, then turns toward the maintenance skiff.`;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -48,6 +64,24 @@ function sameTextList(actual, expected) {
   const left = (Array.isArray(actual) ? actual : []).map(normalizeStudioRestoreText).sort();
   const right = (Array.isArray(expected) ? expected : []).map(normalizeStudioRestoreText).sort();
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function occurrenceCount(text, needle) {
+  const source = String(text || "");
+  const target = String(needle || "");
+  if (!target) return 0;
+  return source.split(target).length - 1;
+}
+
+function draftFingerprint(value) {
+  let hash = 14_695_981_039_346_656_037n;
+  const prime = 1_099_511_628_211n;
+  const mask = 0xffff_ffff_ffff_ffffn;
+  for (const byte of Buffer.from(String(value || ""), "utf8")) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16);
 }
 
 async function seedPendingCanonCorrection(server, seeded) {
@@ -237,10 +271,25 @@ async function saveSharedProjectFromIPhone(seeded) {
     "iPhone live screenplay save did not return a version id."
   );
   assert(versionID !== seeded.versionID, "iPhone live screenplay save reused the stale base version id.");
+  const probe = await fetchStudioProjectMetadata(seeded.projectID, seeded.headers, seeded.baseURL);
+  assert(probe.response.ok && probe.metadata, "iPhone live screenplay save could not be read back.");
+  assert(
+    probe.metadata.activeVersionId === normalizeStudioRestoreKey(versionID),
+    `iPhone live screenplay save did not become active: ${probe.metadata.activeVersionId}`
+  );
+  assert(
+    String(probe.metadata.activeVersion?.draft || "").trim() === draft,
+    "iPhone live screenplay save read back with a different draft."
+  );
+  assert(
+    occurrenceCount(probe.metadata.activeVersion?.draft, LIVE_SYNC_DRAFT_MARKER) === 1,
+    "iPhone live screenplay save duplicated its page marker."
+  );
   return {
     draft,
     versionID,
     stateVersion: String(result.payload?.state_version || ""),
+    probe,
   };
 }
 
@@ -277,6 +326,28 @@ function osascript(lines) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildCurrentMacApp() {
+  const result = spawnSync("xcodebuild", [
+    "build",
+    "-project", "them.xcodeproj",
+    "-scheme", "them-macOS-scaffold",
+    "-configuration", "Mac Scaffold Debug",
+    "-destination", "platform=macOS",
+    "CODE_SIGNING_ALLOWED=NO",
+    "CODE_SIGNING_REQUIRED=NO",
+  ], {
+    cwd: ROOT_DIR,
+    encoding: "utf8",
+    maxBuffer: 128 * 1024 * 1024,
+  });
+  assert(
+    result.status === 0,
+    "Could not build the current macOS app before the cross-platform restore contract.\n"
+      + `stdout:\n${result.stdout || ""}\n`
+      + `stderr:\n${result.stderr || ""}`
+  );
 }
 
 function findDebugAppPath() {
@@ -466,6 +537,7 @@ function writeMacRestoreDefaults(seeded) {
   writeDefaultString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
   writeDefaultString("studio_debug_diff_state_json", "");
   writeDefaultString("studio_debug_project_load_trace_json", "[]");
+  writeDefaultString("studio_debug_submit_transport_mode", "stub");
   synchronizeDefaults();
 }
 
@@ -508,6 +580,7 @@ function expectedMacRestoreState(state, seeded, stagedRequest) {
       normalizeStudioRestoreText(seeded.expectedDraft)
     )
     && draftText.includes(normalizeStudioRestoreText(seeded.expectedDraft))
+    && Number(state.draftCharacterCount || 0) === String(seeded.expectedDraft || "").trim().length
     && expectedCollaborationState(state, seeded);
 }
 
@@ -523,7 +596,92 @@ async function waitForMacRestoreState(seeded, stagedRequest) {
   throw new Error(`macOS did not restore the shared Studio project.\n${JSON.stringify({ seeded, stagedRequest, state }, null, 2)}`);
 }
 
-async function waitForMacLiveSync({ seeded, versionID, appPath, originalPID }) {
+async function submitMacStudioPageWrite(prompt) {
+  const token = Math.max(
+    Date.now() % 1_000_000_000,
+    readDefaultInt("studio_debug_submit_token"),
+    readDefaultInt("studio_debug_submit_ack_token"),
+    readDefaultInt("studio_debug_submit_result_token")
+  ) + 1;
+  writeDefaultInt("studio_debug_submit_ack_token", 0);
+  writeDefaultInt("studio_debug_submit_result_token", 0);
+  writeDefaultString("studio_debug_submit_result_status", "");
+  writeDefaultString("studio_debug_submit_result_error", "");
+  writeDefaultString("studio_debug_submit_text", prompt);
+  writeDefaultString("studio_debug_submit_routing", "page");
+  writeDefaultString("studio_debug_submit_replacement_mode", "none");
+  writeDefaultInt("studio_debug_submit_token", token);
+  synchronizeDefaults();
+
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const resultToken = readDefaultInt("studio_debug_submit_result_token");
+    const status = readDefaultString("studio_debug_submit_result_status").toLowerCase();
+    if (resultToken === token && status === "ok") return token;
+    if (resultToken === token && status === "error") {
+      throw new Error(
+        `macOS Studio page write failed: ${readDefaultString("studio_debug_submit_result_error") || "unknown error"}`
+      );
+    }
+    await sleep(100);
+  }
+  throw new Error(`macOS Studio did not finish page write: ${prompt}`);
+}
+
+async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID) {
+  await submitMacStudioPageWrite("Write the first batch into the screenplay page.");
+  await submitMacStudioPageWrite("Write the second batch at the ferry terminal into the screenplay page.");
+
+  const expectedDraft = `${seeded.expectedDraft.trim()}\n\n${MAC_PAGE_WRITE_ONE}\n\n${MAC_PAGE_WRITE_TWO}`;
+  const deadline = Date.now() + 30000;
+  let probe = null;
+  let state = null;
+  while (Date.now() < deadline) {
+    probe = await fetchStudioProjectMetadata(seeded.projectID, seeded.headers, seeded.baseURL);
+    state = readDebugDiffState();
+    const metadata = probe.metadata;
+    const activeDraft = String(metadata?.activeVersion?.draft || "").trim();
+    const activeVersionID = normalizeStudioRestoreKey(metadata?.activeVersionId);
+    const currentPID = currentAppPidForPath(appPath);
+    assert(currentPID === originalPID, `macOS app relaunched during page-write save: ${originalPID} -> ${currentPID || "stopped"}`);
+    const exactFinalVersions = (metadata?.versions || []).filter((version) => (
+      version.source === "studio_clementine_page_write"
+      && String(version.draft || "").trim() === expectedDraft
+    ));
+    if (
+      probe.response.ok
+      && activeVersionID
+      && activeVersionID !== normalizeStudioRestoreKey(seeded.versionID)
+      && activeDraft === expectedDraft
+      && occurrenceCount(activeDraft, MAC_PAGE_WRITE_ONE) === 1
+      && occurrenceCount(activeDraft, MAC_PAGE_WRITE_TWO) === 1
+      && exactFinalVersions.length === 1
+      && normalizeStudioRestoreKey(state?.latestVersionID) === activeVersionID
+      && Number(state?.draftCharacterCount || 0) === expectedDraft.length
+      && normalizeStudioRestoreKey(state?.draftFingerprint) === draftFingerprint(expectedDraft)
+      && !Boolean(state?.hasUnsavedDraftChanges)
+      && !normalizeStudioRestoreKey(state?.errorText)
+    ) {
+      return {
+        draft: expectedDraft,
+        versionID: activeVersionID,
+        probe,
+        state,
+        expectedAskNoteText: MAC_PAGE_WRITE_TWO,
+      };
+    }
+    await sleep(250);
+  }
+  throw new Error(`macOS did not persist two authoritative page writes exactly once.\n${JSON.stringify({
+    projectID: seeded.projectID,
+    initialVersionID: seeded.versionID,
+    expectedDraftLength: expectedDraft.length,
+    metadata: probe?.metadata || null,
+    state,
+  }, null, 2)}`);
+}
+
+async function waitForMacLiveSync({ seeded, versionID, expectedDraft, appPath, originalPID }) {
   const deadline = Date.now() + 30000;
   let state = null;
   while (Date.now() < deadline) {
@@ -535,6 +693,8 @@ async function waitForMacLiveSync({ seeded, versionID, appPath, originalPID }) {
       normalizeStudioRestoreKey(state?.selectedProjectID) === normalizeStudioRestoreKey(seeded.projectID)
       && normalizeStudioRestoreKey(state?.latestVersionID) === normalizeStudioRestoreKey(versionID)
       && draftText.includes(normalizeStudioRestoreText(LIVE_SYNC_DRAFT_MARKER))
+      && Number(state?.draftCharacterCount || 0) === String(expectedDraft || "").trim().length
+      && normalizeStudioRestoreKey(state?.draftFingerprint) === draftFingerprint(String(expectedDraft || "").trim())
       && !normalizeStudioRestoreKey(state?.errorText)
     ) {
       return state;
@@ -683,6 +843,17 @@ const restoreKeys = [
   "studio.ask.note.history.v2",
   "studio_debug_diff_state_json",
   "studio_debug_project_load_trace_json",
+  "studio_debug_submit_transport_mode",
+  "studio_debug_submit_text",
+  "studio_debug_submit_routing",
+  "studio_debug_submit_replacement_mode",
+  "studio_debug_submit_ack_text",
+  "studio_debug_submit_ack_routing",
+  "studio_debug_submit_ack_replacement_mode",
+  "studio_debug_submit_ack_request_id",
+  "studio_debug_submit_result_status",
+  "studio_debug_submit_result_error",
+  "studio_debug_submit_result_json",
   "app_token",
   "backend_base_url",
   "client_token",
@@ -697,6 +868,10 @@ const restoreIntKeys = [
   "client_token_cached_at",
   "studio_debug_load_project_token",
   "studio_debug_load_project_ack_token",
+  "studio_debug_submit_token",
+  "studio_debug_submit_command_received_token",
+  "studio_debug_submit_ack_token",
+  "studio_debug_submit_result_token",
 ];
 const restoreBoolKeys = [
   "auth_debug_access_token_enabled",
@@ -708,6 +883,7 @@ const originalBoolValues = Object.fromEntries(restoreBoolKeys.map((key) => [key,
 
 let server = null;
 try {
+  buildCurrentMacApp();
   const backendEnv = {
     APP_TOKEN,
     REQUIRE_USER_AUTH: "1",
@@ -757,15 +933,28 @@ try {
   await assertCanonCorrectionVisibleToClient(iphoneSeeded, "restarted iPhone");
   const macPIDBeforeLiveSync = currentAppPidForPath(mac.appPath);
   assert(macPIDBeforeLiveSync > 0, "Could not identify the running macOS app before live sync.");
-  const liveSave = await saveSharedProjectFromIPhone(iphoneSeeded);
+  const macPageWriteSave = await saveTwoAuthoritativePageWritesOnMac(
+    macSeeded,
+    mac.appPath,
+    macPIDBeforeLiveSync
+  );
+  const iphoneWriteBaseSeeded = {
+    ...iphoneSeeded,
+    expectedDraft: macPageWriteSave.draft,
+    expectedAskNoteText: macPageWriteSave.expectedAskNoteText,
+    versionID: macPageWriteSave.versionID,
+  };
+  const liveSave = await saveSharedProjectFromIPhone(iphoneWriteBaseSeeded);
   const liveMacState = await waitForMacLiveSync({
-    seeded: iphoneSeeded,
+    seeded: iphoneWriteBaseSeeded,
     versionID: liveSave.versionID,
+    expectedDraft: liveSave.draft,
     appPath: mac.appPath,
     originalPID: macPIDBeforeLiveSync,
   });
   const liveIPhoneSeeded = {
-    ...iphoneSeeded,
+    ...iphoneWriteBaseSeeded,
+    expectedDraft: liveSave.draft,
     versionID: liveSave.versionID,
   };
   const iphone = restoreSharedProjectOniPhone(liveIPhoneSeeded);
@@ -797,6 +986,17 @@ try {
       draftMarkerVisible: normalizeStudioRestoreText(
         `${liveMacState?.draftPreview || ""} ${liveMacState?.draftTailPreview || ""}`
       ).includes(normalizeStudioRestoreText(LIVE_SYNC_DRAFT_MARKER)),
+    },
+    authoritativePageWrites: {
+      source: "macOS",
+      destination: "backend",
+      versionID: macPageWriteSave.versionID,
+      exactFinalVersionCount: macPageWriteSave.probe.metadata.versions.filter((version) => (
+        version.source === "studio_clementine_page_write"
+        && String(version.draft || "").trim() === macPageWriteSave.draft
+      )).length,
+      firstBatchOccurrences: occurrenceCount(macPageWriteSave.draft, MAC_PAGE_WRITE_ONE),
+      secondBatchOccurrences: occurrenceCount(macPageWriteSave.draft, MAC_PAGE_WRITE_TWO),
     },
     iphone: {
       outputBytes: iphone.output.length,

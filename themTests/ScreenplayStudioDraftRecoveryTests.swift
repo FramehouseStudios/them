@@ -667,6 +667,178 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testAuthoritativeClementineDraftUsesPageWriteSaveIntent() {
+        let draft = "FADE IN:\r\n\r\nINT. FERRY - NIGHT\r\n\r\nMara turns back for both of them."
+        let committedWrite = ScreenplayCommittedWrite(
+            id: UUID(),
+            writeID: "page-write-1",
+            projectID: "project-a",
+            previousDraft: "FADE IN:",
+            committedDraft: draft.replacingOccurrences(of: "\r\n", with: "\n"),
+            insertedText: "INT. FERRY - NIGHT\n\nMara turns back for both of them.",
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 3,
+            endLine: 5,
+            committedAt: Date()
+        )
+
+        XCTAssertEqual(
+            ScreenplayDraftSaveIntentPolicy.intent(
+                draft: draft,
+                selectedProjectID: " project-a ",
+                isManualDraftEditing: false,
+                committedWrite: committedWrite
+            ),
+            .clementinePageWrite
+        )
+    }
+
+    func testPageWriteSaveIntentRejectsManualStaleAndCrossProjectDrafts() {
+        let draft = "INT. FERRY - NIGHT\n\nMara turns back."
+        let committedWrite = ScreenplayCommittedWrite(
+            id: UUID(),
+            writeID: "page-write-2",
+            projectID: "project-a",
+            previousDraft: "",
+            committedDraft: draft,
+            insertedText: draft,
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 1,
+            endLine: 3,
+            committedAt: Date()
+        )
+
+        XCTAssertEqual(
+            ScreenplayDraftSaveIntentPolicy.intent(
+                draft: draft,
+                selectedProjectID: "project-a",
+                isManualDraftEditing: true,
+                committedWrite: committedWrite
+            ),
+            .autosave
+        )
+        XCTAssertEqual(
+            ScreenplayDraftSaveIntentPolicy.intent(
+                draft: draft + "\n\nA horn answers.",
+                selectedProjectID: "project-a",
+                isManualDraftEditing: false,
+                committedWrite: committedWrite
+            ),
+            .autosave
+        )
+        XCTAssertEqual(
+            ScreenplayDraftSaveIntentPolicy.intent(
+                draft: draft,
+                selectedProjectID: "project-b",
+                isManualDraftEditing: false,
+                committedWrite: committedWrite
+            ),
+            .autosave
+        )
+    }
+
+    func testDraftSaveCompletionKeepsNewerPageDirtyUntilItIsPersisted() {
+        let savedDraft = "INT. FERRY - NIGHT\n\nMara turns back."
+
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: "  \(savedDraft)\r\n",
+            savedDraft: savedDraft
+        ))
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: savedDraft + "\n\nA second horn answers.",
+            savedDraft: savedDraft
+        ))
+    }
+
+    func testDraftIntegrityFingerprintIsDeterministicAndContentSensitive() {
+        XCTAssertEqual(
+            ScreenplayDraftIntegrityFingerprint.value(for: "hello"),
+            "a430d84680aabd0b"
+        )
+        XCTAssertNotEqual(
+            ScreenplayDraftIntegrityFingerprint.value(for: "INT. ROOM - NIGHT\n\nHe waits."),
+            ScreenplayDraftIntegrityFingerprint.value(for: "INT. ROOM - NIGHT\n\nHe waits, still.")
+        )
+    }
+
+    func testDraftSaveCoalescingOnlyDropsIdenticalPendingIntent() {
+        let draft = "INT. FERRY - NIGHT\n\nMara turns back."
+
+        XCTAssertTrue(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+            activeDraft: draft,
+            activeSource: "studio_clementine_page_write",
+            activeNotes: "Saved from Clementine page write",
+            activeBaseVersionOverride: nil,
+            pendingDraft: "  \(draft)\r\n",
+            pendingSource: "studio_clementine_page_write",
+            pendingNotes: "Saved from Clementine page write",
+            pendingBaseVersionOverride: ""
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+            activeDraft: draft,
+            activeSource: "studio_clementine_page_write",
+            activeNotes: "Saved from Clementine page write",
+            activeBaseVersionOverride: nil,
+            pendingDraft: draft + "\n\nA second horn answers.",
+            pendingSource: "studio_clementine_page_write",
+            pendingNotes: "Saved from Clementine page write",
+            pendingBaseVersionOverride: nil
+        ))
+        XCTAssertFalse(ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+            activeDraft: draft,
+            activeSource: "studio_snapshot",
+            activeNotes: "First pass",
+            activeBaseVersionOverride: "version-1",
+            pendingDraft: draft,
+            pendingSource: "studio_snapshot",
+            pendingNotes: "Approved pass",
+            pendingBaseVersionOverride: "version-2"
+        ))
+    }
+
+    func testCommittedDraftAdoptionAcceptsExpectedPredecessorAndAlreadyAppliedDraft() {
+        let projectID = "project-one"
+        let previous = "INT. ROOM - NIGHT\n\nHe waits."
+        let committed = previous + "\n\nThe door opens."
+
+        XCTAssertTrue(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: projectID,
+            committedProjectID: projectID,
+            currentDraft: previous,
+            previousDraft: previous,
+            committedDraft: committed
+        ))
+        XCTAssertTrue(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: projectID,
+            committedProjectID: projectID,
+            currentDraft: committed,
+            previousDraft: previous,
+            committedDraft: committed
+        ))
+    }
+
+    func testCommittedDraftAdoptionRejectsCrossProjectAndDivergedDrafts() {
+        let previous = "INT. ROOM - NIGHT\n\nHe waits."
+        let committed = previous + "\n\nThe door opens."
+
+        XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: "project-one",
+            committedProjectID: "project-two",
+            currentDraft: previous,
+            previousDraft: previous,
+            committedDraft: committed
+        ))
+        XCTAssertFalse(ScreenplayCommittedDraftAdoptionPolicy.shouldAdopt(
+            selectedProjectID: "project-one",
+            committedProjectID: "project-one",
+            currentDraft: "INT. ROOM - NIGHT\n\nA protected manual rewrite.",
+            previousDraft: previous,
+            committedDraft: committed
+        ))
+    }
+
     func testBridgeVersionAdoptionRequiresSameProjectNewVersionAndCommittedDraft() {
         XCTAssertTrue(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
             selectedProjectId: " project-a ",

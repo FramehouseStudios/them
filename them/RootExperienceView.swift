@@ -339,6 +339,11 @@ private enum StudioDebugPreferenceSnapshot {
 }
 
 private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
+    #if DEBUG
+    if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
+        return [fileValue]
+    }
+    #endif
     var values: [Any] = []
     var seenFingerprints: Set<String> = []
 
@@ -368,6 +373,9 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
 }
 
 private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    #if DEBUG
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
         if let suite = studioDebugSuiteDefaults(for: domain) {
@@ -384,6 +392,9 @@ private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
 }
 
 private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    #if DEBUG
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
         if let suite = studioDebugSuiteDefaults(for: domain) {
@@ -819,8 +830,6 @@ struct RootExperienceView: View {
     @State private var lastAutoOpenedStudioTurnID = ""
     @State private var isAutoCreatingStudioProject = false
     @State private var lastAutoCreatedStudioProjectKey = ""
-    @State private var lastPersistedStudioWriteKey = ""
-    @State private var studioWritePersistenceTask: Task<Void, Never>?
     @State private var realtimeBridgeRequest: URLRequest?
     @State private var realtimePreviewStandardFallbackActive = false
     @State private var realtimePendingUserTranscript = ""
@@ -2365,6 +2374,8 @@ struct RootExperienceView: View {
         )
     }
 
+#endif
+
     private func silentTalkWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
         let safeDurationMs = max(120, min(2_000, durationMs))
         let channels: UInt16 = 1
@@ -2403,7 +2414,6 @@ struct RootExperienceView: View {
         var littleEndian = value.littleEndian
         return Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size)
     }
-#endif
 
     private func handleContentViewAppear() {
         #if DEBUG || os(macOS)
@@ -4225,29 +4235,19 @@ struct RootExperienceView: View {
     }
 
     private var shouldUseDebugStudioPromptStubTransport: Bool {
-        UserDefaults.standard.synchronize()
-        let standardValue = UserDefaults.standard.string(forKey: "studio_debug_submit_transport_mode")
-        let bundleValue = Bundle.main.bundleIdentifier
-            .flatMap { UserDefaults.standard.persistentDomain(forName: $0)?["studio_debug_submit_transport_mode"] as? String }
-        let cfValue = CFPreferencesCopyAppValue(
-            "studio_debug_submit_transport_mode" as CFString,
-            kCFPreferencesCurrentApplication
-        ) as? String
-        return (cfValue ?? standardValue ?? bundleValue ?? studioDebugSubmitTransportMode)
+        studioDebugPreferenceString(
+            "studio_debug_submit_transport_mode",
+            fallback: studioDebugSubmitTransportMode
+        )
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "stub"
     }
 
     private var shouldUseDebugStudioPromptLiveBackendTransport: Bool {
-        UserDefaults.standard.synchronize()
-        let standardValue = UserDefaults.standard.string(forKey: "studio_debug_submit_transport_mode")
-        let bundleValue = Bundle.main.bundleIdentifier
-            .flatMap { UserDefaults.standard.persistentDomain(forName: $0)?["studio_debug_submit_transport_mode"] as? String }
-        let cfValue = CFPreferencesCopyAppValue(
-            "studio_debug_submit_transport_mode" as CFString,
-            kCFPreferencesCurrentApplication
-        ) as? String
-        return (cfValue ?? standardValue ?? bundleValue ?? studioDebugSubmitTransportMode)
+        studioDebugPreferenceString(
+            "studio_debug_submit_transport_mode",
+            fallback: studioDebugSubmitTransportMode
+        )
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "live-backend"
     }
@@ -8786,110 +8786,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             phase: cleanPhase,
             existingProjectID: cleanProject
         )
-        persistCommittedStudioWriteIfPossible(
-            expectedInsertedText: cleanText,
-            projectId: cleanProject,
-            baseVersionId: cleanVersion,
-            phase: cleanPhase,
-            promptSource: promptSource
-        )
         return cleanText
-    }
-
-    @MainActor
-    private func persistCommittedStudioWriteIfPossible(
-        expectedInsertedText: String,
-        projectId: String,
-        baseVersionId: String,
-        phase: String,
-        promptSource: ScreenplayStudioUserPrompt.Source
-    ) {
-        let cleanProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanInsertedText = expectedInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanProject.isEmpty, !cleanInsertedText.isEmpty else { return }
-
-        let cleanBaseVersion = baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "scene_draft"
-            : phase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let persistenceKey = [
-            cleanProject,
-            cleanBaseVersion,
-            cleanInsertedText,
-            promptSource.rawValue,
-        ].joined(separator: "|")
-        guard persistenceKey != lastPersistedStudioWriteKey else { return }
-        lastPersistedStudioWriteKey = persistenceKey
-
-        studioWritePersistenceTask?.cancel()
-        studioWritePersistenceTask = Task { @MainActor in
-            await waitForStudioPageWriteCommitIfNeeded(
-                targetOverride: .page,
-                insertedTextOverride: cleanInsertedText
-            )
-            guard !Task.isCancelled else { return }
-            guard let committedWrite = screenplayDraftBridge.lastCommittedWrite,
-                  committedWrite.isAuthoritativeWrite else {
-                screenplayDraftBridge.autoInsertStatusText = "Studio project save pending"
-                return
-            }
-
-            let committedInsertedText = committedWrite.insertedText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "\r\n", with: "\n")
-            let normalizedExpected = cleanInsertedText.replacingOccurrences(of: "\r\n", with: "\n")
-            guard committedInsertedText == normalizedExpected
-                    || committedInsertedText.contains(normalizedExpected)
-                    || normalizedExpected.contains(committedInsertedText) else {
-                screenplayDraftBridge.autoInsertStatusText = "Studio project save pending"
-                return
-            }
-
-            let committedDraft = committedWrite.committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !committedDraft.isEmpty else { return }
-
-            do {
-                let result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                    projectId: cleanProject,
-                    draft: committedWrite.committedDraft,
-                    phase: cleanPhase,
-                    notes: "Saved from Clementine \(promptSource.rawValue) page write",
-                    source: "studio_clementine_page_write",
-                    baseVersionId: cleanBaseVersion,
-                    conflictStrategy: cleanBaseVersion.isEmpty ? "append" : "reject_if_stale"
-                )
-                guard !Task.isCancelled else { return }
-                let conflictDetected = (result.payload.conflict ?? false)
-                    || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
-                if conflictDetected {
-                    if screenplayDraftBridge.draftText != committedWrite.committedDraft {
-                        screenplayDraftBridge.draftText = committedWrite.committedDraft
-                    }
-                    lastPersistedStudioWriteKey = ""
-                    screenplayDraftBridge.autoInsertStatusText = "Studio project changed; local draft kept"
-                    return
-                }
-                let nextProjectID = (result.payload.project?.id ?? cleanProject)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let nextVersionID = (result.payload.versionId ?? result.payload.version?.id ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !nextProjectID.isEmpty {
-                    screenplayDraftBridge.preferredProjectID = nextProjectID
-                    liveScreenplayProjectID = nextProjectID
-                }
-                if !nextVersionID.isEmpty {
-                    screenplayDraftBridge.preferredVersionID = nextVersionID
-                    liveScreenplayVersionID = nextVersionID
-                }
-                if !committedDraft.isEmpty, screenplayDraftBridge.draftText != committedWrite.committedDraft {
-                    screenplayDraftBridge.draftText = committedWrite.committedDraft
-                }
-                screenplayDraftBridge.autoInsertStatusText = "Saved to Studio project"
-            } catch {
-                lastPersistedStudioWriteKey = ""
-                screenplayDraftBridge.autoInsertStatusText = "Studio project save failed: \(error.localizedDescription)"
-            }
-        }
     }
 
     @MainActor

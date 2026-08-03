@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -51,6 +51,34 @@ function defaultDebugDomains() {
   }
   // Use the app's logical defaults domain as the deterministic source of truth.
   return ["io.them.them"];
+}
+
+const STUDIO_DEBUG_FILE_PREFERENCES_DIR = "/tmp/them_studio_debug_preferences_v1";
+
+function debugFilePreferencePath(key) {
+  return join(STUDIO_DEBUG_FILE_PREFERENCES_DIR, `${encodeURIComponent(String(key || ""))}.json`);
+}
+
+function readDebugFilePreference(key) {
+  const path = debugFilePreferencePath(key);
+  if (!existsSync(path)) return { found: false, value: undefined };
+  try {
+    const payload = JSON.parse(readFileSync(path, "utf8"));
+    if (!payload || !Object.prototype.hasOwnProperty.call(payload, "value")) {
+      return { found: false, value: undefined };
+    }
+    return { found: true, value: payload.value };
+  } catch {
+    return { found: false, value: undefined };
+  }
+}
+
+function writeDebugFilePreference(key, value) {
+  mkdirSync(STUDIO_DEBUG_FILE_PREFERENCES_DIR, { recursive: true });
+  const targetPath = debugFilePreferencePath(key);
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify({ value }), "utf8");
+  renameSync(temporaryPath, targetPath);
 }
 
 function defaultDebugPlistTargets(domains = []) {
@@ -106,6 +134,15 @@ export function createStudioDebugDefaultsTransport({
   }
 
   function readDomainResults(key) {
+    const filePreference = readDebugFilePreference(key);
+    if (filePreference.found) {
+      return [{
+        domain: "file-bridge",
+        value: typeof filePreference.value === "string"
+          ? filePreference.value
+          : JSON.stringify(filePreference.value),
+      }];
+    }
     const results = [];
     for (const target of debugPlistTargets) {
       const plist = readPlistObject(target.plistPath);
@@ -186,6 +223,20 @@ export function createStudioDebugDefaultsTransport({
   function writeKey(key, args) {
     let wrote = false;
     let lastError = "";
+    const [type, rawValue] = args;
+    let fileValue = String(rawValue ?? "");
+    if (type === "-int") {
+      fileValue = Number.parseInt(String(rawValue), 10) || 0;
+    } else if (type === "-bool") {
+      const normalized = String(rawValue).trim().toLowerCase();
+      fileValue = normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+    }
+    try {
+      writeDebugFilePreference(key, fileValue);
+      wrote = true;
+    } catch (error) {
+      lastError = error?.message || lastError;
+    }
     const defaultsArgSize = args.reduce((sum, value) => sum + String(value).length, 0);
     const shouldUseDefaultsWrite = defaultsArgSize < 500_000;
     for (const domain of writeTargets) {

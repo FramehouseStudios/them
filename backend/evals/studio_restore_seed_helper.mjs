@@ -566,6 +566,7 @@ export function createStudioRestoreUITestFixtureJSON(seeded, { loadToken = Date.
     versionID: seeded?.versionID || "",
     loadToken,
     expectedDraft: seeded?.expectedDraft || "",
+    expectedAskNoteText: seeded?.expectedAskNoteText || seeded?.expectedDraft || "",
     expectedFocusedDiffKey: seeded?.expectedFocusedDiffKey || "",
     expectedReopenedWriteID: seeded?.expectedReopenedWriteID || "",
     expectedReopenedLineageKey: seeded?.expectedReopenedLineageKey || "",

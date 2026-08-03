@@ -760,41 +760,62 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "He waits, still.", timeout: 10))
 
         var finalSnapshot: [String: Any] = [:]
+        var finalFailures: [String] = []
         let restored = waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
             finalSnapshot = snapshot
-            let draftText = normalizedScreenplayText(
-                "\(stringValue(snapshot["draft_preview"])) \(stringValue(snapshot["draft_tail_preview"]))"
-            )
-            let reopenedLineageKeys = arrayValue(snapshot["restored_reopened_lineage_keys"])
-                .map { $0.lowercased() }
-            let approvedEmails = arrayValue(snapshot["approved_emails"])
-                .map { $0.lowercased() }
-            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                && stringValue(snapshot["latest_version_id"]).lowercased() == fixture.versionID.lowercased()
-                && boolValue(snapshot["selected_project_present"])
-                && boolValue(snapshot["load_project_ready"])
-                && stringValue(snapshot["load_project_stage"]).lowercased() == "editor_ready"
-                && intValue(snapshot["load_project_token"]) == fixture.loadToken
-                && stringValue(snapshot["load_project_error"]).isEmpty
-                && stringValue(snapshot["restored_focused_diff_key"]).lowercased() == fixture.expectedFocusedDiffKey.lowercased()
-                && reopenedLineageKeys.contains(fixture.expectedReopenedLineageKey.lowercased())
-                && stringValue(snapshot["restored_latest_reopened_write_id"]).lowercased() == fixture.expectedReopenedWriteID.lowercased()
-                && intValue(snapshot["reopened_diff_count"]) > 0
-                && intValue(snapshot["ask_note_history_count"]) >= 3
-                && intValue(snapshot["backend_ask_note_history_count"]) >= 3
-                && normalizedScreenplayText(stringValue(snapshot["latest_ask_note_inserted_text"]))
-                    .contains(normalizedScreenplayText(fixture.expectedDraft))
-                && draftText.contains(normalizedScreenplayText(fixture.expectedDraft))
-                && intValue(snapshot["collaborator_count"]) >= 1
-                && approvedEmails.contains(fixture.expectedCollaboratorEmail.lowercased())
-                && intValue(snapshot["comment_count"]) >= 1
-                && normalizedScreenplayText(stringValue(snapshot["latest_comment_text"])) == normalizedScreenplayText(fixture.expectedCommentText)
-                && stringValue(snapshot["latest_comment_author"]).lowercased() == fixture.expectedCollaboratorEmail.lowercased()
-                && boolValue(snapshot["latest_comment_resolved"])
-                && !boolValue(snapshot["latest_comment_deleted"])
-                && stringValue(snapshot["error_text"]).isEmpty
+            finalFailures = restoreSnapshotFailures(snapshot, fixture: fixture)
+            return finalFailures.isEmpty
         }
-        XCTAssertTrue(restored, "Restore snapshot never reached expected state: \(finalSnapshot)")
+        XCTAssertTrue(
+            restored,
+            "Restore snapshot failed: \(finalFailures.joined(separator: ", ")). Snapshot: \(finalSnapshot)"
+        )
+    }
+
+    private func restoreSnapshotFailures(
+        _ snapshot: [String: Any],
+        fixture: RestoreContractFixture
+    ) -> [String] {
+        let reopenedLineageKeys = arrayValue(snapshot["restored_reopened_lineage_keys"])
+            .map { $0.lowercased() }
+        let approvedEmails = arrayValue(snapshot["approved_emails"])
+            .map { $0.lowercased() }
+        let expectedDraft = fixture.expectedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var failures: [String] = []
+
+        func require(_ condition: @autoclosure () -> Bool, _ label: String) {
+            if !condition() { failures.append(label) }
+        }
+
+        require(stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased(), "selected_project_id")
+        require(stringValue(snapshot["latest_version_id"]).lowercased() == fixture.versionID.lowercased(), "latest_version_id")
+        require(boolValue(snapshot["selected_project_present"]), "selected_project_present")
+        require(boolValue(snapshot["load_project_ready"]), "load_project_ready")
+        require(stringValue(snapshot["load_project_stage"]).lowercased() == "editor_ready", "load_project_stage")
+        require(intValue(snapshot["load_project_token"]) == fixture.loadToken, "load_project_token")
+        require(stringValue(snapshot["load_project_error"]).isEmpty, "load_project_error")
+        require(stringValue(snapshot["restored_focused_diff_key"]).lowercased() == fixture.expectedFocusedDiffKey.lowercased(), "restored_focused_diff_key")
+        require(reopenedLineageKeys.contains(fixture.expectedReopenedLineageKey.lowercased()), "restored_reopened_lineage_keys")
+        require(stringValue(snapshot["restored_latest_reopened_write_id"]).lowercased() == fixture.expectedReopenedWriteID.lowercased(), "restored_latest_reopened_write_id")
+        require(intValue(snapshot["reopened_diff_count"]) > 0, "reopened_diff_count")
+        require(intValue(snapshot["ask_note_history_count"]) >= 3, "ask_note_history_count")
+        require(intValue(snapshot["backend_ask_note_history_count"]) >= 3, "backend_ask_note_history_count")
+        require(
+            normalizedScreenplayText(stringValue(snapshot["latest_ask_note_inserted_text"]))
+                .contains(normalizedScreenplayText(fixture.expectedAskNoteText)),
+            "latest_ask_note_inserted_text"
+        )
+        require(intValue(snapshot["draft_character_count"]) == expectedDraft.count, "draft_character_count")
+        require(stringValue(snapshot["draft_fingerprint"]) == draftFingerprint(expectedDraft), "draft_fingerprint")
+        require(intValue(snapshot["collaborator_count"]) >= 1, "collaborator_count")
+        require(approvedEmails.contains(fixture.expectedCollaboratorEmail.lowercased()), "approved_emails")
+        require(intValue(snapshot["comment_count"]) >= 1, "comment_count")
+        require(normalizedScreenplayText(stringValue(snapshot["latest_comment_text"])) == normalizedScreenplayText(fixture.expectedCommentText), "latest_comment_text")
+        require(stringValue(snapshot["latest_comment_author"]).lowercased() == fixture.expectedCollaboratorEmail.lowercased(), "latest_comment_author")
+        require(boolValue(snapshot["latest_comment_resolved"]), "latest_comment_resolved")
+        require(!boolValue(snapshot["latest_comment_deleted"]), "latest_comment_deleted")
+        require(stringValue(snapshot["error_text"]).isEmpty, "error_text")
+        return failures
     }
 
     @MainActor
@@ -1673,6 +1694,7 @@ final class V1SmokeUITests: XCTestCase {
         let versionID: String
         let loadToken: Int
         let expectedDraft: String
+        let expectedAskNoteText: String
         let expectedFocusedDiffKey: String
         let expectedReopenedWriteID: String
         let expectedReopenedLineageKey: String
@@ -1732,11 +1754,20 @@ final class V1SmokeUITests: XCTestCase {
         let acknowledgedJSON = try firstNonEmptyString(payload["acknowledgedJSON"], payload["acknowledged_json"], message: "Restore fixture missing acknowledgedJSON.")
         let acknowledgedWriteIDsJSON = try firstNonEmptyString(payload["acknowledgedWriteIDsJSON"], payload["acknowledged_write_ids_json"], message: "Restore fixture missing acknowledgedWriteIDsJSON.")
 
+        let expectedDraft = try firstNonEmptyString(
+            payload["expectedDraft"],
+            payload["expected_draft"],
+            message: "Restore fixture missing expectedDraft."
+        )
+        let expectedAskNoteText = stringValue(
+            payload["expectedAskNoteText"] ?? payload["expected_ask_note_text"]
+        )
         return RestoreContractFixture(
             projectID: try firstNonEmptyString(payload["projectID"], payload["project_id"], message: "Restore fixture missing projectID."),
             versionID: try firstNonEmptyString(payload["versionID"], payload["version_id"], message: "Restore fixture missing versionID."),
             loadToken: max(1, intValue(payload["loadToken"] ?? payload["load_token"])),
-            expectedDraft: try firstNonEmptyString(payload["expectedDraft"], payload["expected_draft"], message: "Restore fixture missing expectedDraft."),
+            expectedDraft: expectedDraft,
+            expectedAskNoteText: expectedAskNoteText.isEmpty ? expectedDraft : expectedAskNoteText,
             expectedFocusedDiffKey: try firstNonEmptyString(payload["expectedFocusedDiffKey"], payload["expected_focused_diff_key"], message: "Restore fixture missing expectedFocusedDiffKey."),
             expectedReopenedWriteID: try firstNonEmptyString(payload["expectedReopenedWriteID"], payload["expected_reopened_write_id"], message: "Restore fixture missing expectedReopenedWriteID."),
             expectedReopenedLineageKey: try firstNonEmptyString(payload["expectedReopenedLineageKey"], payload["expected_reopened_lineage_key"], message: "Restore fixture missing expectedReopenedLineageKey."),
@@ -1999,6 +2030,7 @@ final class V1SmokeUITests: XCTestCase {
             versionID: versionID,
             loadToken: loadToken,
             expectedDraft: thirdText,
+            expectedAskNoteText: thirdText,
             expectedFocusedDiffKey: focusedDiffKey,
             expectedReopenedWriteID: thirdWriteID,
             expectedReopenedLineageKey: lineageKey,
@@ -2205,5 +2237,14 @@ final class V1SmokeUITests: XCTestCase {
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+
+    private func draftFingerprint(_ value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
     }
 }

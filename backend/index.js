@@ -20,6 +20,7 @@ import {
   BACKEND_BUILD,
   CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT,
   DEFAULT_ASSISTANT_SELF_NAME,
+  HOST,
   JWT_SECRET,
   JWT_TTL_SECONDS,
   MAX_FILE_MB,
@@ -33001,8 +33002,8 @@ if (SHOULD_START_SERVER) {
   // so a deploy with a corrupted constant fails diagnostics loudly
   // instead of crashing on the first persistence call.
   checkKnownDomainsAtStartup();
-  app.listen(PORT, () => {
-    console.log(`Backend listening on http://localhost:${PORT}`);
+  const onListening = () => {
+    console.log(`Backend listening on http://${HOST || "localhost"}:${PORT}`);
     if (OUTBOX_ENABLED && OUTBOX_WORKER_ENABLED) {
       setInterval(() => {
         void runOutboxWorkerTick();
@@ -33011,7 +33012,12 @@ if (SHOULD_START_SERVER) {
     setTimeout(() => {
       void warmupKnowledgeEmbeddingsOnBoot({ rid: "knowledge_warmup_boot" });
     }, Math.max(0, KNOWLEDGE_RAG_WARMUP_DELAY_MS));
-  });
+  };
+  if (HOST) {
+    app.listen(PORT, HOST, onListening);
+  } else {
+    app.listen(PORT, onListening);
+  }
 }
 
 export {
