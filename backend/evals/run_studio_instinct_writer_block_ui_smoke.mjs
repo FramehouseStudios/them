@@ -33,7 +33,7 @@ const ACCEPTED_PAGE = [
   "",
   "She closes the clock and leaves him with the ticking.",
 ].join("\n");
-const PLATFORM = String(process.env.THEM_STUDIO_INSTINCT_UI_PLATFORM || "ios")
+const PLATFORM = String(process.env.THEM_STUDIO_INSTINCT_UI_PLATFORM || "all")
   .trim()
   .toLowerCase();
 
