@@ -457,6 +457,9 @@ function normalizeQuestionEffectiveness(rows) {
         actKey: clean(row?.act_key ?? row?.actKey, 24).toLowerCase(),
         sequenceKey: clean(row?.sequence_key ?? row?.sequenceKey, 32).toLowerCase(),
         writerBlocked: Boolean(row?.writer_blocked ?? row?.writerBlocked),
+        recommendationOnly: Boolean(
+          row?.recommendation_only ?? row?.recommendationOnly
+        ),
         askedAt: askedAt || answeredAt,
         answeredAt,
         responseStatus,
@@ -488,6 +491,7 @@ function normalizeQuestionEffectiveness(rows) {
 function applyAnsweredQuestionResolutions(states, questionEffectiveness = []) {
   const next = { ...(states || {}) };
   for (const outcome of questionEffectiveness) {
+    if (outcome?.recommendationOnly) continue;
     if (outcome?.responseStatus !== "answered") continue;
     const targetField = clean(outcome.targetField, 64).toLowerCase();
     if (!targetField.startsWith("project.") && !targetField.startsWith("character.")) continue;
@@ -515,6 +519,7 @@ function buildQuestionQuietWindow(
 ) {
   const resolvedNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
   for (const outcome of questionEffectiveness) {
+    if (outcome?.recommendationOnly) continue;
     const status = clean(outcome?.responseStatus, 24).toLowerCase();
     const windowMs = Number(QUESTION_QUIET_WINDOW_MS[status] || 0);
     if (!windowMs) continue;
@@ -544,7 +549,9 @@ function buildQuestionQuietWindow(
 }
 
 function buildQuestionInterventionProfile(questionEffectiveness = []) {
-  const sample = (Array.isArray(questionEffectiveness) ? questionEffectiveness : []).slice(0, 8);
+  const sample = (Array.isArray(questionEffectiveness) ? questionEffectiveness : [])
+    .filter((item) => !item?.recommendationOnly)
+    .slice(0, 8);
   const answeredCount = sample.filter((item) => (
     item.responseStatus === "answered" || item.successful
   )).length;
@@ -592,6 +599,7 @@ function questionEffectivenessBonus(field, {
   let bonus = 0;
   let matched = 0;
   for (const outcome of questionEffectiveness) {
+    if (outcome?.recommendationOnly) continue;
     if (!outcome?.successful) continue;
     const exactField = outcome.targetField === targetField;
     const sameLane = Boolean(targetLane && outcome.lane === targetLane);
@@ -626,6 +634,7 @@ function hasProvenBlockRecovery(field, {
   const targetField = clean(field, 64).toLowerCase();
   const targetLane = questionFieldLane(targetField);
   return questionEffectiveness.some((outcome) => {
+    if (outcome?.recommendationOnly) return false;
     if (!outcome?.writerBlocked || outcome.blockResolutionCount < 1) return false;
     const exactField = outcome.targetField === targetField;
     const sameLane = Boolean(targetLane && outcome.lane === targetLane);
@@ -1533,7 +1542,9 @@ export function buildScreenplayQuestionPlan({
     questionStrategy,
     selectionScore: gap.score,
     effectivenessBonus: gap.effectivenessBonus || 0,
-    successfulQuestionOutcomes: questionEffectiveness.filter((item) => item.successful).length,
+    successfulQuestionOutcomes: questionEffectiveness.filter((item) => (
+      item.successful && !item.recommendationOnly
+    )).length,
     candidateScores: candidateGaps
       .map((candidate) => ({
         field: candidate.field,

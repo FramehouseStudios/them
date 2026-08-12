@@ -1042,6 +1042,69 @@ test("accepted-page and unblock outcomes improve future sequence-specific rankin
   );
 });
 
+test("successful rescue recommendations do not masquerade as successful questions", () => {
+  const now = 8_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "I'm stuck in the promise-of-the-premise sequence. What happens next?",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "INT. FERRY CABIN - NIGHT",
+        accepted_at: now - (3 * 60 * 1_000),
+      }],
+      characters: [{
+        name: "Mara",
+        arc: {
+          want: "Save Eli",
+          need: "Trust Eli with the route",
+          wound: "She once abandoned June",
+          false_belief: "Control keeps everyone safe",
+          next_emotional_turn: "Let Eli choose the crossing",
+        },
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        protagonist_need: "Trust Eli with the route",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        ending_image: "Mara lets Eli steer the ferry into dawn",
+        theme_argument: "Love without trust becomes possession",
+        scene_objective: "Reach the quarantine gate",
+        question_effectiveness: [{
+          question_id: "writer-block-rescue-42",
+          target_field: "story.writer_block_rescue",
+          act_key: "act2",
+          sequence_key: "premise",
+          writer_blocked: true,
+          recommendation_only: true,
+          response_status: "answered",
+          answered_at: now - 1_000,
+          accepted_page_count: 1,
+          block_resolution_count: 1,
+          selected_move_family: "relationship_pressure",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Promise of the Premise",
+      screenplayCharacterFocus: ["Mara"],
+    },
+    turnPlanner: { intent: "momentum_rescue" },
+    now,
+  });
+
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.targetField, "character.current_tactic");
+  assert.equal(plan.questionStrategy, "block_recovery");
+  assert.equal(plan.effectivenessBonus, 0);
+  assert.equal(plan.successfulQuestionOutcomes, 0);
+  assert.equal(plan.writingMomentum.interventionProfile.sampleCount, 0);
+});
+
 test("a pending learning question turns the writer's next short answer into context", () => {
   const plan = {
     active: true,
