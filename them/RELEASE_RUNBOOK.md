@@ -24,10 +24,12 @@ node scripts/release_config_status.mjs
 scripts/run_release_preflight.sh
 ```
 
-This wrapper proves the live backend URL, the active Mac desktop scaffold
-build, and the iPhone App Store preflight path. Use
+This wrapper proves Clementine's adaptive writer-block rescue on iPhone and
+macOS, the live backend URL, the production Mac desktop archive, and the iPhone
+App Store preflight path. Use
 `RUN_MAC_DESKTOP_PREFLIGHT=0` only for a deliberately iPhone-only local
-diagnostic run.
+diagnostic run. Use `RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE=0` only to isolate a
+different failing release gate; never use that override for release sign-off.
 
 - Smoke tag trigger:
 
@@ -63,7 +65,7 @@ git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
 
 ## Release Sequence
 1. Confirm local build and config are ready with `node scripts/release_config_status.mjs`.
-2. Run `scripts/run_release_preflight.sh` locally and confirm live backend, Mac desktop, and iPhone preflight checks are green.
+2. Run `scripts/run_release_preflight.sh` locally and confirm Clementine's paired Studio writer-block smoke, live backend, Mac desktop archive, and iPhone preflight checks are green.
 3. Push an `rc-*` tag to trigger `.github/workflows/release-preflight.yml`.
 4. Review the Actions summary and any uploaded failure artifacts:
    - `/tmp/them-quality-gate-backend.log`

@@ -75,6 +75,13 @@ else
   echo "[release-preflight] Skipping voice network-fault gate (RUN_VOICE_NETWORK_FAULT_GATE=${RUN_VOICE_NETWORK_FAULT_GATE})."
 fi
 
+RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE="${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE:-1}"
+if [[ "${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE}" == "1" ]]; then
+  npm --prefix "${ROOT}/backend" run eval:studio-instinct-writer-block-ui
+else
+  echo "[release-preflight] Skipping Studio instinct writer-block gate (RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE=${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE})."
+fi
+
 RUN_LIVE_BACKEND_CHECK="${RUN_LIVE_BACKEND_CHECK:-1}"
 if [[ "${RUN_LIVE_BACKEND_CHECK}" == "1" ]]; then
   APP_TOKEN="${APP_TOKEN:-${APP_TOKEN_RELEASE:-}}" \

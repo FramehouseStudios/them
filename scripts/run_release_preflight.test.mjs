@@ -10,6 +10,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_release_preflight.sh");
 const scriptSource = fs.readFileSync(script, "utf8");
+const workflowSource = fs.readFileSync(
+  path.join(repoRoot, ".github", "workflows", "release-preflight.yml"),
+  "utf8",
+);
 
 function run(env = {}) {
   return spawnSync(script, {
@@ -52,6 +56,24 @@ test("[run-release-preflight] enables cross-platform voice network-fault smokes 
   assert.match(scriptSource, /RUN_VOICE_NETWORK_FAULT_GATE="\$\{RUN_VOICE_NETWORK_FAULT_GATE:-1\}"/);
   assert.match(scriptSource, /scripts\/run_voice_network_fault_smokes\.sh/);
   assert.match(scriptSource, /Skipping voice network-fault gate/);
+});
+
+test("[run-release-preflight] gates adaptive Studio writer-block rescue across platforms", () => {
+  assert.match(
+    scriptSource,
+    /RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE="\$\{RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE:-1\}"/,
+  );
+  assert.match(
+    scriptSource,
+    /npm --prefix "\$\{ROOT\}\/backend" run eval:studio-instinct-writer-block-ui/,
+  );
+  assert.match(scriptSource, /Skipping Studio instinct writer-block gate/);
+
+  assert.match(workflowSource, /name: Verify Clementine Studio Writer Block Rescue/);
+  assert.match(workflowSource, /working-directory: backend/);
+  assert.match(workflowSource, /run: npm run eval:studio-instinct-writer-block-ui/);
+  assert.match(workflowSource, /MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release/);
+  assert.match(workflowSource, /MAC_DESKTOP_ACTION: archive/);
 });
 
 test("[run-release-preflight] archives the production Mac app by default", () => {

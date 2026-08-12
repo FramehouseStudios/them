@@ -77,7 +77,14 @@ jobs:
       - name: Run Release Preflight With Quality Gate
         run: bash ./scripts/appstore_preflight.sh
 
+      - name: Verify Clementine Studio Writer Block Rescue
+        working-directory: backend
+        run: npm run eval:studio-instinct-writer-block-ui
+
       - name: Run Mac Desktop Preflight
+        env:
+          MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release
+          MAC_DESKTOP_ACTION: archive
         run: bash ./scripts/desktop_preflight.sh
 
       - name: Verify Quality Gate Was Enforced
@@ -118,7 +125,8 @@ jobs:
             echo "- Ref: ${{ github.ref }}"
             echo "- RUN_QUALITY_GATE: enforced"
             echo "- Backend/app gate: enforced before iPhone and Mac desktop preflight"
-            echo "- Mac desktop preflight: active scaffold build"
+            echo "- Clementine Studio gate: instinct correction changes rescue rank while due canon remains protected on iPhone and macOS"
+            echo "- Mac desktop preflight: production scaffold archive"
             echo "- Release-candidate tag convention: \`rc-*\`"
             echo "- Required workflow secrets with current defaults: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"

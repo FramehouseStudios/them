@@ -75,8 +75,9 @@ chmod 600 them/Release.local.env
 ```bash
 ./scripts/run_release_preflight.sh
 ```
-- This wrapper now checks the live backend URL, the active Mac desktop scaffold build, and the iPhone App Store preflight path.
+- This wrapper now checks Clementine's adaptive writer-block rescue on iPhone and macOS, the live backend URL, the production Mac desktop archive, and the iPhone App Store preflight path.
 - To run only the iPhone App Store preflight locally, use `RUN_MAC_DESKTOP_PREFLIGHT=0 RUN_LIVE_BACKEND_CHECK=0 ./scripts/run_release_preflight.sh`.
+- `RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE=0` is for isolating another failing gate only; do not use it for release sign-off.
 - If you want the App Store preflight to include the full quality gate in one command:
 ```bash
 RUN_QUALITY_GATE=1 ./scripts/run_release_preflight.sh
