@@ -105,6 +105,17 @@ const STORY_MOVE_FAMILY_KEYS = Object.freeze(
   STORY_STALL_MOVE_LIBRARY.map((entry) => entry.key)
 );
 const STORY_MOVE_FAMILY_KEY_SET = new Set(STORY_MOVE_FAMILY_KEYS);
+const STORY_MOVE_SEQUENCE_KEY_SET = new Set([
+  "opening",
+  "commitment",
+  "premise",
+  "midpoint",
+  "fallout",
+  "crisis",
+  "final_plan",
+  "climax",
+  "resolution",
+]);
 const STORY_MOVE_FAMILY_DIRECTIVES = Object.freeze({
   objective_pressure: "turn desire into a concrete objective that can visibly succeed or fail",
   obstacle_pressure: "activate a person, rule, deadline, secret, or consequence that can say no",
@@ -204,10 +215,27 @@ function normalizeStoryMoveActKey(value = "") {
 }
 
 function normalizeStoryMoveSequenceKey(value = "") {
-  return normalizeSnippet(value, 180)
+  const normalized = normalizeSnippet(value, 180)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+  const canonical = normalized.replace(/\s+/g, "_");
+  if (STORY_MOVE_SEQUENCE_KEY_SET.has(canonical)) return canonical;
+  if (/\b(?:resolution|denouement|epilogue)\b/.test(normalized) ||
+      (/\b(?:final|closing|last) image\b/.test(normalized) && !/\bclimax\b/.test(normalized))) {
+    return "resolution";
+  }
+  if (/\b(?:climax|final battle|decisive choice)\b/.test(normalized)) return "climax";
+  if (/\b(?:break into three|final plan|new plan)\b/.test(normalized)) return "final_plan";
+  if (/\b(?:all is lost|low point|collapse|dark night)\b/.test(normalized)) return "crisis";
+  if (/\b(?:reversal fallout|bad guys close in|midpoint fallout)\b/.test(normalized)) return "fallout";
+  if (/\bmidpoint\b/.test(normalized)) return "midpoint";
+  if (/\b(?:promise of the premise|fun and games|premise testing)\b/.test(normalized)) return "premise";
+  if (/\b(?:catalyst|inciting incident|debate|commitment|break into two|lock in)\b/.test(normalized)) {
+    return "commitment";
+  }
+  if (/\b(?:opening image|ordinary world|opening sequence)\b/.test(normalized)) return "opening";
+  return normalized;
 }
 
 function storyMoveTasteEvidenceWeight(record, { actKey = "", sequenceKey = "" } = {}) {

@@ -284,7 +284,7 @@ test("[story-rescue-move-library] scopes learned rescue taste to act and sequenc
     acceptedPageCount: 1,
     blockResolutionCount: 1,
     actKey: "act2",
-    sequenceKey: "midpoint trap",
+    sequenceKey: "midpoint",
     answeredAt: 3_000 - index,
   }));
 

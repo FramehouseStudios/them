@@ -114,7 +114,7 @@ const scopedRescueHistory = Array.from({ length: 3 }, (_, index) => ({
   acceptedPageCount: 1,
   blockResolutionCount: 1,
   actKey: "act2",
-  sequenceKey: "midpoint trap",
+  sequenceKey: "midpoint",
   answeredAt: 3_000 - index,
 }));
 const exactSequenceTaste = buildStoryMoveTasteProfile(scopedRescueHistory, {
