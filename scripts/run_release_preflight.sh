@@ -85,7 +85,9 @@ fi
 
 RUN_MAC_DESKTOP_PREFLIGHT="${RUN_MAC_DESKTOP_PREFLIGHT:-1}"
 if [[ "${RUN_MAC_DESKTOP_PREFLIGHT}" == "1" ]]; then
-  "${ROOT}/scripts/desktop_preflight.sh"
+  MAC_DESKTOP_CONFIGURATION="${MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release}" \
+    MAC_DESKTOP_ACTION="${MAC_DESKTOP_ACTION:-archive}" \
+    "${ROOT}/scripts/desktop_preflight.sh"
 else
   echo "[release-preflight] Skipping Mac desktop preflight (RUN_MAC_DESKTOP_PREFLIGHT=${RUN_MAC_DESKTOP_PREFLIGHT})."
 fi

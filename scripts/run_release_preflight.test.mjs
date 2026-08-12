@@ -53,3 +53,9 @@ test("[run-release-preflight] enables cross-platform voice network-fault smokes 
   assert.match(scriptSource, /scripts\/run_voice_network_fault_smokes\.sh/);
   assert.match(scriptSource, /Skipping voice network-fault gate/);
 });
+
+test("[run-release-preflight] archives the production Mac app by default", () => {
+  assert.match(scriptSource, /MAC_DESKTOP_CONFIGURATION="\$\{MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release\}"/);
+  assert.match(scriptSource, /MAC_DESKTOP_ACTION="\$\{MAC_DESKTOP_ACTION:-archive\}"/);
+  assert.match(scriptSource, /scripts\/desktop_preflight\.sh/);
+});

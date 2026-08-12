@@ -76,3 +76,45 @@ test("[desktop-preflight] invokes the active Mac desktop scaffold build", () => 
   assert.ok(args.includes("CODE_SIGNING_ALLOWED=NO"));
   assert.ok(args.includes("CODE_SIGNING_REQUIRED=NO"));
 });
+
+test("[desktop-preflight] archives the production Mac configuration when requested", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-desktop-archive-preflight-"));
+  const log = path.join(tmp, "xcodebuild.args");
+  const fakeXcodebuild = path.join(tmp, "xcodebuild");
+  const archivePath = path.join(tmp, "them.xcarchive");
+  fs.writeFileSync(fakeXcodebuild, [
+    "#!/usr/bin/env bash",
+    "printf '%s\\n' \"$@\" > \"$XCODEBUILD_ARGS_LOG\"",
+    "exit 0",
+    "",
+  ].join("\n"));
+  fs.chmodSync(fakeXcodebuild, 0o755);
+
+  const r = spawnSync("bash", [script], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      XCODEBUILD: fakeXcodebuild,
+      XCODEBUILD_ARGS_LOG: log,
+      MAC_DESKTOP_ACTION: "archive",
+      MAC_DESKTOP_CONFIGURATION: "Mac Scaffold Release",
+      MAC_DESKTOP_ARCHIVE_PATH: archivePath,
+      MAC_DESKTOP_DERIVED_DATA_PATH: path.join(tmp, "dd"),
+    },
+    encoding: "utf8",
+  });
+
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Action:\s+archive/);
+  assert.match(r.stdout, /Mac desktop scaffold archive succeeds/);
+
+  const args = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
+  assert.ok(args.includes("archive"));
+  assert.ok(args.includes("Mac Scaffold Release"));
+  assert.ok(args.includes("generic/platform=macOS"));
+  assert.ok(args.includes("-archivePath"));
+  assert.ok(args.includes(archivePath));
+  assert.ok(args.includes("CODE_SIGN_ENTITLEMENTS="));
+  assert.ok(args.includes("ENABLE_APP_SANDBOX=NO"));
+  assert.ok(args.includes("REGISTER_APP_GROUPS=NO"));
+});
