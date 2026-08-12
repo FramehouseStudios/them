@@ -35,8 +35,11 @@ test("[studio-instinct-ui-smoke] defaults to the paired iPhone and macOS contrac
   assert.match(smokeSource, /did not execute/);
   assert.match(smokeSource, /studio-instinct-writer-block/);
   assert.match(smokeSource, /01-baseline/);
-  assert.match(smokeSource, /02-corrected-instinct/);
-  assert.match(smokeSource, /03-canon-protected/);
+  assert.match(smokeSource, /02-rescue-learned/);
+  assert.match(smokeSource, /03-corrected-instinct/);
+  assert.match(smokeSource, /04-canon-protected/);
+  assert.match(smokeSource, /baselinePreferenceFamily: "reversal_pressure"/);
+  assert.match(smokeSource, /rescueAcceptedPage: RESCUE_ACCEPTED_PAGE/);
   assert.match(smokeSource, /act_position: "Act II"/);
   assert.match(smokeSource, /did not write/);
   assert.match(smokeSource, /stageMatch/);

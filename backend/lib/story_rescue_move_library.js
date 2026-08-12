@@ -319,9 +319,9 @@ function buildStoryMoveTasteProfile(
         Math.min(18, Math.round((positive - negative) * (0.35 + confidence * 0.65)))
       );
       const tasteBonus = item.explicitStance === "prefer"
-        ? Math.max(10, Math.min(18, learnedTasteBonus + 10))
+        ? Math.max(24, Math.min(30, learnedTasteBonus + 18))
         : item.explicitStance === "avoid"
-          ? Math.min(-10, Math.max(-12, learnedTasteBonus - 18))
+          ? Math.min(-18, Math.max(-24, learnedTasteBonus - 30))
           : learnedTasteBonus;
       const recentVarietyPenalty =
         item.family === mostRecentSelectedFamily && item.selectedCount > 1

@@ -355,6 +355,49 @@ test("[story-rescue-move-library] explicit writer corrections override learned t
     },
   });
   assert.equal(ending[0].key, "payoff_pressure");
+
+  const successfulRescueHistory = [{
+    questionId: "relationship-choice",
+    targetField: "story.next_irreversible_choice",
+    responseStatus: "answered",
+    selectedMoveFamily: "relationship_pressure",
+    offeredMoveFamilies: ["relationship_pressure", "reversal_pressure", "obstacle_pressure"],
+    acceptedPageCount: 1,
+    answeredAt: 1_000,
+  }, {
+    questionId: "reversal-choice",
+    targetField: "story.next_irreversible_choice",
+    responseStatus: "answered",
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: ["relationship_pressure", "reversal_pressure", "obstacle_pressure"],
+    acceptedPageCount: 1,
+    answeredAt: 2_000,
+  }, {
+    questionId: "writer-block-rescue",
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    recommendationOnly: true,
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: ["reversal_pressure", "relationship_pressure", "objective_pressure"],
+    acceptedPageCount: 1,
+    blockResolutionCount: 1,
+    answeredAt: 3_000,
+  }];
+  const preferredRelationship = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck in the middle.",
+    act: "Act II",
+    protagonistWant: "get Eli onto the last ferry",
+    protagonistNeed: "stop using control as a substitute for trust",
+    nextScenePlan: "Write the next scene in the ferry waiting room.",
+    acceptedPages: ["INT. FERRY WAITING ROOM - Mara finds the last ticket."],
+    questionEffectiveness: successfulRescueHistory,
+    storyMovePreferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: 4_000,
+    }],
+  });
+  assert.equal(preferredRelationship[0].key, "relationship_pressure");
 });
 
 test("[story-rescue-move-library] preference corrections sanitize malformed timestamps", () => {

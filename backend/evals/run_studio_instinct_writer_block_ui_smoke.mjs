@@ -26,7 +26,12 @@ const TEST_IDENTIFIER =
 const PROJECT_ID = "studio-instinct-rescue";
 const PROJECT_TITLE = "Studio Instinct Rescue";
 const EVIDENCE_DIR = "/tmp/them-smoke/studio-instinct-writer-block";
-const EVIDENCE_STAGES = ["01-baseline", "02-corrected-instinct", "03-canon-protected"];
+const EVIDENCE_STAGES = [
+  "01-baseline",
+  "02-rescue-learned",
+  "03-corrected-instinct",
+  "04-canon-protected",
+];
 const PROMPT = "I am stuck in the middle. What should happen next?";
 const DUE_SETUP = "The red locket inside the courthouse clock";
 const DUE_PAYOFF = "Mara uses the red locket to expose the forged verdict";
@@ -42,6 +47,18 @@ const ACCEPTED_PAGE = [
   "When telling you stops making you a target.",
   "",
   "She closes the clock and leaves him with the ticking.",
+].join("\n");
+const RESCUE_ACCEPTED_PAGE = [
+  "INT. FERRY WAITING ROOM - NIGHT",
+  "",
+  "Mara finds the last ferry ticket beneath the bench.",
+  "",
+  "She holds it out to Eli. He lets it fall between them.",
+  "",
+  "MARA",
+  "We can still make it.",
+  "",
+  "Outside, the ferry pulls away without them.",
 ].join("\n");
 const PLATFORM = String(process.env.THEM_STUDIO_INSTINCT_UI_PLATFORM || "all")
   .trim()
@@ -218,11 +235,13 @@ function fixtureJSON(baseURL, identity, platform) {
     projectID: PROJECT_ID,
     projectTitle: PROJECT_TITLE,
     preferenceFamily: "relationship_pressure",
+    baselinePreferenceFamily: "reversal_pressure",
     prompt: PROMPT,
     baselineStrongestMove: "Ranked strongest move - reversal pressure",
     correctedStrongestMove: "Ranked strongest move - relationship pressure",
     canonStrongestMove: "Ranked strongest move - payoff pressure",
     acceptedPage: ACCEPTED_PAGE,
+    rescueAcceptedPage: RESCUE_ACCEPTED_PAGE,
     dueSetup: DUE_SETUP,
     duePayoff: DUE_PAYOFF,
     evidencePlatform: platform,

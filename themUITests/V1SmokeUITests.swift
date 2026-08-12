@@ -938,7 +938,65 @@ final class V1SmokeUITests: XCTestCase {
             "The baseline writer-block response did not expose \(fixture.baselineStrongestMove). Accessibility hierarchy:\n\(app.debugDescription)"
         )
 
+        let rescueCommit = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "That solved the block. Keep this page.",
+                "reply": fixture.rescueAcceptedPage,
+                "request_id": "ui-instinct-rescue-success-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_target": "page",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_anchor_scene_label": "INT. FERRY WAITING ROOM - NIGHT",
+                    "screenplay_inserted_text": fixture.rescueAcceptedPage,
+                    "screenplay_act": "Act II",
+                    "screenplay_scene_summary": "Mara finds the last ticket, but Eli lets it fall as the ferry leaves.",
+                    "screenplay_current_beat": "The apparent way out closes and forces a costlier next tactic.",
+                    "screenplay_character_focus": ["Mara", "Eli"],
+                ],
+            ]
+        )
+        try assertHTTP(rescueCommit, context: "writer-block successful-rescue commit")
+
         revealStudioCreativeInstincts(in: app)
+        let baselinePreference = element(
+            identifier: "studio.story-preference.\(fixture.baselinePreferenceFamily)",
+            in: app
+        )
+        let refreshPreferences = element(
+            identifier: "studio.story-preferences.refresh",
+            in: app
+        )
+        makeHittable(refreshPreferences, in: app)
+        XCTAssertTrue(
+            refreshPreferences.waitForExistence(timeout: 5) && refreshPreferences.isHittable,
+            "Creative Instincts did not expose its refresh control after the accepted rescue."
+        )
+#if os(macOS)
+        refreshPreferences.click()
+#else
+        refreshPreferences.tap()
+#endif
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                in: baselinePreference,
+                containing: "rescue that worked",
+                timeout: 20
+            ),
+            "Studio did not explain that the baseline instinct came from a rescue that worked."
+        )
+        try recordStudioInstinctEvidence(
+            stage: "02-rescue-learned",
+            expected: [fixture.baselineStrongestMove, "rescue that worked"],
+            in: app,
+            fixture: fixture,
+            preferenceFamily: fixture.baselinePreferenceFamily
+        )
+
         let preference = element(
             identifier: "studio.story-preference.\(fixture.preferenceFamily)",
             in: app
@@ -987,7 +1045,7 @@ final class V1SmokeUITests: XCTestCase {
             timeout: 35
         )
         try recordStudioInstinctEvidence(
-            stage: "02-corrected-instinct",
+            stage: "03-corrected-instinct",
             expected: [fixture.correctedStrongestMove],
             in: app,
             fixture: fixture
@@ -1037,7 +1095,7 @@ final class V1SmokeUITests: XCTestCase {
             timeout: 5
         )
         try recordStudioInstinctEvidence(
-            stage: "03-canon-protected",
+            stage: "04-canon-protected",
             expected: [fixture.canonStrongestMove, fixture.dueSetup],
             in: app,
             fixture: fixture
@@ -1694,14 +1752,15 @@ final class V1SmokeUITests: XCTestCase {
         stage: String,
         expected: [String],
         in app: XCUIApplication,
-        fixture: StudioInstinctFixture
+        fixture: StudioInstinctFixture,
+        preferenceFamily: String? = nil
     ) throws {
         let output = app.staticTexts
             .matching(identifier: "studio.voice-pin.latest.output")
             .firstMatch
         let observed = output.exists ? accessibilityText(of: output) : ""
         let preference = element(
-            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            identifier: "studio.story-preference.\(preferenceFamily ?? fixture.preferenceFamily)",
             in: app
         )
         let preferenceState = preference.exists ? accessibilityText(of: preference) : ""
@@ -1713,7 +1772,8 @@ final class V1SmokeUITests: XCTestCase {
             ? accessibilityText(of: preferenceError)
             : ""
         let matched = expected.allSatisfy {
-            observed.localizedCaseInsensitiveContains($0)
+            observed.localizedCaseInsensitiveContains($0) ||
+                preferenceState.localizedCaseInsensitiveContains($0)
         }
         let screenshot: XCUIScreenshot
 #if os(macOS)
@@ -1768,11 +1828,13 @@ final class V1SmokeUITests: XCTestCase {
         let accessToken: String
         let projectID: String
         let preferenceFamily: String
+        let baselinePreferenceFamily: String
         let prompt: String
         let baselineStrongestMove: String
         let correctedStrongestMove: String
         let canonStrongestMove: String
         let acceptedPage: String
+        let rescueAcceptedPage: String
         let dueSetup: String
         let duePayoff: String
         let evidencePlatform: String
@@ -1859,6 +1921,11 @@ final class V1SmokeUITests: XCTestCase {
                 payload["preference_family"],
                 message: "Studio instinct fixture missing preferenceFamily."
             ),
+            baselinePreferenceFamily: try firstNonEmptyString(
+                payload["baselinePreferenceFamily"],
+                payload["baseline_preference_family"],
+                message: "Studio instinct fixture missing baselinePreferenceFamily."
+            ),
             prompt: try firstNonEmptyString(
                 payload["prompt"],
                 message: "Studio instinct fixture missing prompt."
@@ -1878,6 +1945,10 @@ final class V1SmokeUITests: XCTestCase {
             acceptedPage: try firstNonEmptyString(
                 payload["acceptedPage"],
                 message: "Studio instinct fixture missing acceptedPage."
+            ),
+            rescueAcceptedPage: try firstNonEmptyString(
+                payload["rescueAcceptedPage"],
+                message: "Studio instinct fixture missing rescueAcceptedPage."
             ),
             dueSetup: try firstNonEmptyString(
                 payload["dueSetup"],
