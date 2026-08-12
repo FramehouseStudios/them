@@ -60,6 +60,18 @@ check(
   "ranking is deterministic",
   JSON.stringify(actTwoRanked) === JSON.stringify(rankStoryRescueMovesForContext(actTwoContext))
 );
+check(
+  "every Act II recommendation passes playable, causal, cost, and act checks",
+  actTwoRanked.every((move) => (
+    move.qualityGate?.passed === true &&
+    move.qualityGate?.playableSpecificity === true &&
+    move.qualityGate?.causalAdvancement === true &&
+    move.qualityGate?.characterCost === true &&
+    move.qualityGate?.actProgression === true &&
+    /Act II progression/i.test(move.actProgression || "")
+  )),
+  JSON.stringify(actTwoRanked, null, 2)
+);
 
 const dueStoryThread = {
   kind: "payoff",
@@ -107,10 +119,14 @@ check(
 );
 
 const formattedRank = formatRankedStoryRescueMoveLine(actTwoRanked[0]);
-check("rank trace exposes score, evidence, move, and success check", [
+check("rank trace exposes score, evidence, quality contract, move, and success check", [
   "score=",
   "evidence=",
   "move=",
+  "causal_advance=",
+  "character_cost=",
+  "act_progression=",
+  "quality_gate=pass(playable+causal+cost+act)",
   "success_check=",
 ].every((part) => formattedRank.includes(part)));
 check("rank trace never exposes private memory hashes", !/contentHash|content_hash/i.test(formattedRank));
@@ -241,6 +257,12 @@ const fallback = buildMomentumRescueFallbackReply({
 check("fallback leads with ranked strongest move", fallback.includes("Ranked strongest move - reversal pressure:"));
 check("fallback cites accepted page", fallback.includes("Grounded in: accepted_page:"));
 check("fallback includes a measurable proof test", fallback.includes("Proof test:"));
+check(
+  "fallback demonstrates causal turn, character cost, and act progress",
+  fallback.includes("Causal turn:") &&
+    fallback.includes("Character cost:") &&
+    fallback.includes("Act progress: Act II progression:")
+);
 const fallbackQuality = evaluateMomentumRescueQuality({
   transcript: actTwoContext.transcript,
   reply: fallback,

@@ -50,6 +50,72 @@ test("[momentum-rescue-quality] accepts a decisive pressure engine plus playable
   assert.equal(quality.reason, "ok");
   assert.equal(quality.counts.pressureSignals >= 2, true);
   assert.equal(quality.counts.hasFountainShape, 1);
+  assert.equal(quality.counts.playableSpecificity, 1);
+  assert.equal(quality.counts.causalAdvancement, 1);
+  assert.equal(quality.counts.characterCost, 1);
+  assert.equal(quality.counts.actProgression, 1);
+});
+
+test("[momentum-rescue-quality] rejects playable action without a causal story turn", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "I'm blocked. What happens next?",
+    reply: [
+      "The strongest move is objective pressure with a concrete choice and stakes.",
+      "",
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara slides the affidavit under the locked door while Eli watches.",
+      "",
+      "ELI",
+      "You risk losing my trust every time you hide the truth.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_causal_story_advancement");
+  assert.equal(quality.counts.playableSpecificity, 1);
+  assert.equal(quality.counts.causalAdvancement, 0);
+});
+
+test("[momentum-rescue-quality] rejects causal action without a character cost", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "I'm blocked. What happens next?",
+    reply: [
+      "The strongest move is information pressure: Mara opens the vault, so the proof becomes public and forces the judge to act.",
+      "",
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara opens the vault and shows the affidavit to the cameras.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_character_cost");
+  assert.equal(quality.counts.causalAdvancement, 1);
+  assert.equal(quality.counts.characterCost, 0);
+});
+
+test("[momentum-rescue-quality] rejects a strong beat that performs the wrong act's job", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "I'm stuck in Act II. What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+    },
+    reply: [
+      "The strongest move is deadline pressure: Mara burns the affidavit, so the judge must act, but she risks losing Eli's trust.",
+      "This pays off the planted setup through changed behavior and completes the final image.",
+      "",
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara burns the affidavit before Eli can take it.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_act_progression");
+  assert.equal(quality.storyRescueContract.featureActKind, "act2");
+  assert.equal(quality.counts.actProgression, 0);
 });
 
 test("[momentum-rescue-quality] rejects continuation answers that dodge remembered next turn", () => {
@@ -92,7 +158,7 @@ test("[momentum-rescue-quality] accepts continuation answers that spend remember
       ],
     },
     reply: [
-      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger.",
+      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger and she risks losing Marcus's trust.",
       "",
       "INT. EDIT BAY - NIGHT",
       "",

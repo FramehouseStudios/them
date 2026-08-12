@@ -793,6 +793,81 @@ function buildGroundedStoryMove(key, context) {
   }
 }
 
+function storyRescueCausalAdvancement(key, context) {
+  const protagonist = firstStoryValue(context.characters, "the protagonist");
+  const setup = storyClause(
+    context.dueStoryThread?.setup ||
+    context.unresolvedSetups[0] ||
+    context.actThreePayoffPath[0],
+    "the planted promise"
+  );
+  const cost = storyClause(
+    context.unresolvedStoryThreads[0] ||
+    context.characterArcState ||
+    context.protagonistNeed,
+    "the relationship can no longer return to safety"
+  );
+  switch (key) {
+    case "objective_pressure":
+      return `Success or failure changes what ${protagonist} can try next and activates ${cost}.`;
+    case "obstacle_pressure":
+      return `The blocked tactic removes the easy route and forces ${protagonist} into a riskier strategy.`;
+    case "reversal_pressure":
+      return "The apparent gain removes leverage, so the old tactic cannot be repeated and a new choice becomes necessary.";
+    case "information_pressure":
+      return "Moving the known fact changes who holds power and forces action before anyone is ready.";
+    case "relationship_pressure":
+      return "The plot gain changes trust, so the bond cannot return to its previous state.";
+    case "deadline_pressure":
+      return `Delay now triggers ${cost}, removing the option to wait.`;
+    case "choice_pressure":
+      return "The choice closes the safe option and makes the next scene causally necessary.";
+    case "payoff_pressure":
+      return `Spending ${setup} fulfills or complicates its promise and narrows the final choice.`;
+    case "image_pressure":
+      return `The transformed image makes ${cost} visible and changes the next available choice.`;
+    default:
+      return "The move changes available choices and makes the following scene necessary.";
+  }
+}
+
+function storyRescueCharacterCost(context) {
+  const protagonist = firstStoryValue(context.characters, "The protagonist");
+  const relationship = storyClause(context.unresolvedStoryThreads[0] || context.antagonisticForce);
+  if (relationship) return `${protagonist} risks this relationship pressure becoming permanent: ${relationship}.`;
+  const need = storyClause(context.protagonistNeed);
+  if (need) return `${protagonist} must expose the vulnerable need they have avoided: ${need}.`;
+  const arc = storyClause(context.characterArcState || context.characterArcTurns[0]);
+  if (arc) return `${protagonist} must let this emotional defense fail in public: ${arc}.`;
+  return `${protagonist} risks losing trust with the person whose love or loyalty matters most.`;
+}
+
+function storyRescueActProgression(context) {
+  if (context.actKind === "act1") {
+    return "Act I progression: burn a safe exit and force commitment to the central pursuit.";
+  }
+  if (context.actKind === "act2") {
+    return "Act II progression: break the old tactic, deepen the trap, and make the next strategy costlier.";
+  }
+  if (context.actKind === "act3") {
+    return "Act III progression: spend setup through changed behavior and drive toward the final image.";
+  }
+  return "Feature progression: narrow the available choices so the next scene is necessary.";
+}
+
+function buildStoryRescueQualityContract(key, context) {
+  const causalAdvancement = storyRescueCausalAdvancement(key, context);
+  const characterCost = storyRescueCharacterCost(context);
+  const actProgression = storyRescueActProgression(context);
+  return {
+    playableSpecificity: true,
+    causalAdvancement,
+    characterCost,
+    actProgression,
+    passed: Boolean(causalAdvancement && characterCost && actProgression),
+  };
+}
+
 function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
   const context = normalizeStoryRescueContext(input);
   const selectedLines = selectStoryMoveLibraryLinesForContext({
@@ -819,6 +894,7 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
   const ranked = STORY_STALL_MOVE_LIBRARY
     .map((entry, libraryIndex) => {
       const taste = context.storyMoveTasteProfile.find((item) => item.family === entry.key);
+      const qualityContract = buildStoryRescueQualityContract(entry.key, context);
       return {
         key: entry.key,
         libraryIndex,
@@ -826,6 +902,16 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
         tasteBonus: taste?.tasteBonus || 0,
         tasteEvidenceCount: taste?.evidenceCount || 0,
         move: buildGroundedStoryMove(entry.key, context),
+        causalAdvancement: qualityContract.causalAdvancement,
+        characterCost: qualityContract.characterCost,
+        actProgression: qualityContract.actProgression,
+        qualityGate: {
+          passed: qualityContract.passed,
+          playableSpecificity: qualityContract.playableSpecificity,
+          causalAdvancement: Boolean(qualityContract.causalAdvancement),
+          characterCost: Boolean(qualityContract.characterCost),
+          actProgression: Boolean(qualityContract.actProgression),
+        },
         why: actReason,
         evidence: storyMoveEvidence(entry.key, context),
         successCheck: STORY_MOVE_SUCCESS_CHECKS[entry.key] || "The beat visibly changes story state.",
@@ -864,12 +950,18 @@ function formatRankedStoryRescueMoveLine(move = {}) {
   const score = Math.max(0, Math.min(100, Math.round(Number(move.score || 0))));
   const evidence = normalizeList(move.evidence, 3, 180).join(" | ") || "current request";
   const playableMove = normalizeSnippet(move.move, 420);
+  const causalAdvancement = normalizeSnippet(move.causalAdvancement, 220);
+  const characterCost = normalizeSnippet(move.characterCost, 220);
+  const actProgression = normalizeSnippet(move.actProgression, 220);
   const successCheck = normalizeSnippet(move.successCheck, 220);
   const tasteBonus = Math.max(-12, Math.min(18, Math.round(Number(move.tasteBonus || 0))));
   const taste = tasteBonus
     ? `; taste_bonus=${tasteBonus > 0 ? "+" : ""}${tasteBonus}`
     : "";
-  return `rank_${rank}: engine=${key}; score=${score}${taste}; evidence=${evidence}; move=${playableMove}; success_check=${successCheck}`;
+  const qualityGate = move?.qualityGate?.passed === true
+    ? "pass(playable+causal+cost+act)"
+    : "repair_required";
+  return `rank_${rank}: engine=${key}; score=${score}${taste}; evidence=${evidence}; move=${playableMove}; causal_advance=${causalAdvancement}; character_cost=${characterCost}; act_progression=${actProgression}; quality_gate=${qualityGate}; success_check=${successCheck}`;
 }
 
 export {

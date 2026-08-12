@@ -189,15 +189,26 @@ function buildRankedFallbackMoveLines(rankedMoves = []) {
   for (const move of moves) {
     const label = String(move?.key || "story_pressure").replace(/_/g, " ");
     const playableMove = normalizeSnippet(move?.move, 520);
+    const causalAdvancement = normalizeSnippet(move?.causalAdvancement, 260);
+    const characterCost = normalizeSnippet(move?.characterCost, 260);
+    const actProgression = normalizeSnippet(move?.actProgression, 260);
     if (!playableMove) continue;
     if (Number(move?.rank || 0) === 1) {
       lines.push(`Ranked strongest move - ${label}: ${playableMove}`);
+      if (causalAdvancement) lines.push(`Causal turn: ${causalAdvancement}`);
+      if (characterCost) lines.push(`Character cost: ${characterCost}`);
+      if (actProgression) lines.push(`Act progress: ${actProgression}`);
       const evidence = normalizeList(move?.evidence, 3, 180);
       if (evidence.length) lines.push(`Grounded in: ${evidence.join(" | ")}`);
       const successCheck = normalizeSnippet(move?.successCheck, 220);
       if (successCheck) lines.push(`Proof test: ${successCheck}`);
     } else {
-      lines.push(`Alternate fork ${move.rank} - ${label}: ${playableMove}`);
+      lines.push([
+        `Alternate fork ${move.rank} - ${label}: ${playableMove}`,
+        causalAdvancement ? `Causal turn: ${causalAdvancement}` : "",
+        characterCost ? `Character cost: ${characterCost}` : "",
+        actProgression ? `Act progress: ${actProgression}` : "",
+      ].filter(Boolean).join(" "));
     }
   }
   return lines;

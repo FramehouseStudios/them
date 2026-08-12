@@ -77,6 +77,10 @@ jobs:
       - name: Run Release Preflight With Quality Gate
         run: bash ./scripts/appstore_preflight.sh
 
+      - name: Verify Clementine Writer Block Quality Contract
+        working-directory: backend
+        run: npm run eval:writer-block-rescue
+
       - name: Verify Clementine Studio Writer Block Rescue
         working-directory: backend
         run: npm run eval:studio-instinct-writer-block-ui
@@ -134,6 +138,7 @@ jobs:
             echo "- Ref: ${{ github.ref }}"
             echo "- RUN_QUALITY_GATE: enforced"
             echo "- Backend/app gate: enforced before iPhone and Mac desktop preflight"
+            echo "- Clementine quality gate: every rescue proves playable specificity, causal advancement, character cost, and correct act progression"
             echo "- Clementine Studio gate: instinct correction changes rescue rank while due canon remains protected on iPhone and macOS"
             echo "- Mac desktop preflight: production scaffold archive"
             echo "- Release-candidate tag convention: \`rc-*\`"

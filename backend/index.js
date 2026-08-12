@@ -5828,6 +5828,10 @@ function compactTalkScreenplayQualityCounts(counts = {}) {
     generic_dialogue_voice: Math.max(0, Number(counts.genericDialogueVoice ?? counts.generic_dialogue_voice ?? 0)),
     repeated_dialogue_start: Math.max(0, Number(counts.repeatedDialogueStart ?? counts.repeated_dialogue_start ?? 0)),
     distinct_dialogue_characters: Math.max(0, Number(counts.distinctDialogueCharacters ?? counts.distinct_dialogue_characters ?? 0)),
+    playable_specificity: Math.max(0, Number(counts.playableSpecificity ?? counts.playable_specificity ?? 0)),
+    causal_advancement: Math.max(0, Number(counts.causalAdvancement ?? counts.causal_advancement ?? 0)),
+    character_cost: Math.max(0, Number(counts.characterCost ?? counts.character_cost ?? 0)),
+    act_progression: Math.max(0, Number(counts.actProgression ?? counts.act_progression ?? 0)),
   };
 }
 

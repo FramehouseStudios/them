@@ -80,6 +80,29 @@ test("[run-release-preflight] gates adaptive Studio writer-block rescue across p
   assert.match(workflowSource, /MAC_DESKTOP_ACTION: archive/);
 });
 
+test("[run-release-preflight] gates writer-block craft quality before UI evidence", () => {
+  assert.match(
+    scriptSource,
+    /RUN_WRITER_BLOCK_QUALITY_GATE="\$\{RUN_WRITER_BLOCK_QUALITY_GATE:-1\}"/,
+  );
+  assert.match(
+    scriptSource,
+    /npm --prefix "\$\{ROOT\}\/backend" run eval:writer-block-rescue/,
+  );
+  assert.match(scriptSource, /Skipping deterministic writer-block quality gate/);
+  assert.ok(
+    scriptSource.indexOf("run eval:writer-block-rescue") <
+      scriptSource.indexOf("run eval:studio-instinct-writer-block-ui"),
+  );
+
+  assert.match(workflowSource, /name: Verify Clementine Writer Block Quality Contract/);
+  assert.match(workflowSource, /run: npm run eval:writer-block-rescue/);
+  assert.ok(
+    workflowSource.indexOf("run: npm run eval:writer-block-rescue") <
+      workflowSource.indexOf("run: npm run eval:studio-instinct-writer-block-ui"),
+  );
+});
+
 test("[run-release-preflight] archives the production Mac app by default", () => {
   assert.match(scriptSource, /MAC_DESKTOP_CONFIGURATION="\$\{MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release\}"/);
   assert.match(scriptSource, /MAC_DESKTOP_ACTION="\$\{MAC_DESKTOP_ACTION:-archive\}"/);

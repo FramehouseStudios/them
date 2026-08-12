@@ -51,6 +51,33 @@ test("[story-rescue-move-library] generic momentum rescue always gets objective 
   assert.ok(lines.some((line) => line.startsWith("choice_pressure:")));
 });
 
+test("[story-rescue-move-library] every act gets a complete rescue quality contract", () => {
+  const fixtures = [
+    ["Act I", /Act I progression/],
+    ["Act II", /Act II progression/],
+    ["Act III", /Act III progression/],
+  ];
+  for (const [act, actPattern] of fixtures) {
+    const ranked = rankStoryRescueMovesForContext({
+      transcript: `I'm stuck in ${act}.`,
+      act,
+      characters: ["Mara", "Eli"],
+      protagonistWant: "expose the forged verdict",
+      protagonistNeed: "trust Eli with the truth",
+      unresolvedStoryThreads: ["Eli may leave if Mara edits the truth again"],
+      unresolvedSetups: ["the sealed affidavit"],
+    });
+    assert.equal(ranked.length, 3);
+    for (const move of ranked) {
+      assert.equal(move.qualityGate.passed, true);
+      assert.ok(move.move);
+      assert.ok(move.causalAdvancement);
+      assert.ok(move.characterCost);
+      assert.match(move.actProgression, actPattern);
+    }
+  }
+});
+
 test("[story-rescue-move-library] ranks accepted continuity by act, character, and payoff pressure", () => {
   const ranked = rankStoryRescueMovesForContext({
     transcript: "I'm stuck on the ending.",
@@ -74,10 +101,24 @@ test("[story-rescue-move-library] ranks accepted continuity by act, character, a
   assert.match(ranked[0].move, /sealed affidavit/);
   assert.match(ranked[0].move, /changed behavior/);
   assert.match(ranked[0].successCheck, /planted promise/i);
+  for (const rescue of ranked) {
+    assert.equal(rescue.qualityGate.passed, true);
+    assert.equal(rescue.qualityGate.playableSpecificity, true);
+    assert.equal(rescue.qualityGate.causalAdvancement, true);
+    assert.equal(rescue.qualityGate.characterCost, true);
+    assert.equal(rescue.qualityGate.actProgression, true);
+    assert.ok(rescue.causalAdvancement);
+    assert.ok(rescue.characterCost);
+    assert.match(rescue.actProgression, /Act III progression/);
+  }
 
   const line = formatRankedStoryRescueMoveLine(ranked[0]);
   assert.match(line, /^rank_1: engine=payoff_pressure; score=/);
   assert.match(line, /accepted_page: Mara puts the affidavit on the record/);
+  assert.match(line, /causal_advance=/);
+  assert.match(line, /character_cost=/);
+  assert.match(line, /act_progression=Act III progression:/);
+  assert.match(line, /quality_gate=pass\(playable\+causal\+cost\+act\)/);
   assert.doesNotMatch(line, /contentHash|content_hash/);
 });
 

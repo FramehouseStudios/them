@@ -76,6 +76,13 @@ else
 fi
 
 RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE="${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE:-1}"
+RUN_WRITER_BLOCK_QUALITY_GATE="${RUN_WRITER_BLOCK_QUALITY_GATE:-1}"
+if [[ "${RUN_WRITER_BLOCK_QUALITY_GATE}" == "1" ]]; then
+  npm --prefix "${ROOT}/backend" run eval:writer-block-rescue
+else
+  echo "[release-preflight] Skipping deterministic writer-block quality gate (RUN_WRITER_BLOCK_QUALITY_GATE=${RUN_WRITER_BLOCK_QUALITY_GATE})."
+fi
+
 if [[ "${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE}" == "1" ]]; then
   npm --prefix "${ROOT}/backend" run eval:studio-instinct-writer-block-ui
 else

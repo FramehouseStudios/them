@@ -106,6 +106,37 @@ const MOMENTUM_PRESSURE_PATTERNS = Object.freeze([
   /\bpressure\b/i,
 ]);
 const MOMENTUM_PLAYABLE_VERB_PATTERN = /\b(grabs?|takes?|hides?|burns?|opens?|locks?|throws?|slides?|chooses?|refuses?|calls?|reveals?|turns?|walks?|hands?|pockets?|pulls?|sets?|breaks?|steals?|confesses?|records?|signs?|tears?|crosses?|blocks?|drops?|folds?|plants?|watches?|shows?|pushes?|cuts?|leaves?|enters?|exits?|finds?)\b/i;
+const MOMENTUM_CAUSAL_ADVANCEMENT_PATTERNS = Object.freeze([
+  /\b(?:because|so|therefore|which means|as a result|but)\b/i,
+  /\b(?:forces?|forcing|makes?)\b.{0,70}\b(?:choose|choice|act|change|necessary|risk|strategy|tactic)\b/i,
+  /\b(?:closes?|removes?|burns?)\b.{0,60}\b(?:door|exit|option|route|leverage|proof|trust)\b/i,
+  /\b(?:changes?|shifts?|transfers?)\b.{0,60}\b(?:power|leverage|trust|loyalty|available choices?|what .* can do)\b/i,
+  /\b(?:cannot|can no longer|no longer)\b.{0,60}\b(?:wait|return|repeat|hide|avoid|use|trust)\b/i,
+]);
+const MOMENTUM_CHARACTER_COST_PATTERNS = Object.freeze([
+  /\b(?:character|emotional|relationship|personal) cost\b/i,
+  /\b(?:risks?|sacrifices?|loses?|burns?|damages?|betrays?|abandons?|exposes?)\b.{0,70}\b(?:trust|love|loyalty|friend|partner|family|marriage|bond|relationship|vulnerab|truth|need|belief)\b/i,
+  /\b(?:risks?|sacrifices?|loses?|burns?|damages?|betrays?|abandons?)\b.{0,70}\b[A-Z][a-z]{2,}(?:'s)?\b/,
+  /\b(?:trust|love|loyalty|bond|relationship|marriage|friendship)\b.{0,60}\b(?:breaks?|changes?|ends?|cannot|no longer|permanent|cost|risk)\b/i,
+  /\b(?:stop being|walks? away|leaves? .* behind|chooses? .* over us|cannot forgive|won't forgive)\b/i,
+  /\b(?:vulnerable need|emotional defense|false belief|old defense)\b/i,
+]);
+const MOMENTUM_ACT_PROGRESSION_PATTERNS = Object.freeze({
+  act1: Object.freeze([
+    /\b(?:act i|first act|catalyst|central pursuit|commitment|commits?|point of no return)\b/i,
+    /\b(?:burns?|closes?|loses?)\b.{0,50}\b(?:safe exit|safe option|way back|old life|escape route)\b/i,
+  ]),
+  act2: Object.freeze([
+    /\b(?:act ii|second act|midpoint|reversal|trap|all is lost)\b/i,
+    /\b(?:old|current) tactic\b.{0,50}\b(?:fails?|breaks?|cannot|costlier|expensive)\b/i,
+    /\b(?:breaks?|changes?)\b.{0,50}\b(?:strategy|tactic)\b/i,
+  ]),
+  act3: Object.freeze([
+    /\b(?:act iii|third act|final act|final image|ending|climax|resolution)\b/i,
+    /\b(?:spends?|pays? off|fulfills?)\b.{0,60}\b(?:setup|promise|plant|motif)\b/i,
+    /\bchanged behavior\b/i,
+  ]),
+});
 const MOMENTUM_GENERIC_ADVICE_PATTERNS = Object.freeze([
   /\b(?:raise|add|increase) (?:the )?stakes\b/i,
   /\b(?:add|create) (?:more )?conflict\b/i,
@@ -1527,6 +1558,20 @@ function countGenericMomentumAdviceSignals(text = "") {
     .length;
 }
 
+function hasMomentumCausalAdvancement(text = "") {
+  return MOMENTUM_CAUSAL_ADVANCEMENT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function hasMomentumCharacterCost(text = "") {
+  return MOMENTUM_CHARACTER_COST_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function hasMomentumActProgression(text = "", featureActKind = "") {
+  if (!featureActKind) return hasMomentumCausalAdvancement(text);
+  const patterns = MOMENTUM_ACT_PROGRESSION_PATTERNS[featureActKind] || [];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 function hasMomentumFountainShape(text = "") {
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -1590,6 +1635,24 @@ function buildMomentumRescueRepairDirectives(reason = "") {
       return [
         "Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.",
         ...base.slice(0, 2),
+      ];
+    case "missing_causal_story_advancement":
+      return [
+        "State the causal result of the move: what changes, which option closes, and why the following scene becomes necessary.",
+        base[1],
+        base[2],
+      ];
+    case "missing_character_cost":
+      return [
+        "Name the personal price of the move: trust, love, loyalty, identity, vulnerability, or the failure of the character's old defense.",
+        "Tie that cost to the protagonist's known need, relationship, false belief, or current tactic.",
+        base[2],
+      ];
+    case "missing_act_progression":
+      return [
+        "Make the move perform the current act's job: Act I commits and closes escape, Act II breaks the old tactic and deepens cost, Act III pays off setup through changed behavior.",
+        "Do not offer a beat that could be dropped unchanged into any act.",
+        base[2],
       ];
     case "missing_next_turn_continuation":
       return [
@@ -1675,6 +1738,10 @@ function evaluateMomentumRescueQuality({
   const hasDecisiveLanguage = /\b(?:strongest|best|next beat|next move|the move|do this|make|force|put|have|let|the beat is|the scene turns when)\b/i.test(normalized);
   const hasPlayableMicroBeat = hasFountainShape || playableMoves > 0;
   const featureContext = momentumFeatureContextFromStudioMeta(studioMeta);
+  const featureActKind = inferFeatureActKind(featureContext);
+  const hasCausalAdvancement = hasMomentumCausalAdvancement(normalized);
+  const hasCharacterCost = hasMomentumCharacterCost(normalized);
+  const hasActProgression = hasMomentumActProgression(normalized, featureActKind);
   const nextTurnCoverage = evaluateFirstNextTurnCoverage({
     text: normalized,
     featureContext,
@@ -1695,6 +1762,10 @@ function evaluateMomentumRescueQuality({
     genericAdviceSignals,
     optionMenuCount,
     hasFountainShape: hasFountainShape ? 1 : 0,
+    playableSpecificity: hasPlayableMicroBeat ? 1 : 0,
+    causalAdvancement: hasCausalAdvancement ? 1 : 0,
+    characterCost: hasCharacterCost ? 1 : 0,
+    actProgression: hasActProgression ? 1 : 0,
     nextTurnMatchedTokens: Array.isArray(nextTurnCoverage.matchedTokens)
       ? nextTurnCoverage.matchedTokens.length
       : 0,
@@ -1706,6 +1777,9 @@ function evaluateMomentumRescueQuality({
   else if (pressureSignals < 1) reason = "missing_pressure_engine";
   else if (!hasDecisiveLanguage && playableMoves < 1) reason = "missing_decisive_next_beat";
   else if (!hasPlayableMicroBeat) reason = "missing_playable_micro_beat";
+  else if (!hasCausalAdvancement) reason = "missing_causal_story_advancement";
+  else if (!hasCharacterCost) reason = "missing_character_cost";
+  else if (!hasActProgression) reason = "missing_act_progression";
   else if (requiresNextTurn) reason = nextTurnCoverage.reason || "missing_next_turn_continuation";
   else if (requiresExecutionBrief) reason = executionBriefCoverage.reason || "missing_next_scene_execution_brief";
   else if (optionMenuCount > 2 && !/\b(?:strongest|best|lead with|start with)\b/i.test(normalized)) reason = "vague_option_menu";
@@ -1718,6 +1792,13 @@ function evaluateMomentumRescueQuality({
       reason,
       counts,
       repairDirectives: buildMomentumRescueRepairDirectives(reason),
+      storyRescueContract: {
+        featureActKind: featureActKind || "feature",
+        playableSpecificity: hasPlayableMicroBeat,
+        causalAdvancement: hasCausalAdvancement,
+        characterCost: hasCharacterCost,
+        actProgression: hasActProgression,
+      },
       featureObligation: nextTurnCoverage.reason !== "no_next_turn"
         ? nextTurnCoverage
         : executionBriefCoverage,
@@ -1730,6 +1811,13 @@ function evaluateMomentumRescueQuality({
     reason: "ok",
     counts,
     repairDirectives: [],
+    storyRescueContract: {
+      featureActKind: featureActKind || "feature",
+      playableSpecificity: true,
+      causalAdvancement: true,
+      characterCost: true,
+      actProgression: true,
+    },
     featureObligation: nextTurnCoverage.reason !== "no_next_turn"
       ? nextTurnCoverage
       : executionBriefCoverage,

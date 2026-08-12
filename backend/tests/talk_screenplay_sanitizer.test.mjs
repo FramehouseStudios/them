@@ -273,6 +273,10 @@ test("[talk-screenplay-output] accepts concrete momentum-rescue voice notes", ()
   assert.equal(output.quality.ok, true);
   assert.equal(output.quality.reason, "ok");
   assert.equal(output.quality.confidence, "authoritative");
+  assert.equal(output.quality.counts.playable_specificity, 1);
+  assert.equal(output.quality.counts.causal_advancement, 1);
+  assert.equal(output.quality.counts.character_cost, 1);
+  assert.equal(output.quality.counts.act_progression, 1);
 });
 
 test("[talk-screenplay-output] rejects continuation voice notes that ignore remembered next turn", () => {
@@ -311,7 +315,7 @@ test("[talk-screenplay-output] rejects continuation voice notes that ignore reme
 test("[talk-screenplay-output] accepts continuation voice notes that spend remembered next turn", () => {
   const output = buildTalkScreenplayOutput({
     reply: [
-      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger.",
+      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger and she risks losing Marcus's trust.",
       "",
       "INT. EDIT BAY - NIGHT",
       "",

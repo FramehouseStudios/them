@@ -271,9 +271,16 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
     assert.equal(memoryCalls[0].projectId, "split-ferries");
     assert.match(r.body.reply, /^Ranked strongest move - relationship pressure:/);
     assert.match(r.body.reply, /Mara/);
+    assert.match(r.body.reply, /Causal turn:/);
+    assert.match(r.body.reply, /Character cost:/);
+    assert.match(r.body.reply, /Act progress: Act II progression:/);
     assert.equal(r.body.screenplay_quality.ok, true);
     assert.equal(r.body.screenplay_quality.source, "guard_momentum_rescue_fallback");
     assert.equal(r.body.screenplay_quality.repair_outcome, "fallback");
+    assert.equal(r.body.screenplay_quality.counts.playableSpecificity, 1);
+    assert.equal(r.body.screenplay_quality.counts.causalAdvancement, 1);
+    assert.equal(r.body.screenplay_quality.counts.characterCost, 1);
+    assert.equal(r.body.screenplay_quality.counts.actProgression, 1);
   });
 });
 

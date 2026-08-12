@@ -50,6 +50,9 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
   assert.match(reply, /Ranked strongest move - (?:reversal|relationship) pressure:/);
   assert.match(reply, /Grounded in: accepted_page: Mara puts the public affidavit on the record/);
   assert.match(reply, /Proof test:/);
+  assert.match(reply, /Causal turn:/);
+  assert.match(reply, /Character cost:/);
+  assert.match(reply, /Act progress: Act II progression:/);
   assert.match(reply, /Alternate fork 2/);
   assert.match(reply, /Alternate fork 3/);
   assert.match(reply, /Beat engine: because Mara realizes the public affidavit points at the judge/);
@@ -67,6 +70,10 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
   assert.equal(quality.applicable, true);
   assert.equal(quality.ok, true);
   assert.equal(quality.reason, "ok");
+  assert.equal(quality.counts.playableSpecificity, 1);
+  assert.equal(quality.counts.causalAdvancement, 1);
+  assert.equal(quality.counts.characterCost, 1);
+  assert.equal(quality.counts.actProgression, 1);
 });
 
 test("[momentum-rescue-fallback] sparse block turns still get one decisive playable move", () => {
