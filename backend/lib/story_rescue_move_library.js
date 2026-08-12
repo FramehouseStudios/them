@@ -261,8 +261,12 @@ function buildStoryMoveTasteProfile(
         record.blockResolutionCount ?? record.block_resolution_count ?? 0
       ) || 0))
     );
+    const recommendationOnly = Boolean(
+      record.recommendationOnly ?? record.recommendation_only
+    );
+    const earnedRecommendation = !recommendationOnly || acceptedPageCount > 0 || blockResolutionCount > 0;
 
-    if (selectedFamily) {
+    if (selectedFamily && earnedRecommendation) {
       const selected = ensure(selectedFamily);
       selected.selectedCount += 1;
       selected.acceptedPageCount += acceptedPageCount;
@@ -276,7 +280,7 @@ function buildStoryMoveTasteProfile(
         mostRecentSelectedFamily = selectedFamily;
       }
     }
-    for (const family of offeredFamilies) {
+    for (const family of earnedRecommendation ? offeredFamilies : []) {
       if (family === selectedFamily) continue;
       const passed = ensure(family);
       passed.passedOverCount += 1;
@@ -964,10 +968,64 @@ function formatRankedStoryRescueMoveLine(move = {}) {
   return `rank_${rank}: engine=${key}; score=${score}${taste}; evidence=${evidence}; move=${playableMove}; causal_advance=${causalAdvancement}; character_cost=${characterCost}; act_progression=${actProgression}; quality_gate=${qualityGate}; success_check=${successCheck}`;
 }
 
+function buildDeliveredStoryRescueInteraction({
+  systemPrompt = "",
+  reply = "",
+  requestId = "",
+  projectId = "",
+  projectTitle = "",
+  actKey = "",
+  sequenceKey = "",
+  deliveredAt = Date.now(),
+} = {}) {
+  const rankedFamilies = [];
+  const add = (rank, value) => {
+    const family = normalizeStoryMoveFamily(value);
+    if (!family || rankedFamilies.some((item) => item.family === family)) return;
+    rankedFamilies.push({ rank: Math.max(1, Math.floor(Number(rank || 1))), family });
+  };
+  const rankingPattern = /\brank_(\d+):\s*engine=([a-z_]+)/gi;
+  for (const match of String(systemPrompt || "").matchAll(rankingPattern)) {
+    add(match[1], match[2]);
+  }
+  const deliveredPattern = /\bRanked strongest move\s*-\s*([a-z ]+):/i;
+  const deliveredMatch = String(reply || "").match(deliveredPattern);
+  rankedFamilies.sort((left, right) => left.rank - right.rank);
+  const deliveredMoveFamily = normalizeStoryMoveFamily(deliveredMatch?.[1]);
+  const selectedMoveFamily = deliveredMoveFamily || rankedFamilies[0]?.family || "";
+  if (!selectedMoveFamily) return null;
+  const offeredMoveFamilies = [
+    selectedMoveFamily,
+    ...rankedFamilies.map((item) => item.family),
+  ].filter((family, index, all) => all.indexOf(family) === index).slice(0, 3);
+  const at = Math.max(1, Number(deliveredAt) || Date.now());
+  const cleanRequestId = String(requestId || "").trim().replace(/[^a-z0-9_-]+/gi, "-").slice(0, 72);
+  return {
+    questionId: `writer-block-rescue-${cleanRequestId || at}`,
+    projectId: String(projectId || "").trim(),
+    projectTitle: String(projectTitle || "").trim(),
+    targetField: "story.writer_block_rescue",
+    targetLabel: "the delivered writer-block rescue",
+    anchor: selectedMoveFamily,
+    question: "Which delivered story move gets the writer moving again?",
+    authority: "clementine_recommendation",
+    actKey: String(actKey || "").trim().toLowerCase(),
+    sequenceKey: String(sequenceKey || "").trim().toLowerCase(),
+    writerBlocked: true,
+    recommendationOnly: true,
+    selectedMoveFamily,
+    offeredMoveFamilies,
+    askedAt: at,
+    respondedAt: at,
+    responseStatus: "answered",
+  };
+}
+
 export {
   STORY_STALL_MOVE_LIBRARY,
   STORY_MOVE_FAMILY_KEYS,
   buildStoryMoveTasteProfile,
+  buildDeliveredStoryRescueInteraction,
   formatRankedStoryRescueMoveLine,
   inferStoryMoveActKind,
   normalizeStoryMoveFamily,

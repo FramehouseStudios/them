@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 import { freeIdentifiers } from "../tools/freevars.mjs";
 import { REQUIRED_DEPS } from "../lib/talk_handler.js";
+import { buildDeliveredStoryRescueInteraction } from "../lib/story_rescue_move_library.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, "..", "lib", "talk_handler.js");
@@ -46,6 +47,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "createPendingScreenplayLearningQuestion",
   "createTalkFailureError",
   "formatRankedStoryRescueMoveLine",
+  "buildDeliveredStoryRescueInteraction",
   "enforceScreenplayQuestionPlan",
   "extractProvisionalScreenplayOptions",
   "incrementErrorCounter",
@@ -57,6 +59,45 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "selectStoryMoveLibraryLinesForContext",
   "upsertPendingScreenplayLearningQuestion",
 ]);
+
+test("[writer-block-learning] extracts the delivered rank without treating it as writer taste", () => {
+  const interaction = buildDeliveredStoryRescueInteraction({
+    systemPrompt: [
+      "rank_2: engine=relationship_pressure; score=70",
+      "rank_1: engine=reversal_pressure; score=90",
+      "rank_3: engine=choice_pressure; score=60",
+    ].join("\n"),
+    requestId: "req studio/42",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    actKey: "act2",
+    sequenceKey: "premise",
+    deliveredAt: 4_200,
+  });
+
+  assert.equal(interaction.selectedMoveFamily, "reversal_pressure");
+  assert.deepEqual(interaction.offeredMoveFamilies, [
+    "reversal_pressure",
+    "relationship_pressure",
+    "choice_pressure",
+  ]);
+  assert.equal(interaction.recommendationOnly, true);
+  assert.equal(interaction.writerBlocked, true);
+  assert.equal(interaction.responseStatus, "answered");
+  assert.equal(interaction.questionId, "writer-block-rescue-req-studio-42");
+  assert.equal(buildDeliveredStoryRescueInteraction({ systemPrompt: "no ranking" }), null);
+
+  const deliveredOverride = buildDeliveredStoryRescueInteraction({
+    systemPrompt: "rank_1: engine=reversal_pressure; score=90",
+    reply: "Ranked strongest move - relationship pressure: Mara must choose Eli over the ferry.",
+    deliveredAt: 4_201,
+  });
+  assert.equal(deliveredOverride.selectedMoveFamily, "relationship_pressure");
+  assert.deepEqual(deliveredOverride.offeredMoveFamilies, [
+    "relationship_pressure",
+    "reversal_pressure",
+  ]);
+});
 
 test("[phase7b] createTalkHandler dependency boundary is complete", () => {
   const src = fs.readFileSync(LIB, "utf8");

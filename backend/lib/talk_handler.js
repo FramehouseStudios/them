@@ -47,6 +47,7 @@ import {
   isNextSceneExecutionBriefRepairReason,
 } from "./talk_screenplay_repair_plan.js";
 import {
+  buildDeliveredStoryRescueInteraction,
   formatRankedStoryRescueMoveLine,
   rankStoryRescueMovesForContext,
   selectStoryMoveLibraryLinesForContext,
@@ -1395,6 +1396,7 @@ function createTalkHandler(deps) {
   let pendingScreenplayLearningQuestion = null;
   let pendingScreenplayLearningResolution = null;
   let screenplayQuestionPlan = null;
+  let deliveredStoryRescueInteraction = null;
 
   const t0 = Date.now();
   let sttMs = 0, chatMs = 0, ttsMs = 0;
@@ -1427,7 +1429,7 @@ function createTalkHandler(deps) {
         sessionDurationMs,
         source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
         learningContext: screenplayLearningAnswerContext,
-        questionInteraction: screenplayQuestionInteraction,
+        questionInteraction: screenplayQuestionInteraction || deliveredStoryRescueInteraction,
       }))
       .catch((err) => {
         console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
@@ -4289,6 +4291,25 @@ ${directorOutputRule}
       reply,
       screenplayOutput: talkScreenplayOutput,
     });
+    const screenplayQuestionMode = String(screenplayQuestionPlan?.mode || "").trim().toLowerCase();
+    if (
+      !isScreenplayPageWriteTurn &&
+      !localActionReply &&
+      (
+        String(turnPlanner?.intent || "").trim().toLowerCase() === "momentum_rescue" ||
+        screenplayQuestionMode.startsWith("rescue_")
+      )
+    ) {
+      deliveredStoryRescueInteraction = buildDeliveredStoryRescueInteraction({
+        systemPrompt: system,
+        reply,
+        requestId: rid,
+        projectId: screenplayQuestionPlan?.projectId || studioMeta?.screenplayProjectId,
+        projectTitle: screenplayQuestionPlan?.projectTitle || studioMeta?.screenplayProjectTitle,
+        actKey: screenplayQuestionPlan?.actContext?.key,
+        sequenceKey: screenplayQuestionPlan?.sequenceContext?.key,
+      });
+    }
     let talkAudioDurationMs = estimateTalkSpeechDurationMs(
       reply,
       cycleUiReflection.voiceSpeed

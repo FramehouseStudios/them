@@ -231,6 +231,7 @@ test("[studio-render] sync: ordinary voice pin target does not inject page memor
 
 test("[studio-render] sync: writer-block voice pin applies corrected instincts to a playable fallback", async () => {
   const memoryCalls = [];
+  const continuityWrites = [];
   const deps = defaultDeps({
     renderStudioRealtimeText: async () => "Maybe raise the stakes and trust your instincts.",
     resolveUserId: () => "user-1",
@@ -254,6 +255,10 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
             }],
           },
         };
+      },
+      recordProjectContinuity: async (args) => {
+        continuityWrites.push(args);
+        return { ok: true };
       },
     },
   });
@@ -281,6 +286,67 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
     assert.equal(r.body.screenplay_quality.counts.causalAdvancement, 1);
     assert.equal(r.body.screenplay_quality.counts.characterCost, 1);
     assert.equal(r.body.screenplay_quality.counts.actProgression, 1);
+    assert.equal(continuityWrites.length, 1);
+    assert.equal(continuityWrites[0].userId, "user-1");
+    assert.equal(continuityWrites[0].continuity.projectId, "split-ferries");
+    assert.equal(
+      continuityWrites[0].continuity.questionEffectiveness[0].selectedMoveFamily,
+      "relationship_pressure",
+    );
+    assert.equal(
+      continuityWrites[0].continuity.questionEffectiveness[0].recommendationOnly,
+      true,
+    );
+  });
+});
+
+test("[studio-render-stream] writer-block rescue records the delivered engine before done", async () => {
+  const continuityWrites = [];
+  const weakReply = "Maybe raise the stakes and trust your instincts.";
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      await onDelta(weakReply, weakReply);
+      return weakReply;
+    },
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        userId: "user-1",
+        projectContinuity: {
+          projectId: "split-ferries",
+          projectTitle: "Split Ferries",
+          act: "Act II",
+          characterFocus: ["Mara", "Eli"],
+          storyMovePreferenceOverrides: [{
+            family: "relationship_pressure",
+            stance: "prefer",
+            updatedAt: 5_000,
+          }],
+        },
+      }),
+      recordProjectContinuity: async (args) => {
+        continuityWrites.push(args);
+        return { ok: true };
+      },
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "I am stuck in the middle. What should happen next?",
+      screenplay_target: "voice_pin",
+      screenplay_project_id: "split-ferries",
+      screenplay_project_title: "Split Ferries",
+      screenplay_act: "Act II",
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.text, /event: done/);
+    assert.match(r.text, /Ranked strongest move - relationship pressure/);
+    assert.equal(continuityWrites.length, 1);
+    const [interaction] = continuityWrites[0].continuity.questionEffectiveness;
+    assert.equal(interaction.selectedMoveFamily, "relationship_pressure");
+    assert.equal(interaction.actKey, "act2");
+    assert.equal(interaction.recommendationOnly, true);
   });
 });
 

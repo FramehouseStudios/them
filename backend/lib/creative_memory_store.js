@@ -1050,6 +1050,7 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
     actKey: ["act1", "act2", "act3"].includes(actKeyRaw) ? actKeyRaw : "",
     sequenceKey: SCREENPLAY_QUESTION_SEQUENCE_KEYS.has(sequenceKeyRaw) ? sequenceKeyRaw : "",
     writerBlocked: Boolean(source.writerBlocked ?? source.writer_blocked),
+    recommendationOnly: Boolean(source.recommendationOnly ?? source.recommendation_only),
     askedAt,
     answeredAt,
     respondedAt: respondedAt || answeredAt,
@@ -1103,6 +1104,7 @@ function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
       ...previous,
       ...item,
       writerBlocked: Boolean(previous.writerBlocked || item.writerBlocked),
+      recommendationOnly: Boolean(previous.recommendationOnly || item.recommendationOnly),
       askedAt: Math.min(
         ...[previous.askedAt, item.askedAt].filter((timestamp) => timestamp > 0)
       ),
@@ -1172,6 +1174,7 @@ function buildQuestionInteractionEffectivenessRecord(interaction) {
     actKey: interaction.actKey,
     sequenceKey: interaction.sequenceKey,
     writerBlocked: interaction.writerBlocked,
+    recommendationOnly: interaction.recommendationOnly,
     selectedMoveFamily: interaction.selectedMoveFamily,
     offeredMoveFamilies: interaction.offeredMoveFamilies,
     askedAt: interaction.askedAt,
@@ -3409,6 +3412,7 @@ function sanitizeScreenplayLearningContext(value, {
       ? cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
       : "",
     writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
+    recommendationOnly: Boolean(value.recommendationOnly ?? value.recommendation_only),
     provisionalOptions,
     selectedOptionId,
     selectedOptionRank: Math.max(

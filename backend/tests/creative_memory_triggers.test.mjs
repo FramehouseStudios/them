@@ -11,6 +11,7 @@ import {
   buildProjectFieldProvenance,
   createCreativeMemoryStore,
 } from "../lib/creative_memory_store.js";
+import { buildStoryMoveTasteProfile } from "../lib/story_rescue_move_library.js";
 
 // Post-T08-postgres: store takes a persistence handle. Each test gets a
 // fresh JSON-file-backed adapter rooted in a tmp dir so tests are isolated.
@@ -463,6 +464,82 @@ Eli takes the wheel as the map burns between them.`;
     acceptedPageText: page,
   });
   assert.equal(repeated.questionAcceptedPageOutcomes, 0);
+});
+
+test("delivered rescue moves earn taste only after pages or explicit block recovery", async () => {
+  const persistence = freshPersistence();
+  const userId = "u-delivered-rescue-outcome";
+  const store = createCreativeMemoryStore({ persistence });
+  const deliveredAt = Date.now();
+  const delivered = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "I'm stuck in the middle.",
+    reply: "Use a reversal that makes Mara's old tactic cost Eli's trust.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    questionInteraction: {
+      questionId: "writer-block-rescue-req-42",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "story.writer_block_rescue",
+      targetLabel: "the delivered writer-block rescue",
+      anchor: "reversal_pressure",
+      question: "Which delivered story move gets the writer moving again?",
+      actKey: "act2",
+      sequenceKey: "premise",
+      writerBlocked: true,
+      recommendationOnly: true,
+      selectedMoveFamily: "reversal_pressure",
+      offeredMoveFamilies: [
+        "reversal_pressure",
+        "relationship_pressure",
+        "obstacle_pressure",
+      ],
+      askedAt: deliveredAt,
+      respondedAt: deliveredAt,
+      responseStatus: "answered",
+    },
+  });
+  assert.equal(delivered.questionInteractionsRecorded, 1);
+
+  let memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  let [outcome] = memory.projectContinuity.questionEffectiveness;
+  assert.equal(outcome.recommendationOnly, true);
+  assert.equal(outcome.selectedMoveFamily, "reversal_pressure");
+  assert.equal(
+    buildStoryMoveTasteProfile(memory.projectContinuity.questionEffectiveness).length,
+    0,
+  );
+
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    acceptedPageText: "INT. FERRY - NIGHT\n\nMara burns the safe route. Eli takes the wheel.",
+  });
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "That solved the block. I know what happens next.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+  });
+
+  memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  [outcome] = memory.projectContinuity.questionEffectiveness;
+  assert.equal(outcome.acceptedPageCount, 1);
+  assert.equal(outcome.blockResolutionCount, 1);
+  const profile = buildStoryMoveTasteProfile(memory.projectContinuity.questionEffectiveness);
+  const reversal = profile.find((item) => item.family === "reversal_pressure");
+  assert.equal(reversal.selectedCount, 1);
+  assert.equal(reversal.acceptedPageCount, 1);
+  assert.equal(reversal.blockResolutionCount, 1);
+  assert.ok(reversal.tasteBonus > 0);
 });
 
 test("asked and ignored screenplay questions persist without earning false page credit", async () => {

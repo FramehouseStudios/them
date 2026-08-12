@@ -57,6 +57,10 @@ import {
 import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
 import { evaluateMomentumRescueQuality } from "./screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
+import {
+  buildDeliveredStoryRescueInteraction,
+  inferStoryMoveActKind,
+} from "./story_rescue_move_library.js";
 
 const STUDIO_RENDER_BODY_LIMIT = "512kb";
 const STUDIO_RENDER_MEMORY_QUERY_MAX_CHARS = 3_000;
@@ -641,6 +645,54 @@ function enforceStudioMomentumRescue({
   };
 }
 
+async function recordDeliveredStudioStoryRescue({
+  req,
+  requestId = "",
+  systemPrompt = "",
+  reply = "",
+  creativeMemoryStore = null,
+  resolveUserId,
+} = {}) {
+  if (typeof creativeMemoryStore?.recordProjectContinuity !== "function") return false;
+  const userId = String(resolveUserId?.(req) || "").trim();
+  const projectId = cleanStudioRenderMemoryText(
+    req?.body?.screenplay_project_id ?? req?.body?.screenplayProjectId,
+    96,
+  );
+  const projectTitle = cleanStudioRenderMemoryText(
+    req?.body?.screenplay_project_title ?? req?.body?.screenplayProjectTitle,
+    160,
+  );
+  if (!userId || (!projectId && !projectTitle)) return false;
+  const interaction = buildDeliveredStoryRescueInteraction({
+    systemPrompt,
+    reply,
+    requestId,
+    projectId,
+    projectTitle,
+    actKey: inferStoryMoveActKind([
+      req?.body?.screenplay_act,
+      req?.body?.screenplayAct,
+      req?.body?.screenplay_feature_sequence,
+      req?.body?.screenplayFeatureSequence,
+    ].filter(Boolean).join(" ")),
+  });
+  if (!interaction) return false;
+  try {
+    const receipt = await creativeMemoryStore.recordProjectContinuity({
+      userId,
+      continuity: {
+        projectId,
+        projectTitle,
+        questionEffectiveness: [interaction],
+      },
+    });
+    return Boolean(receipt?.ok);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function studioRenderQualityBody(body = {}, memoryContext = null) {
   const acceptedCausalFacts = Array.isArray(memoryContext?.acceptedCausalFacts)
     ? memoryContext.acceptedCausalFacts
@@ -804,6 +856,14 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         });
         reply = momentumResult.reply;
         screenplayQuality = momentumResult.screenplayQuality;
+        await recordDeliveredStudioStoryRescue({
+          req,
+          requestId: rid,
+          systemPrompt: memoryContext.systemPrompt,
+          reply,
+          creativeMemoryStore,
+          resolveUserId,
+        });
       }
       console.warn(
         `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length} quality=${screenplayQuality?.repair_outcome || "not_applicable"}`,
@@ -989,6 +1049,14 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         });
         reply = momentumResult.reply;
         screenplayQuality = momentumResult.screenplayQuality;
+        await recordDeliveredStudioStoryRescue({
+          req,
+          requestId: rid,
+          systemPrompt: memoryContext.systemPrompt,
+          reply,
+          creativeMemoryStore,
+          resolveUserId,
+        });
         if (momentumResult.repaired) {
           pushEvent("trace", {
             ok: true,
