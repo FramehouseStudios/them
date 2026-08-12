@@ -911,7 +911,7 @@ final class V1SmokeUITests: XCTestCase {
             openCommandBar: true,
             liveMemory: true,
             restoreProjectID: fixture.projectID,
-            submitTransportMode: "live",
+            submitTransportMode: "live-backend",
             launchEnvironment: fixture.appLaunchEnvironment
         )
         defer { app.terminate() }
@@ -921,13 +921,20 @@ final class V1SmokeUITests: XCTestCase {
             "Studio did not open for the writer-block instinct smoke."
         )
         try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        let baselineMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.baselineStrongestMove,
+            in: app,
+            timeout: 35
+        )
+        try recordStudioInstinctEvidence(
+            stage: "01-baseline",
+            expected: [fixture.baselineStrongestMove],
+            in: app,
+            fixture: fixture
+        )
         XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.voice-pin.latest.output",
-                containing: fixture.baselineStrongestMove,
-                in: app,
-                timeout: 35
-            ),
+            baselineMatched,
             "The baseline writer-block response did not expose \(fixture.baselineStrongestMove). Accessibility hierarchy:\n\(app.debugDescription)"
         )
 
@@ -944,30 +951,49 @@ final class V1SmokeUITests: XCTestCase {
             identifier: "studio.story-preference.\(fixture.preferenceFamily).menu",
             in: app
         )
+#if os(macOS)
+        let preferAction = app.buttons[
+            "studio.story-preference.\(fixture.preferenceFamily).prefer"
+        ]
+        makeHittable(preferAction, in: app)
+        XCTAssertTrue(
+            preferAction.waitForExistence(timeout: 5) && preferAction.isHittable,
+            "The macOS Creative Instincts row did not expose its primary correction action."
+        )
+        preferAction.click()
+#else
         makeHittable(preferenceMenu, in: app)
         XCTAssertTrue(preferenceMenu.isHittable, "The creative instinct menu was not tappable.")
         preferenceMenu.tap()
         let preferAction = app.buttons["Suggest More Like This"]
-        XCTAssertTrue(preferAction.waitForExistence(timeout: 5))
-        preferAction.tap()
         XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.story-preference.\(fixture.preferenceFamily)",
-                containing: "corrected",
-                in: app,
-                timeout: 15
-            ),
-            "Studio did not surface the explicit preference correction."
+            preferAction.waitForExistence(timeout: 5),
+            "The iOS creative instinct menu did not expose Suggest More Like This."
         )
+        preferAction.tap()
+#endif
+        let correctionSurfaced = waitForAccessibilityText(
+            in: preference,
+            containing: "corrected",
+            timeout: 15
+        )
+        XCTAssertTrue(correctionSurfaced, studioInstinctCorrectionFailure(in: app))
 
         try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        let correctedMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.correctedStrongestMove,
+            in: app,
+            timeout: 35
+        )
+        try recordStudioInstinctEvidence(
+            stage: "02-corrected-instinct",
+            expected: [fixture.correctedStrongestMove],
+            in: app,
+            fixture: fixture
+        )
         XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.voice-pin.latest.output",
-                containing: fixture.correctedStrongestMove,
-                in: app,
-                timeout: 35
-            ),
+            correctedMatched,
             "The corrected instinct did not change Clementine's strongest rescue move."
         )
 
@@ -998,22 +1024,30 @@ final class V1SmokeUITests: XCTestCase {
         try assertHTTP(canonCommit, context: "writer-block due-canon commit")
 
         try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        let canonMoveMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.canonStrongestMove,
+            in: app,
+            timeout: 35
+        )
+        let dueSetupMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.dueSetup,
+            in: app,
+            timeout: 5
+        )
+        try recordStudioInstinctEvidence(
+            stage: "03-canon-protected",
+            expected: [fixture.canonStrongestMove, fixture.dueSetup],
+            in: app,
+            fixture: fixture
+        )
         XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.voice-pin.latest.output",
-                containing: fixture.canonStrongestMove,
-                in: app,
-                timeout: 35
-            ),
+            canonMoveMatched,
             "Due canon did not outrank the corrected creative instinct."
         )
         XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.voice-pin.latest.output",
-                containing: fixture.dueSetup,
-                in: app,
-                timeout: 5
-            ),
+            dueSetupMatched,
             "The protected due setup was missing from Clementine's rescue."
         )
     }
@@ -1561,18 +1595,34 @@ final class V1SmokeUITests: XCTestCase {
 
     private func makeHittable(_ element: XCUIElement, in app: XCUIApplication) {
         guard element.exists, !element.isHittable else { return }
+#if os(macOS)
+        app.activate()
+        let interactionSurface = app.windows.firstMatch
+        guard interactionSurface.waitForExistence(timeout: 3) else { return }
+        for _ in 0..<4 where !element.isHittable {
+            interactionSurface.swipeDown()
+        }
+        for _ in 0..<8 where !element.isHittable {
+            interactionSurface.swipeUp()
+        }
+#else
         for _ in 0..<4 where !element.isHittable {
             app.swipeDown()
         }
         for _ in 0..<8 where !element.isHittable {
             app.swipeUp()
         }
+#endif
     }
 
     private func submitStudioWriterBlockPrompt(
         _ prompt: String,
         in app: XCUIApplication
     ) throws {
+#if os(macOS)
+        app.activate()
+        _ = app.windows.firstMatch.waitForExistence(timeout: 3)
+#endif
         let field = element(identifier: "studio.prompt.field", in: app)
         if !field.isHittable {
             let rightToggle = app.buttons["studio.sidebar.right.toggle"]
@@ -1589,6 +1639,13 @@ final class V1SmokeUITests: XCTestCase {
         )
         XCTAssertTrue(field.isHittable, "Studio prompt field was not tappable.")
         field.tap()
+#if os(iOS)
+        field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
+#elseif os(macOS)
+        field.typeKey("a", modifierFlags: [.command])
+        field.typeKey(.delete, modifierFlags: [])
+#endif
         field.typeText(prompt)
         submitFocusedPrompt(in: app, field: field)
     }
@@ -1599,7 +1656,7 @@ final class V1SmokeUITests: XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        let target = element(identifier: identifier, in: app)
+        let target = app.staticTexts.matching(identifier: identifier).firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if target.exists,
@@ -1612,6 +1669,96 @@ final class V1SmokeUITests: XCTestCase {
         return target.exists &&
             accessibilityText(of: target)
                 .localizedCaseInsensitiveContains(expected)
+    }
+
+    private func waitForAccessibilityText(
+        in target: XCUIElement,
+        containing expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if target.exists,
+               accessibilityText(of: target)
+                .localizedCaseInsensitiveContains(expected) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        return target.exists &&
+            accessibilityText(of: target)
+                .localizedCaseInsensitiveContains(expected)
+    }
+
+    private func recordStudioInstinctEvidence(
+        stage: String,
+        expected: [String],
+        in app: XCUIApplication,
+        fixture: StudioInstinctFixture
+    ) throws {
+        let output = app.staticTexts
+            .matching(identifier: "studio.voice-pin.latest.output")
+            .firstMatch
+        let observed = output.exists ? accessibilityText(of: output) : ""
+        let preference = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            in: app
+        )
+        let preferenceState = preference.exists ? accessibilityText(of: preference) : ""
+        let preferenceError = element(
+            identifier: "studio.story-preferences.error",
+            in: app
+        )
+        let preferenceErrorText = preferenceError.exists
+            ? accessibilityText(of: preferenceError)
+            : ""
+        let matched = expected.allSatisfy {
+            observed.localizedCaseInsensitiveContains($0)
+        }
+        let screenshot: XCUIScreenshot
+#if os(macOS)
+        let appWindow = app.windows.firstMatch
+        screenshot = appWindow.exists ? appWindow.screenshot() : app.screenshot()
+#else
+        screenshot = app.screenshot()
+#endif
+        let attachment = XCTAttachment(screenshot: screenshot)
+        let stem = "\(fixture.evidencePlatform)-\(stage)"
+        attachment.name = "studio-instinct-\(stem).png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let payload: [String: Any] = [
+            "schema_version": 1,
+            "platform": fixture.evidencePlatform,
+            "stage": stage,
+            "expected": expected,
+            "observed": observed,
+            "matched": matched,
+            "preference_state": preferenceState,
+            "preference_error": preferenceErrorText,
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        let observation = XCTAttachment(
+            data: data,
+            uniformTypeIdentifier: "public.json"
+        )
+        observation.name = "studio-instinct-\(stem).json"
+        observation.lifetime = .keepAlways
+        add(observation)
+    }
+
+    private func studioInstinctCorrectionFailure(in app: XCUIApplication) -> String {
+        let preferenceError = element(
+            identifier: "studio.story-preferences.error",
+            in: app
+        )
+        let errorText = preferenceError.exists
+            ? accessibilityText(of: preferenceError)
+            : "none"
+        return "Studio did not surface the explicit preference correction. Preference error: \(errorText)."
     }
 
     private struct StudioInstinctFixture {
@@ -1628,6 +1775,7 @@ final class V1SmokeUITests: XCTestCase {
         let acceptedPage: String
         let dueSetup: String
         let duePayoff: String
+        let evidencePlatform: String
         let appLaunchEnvironment: [String: String]
 
         var authorizedHeaders: [String: String] {
@@ -1738,6 +1886,10 @@ final class V1SmokeUITests: XCTestCase {
             duePayoff: try firstNonEmptyString(
                 payload["duePayoff"],
                 message: "Studio instinct fixture missing duePayoff."
+            ),
+            evidencePlatform: try firstNonEmptyString(
+                payload["evidencePlatform"],
+                message: "Studio instinct fixture missing evidencePlatform."
             ),
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURLString,

@@ -320,75 +320,115 @@ private struct StudioCreativeInstinctRow: View {
     let onUpdate: (BackendStoryMovePreference, String) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(preference.displayName)
-                        .font(IOThemTypography.UI.caption.weight(.semibold))
-                        .foregroundStyle(Color.herText.opacity(0.88))
-                    if preference.isExplicitlyCorrected {
-                        Text("Corrected")
-                            .font(IOThemTypography.UI.micro)
-                            .foregroundStyle(Color.herText.opacity(0.72))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.16))
-                            .clipShape(Capsule())
-                    }
-                }
-
-                Text(preferenceSummary)
-                    .font(IOThemTypography.UI.label.weight(.regular))
-                    .foregroundStyle(Color.herText.opacity(0.65))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(evidenceLine)
-                    .font(IOThemTypography.UI.micro.weight(.medium))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-                    .fixedSize(horizontal: false, vertical: true)
+        Group {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 6) {
+            preferenceCopy
+            HStack(spacing: 4) {
+                Spacer(minLength: 0)
+                preferenceActions
             }
+        }
+        #else
+        HStack(alignment: .top, spacing: 10) {
+            preferenceCopy
 
             Spacer(minLength: 8)
-
-            if isUpdating {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 26, height: 26)
-            } else {
-                Menu {
-                    Button {
-                        onUpdate(preference, "prefer")
-                    } label: {
-                        Label("Suggest More Like This", systemImage: "plus.circle")
-                    }
-                    Button {
-                        onUpdate(preference, "avoid")
-                    } label: {
-                        Label("Suggest Less Like This", systemImage: "minus.circle")
-                    }
-                    Button(role: .destructive) {
-                        onUpdate(preference, "reset")
-                    } label: {
-                        Label("Forget This Preference", systemImage: "arrow.counterclockwise")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(IOThemTypography.UI.body.weight(.medium))
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.plain)
-                .disabled(isDisabled)
-                .help("Adjust creative preference")
-                .accessibilityLabel("Adjust \(preference.displayName)")
-                .accessibilityIdentifier(
-                    "studio.story-preference.\(preference.family).menu"
-                )
-            }
+            preferenceActions
+        }
+        #endif
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(preference.displayName). \(evidenceLine)")
         .accessibilityIdentifier("studio.story-preference.\(preference.family)")
+    }
+
+    private var preferenceCopy: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(preference.displayName)
+                    .font(IOThemTypography.UI.caption.weight(.semibold))
+                    .foregroundStyle(Color.herText.opacity(0.88))
+                if preference.isExplicitlyCorrected {
+                    Text("Corrected")
+                        .font(IOThemTypography.UI.micro)
+                        .foregroundStyle(Color.herText.opacity(0.72))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.16))
+                        .clipShape(Capsule())
+                }
+            }
+
+            Text(preferenceSummary)
+                .font(IOThemTypography.UI.label.weight(.regular))
+                .foregroundStyle(Color.herText.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(evidenceLine)
+                .font(IOThemTypography.UI.micro.weight(.medium))
+                .foregroundStyle(Color.herText.opacity(0.58))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .layoutPriority(1)
+    }
+
+    @ViewBuilder
+    private var preferenceActions: some View {
+        if isUpdating {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 26, height: 26)
+        } else {
+            #if os(macOS)
+            Button {
+                onUpdate(preference, "prefer")
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(IOThemTypography.UI.body.weight(.medium))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
+            .help("Suggest more like this")
+            .accessibilityLabel("Suggest More Like This")
+            .accessibilityIdentifier(
+                "studio.story-preference.\(preference.family).prefer"
+            )
+            #endif
+
+            Menu {
+                #if !os(macOS)
+                Button {
+                    onUpdate(preference, "prefer")
+                } label: {
+                    Label("Suggest More Like This", systemImage: "plus.circle")
+                }
+                #endif
+                Button {
+                    onUpdate(preference, "avoid")
+                } label: {
+                    Label("Suggest Less Like This", systemImage: "minus.circle")
+                }
+                Button(role: .destructive) {
+                    onUpdate(preference, "reset")
+                } label: {
+                    Label("Forget This Preference", systemImage: "arrow.counterclockwise")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(IOThemTypography.UI.body.weight(.medium))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
+            .help("Adjust creative preference")
+            .accessibilityLabel("Adjust \(preference.displayName)")
+            .accessibilityIdentifier(
+                "studio.story-preference.\(preference.family).menu"
+            )
+        }
     }
 
     private var preferenceSummary: String {

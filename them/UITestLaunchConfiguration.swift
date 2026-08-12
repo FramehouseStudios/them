@@ -44,6 +44,7 @@ nonisolated enum UITestLaunchConfiguration {
 
         copyLaunchArgumentValue("studio_debug_seed_structural_token", from: arguments, to: defaults)
         copyLaunchArgumentValue("studio_auto_insert", from: arguments, to: defaults)
+        copyLaunchArgumentValue("studio_debug_submit_transport_mode", from: arguments, to: defaults)
         copyLaunchArgumentValue("studio_debug_load_project_id", from: arguments, to: defaults)
         copyLaunchArgumentValue("studio_debug_load_project_version_id", from: arguments, to: defaults)
         copyLaunchArgumentInt("studio_debug_load_project_token", from: arguments, to: defaults)

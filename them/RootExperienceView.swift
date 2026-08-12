@@ -1616,7 +1616,8 @@ struct RootExperienceView: View {
     private func prepareBackendForStudioDebugVoiceTurn() {
         let rawPinnedURL = studioDebugPreferenceString("backend_base_url", fallback: "http://127.0.0.1:3000")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let pinnedURL = canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
+        let pinnedURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL
+            ?? canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
         setStudioDebugPreferenceString(pinnedURL.absoluteString, forKey: "backend_base_url")
         backend = BackendClient(baseURL: pinnedURL, fallbackURL: pinnedURL)
     }
@@ -4234,22 +4235,35 @@ struct RootExperienceView: View {
         let insertedText: String
     }
 
-    private var shouldUseDebugStudioPromptStubTransport: Bool {
-        studioDebugPreferenceString(
+    private var debugStudioPromptTransportMode: String {
+#if DEBUG
+        if IOThemRuntime.isRunningUITests {
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-studio_debug_submit_transport_mode") {
+                let valueIndex = arguments.index(after: index)
+                if arguments.indices.contains(valueIndex) {
+                    let override = arguments[valueIndex]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    if !override.isEmpty { return override }
+                }
+            }
+        }
+#endif
+        return studioDebugPreferenceString(
             "studio_debug_submit_transport_mode",
             fallback: studioDebugSubmitTransportMode
         )
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() == "stub"
+            .lowercased()
+    }
+
+    private var shouldUseDebugStudioPromptStubTransport: Bool {
+        debugStudioPromptTransportMode == "stub"
     }
 
     private var shouldUseDebugStudioPromptLiveBackendTransport: Bool {
-        studioDebugPreferenceString(
-            "studio_debug_submit_transport_mode",
-            fallback: studioDebugSubmitTransportMode
-        )
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() == "live-backend"
+        debugStudioPromptTransportMode == "live-backend"
     }
 
     private func debugStudioPromptLooksLikeRewriteIntent(_ prompt: String) -> Bool {
@@ -10203,15 +10217,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptProtagonistNeed = featureSpine.protagonistNeed
         var promptAntagonisticForce = featureSpine.antagonisticForce
         var promptEndingImage = featureSpine.endingImage
-        var promptUnresolvedSetups = featureSpine.unresolvedSetups + bindingSnapshot.sceneBindings
-            .filter { !$0.isBound }
-            .prefix(4)
-            .map { "Unbound draft scene: \($0.draftShortLabel)" }
+        var promptUnresolvedSetups = featureSpine.unresolvedSetups
 
         var continuityNotes: [String] = []
         if bindingSnapshot.draftSceneCount > 0 || bindingSnapshot.outlineSceneCount > 0 {
             continuityNotes.append(
                 "Draft-outline binding: \(bindingSnapshot.boundSceneCount)/\(max(bindingSnapshot.outlineSceneCount, bindingSnapshot.draftSceneCount)) scenes aligned."
+            )
+        }
+        let unboundDraftSceneLabels = bindingSnapshot.sceneBindings
+            .filter { !$0.isBound }
+            .prefix(4)
+            .map(\.draftShortLabel)
+        if !unboundDraftSceneLabels.isEmpty {
+            continuityNotes.append(
+                "Draft-outline alignment pending: \(unboundDraftSceneLabels.joined(separator: ", "))."
             )
         }
         if bindingSnapshot.draftCharacterCount > 0 || bindingSnapshot.projectCharacterCount > 0 {

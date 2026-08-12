@@ -72,6 +72,10 @@ test("[run-release-preflight] gates adaptive Studio writer-block rescue across p
   assert.match(workflowSource, /name: Verify Clementine Studio Writer Block Rescue/);
   assert.match(workflowSource, /working-directory: backend/);
   assert.match(workflowSource, /run: npm run eval:studio-instinct-writer-block-ui/);
+  assert.match(workflowSource, /name: Upload Clementine Studio Evidence/);
+  assert.match(workflowSource, /if: always\(\)/);
+  assert.match(workflowSource, /name: clementine-studio-writer-block-evidence/);
+  assert.match(workflowSource, /\/tmp\/them-smoke\/studio-instinct-writer-block\//);
   assert.match(workflowSource, /MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release/);
   assert.match(workflowSource, /MAC_DESKTOP_ACTION: archive/);
 });

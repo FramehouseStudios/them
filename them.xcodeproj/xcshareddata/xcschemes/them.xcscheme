@@ -121,6 +121,11 @@
             value = "$(THEM_UITEST_LEARNED_MEMORY_FIXTURE_BASE64URL)"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "THEM_UITEST_STUDIO_INSTINCT_FIXTURE_BASE64URL"
+            value = "$(THEM_UITEST_STUDIO_INSTINCT_FIXTURE_BASE64URL)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
@@ -17,6 +25,8 @@ const TEST_IDENTIFIER =
   "themUITests/V1SmokeUITests/test_studio_writer_block_rescue_follows_instinct_then_protects_due_canon";
 const PROJECT_ID = "studio-instinct-rescue";
 const PROJECT_TITLE = "Studio Instinct Rescue";
+const EVIDENCE_DIR = "/tmp/them-smoke/studio-instinct-writer-block";
+const EVIDENCE_STAGES = ["01-baseline", "02-corrected-instinct", "03-canon-protected"];
 const PROMPT = "I am stuck in the middle. What should happen next?";
 const DUE_SETUP = "The red locket inside the courthouse clock";
 const DUE_PAYOFF = "Mara uses the red locket to expose the forged verdict";
@@ -94,6 +104,10 @@ async function seedProject(server, identity) {
       project_id: PROJECT_ID,
       title: PROJECT_TITLE,
       phase: "scene_draft",
+      act_position: "Act II",
+      protagonist_want: "get Eli onto the last ferry",
+      protagonist_need: "stop using control as a substitute for trust",
+      unresolved_setups: [],
       activate: true,
     },
   });
@@ -184,7 +198,15 @@ async function seedProject(server, identity) {
   }
 }
 
-function fixtureJSON(baseURL, identity) {
+function prepareEvidenceDirectory(platform) {
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
+  for (const fileName of readdirSync(EVIDENCE_DIR)) {
+    if (!fileName.startsWith(`${platform}-`)) continue;
+    unlinkSync(`${EVIDENCE_DIR}/${fileName}`);
+  }
+}
+
+function fixtureJSON(baseURL, identity, platform) {
   return JSON.stringify({
     baseURL,
     appToken: identity.appToken,
@@ -203,6 +225,7 @@ function fixtureJSON(baseURL, identity) {
     acceptedPage: ACCEPTED_PAGE,
     dueSetup: DUE_SETUP,
     duePayoff: DUE_PAYOFF,
+    evidencePlatform: platform,
   });
 }
 
@@ -215,9 +238,99 @@ function sanitizeUITestOutput(output, fixture) {
     );
 }
 
+function safeEvidenceName(value) {
+  return String(value || "attachment")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "attachment";
+}
+
+function exportEvidenceAttachments({ platform, resultBundlePath }) {
+  if (!existsSync(resultBundlePath)) return;
+  const exportPath = `/tmp/io-them-studio-instinct-${platform}-${process.pid}-attachments`;
+  const result = spawnSync("xcrun", [
+    "xcresulttool", "export", "attachments",
+    "--path", resultBundlePath,
+    "--output-path", exportPath,
+  ], {
+    cwd: ROOT_DIR,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `${platform} Studio instinct evidence export failed.\n${result.stdout || ""}\n${result.stderr || ""}`
+    );
+  }
+
+  const manifestPath = `${exportPath}/manifest.json`;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  copyFileSync(manifestPath, `${EVIDENCE_DIR}/${platform}-xcresult-manifest.json`);
+  let failureIndex = 0;
+  for (const testResult of Array.isArray(manifest) ? manifest : []) {
+    for (const attachment of Array.isArray(testResult?.attachments) ? testResult.attachments : []) {
+      const exportedFileName = String(attachment?.exportedFileName || "").trim();
+      const suggestedName = String(attachment?.suggestedHumanReadableName || "").trim();
+      if (!exportedFileName || !suggestedName) continue;
+      const source = `${exportPath}/${exportedFileName}`;
+      if (!existsSync(source)) continue;
+
+      const stageMatch = suggestedName.match(
+        new RegExp(
+          `^studio-instinct-${platform}-(${EVIDENCE_STAGES.join("|")})(?:_\\d+_[a-f0-9-]+)?\\.(json|png)$`,
+          "i"
+        )
+      );
+      if (stageMatch) {
+        const [, stage, extension] = stageMatch;
+        copyFileSync(
+          source,
+          `${EVIDENCE_DIR}/${platform}-${stage}.${extension.toLowerCase()}`
+        );
+      } else if (attachment?.isAssociatedWithFailure === true) {
+        failureIndex += 1;
+        const extension = exportedFileName.includes(".")
+          ? `.${exportedFileName.split(".").at(-1)}`
+          : "";
+        const baseName = safeEvidenceName(suggestedName).replace(/\.[a-z0-9]+$/i, "");
+        copyFileSync(
+          source,
+          `${EVIDENCE_DIR}/${platform}-failure-${String(failureIndex).padStart(2, "0")}-${baseName}${extension}`
+        );
+      }
+    }
+  }
+}
+
+function readTestSummary({ platform, resultBundlePath }) {
+  const result = spawnSync("xcrun", [
+    "xcresulttool", "get", "test-results", "summary",
+    "--path", resultBundlePath,
+  ], {
+    cwd: ROOT_DIR,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `${platform} Studio instinct result summary failed.\n${result.stdout || ""}\n${result.stderr || ""}`
+    );
+  }
+  const summary = JSON.parse(result.stdout);
+  writeFileSync(
+    `${EVIDENCE_DIR}/${platform}-xcresult-summary.json`,
+    `${JSON.stringify(summary, null, 2)}\n`,
+    "utf8"
+  );
+  return summary;
+}
+
 function runUITest({ platform, baseURL, identity }) {
-  const fixture = Buffer.from(fixtureJSON(baseURL, identity), "utf8").toString("base64url");
+  prepareEvidenceDirectory(platform);
+  const fixture = Buffer.from(fixtureJSON(baseURL, identity, platform), "utf8").toString("base64url");
   const xcconfigPath = `/tmp/them_studio_instinct_ui_${platform}_${process.pid}.xcconfig`;
+  const resultBundlePath = `/tmp/io-them-studio-instinct-${platform}-${process.pid}.xcresult`;
   writeFileSync(
     xcconfigPath,
     `THEM_UITEST_STUDIO_INSTINCT_FIXTURE_BASE64URL = ${fixture}\n`,
@@ -227,7 +340,12 @@ function runUITest({ platform, baseURL, identity }) {
   let result;
   try {
     if (platform === "ios") {
-      result = spawnSync("bash", ["scripts/run_v1_ui_smoke.sh", "-quiet"], {
+      result = spawnSync("bash", [
+        "scripts/run_v1_ui_smoke.sh",
+        "-quiet",
+        "-resultBundlePath",
+        resultBundlePath,
+      ], {
         cwd: ROOT_DIR,
         encoding: "utf8",
         maxBuffer: 128 * 1024 * 1024,
@@ -247,6 +365,7 @@ function runUITest({ platform, baseURL, identity }) {
         "-configuration", "Mac Scaffold Debug",
         "-destination", "platform=macOS",
         `-only-testing:${TEST_IDENTIFIER}`,
+        "-resultBundlePath", resultBundlePath,
         "-derivedDataPath", `/tmp/io-them-studio-instinct-${process.pid}-macos`,
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=-",
@@ -268,16 +387,30 @@ function runUITest({ platform, baseURL, identity }) {
     `${result?.stdout || ""}\n${result?.stderr || ""}`,
     fixture
   );
+  exportEvidenceAttachments({ platform, resultBundlePath });
+  const summary = readTestSummary({ platform, resultBundlePath });
   if (result?.status !== 0) {
     throw new Error(
       `${platform} Studio instinct UI smoke failed.\nstatus=${result?.status}\n${output}`
     );
   }
-  if (
-    /Executed 0 tests/.test(output) ||
-    new RegExp(`Test Case .*${TEST_IDENTIFIER.split("/").at(-1)}.* skipped`, "i").test(output)
-  ) {
-    throw new Error(`${platform} Studio instinct UI smoke did not execute.\n${output}`);
+  assert(
+    Number(summary?.totalTestCount) === 1 &&
+      Number(summary?.passedTests) === 1 &&
+      Number(summary?.failedTests) === 0 &&
+      Number(summary?.skippedTests) === 0,
+    `${platform} Studio instinct UI smoke did not execute exactly once: ${JSON.stringify({
+      total: summary?.totalTestCount,
+      passed: summary?.passedTests,
+      failed: summary?.failedTests,
+      skipped: summary?.skippedTests,
+    })}`
+  );
+  for (const stage of EVIDENCE_STAGES) {
+    for (const extension of ["json", "png"]) {
+      const target = `${EVIDENCE_DIR}/${platform}-${stage}.${extension}`;
+      assert(existsSync(target), `${platform} Studio instinct UI smoke did not write ${target}.`);
+    }
   }
   console.log(`${platform} Studio instinct UI smoke: ok`);
 }
@@ -292,24 +425,17 @@ try {
       STUDIO_RENDER_TEST_REPLY: "Maybe raise the stakes and trust your instincts.",
     },
   });
-  const initialIdentity = await createStudioRestoreOwnerIdentity({
-    baseURL: server.baseUrl,
-    appToken: APP_TOKEN,
-    emailPrefix: "studio-instinct-ui",
-  });
-  const identity = await refreshClientIdentity(server.baseUrl, initialIdentity);
-  await seedProject(server, identity);
-
-  if (PLATFORM !== "macos") {
-    runUITest({
-      platform: "ios",
+  const platforms = PLATFORM === "all" ? ["ios", "macos"] : [PLATFORM];
+  for (const platform of platforms) {
+    const initialIdentity = await createStudioRestoreOwnerIdentity({
       baseURL: server.baseUrl,
-      identity,
+      appToken: APP_TOKEN,
+      emailPrefix: `studio-instinct-ui-${platform}`,
     });
-  }
-  if (PLATFORM !== "ios") {
+    const identity = await refreshClientIdentity(server.baseUrl, initialIdentity);
+    await seedProject(server, identity);
     runUITest({
-      platform: "macos",
+      platform,
       baseURL: server.baseUrl,
       identity,
     });
@@ -323,6 +449,8 @@ try {
     baselineStrongestMove: "reversal_pressure",
     correctedStrongestMove: "relationship_pressure",
     canonStrongestMove: "payoff_pressure",
+    evidenceDirectory: EVIDENCE_DIR,
+    evidenceFiles: readdirSync(EVIDENCE_DIR).sort(),
   }, null, 2));
   console.log("studio-instinct-writer-block-ui-smoke: ok");
 } catch (error) {

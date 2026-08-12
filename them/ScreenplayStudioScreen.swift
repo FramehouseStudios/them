@@ -27011,8 +27011,8 @@ Return revised screenplay lines only.
             replacementMode: debugReplacementMode
         )
         #if DEBUG || os(macOS)
-        let shouldForceLocalStubSubmit = IOThemRuntime.isRunningUITests ||
-            shouldUseDebugStudioPromptStubTransportForLocalSubmit
+        let shouldForceLocalStubSubmit = shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
+            (IOThemRuntime.isRunningUITests && !shouldUseBackendStudioPromptTransportForDebugSubmit)
         let generatedDebugStubSubmitToken = shouldForceLocalStubSubmit
             ? Int(Date().timeIntervalSince1970 * 1_000)
             : nil
@@ -27213,6 +27213,16 @@ Return revised screenplay lines only.
 
 #if DEBUG || os(macOS)
     private var debugStudioPromptSubmitTransportModeForLocalSubmit: String {
+#if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           let launchOverride = uiTestLaunchArgumentValue(
+               "-studio_debug_submit_transport_mode",
+               in: ProcessInfo.processInfo.arguments
+           ),
+           !launchOverride.isEmpty {
+            return launchOverride.lowercased()
+        }
+#endif
         let mirrored = readMirroredStudioDebugPreferenceString(
             "studio_debug_submit_transport_mode",
             fallback: studioDebugSubmitTransportModeRaw

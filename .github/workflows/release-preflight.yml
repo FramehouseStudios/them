@@ -81,6 +81,15 @@ jobs:
         working-directory: backend
         run: npm run eval:studio-instinct-writer-block-ui
 
+      - name: Upload Clementine Studio Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-studio-writer-block-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: /tmp/them-smoke/studio-instinct-writer-block/
+
       - name: Run Mac Desktop Preflight
         env:
           MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release
@@ -141,3 +150,4 @@ jobs:
             /tmp/them-quality-gate-backend.log
             /tmp/them_release_preflight_build.log
             /tmp/them-smoke/them-home.png
+            /tmp/them-smoke/studio-instinct-writer-block/
