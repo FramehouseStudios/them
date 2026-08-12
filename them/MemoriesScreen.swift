@@ -1124,7 +1124,7 @@ private struct CreativeStoryPreferencesCard: View {
         if preference.explicitStance == "avoid" {
             return "\(preference.displayName): corrected toward less."
         }
-        return "\(preference.displayName): learned from \(preference.evidenceCount) choice\(preference.evidenceCount == 1 ? "" : "s")."
+        return "\(preference.displayName): \(preference.learningProvenanceSummary.lowercased())."
     }
 }
 
@@ -1204,9 +1204,7 @@ private struct CreativeStoryPreferenceRow: View {
     }
 
     private var preferenceSummary: String {
-        let summary = preference.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty else { return "Clementine uses this pattern when shaping options." }
-        return "Clementine will \(summary)."
+        preference.creativeGuidanceSummary
     }
 
     private var evidenceLine: String {

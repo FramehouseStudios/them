@@ -79,6 +79,7 @@ final class StudioCreativeInstinctsTests: XCTestCase {
             acceptedPageCount: 1,
             blockResolutionCount: 1,
             successfulRescueCount: 1,
+            failedRescueCount: nil,
             explicitStance: "",
             correctedAt: nil,
             updatedAt: 5_000
@@ -87,6 +88,37 @@ final class StudioCreativeInstinctsTests: XCTestCase {
         XCTAssertEqual(
             learned.learningProvenanceSummary,
             "Learned from 1 rescue that worked · 1 page kept · 1 block cleared"
+        )
+    }
+
+    func testFailedRescueProvenanceExplainsWhatClementineWillAvoidRepeating() {
+        let learned = BackendStoryMovePreference(
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            family: "relationship_pressure",
+            displayName: "Relationship pressure",
+            summary: "shape the next move",
+            learnedScore: -4,
+            effectiveScore: -4,
+            evidenceCount: 1,
+            selectedCount: 0,
+            passedOverCount: 0,
+            acceptedPageCount: 0,
+            blockResolutionCount: 0,
+            successfulRescueCount: 0,
+            failedRescueCount: 1,
+            explicitStance: "",
+            correctedAt: nil,
+            updatedAt: 5_000
+        )
+
+        XCTAssertEqual(
+            learned.learningProvenanceSummary,
+            "Learned from 1 rescue that did not unblock you"
+        )
+        XCTAssertEqual(
+            learned.creativeGuidanceSummary,
+            "Clementine will not repeat this move by default."
         )
     }
 
@@ -113,6 +145,7 @@ final class StudioCreativeInstinctsTests: XCTestCase {
             acceptedPageCount: 1,
             blockResolutionCount: 0,
             successfulRescueCount: nil,
+            failedRescueCount: nil,
             explicitStance: explicitStance,
             correctedAt: correctedAt,
             updatedAt: 5_000

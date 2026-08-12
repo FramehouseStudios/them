@@ -607,6 +607,7 @@ nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable
     let acceptedPageCount: Int
     let blockResolutionCount: Int
     let successfulRescueCount: Int?
+    let failedRescueCount: Int?
     let explicitStance: String
     let correctedAt: TimeInterval?
     let updatedAt: TimeInterval?
@@ -619,6 +620,22 @@ nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable
         explicitStance == "prefer" || explicitStance == "avoid"
     }
 
+    var creativeGuidanceSummary: String {
+        if explicitStance == "avoid" {
+            return "Clementine will use less of this pattern."
+        }
+        let successfulRescues = max(0, successfulRescueCount ?? 0)
+        let failedRescues = max(0, failedRescueCount ?? 0)
+        if effectiveScore < 0, failedRescues > successfulRescues {
+            return "Clementine will not repeat this move by default."
+        }
+        let cleanSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanSummary.isEmpty else {
+            return "Clementine uses this pattern when shaping options."
+        }
+        return "Clementine will \(cleanSummary)."
+    }
+
     var learningProvenanceSummary: String {
         if explicitStance == "prefer" {
             return "You corrected this toward more."
@@ -627,10 +644,20 @@ nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable
             return "You corrected this toward less."
         }
         let successfulRescues = max(0, successfulRescueCount ?? 0)
+        let failedRescues = max(0, failedRescueCount ?? 0)
         var parts: [String]
         if successfulRescues > 0 {
             parts = [
                 "Learned from \(successfulRescues) rescue\(successfulRescues == 1 ? "" : "s") that worked"
+            ]
+            if failedRescues > 0 {
+                parts.append(
+                    "\(failedRescues) did not unblock you"
+                )
+            }
+        } else if failedRescues > 0 {
+            parts = [
+                "Learned from \(failedRescues) rescue\(failedRescues == 1 ? "" : "s") that did not unblock you"
             ]
         } else {
             parts = [

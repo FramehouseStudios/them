@@ -257,6 +257,19 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
           blockResolutionCount: 1,
           recommendationOnly: true,
           answeredAt: 3_000,
+        }, {
+          questionId: "rescue-failed-1",
+          targetField: "story.writer_block_rescue",
+          responseStatus: "answered",
+          selectedMoveFamily: "relationship_pressure",
+          offeredMoveFamilies: [
+            "relationship_pressure",
+            "reversal_pressure",
+            "obstacle_pressure",
+          ],
+          failedRescueCount: 1,
+          recommendationOnly: true,
+          answeredAt: 3_500,
         }],
         storyMovePreferenceOverrides: [{
           family: "relationship_pressure",
@@ -280,6 +293,7 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
       (item) => item.project_id === "split-ferries" && item.family === "reversal_pressure"
     );
     assert.equal(reversal.successful_rescue_count, 1);
+    assert.equal(relationship.failed_rescue_count, 1);
     assert.equal(JSON.stringify(r.body.story_move_preferences).includes("Option"), false);
 
     const scoped = await getJson(

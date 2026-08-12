@@ -432,11 +432,7 @@ private struct StudioCreativeInstinctRow: View {
     }
 
     private var preferenceSummary: String {
-        let summary = preference.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty else {
-            return "Clementine uses this pattern when shaping options."
-        }
-        return "Clementine will \(summary)."
+        preference.creativeGuidanceSummary
     }
 
     private var evidenceLine: String {
