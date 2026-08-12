@@ -521,6 +521,7 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
                               "passed_over_count": 2,
                               "accepted_page_count": 1,
                               "block_resolution_count": 1,
+                              "successful_rescue_count": 1,
                               "explicit_stance": "prefer",
                               "corrected_at": 5000,
                               "updated_at": 5000
@@ -594,6 +595,7 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(preference.family, "relationship_pressure")
         XCTAssertEqual(preference.explicitStance, "prefer")
         XCTAssertEqual(preference.effectiveScore, 10)
+        XCTAssertEqual(preference.successfulRescueCount, 1)
         XCTAssertTrue(preference.isExplicitlyCorrected)
         let request = try XCTUnwrap(
             recorder.requests.first { $0.path == "/memories/story-preferences/update" }

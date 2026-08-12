@@ -254,6 +254,8 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
             "obstacle_pressure",
           ],
           acceptedPageCount: 1,
+          blockResolutionCount: 1,
+          recommendationOnly: true,
           answeredAt: 3_000,
         }],
         storyMovePreferenceOverrides: [{
@@ -274,6 +276,10 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
     assert.equal(relationship.display_name, "Relationship pressure");
     assert.equal(relationship.explicit_stance, "prefer");
     assert.ok(relationship.effective_score >= 10);
+    const reversal = r.body.story_move_preferences.find(
+      (item) => item.project_id === "split-ferries" && item.family === "reversal_pressure"
+    );
+    assert.equal(reversal.successful_rescue_count, 1);
     assert.equal(JSON.stringify(r.body.story_move_preferences).includes("Option"), false);
 
     const scoped = await getJson(

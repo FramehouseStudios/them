@@ -64,6 +64,32 @@ final class StudioCreativeInstinctsTests: XCTestCase {
         XCTAssertEqual(result.map(\.family), ["image_pressure"])
     }
 
+    func testSuccessfulRescueProvenanceExplainsWhatClementineLearned() {
+        let learned = BackendStoryMovePreference(
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            family: "relationship_pressure",
+            displayName: "Relationship pressure",
+            summary: "shape the next move",
+            learnedScore: 14,
+            effectiveScore: 14,
+            evidenceCount: 3,
+            selectedCount: 1,
+            passedOverCount: 0,
+            acceptedPageCount: 1,
+            blockResolutionCount: 1,
+            successfulRescueCount: 1,
+            explicitStance: "",
+            correctedAt: nil,
+            updatedAt: 5_000
+        )
+
+        XCTAssertEqual(
+            learned.learningProvenanceSummary,
+            "Learned from 1 rescue that worked · 1 page kept · 1 block cleared"
+        )
+    }
+
     private func preference(
         projectID: String,
         projectTitle: String,
@@ -86,6 +112,7 @@ final class StudioCreativeInstinctsTests: XCTestCase {
             passedOverCount: 1,
             acceptedPageCount: 1,
             blockResolutionCount: 0,
+            successfulRescueCount: nil,
             explicitStance: explicitStance,
             correctedAt: correctedAt,
             updatedAt: 5_000

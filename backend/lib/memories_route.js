@@ -245,6 +245,7 @@ function mountMemoriesRoutes(app, deps = {}) {
             passed_over_count: Math.max(0, Number(item.passedOverCount || 0)),
             accepted_page_count: Math.max(0, Number(item.acceptedPageCount || 0)),
             block_resolution_count: Math.max(0, Number(item.blockResolutionCount || 0)),
+            successful_rescue_count: Math.max(0, Number(item.successfulRescueCount || 0)),
             explicit_stance: String(item.explicitStance || ""),
             corrected_at: Math.max(0, Number(item.correctedAt || 0)) || null,
             updated_at: Math.max(0, Number(project?.updatedAt || 0)) || null,

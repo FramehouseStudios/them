@@ -440,25 +440,6 @@ private struct StudioCreativeInstinctRow: View {
     }
 
     private var evidenceLine: String {
-        if preference.explicitStance == "prefer" {
-            return "You corrected this toward more."
-        }
-        if preference.explicitStance == "avoid" {
-            return "You corrected this toward less."
-        }
-        var parts = [
-            "Learned from \(preference.evidenceCount) choice\(preference.evidenceCount == 1 ? "" : "s")"
-        ]
-        if preference.acceptedPageCount > 0 {
-            parts.append(
-                "\(preference.acceptedPageCount) page\(preference.acceptedPageCount == 1 ? "" : "s") kept"
-            )
-        }
-        if preference.blockResolutionCount > 0 {
-            parts.append(
-                "\(preference.blockResolutionCount) block\(preference.blockResolutionCount == 1 ? "" : "s") cleared"
-            )
-        }
-        return parts.joined(separator: " · ")
+        preference.learningProvenanceSummary
     }
 }

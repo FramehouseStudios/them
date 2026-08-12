@@ -606,6 +606,7 @@ nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable
     let passedOverCount: Int
     let acceptedPageCount: Int
     let blockResolutionCount: Int
+    let successfulRescueCount: Int?
     let explicitStance: String
     let correctedAt: TimeInterval?
     let updatedAt: TimeInterval?
@@ -616,6 +617,37 @@ nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable
 
     var isExplicitlyCorrected: Bool {
         explicitStance == "prefer" || explicitStance == "avoid"
+    }
+
+    var learningProvenanceSummary: String {
+        if explicitStance == "prefer" {
+            return "You corrected this toward more."
+        }
+        if explicitStance == "avoid" {
+            return "You corrected this toward less."
+        }
+        let successfulRescues = max(0, successfulRescueCount ?? 0)
+        var parts: [String]
+        if successfulRescues > 0 {
+            parts = [
+                "Learned from \(successfulRescues) rescue\(successfulRescues == 1 ? "" : "s") that worked"
+            ]
+        } else {
+            parts = [
+                "Learned from \(evidenceCount) choice\(evidenceCount == 1 ? "" : "s")"
+            ]
+        }
+        if acceptedPageCount > 0 {
+            parts.append(
+                "\(acceptedPageCount) page\(acceptedPageCount == 1 ? "" : "s") kept"
+            )
+        }
+        if blockResolutionCount > 0 {
+            parts.append(
+                "\(blockResolutionCount) block\(blockResolutionCount == 1 ? "" : "s") cleared"
+            )
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

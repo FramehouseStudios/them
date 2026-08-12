@@ -216,6 +216,7 @@ function buildStoryMoveTasteProfile(
         acceptedPageCount: 0,
         blockResolutionCount: 0,
         successfulSelectionCount: 0,
+        successfulRescueCount: 0,
         lastSelectedAt: 0,
         explicitStance: "",
         correctedAt: 0,
@@ -273,6 +274,7 @@ function buildStoryMoveTasteProfile(
       selected.blockResolutionCount += blockResolutionCount;
       if (acceptedPageCount > 0 || blockResolutionCount > 0) {
         selected.successfulSelectionCount += 1;
+        if (recommendationOnly) selected.successfulRescueCount += 1;
       }
       selected.lastSelectedAt = Math.max(selected.lastSelectedAt, answeredAt);
       if (answeredAt >= mostRecentSelectedAt) {

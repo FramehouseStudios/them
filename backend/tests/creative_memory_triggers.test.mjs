@@ -562,6 +562,7 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
   assert.equal(relationship.selectedCount, 1);
   assert.equal(relationship.acceptedPageCount, 1);
   assert.equal(relationship.blockResolutionCount, 1);
+  assert.equal(relationship.successfulRescueCount, 1);
   assert.ok(relationship.tasteBonus > 0);
   assert.equal(
     rankStoryRescueMovesForContext({
