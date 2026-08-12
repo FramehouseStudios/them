@@ -10,6 +10,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts/desktop_preflight.sh");
 
+test("[desktop-preflight] keeps the shared scheme archiveable with a production Mac configuration", () => {
+  const scheme = fs.readFileSync(
+    path.join(repoRoot, "them.xcodeproj/xcshareddata/xcschemes/them-macOS-scaffold.xcscheme"),
+    "utf8",
+  );
+  const project = fs.readFileSync(
+    path.join(repoRoot, "them.xcodeproj/project.pbxproj"),
+    "utf8",
+  );
+
+  assert.match(scheme, /buildForArchiving = "YES"/);
+  assert.match(scheme, /<ProfileAction\s+buildConfiguration = "Mac Scaffold Release"/);
+  assert.match(scheme, /<ArchiveAction\s+buildConfiguration = "Mac Scaffold Release"/);
+
+  const releaseBlocks = project.match(
+    /\/\* Mac Scaffold Release \*\/ = \{[\s\S]*?name = "Mac Scaffold Release";\n\s*\};/g,
+  );
+  assert.equal(releaseBlocks?.length, 2, "expected project and app release configurations");
+  assert.ok(releaseBlocks.some((block) => block.includes('SWIFT_ACTIVE_COMPILATION_CONDITIONS = "THEM_MAC_SHELL $(inherited)"')));
+  assert.ok(releaseBlocks.some((block) => block.includes("SUPPORTED_PLATFORMS = macosx")));
+  assert.ok(releaseBlocks.some((block) => block.includes('BACKEND_URL = "https://api.them.io"')));
+  assert.ok(releaseBlocks.some((block) => block.includes('INFOPLIST_FILE = "them/Info-Release.plist"')));
+  assert.ok(releaseBlocks.some((block) => block.includes('INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"')));
+  assert.ok(releaseBlocks.every((block) => block.includes("THEM_MAC_SHELL = YES")));
+});
+
 test("[desktop-preflight] invokes the active Mac desktop scaffold build", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-desktop-preflight-"));
   const log = path.join(tmp, "xcodebuild.args");

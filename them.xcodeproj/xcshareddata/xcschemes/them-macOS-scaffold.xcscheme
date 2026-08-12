@@ -11,7 +11,7 @@
             buildForTesting = "YES"
             buildForRunning = "YES"
             buildForProfiling = "YES"
-            buildForArchiving = "NO"
+            buildForArchiving = "YES"
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
@@ -91,7 +91,7 @@
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
-      buildConfiguration = "Mac Scaffold Debug"
+      buildConfiguration = "Mac Scaffold Release"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
@@ -111,7 +111,7 @@
       buildConfiguration = "Mac Scaffold Debug">
    </AnalyzeAction>
    <ArchiveAction
-      buildConfiguration = "Mac Scaffold Debug"
-      revealArchiveInOrganizer = "NO">
+      buildConfiguration = "Mac Scaffold Release"
+      revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>

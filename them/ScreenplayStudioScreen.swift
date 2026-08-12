@@ -1290,7 +1290,9 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
 }
 
 private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    #if DEBUG
     StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
         if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
@@ -1307,7 +1309,9 @@ private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: Str
 }
 
 private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    #if DEBUG
     StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
         if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
@@ -1324,9 +1328,11 @@ private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey ke
 }
 
 private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
+    #if DEBUG
     if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
         return [fileValue]
     }
+    #endif
     var values: [Any] = []
     var seenFingerprints: Set<String> = []
 
