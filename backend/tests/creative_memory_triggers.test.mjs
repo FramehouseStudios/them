@@ -11,7 +11,10 @@ import {
   buildProjectFieldProvenance,
   createCreativeMemoryStore,
 } from "../lib/creative_memory_store.js";
-import { buildStoryMoveTasteProfile } from "../lib/story_rescue_move_library.js";
+import {
+  buildStoryMoveTasteProfile,
+  rankStoryRescueMovesForContext,
+} from "../lib/story_rescue_move_library.js";
 
 // Post-T08-postgres: store takes a persistence handle. Each test gets a
 // fresh JSON-file-backed adapter rooted in a tmp dir so tests are isolated.
@@ -467,9 +470,10 @@ Eli takes the wheel as the map burns between them.`;
 });
 
 test("delivered rescue moves earn taste only after pages or explicit block recovery", async () => {
-  const persistence = freshPersistence();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-rescue-learning-"));
+  let persistence = createJsonPersistence({ jsonRoot: root });
   const userId = "u-delivered-rescue-outcome";
-  const store = createCreativeMemoryStore({ persistence });
+  let store = createCreativeMemoryStore({ persistence });
   const deliveredAt = Date.now();
   const delivered = await store.recordTriggersFromTalkTurn({
     userId,
@@ -483,13 +487,13 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
       projectTitle: "Split Ferries",
       targetField: "story.writer_block_rescue",
       targetLabel: "the delivered writer-block rescue",
-      anchor: "reversal_pressure",
+      anchor: "relationship_pressure",
       question: "Which delivered story move gets the writer moving again?",
       actKey: "act2",
       sequenceKey: "premise",
       writerBlocked: true,
       recommendationOnly: true,
-      selectedMoveFamily: "reversal_pressure",
+      selectedMoveFamily: "relationship_pressure",
       offeredMoveFamilies: [
         "reversal_pressure",
         "relationship_pressure",
@@ -508,11 +512,26 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
   });
   let [outcome] = memory.projectContinuity.questionEffectiveness;
   assert.equal(outcome.recommendationOnly, true);
-  assert.equal(outcome.selectedMoveFamily, "reversal_pressure");
+  assert.equal(outcome.selectedMoveFamily, "relationship_pressure");
   assert.equal(
     buildStoryMoveTasteProfile(memory.projectContinuity.questionEffectiveness).length,
     0,
   );
+  const rescueContext = {
+    transcript: "I am stuck in the middle.",
+    act: "Act II",
+  };
+  assert.equal(
+    rankStoryRescueMovesForContext({
+      ...rescueContext,
+      questionEffectiveness: memory.projectContinuity.questionEffectiveness,
+    })[0].key,
+    "reversal_pressure",
+  );
+
+  await persistence.close();
+  persistence = createJsonPersistence({ jsonRoot: root });
+  store = createCreativeMemoryStore({ persistence });
 
   await store.recordTriggersFromTalkTurn({
     userId,
@@ -527,6 +546,10 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
     projectTitle: "Split Ferries",
   });
 
+  await persistence.close();
+  persistence = createJsonPersistence({ jsonRoot: root });
+  store = createCreativeMemoryStore({ persistence });
+
   memory = await store.getCreativeMemoryForPrompt({
     userId,
     projectId: "split-ferries",
@@ -535,11 +558,32 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
   assert.equal(outcome.acceptedPageCount, 1);
   assert.equal(outcome.blockResolutionCount, 1);
   const profile = buildStoryMoveTasteProfile(memory.projectContinuity.questionEffectiveness);
-  const reversal = profile.find((item) => item.family === "reversal_pressure");
-  assert.equal(reversal.selectedCount, 1);
-  assert.equal(reversal.acceptedPageCount, 1);
-  assert.equal(reversal.blockResolutionCount, 1);
-  assert.ok(reversal.tasteBonus > 0);
+  const relationship = profile.find((item) => item.family === "relationship_pressure");
+  assert.equal(relationship.selectedCount, 1);
+  assert.equal(relationship.acceptedPageCount, 1);
+  assert.equal(relationship.blockResolutionCount, 1);
+  assert.ok(relationship.tasteBonus > 0);
+  assert.equal(
+    rankStoryRescueMovesForContext({
+      ...rescueContext,
+      questionEffectiveness: memory.projectContinuity.questionEffectiveness,
+    })[0].key,
+    "relationship_pressure",
+  );
+  assert.equal(
+    rankStoryRescueMovesForContext({
+      transcript: "I am stuck at the ending.",
+      act: "Act III",
+      dueStoryThread: {
+        setup: "Mara hid the red ferry key in Eli's coat.",
+        promisedPayoff: "Eli returns the key when Mara finally trusts him with the crossing.",
+        ageInScenes: 38,
+      },
+      questionEffectiveness: memory.projectContinuity.questionEffectiveness,
+    })[0].key,
+    "payoff_pressure",
+  );
+  await persistence.close();
 });
 
 test("asked and ignored screenplay questions persist without earning false page credit", async () => {
