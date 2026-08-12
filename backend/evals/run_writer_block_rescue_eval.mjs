@@ -150,6 +150,30 @@ check(
     }],
   }).find((item) => item.family === "relationship_pressure")?.tasteBonus >= 24
 );
+const failedRescueTaste = buildStoryMoveTasteProfile([{
+  ...scopedRescueHistory[0],
+  acceptedPageCount: 0,
+  blockResolutionCount: 0,
+  failedRescueCount: 1,
+}], {
+  actKey: "act2",
+  sequenceKey: "midpoint trap",
+});
+check(
+  "explicit failed-rescue feedback suppresses the move that did not help",
+  failedRescueTaste.find((item) => item.family === "relationship_pressure")?.tasteBonus < 0
+);
+const repairedRescueTaste = buildStoryMoveTasteProfile([{
+  ...scopedRescueHistory[0],
+  failedRescueCount: 0,
+}], {
+  actKey: "act2",
+  sequenceKey: "midpoint trap",
+});
+check(
+  "later accepted work repairs stale failed-rescue memory",
+  repairedRescueTaste.find((item) => item.family === "relationship_pressure")?.tasteBonus > 0
+);
 
 const actThreeRanked = rankStoryRescueMovesForContext({
   ...actTwoContext,

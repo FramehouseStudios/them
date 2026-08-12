@@ -362,6 +362,43 @@ test("[story-rescue-move-library] scopes learned rescue taste to act and sequenc
   assert.equal(protectedEnding[0].key, "payoff_pressure");
 });
 
+test("[story-rescue-move-library] learns from failed rescues and accepts later repair", () => {
+  const failedRescue = {
+    questionId: "failed-act-two-rescue",
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    recommendationOnly: true,
+    selectedMoveFamily: "relationship_pressure",
+    offeredMoveFamilies: ["relationship_pressure", "reversal_pressure", "objective_pressure"],
+    failedRescueCount: 1,
+    actKey: "act2",
+    sequenceKey: "midpoint",
+    answeredAt: 2_000,
+  };
+  const failedProfile = buildStoryMoveTasteProfile([failedRescue], {
+    actKey: "act2",
+    sequenceKey: "Midpoint trap",
+  });
+  const failedRelationship = failedProfile.find((item) => item.family === "relationship_pressure");
+  assert.equal(failedRelationship.selectedCount, 0);
+  assert.equal(failedRelationship.failedRescueCount, 1);
+  assert.ok(failedRelationship.tasteBonus < 0);
+
+  const repairedProfile = buildStoryMoveTasteProfile([{
+    ...failedRescue,
+    acceptedPageCount: 1,
+    blockResolutionCount: 1,
+    failedRescueCount: 0,
+  }], {
+    actKey: "act2",
+    sequenceKey: "Midpoint trap",
+  });
+  const repairedRelationship = repairedProfile.find((item) => item.family === "relationship_pressure");
+  assert.equal(repairedRelationship.failedRescueCount, 0);
+  assert.equal(repairedRelationship.successfulRescueCount, 1);
+  assert.ok(repairedRelationship.tasteBonus > 0);
+});
+
 test("[story-rescue-move-library] due canon outranks taste and protects feature structure", () => {
   const relationshipTaste = Array.from({ length: 6 }, (_, index) => ({
     questionId: `taste-${index}`,

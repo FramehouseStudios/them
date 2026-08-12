@@ -209,6 +209,7 @@ const SCREENPLAY_QUESTION_SEQUENCE_KEYS = new Set([
   "resolution",
 ]);
 const STORY_BLOCK_RESOLVED_SIGNAL = /\b(?:(?:that|this|it)\s+(?:solved|fixed|cleared|broke)\s+(?:the\s+)?(?:block|problem)|i(?:'m| am)\s+(?:unstuck|not\s+stuck)|the\s+(?:writer'?s\s+)?block(?:'s| is)\s+gone|now\s+i\s+(?:know|see)\s+(?:what\s+happens|where\s+(?:the\s+)?story\s+goes|the\s+next\s+(?:beat|scene|move)))\b/i;
+const STORY_RESCUE_FAILED_SIGNAL = /\b(?:(?:that|this|it)\s+(?:did(?:n['’]?t| not)\s+help|is(?:n['’]?t| not)\s+working|made\s+(?:it|things)\s+worse)|i(?:['’]?m| am)\s+still\s+(?:stuck|blocked)|(?:that|this)\s+(?:does(?:n['’]?t| not)\s+unlock|won['’]?t\s+unlock)\s+(?:it|the\s+(?:beat|scene|story))|try\s+(?:a\s+)?different\s+(?:move|approach|idea)|give\s+me\s+something\s+else)\b/i;
 const ACCEPTED_SCENE_SCALAR_FIELDS = Object.freeze([
   ["writeId", "write_id", 80],
   ["anchorSceneId", "anchor_scene_id", 120],
@@ -1011,6 +1012,15 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       source.blockResolutionCount ?? source.block_resolution_count ?? 1
     ) || 1)))
     : 0;
+  const rescueFailedAt = Math.max(
+    0,
+    Number(source.rescueFailedAt ?? source.rescue_failed_at ?? 0)
+  );
+  const failedRescueCount = rescueFailedAt
+    ? Math.max(1, Math.min(8, Math.floor(Number(
+      source.failedRescueCount ?? source.failed_rescue_count ?? 1
+    ) || 1)))
+    : 0;
   const selectedMoveFamily = normalizeStoryMoveFamily(
     source.selectedMoveFamily ??
     source.selected_move_family ??
@@ -1034,6 +1044,8 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       ? "accepted_pages"
       : blockResolvedAt
         ? "block_resolved"
+        : rescueFailedAt
+          ? "rescue_failed"
         : responseStatus === "answered"
           ? "awaiting_outcome"
           : responseStatus === "declined"
@@ -1059,6 +1071,8 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
     acceptedPageCount,
     blockResolvedAt,
     blockResolutionCount,
+    rescueFailedAt,
+    failedRescueCount,
     outcome,
     selectedMoveFamily,
     ...(offeredMoveFamilies.length ? { offeredMoveFamilies } : {}),
@@ -1068,6 +1082,7 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       respondedAt,
       acceptedPageAt,
       blockResolvedAt,
+      rescueFailedAt,
       Number(source.updatedAt ?? source.updated_at ?? 0)
     ),
   }).filter(([, fieldValue]) => (
@@ -1120,6 +1135,11 @@ function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
       blockResolutionCount: Math.max(
         previous.blockResolutionCount || 0,
         item.blockResolutionCount || 0
+      ),
+      rescueFailedAt: Math.max(previous.rescueFailedAt || 0, item.rescueFailedAt || 0),
+      failedRescueCount: Math.max(
+        previous.failedRescueCount || 0,
+        item.failedRescueCount || 0
       ),
       selectedMoveFamily: item.selectedMoveFamily || previous.selectedMoveFamily,
       offeredMoveFamilies: normalizeStringList(
@@ -5055,6 +5075,7 @@ function createCreativeMemoryStore({
     projectTitle = "",
     acceptedPage = false,
     blockResolved = false,
+    rescueFailed = false,
     at = nowMs(),
   } = {}) {
     const cleanUserId = cleanText(userId, 128);
@@ -5062,15 +5083,15 @@ function createCreativeMemoryStore({
     const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
     const outcomeAt = Math.max(0, Number(at) || nowMs());
     if (!cleanUserId || (!cleanProjectId && !cleanProjectTitle)) {
-      return { ok: false, acceptedPages: 0, blockResolutions: 0 };
+      return { ok: false, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
     }
-    if (!acceptedPage && !blockResolved) {
-      return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+    if (!acceptedPage && !blockResolved && !rescueFailed) {
+      return { ok: true, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
     }
 
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
-      if (!current) return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+      if (!current) return { ok: true, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
       const projects = (Array.isArray(current.projects) ? current.projects : [])
         .map(sanitizeProjectContinuity)
         .filter(Boolean);
@@ -5088,7 +5109,7 @@ function createCreativeMemoryStore({
         });
       }
       if (projectIndex < 0) {
-        return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+        return { ok: true, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
       }
 
       const project = projects[projectIndex];
@@ -5104,11 +5125,14 @@ function createCreativeMemoryStore({
       ));
       let acceptedPages = 0;
       let blockResolutions = 0;
+      let failedRescues = 0;
       if (acceptedPage) {
         const latest = recent[0];
         if (latest && !latest.acceptedPageAt) {
           latest.acceptedPageAt = outcomeAt;
           latest.acceptedPageCount = 1;
+          delete latest.rescueFailedAt;
+          delete latest.failedRescueCount;
           latest.updatedAt = outcomeAt;
           acceptedPages = 1;
         }
@@ -5118,12 +5142,29 @@ function createCreativeMemoryStore({
         if (latestBlocked && !latestBlocked.blockResolvedAt) {
           latestBlocked.blockResolvedAt = outcomeAt;
           latestBlocked.blockResolutionCount = 1;
+          delete latestBlocked.rescueFailedAt;
+          delete latestBlocked.failedRescueCount;
           latestBlocked.updatedAt = outcomeAt;
           blockResolutions = 1;
         }
       }
-      if (!acceptedPages && !blockResolutions) {
-        return { ok: true, acceptedPages: 0, blockResolutions: 0 };
+      if (rescueFailed && !acceptedPage && !blockResolved) {
+        const latestRescue = recent.find((item) => (
+          item.writerBlocked &&
+          item.recommendationOnly &&
+          !item.acceptedPageAt &&
+          !item.blockResolvedAt &&
+          !item.rescueFailedAt
+        ));
+        if (latestRescue) {
+          latestRescue.rescueFailedAt = outcomeAt;
+          latestRescue.failedRescueCount = 1;
+          latestRescue.updatedAt = outcomeAt;
+          failedRescues = 1;
+        }
+      }
+      if (!acceptedPages && !blockResolutions && !failedRescues) {
+        return { ok: true, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
       }
 
       projects[projectIndex] = sanitizeProjectContinuity({
@@ -5136,7 +5177,7 @@ function createCreativeMemoryStore({
         .slice(0, PROJECT_CONTINUITY_MAX);
       current.updatedAt = outcomeAt;
       await writeUser(cleanUserId, current);
-      return { ok: true, acceptedPages, blockResolutions };
+      return { ok: true, acceptedPages, blockResolutions, failedRescues };
     });
   }
 
@@ -6461,14 +6502,17 @@ function createCreativeMemoryStore({
       } catch (_e) { /* never block the response on structured learning promotion */ }
     }
 
-    if (cleanAcceptedPageText || STORY_BLOCK_RESOLVED_SIGNAL.test(userText)) {
+    const blockResolvedSignal = STORY_BLOCK_RESOLVED_SIGNAL.test(userText);
+    const rescueFailedSignal = !blockResolvedSignal && STORY_RESCUE_FAILED_SIGNAL.test(userText);
+    if (cleanAcceptedPageText || blockResolvedSignal || rescueFailedSignal) {
       try {
         const outcomeReceipt = await recordQuestionEffectivenessOutcome({
           userId,
           projectId: resolvedProjectId,
           projectTitle: resolvedProjectTitle,
           acceptedPage: Boolean(cleanAcceptedPageText),
-          blockResolved: STORY_BLOCK_RESOLVED_SIGNAL.test(userText),
+          blockResolved: blockResolvedSignal,
+          rescueFailed: rescueFailedSignal,
         });
         summary.questionAcceptedPageOutcomes = Math.max(
           0,
@@ -6477,6 +6521,10 @@ function createCreativeMemoryStore({
         summary.questionBlockResolutions = Math.max(
           0,
           Number(outcomeReceipt?.blockResolutions || 0)
+        );
+        summary.questionFailedRescues = Math.max(
+          0,
+          Number(outcomeReceipt?.failedRescues || 0)
         );
       } catch (_e) { /* never block the response on outcome attribution */ }
     }

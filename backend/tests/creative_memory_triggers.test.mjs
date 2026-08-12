@@ -529,6 +529,28 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
     "reversal_pressure",
   );
 
+  const failed = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "That didn't help. I'm still stuck. Try a different move.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+  });
+  assert.equal(failed.questionFailedRescues, 1);
+  memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  [outcome] = memory.projectContinuity.questionEffectiveness;
+  assert.equal(outcome.failedRescueCount, 1);
+  assert.equal(outcome.outcome, "rescue_failed");
+  const failedProfile = buildStoryMoveTasteProfile(
+    memory.projectContinuity.questionEffectiveness,
+    { actKey: "act2", sequenceKey: "premise" }
+  );
+  assert.ok(
+    failedProfile.find((item) => item.family === "relationship_pressure")?.tasteBonus < 0
+  );
+
   await persistence.close();
   persistence = createJsonPersistence({ jsonRoot: root });
   store = createCreativeMemoryStore({ persistence });
@@ -557,6 +579,7 @@ test("delivered rescue moves earn taste only after pages or explicit block recov
   [outcome] = memory.projectContinuity.questionEffectiveness;
   assert.equal(outcome.acceptedPageCount, 1);
   assert.equal(outcome.blockResolutionCount, 1);
+  assert.equal(outcome.failedRescueCount, undefined);
   const profile = buildStoryMoveTasteProfile(memory.projectContinuity.questionEffectiveness);
   const relationship = profile.find((item) => item.family === "relationship_pressure");
   assert.equal(relationship.selectedCount, 1);

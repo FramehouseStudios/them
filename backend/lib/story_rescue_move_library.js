@@ -275,6 +275,7 @@ function buildStoryMoveTasteProfile(
         blockResolutionCount: 0,
         successfulSelectionCount: 0,
         successfulRescueCount: 0,
+        failedRescueCount: 0,
         lastSelectedAt: 0,
         explicitStance: "",
         correctedAt: 0,
@@ -325,7 +326,14 @@ function buildStoryMoveTasteProfile(
     const recommendationOnly = Boolean(
       record.recommendationOnly ?? record.recommendation_only
     );
+    const failedRescueCount = Math.max(
+      0,
+      Math.min(8, Math.floor(Number(
+        record.failedRescueCount ?? record.failed_rescue_count ?? 0
+      ) || 0))
+    );
     const earnedRecommendation = !recommendationOnly || acceptedPageCount > 0 || blockResolutionCount > 0;
+    const failedRecommendation = recommendationOnly && failedRescueCount > 0;
 
     if (selectedFamily && earnedRecommendation) {
       const selected = ensure(selectedFamily);
@@ -341,6 +349,10 @@ function buildStoryMoveTasteProfile(
         mostRecentSelectedAt = answeredAt;
         mostRecentSelectedFamily = selectedFamily;
       }
+    }
+    if (selectedFamily && failedRecommendation) {
+      const failed = ensure(selectedFamily);
+      failed.failedRescueCount += failedRescueCount * evidenceWeight;
     }
     for (const family of earnedRecommendation ? offeredFamilies : []) {
       if (family === selectedFamily) continue;
@@ -366,13 +378,15 @@ function buildStoryMoveTasteProfile(
         item.blockResolutionCount * 4;
       const negative =
         Math.min(6, item.passedOverCount) +
-        Math.min(6, item.declinedCount * 2);
+        Math.min(6, item.declinedCount * 2) +
+        Math.min(18, item.failedRescueCount * 8);
       const evidenceCount =
         item.selectedCount +
         item.passedOverCount +
         item.declinedCount +
         item.acceptedPageCount +
-        item.blockResolutionCount;
+        item.blockResolutionCount +
+        item.failedRescueCount;
       const confidence = Math.min(1, evidenceCount / 5);
       const learnedTasteBonus = Math.max(
         -12,
