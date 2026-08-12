@@ -1407,6 +1407,8 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
           "obstacle_pressure",
         ],
         acceptedPageCount: 1,
+        actKey: "act2",
+        sequenceKey: "midpoint trap",
         answeredAt: 2_000 - index,
       })),
     },

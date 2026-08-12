@@ -8,6 +8,7 @@ import { buildModelPrompt, inferScreenplayTask } from "../lib/prompt_assembly.js
 import { evaluateMomentumRescueQuality } from "../lib/screenplay_page_quality.js";
 import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
 import {
+  buildStoryMoveTasteProfile,
   formatRankedStoryRescueMoveLine,
   rankStoryRescueMovesForContext,
 } from "../lib/story_rescue_move_library.js";
@@ -101,6 +102,53 @@ check(
 check(
   "due-thread rank one cites causal-ledger authority",
   dueThreadRanked[0]?.evidence?.[0] === `due_story_thread: ${dueStoryThread.setup}`
+);
+
+const scopedRescueHistory = Array.from({ length: 3 }, (_, index) => ({
+  questionId: `scoped-rescue-${index}`,
+  targetField: "story.writer_block_rescue",
+  responseStatus: "answered",
+  recommendationOnly: true,
+  selectedMoveFamily: "relationship_pressure",
+  offeredMoveFamilies: ["relationship_pressure", "reversal_pressure", "objective_pressure"],
+  acceptedPageCount: 1,
+  blockResolutionCount: 1,
+  actKey: "act2",
+  sequenceKey: "midpoint trap",
+  answeredAt: 3_000 - index,
+}));
+const exactSequenceTaste = buildStoryMoveTasteProfile(scopedRescueHistory, {
+  actKey: "act2",
+  sequenceKey: "midpoint trap",
+});
+const adjacentSequenceTaste = buildStoryMoveTasteProfile(scopedRescueHistory, {
+  actKey: "act2",
+  sequenceKey: "bad guys close in",
+});
+const crossActTaste = buildStoryMoveTasteProfile(scopedRescueHistory, {
+  actKey: "act1",
+  sequenceKey: "catalyst",
+});
+check(
+  "successful rescue learning is strongest in the sequence where it worked",
+  exactSequenceTaste.find((item) => item.family === "relationship_pressure")?.tasteBonus >
+    adjacentSequenceTaste.find((item) => item.family === "relationship_pressure")?.tasteBonus
+);
+check(
+  "Act II rescue learning cannot distort Act I discovery",
+  !crossActTaste.some((item) => item.family === "relationship_pressure")
+);
+check(
+  "explicit writer corrections remain project-wide",
+  buildStoryMoveTasteProfile(scopedRescueHistory, {
+    actKey: "act1",
+    sequenceKey: "catalyst",
+    preferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: 4_000,
+    }],
+  }).find((item) => item.family === "relationship_pressure")?.tasteBonus >= 24
 );
 
 const actThreeRanked = rankStoryRescueMovesForContext({

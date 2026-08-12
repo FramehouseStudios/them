@@ -197,9 +197,39 @@ function normalizeOfferedStoryMoveFamilies(value = []) {
   return out;
 }
 
+function normalizeStoryMoveActKey(value = "") {
+  const normalized = normalizeSnippet(value, 48).toLowerCase();
+  if (["act1", "act2", "act3"].includes(normalized)) return normalized;
+  return inferStoryMoveActKind(normalized);
+}
+
+function normalizeStoryMoveSequenceKey(value = "") {
+  return normalizeSnippet(value, 180)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function storyMoveTasteEvidenceWeight(record, { actKey = "", sequenceKey = "" } = {}) {
+  const requestedActKey = normalizeStoryMoveActKey(actKey);
+  const requestedSequenceKey = normalizeStoryMoveSequenceKey(sequenceKey);
+  if (!requestedActKey && !requestedSequenceKey) return 1;
+
+  const recordActKey = normalizeStoryMoveActKey(
+    record.actKey ?? record.act_key ?? record.sourceAct ?? record.source_act
+  );
+  const recordSequenceKey = normalizeStoryMoveSequenceKey(
+    record.sequenceKey ?? record.sequence_key ?? record.featureSequence ?? record.feature_sequence
+  );
+  if (requestedActKey && (!recordActKey || recordActKey !== requestedActKey)) return 0;
+  if (!requestedSequenceKey) return 1;
+  if (!recordSequenceKey) return requestedActKey ? 0.35 : 0;
+  return recordSequenceKey === requestedSequenceKey ? 1 : 0.35;
+}
+
 function buildStoryMoveTasteProfile(
   questionEffectiveness = [],
-  { preferenceOverrides = [] } = {}
+  { preferenceOverrides = [], actKey = "", sequenceKey = "" } = {}
 ) {
   const records = Array.isArray(questionEffectiveness)
     ? questionEffectiveness.slice(0, 24)
@@ -229,6 +259,8 @@ function buildStoryMoveTasteProfile(
 
   for (const record of records) {
     if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+    const evidenceWeight = storyMoveTasteEvidenceWeight(record, { actKey, sequenceKey });
+    if (evidenceWeight <= 0) continue;
     const selectedFamily = normalizeStoryMoveFamily(
       record.selectedMoveFamily ??
       record.selected_move_family ??
@@ -269,15 +301,15 @@ function buildStoryMoveTasteProfile(
 
     if (selectedFamily && earnedRecommendation) {
       const selected = ensure(selectedFamily);
-      selected.selectedCount += 1;
-      selected.acceptedPageCount += acceptedPageCount;
-      selected.blockResolutionCount += blockResolutionCount;
+      selected.selectedCount += evidenceWeight;
+      selected.acceptedPageCount += acceptedPageCount * evidenceWeight;
+      selected.blockResolutionCount += blockResolutionCount * evidenceWeight;
       if (acceptedPageCount > 0 || blockResolutionCount > 0) {
-        selected.successfulSelectionCount += 1;
-        if (recommendationOnly) selected.successfulRescueCount += 1;
+        selected.successfulSelectionCount += evidenceWeight;
+        if (recommendationOnly) selected.successfulRescueCount += evidenceWeight;
       }
       selected.lastSelectedAt = Math.max(selected.lastSelectedAt, answeredAt);
-      if (answeredAt >= mostRecentSelectedAt) {
+      if (evidenceWeight === 1 && answeredAt >= mostRecentSelectedAt) {
         mostRecentSelectedAt = answeredAt;
         mostRecentSelectedFamily = selectedFamily;
       }
@@ -285,9 +317,9 @@ function buildStoryMoveTasteProfile(
     for (const family of earnedRecommendation ? offeredFamilies : []) {
       if (family === selectedFamily) continue;
       const passed = ensure(family);
-      passed.passedOverCount += 1;
+      passed.passedOverCount += evidenceWeight;
       if (!selectedFamily && responseStatus === "declined") {
-        passed.declinedCount += 1;
+        passed.declinedCount += evidenceWeight;
       }
     }
   }
@@ -561,14 +593,20 @@ function normalizeStoryRescueContext(context = {}) {
     context.storyMovePreferenceOverrides ??
     context.story_move_preference_overrides
   );
+  const actKind = normalizeStoryMoveActKey(context.actKind ?? context.act_kind) || inferStoryMoveActKind(
+    [act, featureSequence, featureObligation, actPressureState, transcript].join(" ")
+  );
+  const sequenceKey = normalizeSnippet(
+    context.sequenceKey ?? context.sequence_key ?? featureSequence,
+    180
+  );
   return {
     transcript,
     intent: normalizeSnippet(context.intent || "momentum_rescue", 64),
     problem: normalizeSnippet(context.problem, 180),
     act,
-    actKind: normalizeSnippet(context.actKind ?? context.act_kind, 24) || inferStoryMoveActKind(
-      [act, featureSequence, featureObligation, actPressureState, transcript].join(" ")
-    ),
+    actKind,
+    sequenceKey,
     featureSequence,
     featureObligation,
     actPressureState,
@@ -597,6 +635,8 @@ function normalizeStoryRescueContext(context = {}) {
     storyMovePreferenceOverrides,
     storyMoveTasteProfile: buildStoryMoveTasteProfile(questionEffectiveness, {
       preferenceOverrides: storyMovePreferenceOverrides,
+      actKey: actKind,
+      sequenceKey,
     }),
   };
 }

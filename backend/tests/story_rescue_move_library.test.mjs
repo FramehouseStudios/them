@@ -219,6 +219,7 @@ test("[story-rescue-move-library] learns bounded taste from choices and downstre
       ],
       acceptedPageCount: 1,
       blockResolutionCount: 1,
+      actKey: "act2",
       answeredAt: 3_000,
     },
     {
@@ -231,6 +232,7 @@ test("[story-rescue-move-library] learns bounded taste from choices and downstre
         "relationship_pressure",
         "information_pressure",
       ],
+      actKey: "act2",
       answeredAt: 2_000,
     },
   ];
@@ -265,6 +267,99 @@ test("[story-rescue-move-library] learns bounded taste from choices and downstre
   assert.equal(provisionalFamilies.length, 3);
   assert.equal(new Set(provisionalFamilies).size, 3);
   assert.equal(provisionalFamilies[0], "relationship_pressure");
+});
+
+test("[story-rescue-move-library] scopes learned rescue taste to act and sequence", () => {
+  const actTwoMidpointHistory = Array.from({ length: 3 }, (_, index) => ({
+    questionId: `act-two-midpoint-rescue-${index}`,
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    recommendationOnly: true,
+    selectedMoveFamily: "relationship_pressure",
+    offeredMoveFamilies: [
+      "relationship_pressure",
+      "reversal_pressure",
+      "objective_pressure",
+    ],
+    acceptedPageCount: 1,
+    blockResolutionCount: 1,
+    actKey: "act2",
+    sequenceKey: "midpoint trap",
+    answeredAt: 3_000 - index,
+  }));
+
+  const exactSequence = buildStoryMoveTasteProfile(actTwoMidpointHistory, {
+    actKey: "act2",
+    sequenceKey: "Midpoint trap",
+  });
+  const adjacentSequence = buildStoryMoveTasteProfile(actTwoMidpointHistory, {
+    actKey: "act2",
+    sequenceKey: "Bad guys close in",
+  });
+  const actOne = buildStoryMoveTasteProfile(actTwoMidpointHistory, {
+    actKey: "act1",
+    sequenceKey: "Catalyst",
+  });
+  const actThree = buildStoryMoveTasteProfile(actTwoMidpointHistory, {
+    actKey: "act3",
+    sequenceKey: "Final confrontation",
+  });
+  const globalProvenance = buildStoryMoveTasteProfile(actTwoMidpointHistory);
+
+  const exactRelationship = exactSequence.find((item) => item.family === "relationship_pressure");
+  const adjacentRelationship = adjacentSequence.find((item) => item.family === "relationship_pressure");
+  assert.ok(exactRelationship.tasteBonus > adjacentRelationship.tasteBonus);
+  assert.ok(adjacentRelationship.tasteBonus > 0);
+  assert.equal(actOne.some((item) => item.family === "relationship_pressure"), false);
+  assert.equal(actThree.some((item) => item.family === "relationship_pressure"), false);
+  assert.equal(
+    globalProvenance.find((item) => item.family === "relationship_pressure")?.successfulRescueCount,
+    3
+  );
+
+  const actOneWithHistory = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck near the catalyst.",
+    act: "Act I",
+    featureSequence: "Catalyst",
+    questionEffectiveness: actTwoMidpointHistory,
+  });
+  const actOneWithoutHistory = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck near the catalyst.",
+    act: "Act I",
+    featureSequence: "Catalyst",
+  });
+  assert.deepEqual(actOneWithHistory, actOneWithoutHistory);
+
+  const explicitPreference = buildStoryMoveTasteProfile(actTwoMidpointHistory, {
+    actKey: "act1",
+    sequenceKey: "Catalyst",
+    preferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: 4_000,
+    }],
+  });
+  assert.ok(
+    explicitPreference.find((item) => item.family === "relationship_pressure")?.tasteBonus >= 24
+  );
+
+  const protectedEnding = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck in the final confrontation.",
+    act: "Act III",
+    featureSequence: "Final confrontation",
+    questionEffectiveness: actTwoMidpointHistory,
+    storyMovePreferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: 4_000,
+    }],
+    dueStoryThread: {
+      setup: "June hid the red ferry key in Mara's coat.",
+      promisedPayoff: "Mara gives June control of the final crossing.",
+      ageInScenes: 42,
+    },
+  });
+  assert.equal(protectedEnding[0].key, "payoff_pressure");
 });
 
 test("[story-rescue-move-library] due canon outranks taste and protects feature structure", () => {
