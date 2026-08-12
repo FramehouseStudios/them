@@ -28,9 +28,12 @@ const PROJECT_TITLE = "Studio Instinct Rescue";
 const EVIDENCE_DIR = "/tmp/them-smoke/studio-instinct-writer-block";
 const EVIDENCE_STAGES = [
   "01-baseline",
-  "02-rescue-learned",
-  "03-corrected-instinct",
-  "04-canon-protected",
+  "02-rescue-rejected",
+  "03-relaunch-adapted",
+  "04-repaired-rescue-learned",
+  "05-other-act-unaffected",
+  "06-explicit-correction",
+  "07-canon-protected",
 ];
 const PROMPT = "I am stuck in the middle. What should happen next?";
 const DUE_SETUP = "The red locket inside the courthouse clock";
@@ -163,7 +166,6 @@ async function seedProject(server, identity) {
   });
   const store = createCreativeMemoryStore({ persistence });
   try {
-    const now = Date.now();
     const receipt = await store.recordProjectContinuity({
       userId: identity.userID,
       continuity: {
@@ -175,38 +177,7 @@ async function seedProject(server, identity) {
         protagonistWant: "get Eli onto the last ferry",
         protagonistNeed: "stop using control as a substitute for trust",
         characterFocus: ["Mara", "Eli"],
-        questionEffectiveness: [
-          {
-            questionId: "instinct-baseline-relationship",
-            targetField: "story.next_irreversible_choice",
-            responseStatus: "answered",
-            askedAt: now - 4_000,
-            answeredAt: now - 3_500,
-            selectedMoveFamily: "relationship_pressure",
-            offeredMoveFamilies: [
-              "relationship_pressure",
-              "reversal_pressure",
-              "obstacle_pressure",
-            ],
-            acceptedPageAt: now - 3_000,
-            acceptedPageCount: 1,
-          },
-          {
-            questionId: "instinct-baseline-reversal",
-            targetField: "story.next_irreversible_choice",
-            responseStatus: "answered",
-            askedAt: now - 2_000,
-            answeredAt: now - 1_500,
-            selectedMoveFamily: "reversal_pressure",
-            offeredMoveFamilies: [
-              "relationship_pressure",
-              "reversal_pressure",
-              "obstacle_pressure",
-            ],
-            acceptedPageAt: now - 1_000,
-            acceptedPageCount: 1,
-          },
-        ],
+        questionEffectiveness: [],
       },
     });
     assert(receipt?.ok, "The Studio instinct creative-memory seed failed.");
@@ -234,11 +205,14 @@ function fixtureJSON(baseURL, identity, platform) {
     accessToken: identity.accessToken,
     projectID: PROJECT_ID,
     projectTitle: PROJECT_TITLE,
-    preferenceFamily: "relationship_pressure",
-    baselinePreferenceFamily: "reversal_pressure",
+    preferenceFamily: "reversal_pressure",
+    rejectedPreferenceFamily: "reversal_pressure",
+    repairedPreferenceFamily: "relationship_pressure",
     prompt: PROMPT,
     baselineStrongestMove: "Ranked strongest move - reversal pressure",
-    correctedStrongestMove: "Ranked strongest move - relationship pressure",
+    repairedStrongestMove: "Ranked strongest move - relationship pressure",
+    otherActStrongestMove: "Ranked strongest move - reversal pressure",
+    correctedStrongestMove: "Ranked strongest move - reversal pressure",
     canonStrongestMove: "Ranked strongest move - payoff pressure",
     acceptedPage: ACCEPTED_PAGE,
     rescueAcceptedPage: RESCUE_ACCEPTED_PAGE,
@@ -464,9 +438,12 @@ try {
     ok: true,
     platform: PLATFORM,
     projectID: PROJECT_ID,
-    preferenceFamily: "relationship_pressure",
+    preferenceFamily: "reversal_pressure",
     baselineStrongestMove: "reversal_pressure",
-    correctedStrongestMove: "relationship_pressure",
+    rejectedStrongestMove: "reversal_pressure",
+    repairedStrongestMove: "relationship_pressure",
+    otherActStrongestMove: "reversal_pressure",
+    correctedStrongestMove: "reversal_pressure",
     canonStrongestMove: "payoff_pressure",
     evidenceDirectory: EVIDENCE_DIR,
     evidenceFiles: readdirSync(EVIDENCE_DIR).sort(),

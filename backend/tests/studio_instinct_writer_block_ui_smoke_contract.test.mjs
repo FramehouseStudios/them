@@ -35,10 +35,15 @@ test("[studio-instinct-ui-smoke] defaults to the paired iPhone and macOS contrac
   assert.match(smokeSource, /did not execute/);
   assert.match(smokeSource, /studio-instinct-writer-block/);
   assert.match(smokeSource, /01-baseline/);
-  assert.match(smokeSource, /02-rescue-learned/);
-  assert.match(smokeSource, /03-corrected-instinct/);
-  assert.match(smokeSource, /04-canon-protected/);
-  assert.match(smokeSource, /baselinePreferenceFamily: "reversal_pressure"/);
+  assert.match(smokeSource, /02-rescue-rejected/);
+  assert.match(smokeSource, /03-relaunch-adapted/);
+  assert.match(smokeSource, /04-repaired-rescue-learned/);
+  assert.match(smokeSource, /05-other-act-unaffected/);
+  assert.match(smokeSource, /06-explicit-correction/);
+  assert.match(smokeSource, /07-canon-protected/);
+  assert.match(smokeSource, /rejectedPreferenceFamily: "reversal_pressure"/);
+  assert.match(smokeSource, /repairedPreferenceFamily: "relationship_pressure"/);
+  assert.match(smokeSource, /otherActStrongestMove: "Ranked strongest move - reversal pressure"/);
   assert.match(smokeSource, /rescueAcceptedPage: RESCUE_ACCEPTED_PAGE/);
   assert.match(smokeSource, /act_position: "Act II"/);
   assert.match(smokeSource, /did not write/);
@@ -100,6 +105,13 @@ test("[studio-instinct-ui-smoke] explicitly opts the real UI flow into its local
     /BackendDefaultBaseURLPolicy\.currentUITestOverrideBaseURL/,
   );
   assert.match(uiTestSource, /submitTransportMode: "live-backend"/);
+  assert.match(uiTestSource, /That did not help\. I am still stuck\. Try a different move\./);
+  assert.match(uiTestSource, /app\.terminate\(\)\s*\n\s*app = launchStudio\(\)/);
+  assert.match(uiTestSource, /setStudioStoryPosition\(\s*\n\s*act: "Act I"/);
+  assert.match(uiTestSource, /setStudioStoryPosition\(\s*\n\s*act: "Act II"/);
+  assert.match(uiTestSource, /did not unblock you/);
+  assert.match(uiTestSource, /will not repeat this move/);
+  assert.match(uiTestSource, /Due canon did not outrank the corrected creative instinct/);
 });
 
 test("[studio-instinct-ui-smoke] keeps editor alignment gaps out of narrative setup canon", () => {

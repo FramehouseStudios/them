@@ -906,14 +906,17 @@ final class V1SmokeUITests: XCTestCase {
             throw XCTSkip("No Studio writer-block instinct fixture was provided.")
         }
 
-        let app = launchApp(
-            openStudio: true,
-            openCommandBar: true,
-            liveMemory: true,
-            restoreProjectID: fixture.projectID,
-            submitTransportMode: "live-backend",
-            launchEnvironment: fixture.appLaunchEnvironment
-        )
+        let launchStudio = {
+            self.launchApp(
+                openStudio: true,
+                openCommandBar: true,
+                liveMemory: true,
+                restoreProjectID: fixture.projectID,
+                submitTransportMode: "live-backend",
+                launchEnvironment: fixture.appLaunchEnvironment
+            )
+        }
+        var app = launchStudio()
         defer { app.terminate() }
 
         XCTAssertTrue(
@@ -938,6 +941,95 @@ final class V1SmokeUITests: XCTestCase {
             "The baseline writer-block response did not expose \(fixture.baselineStrongestMove). Accessibility hierarchy:\n\(app.debugDescription)"
         )
 
+        let rejectionCommit = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "That did not help. I am still stuck. Try a different move.",
+                "reply": "You are right. I will change the story engine.",
+                "request_id": "ui-instinct-rescue-failed-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
+                    "screenplay_target": "voice_pin",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_act": "Act II",
+                    "screenplay_feature_sequence": "Bad Guys Close In",
+                ],
+            ]
+        )
+        try assertHTTP(rejectionCommit, context: "writer-block failed-rescue commit")
+
+        revealStudioCreativeInstincts(in: app)
+        let rejectedPreference = element(
+            identifier: "studio.story-preference.\(fixture.rejectedPreferenceFamily)",
+            in: app
+        )
+        let refreshRejectedPreference = element(
+            identifier: "studio.story-preferences.refresh",
+            in: app
+        )
+        makeHittable(refreshRejectedPreference, in: app)
+        XCTAssertTrue(
+            refreshRejectedPreference.waitForExistence(timeout: 5) && refreshRejectedPreference.isHittable,
+            "Creative Instincts did not expose refresh after the rejected rescue."
+        )
+#if os(macOS)
+        refreshRejectedPreference.click()
+#else
+        refreshRejectedPreference.tap()
+#endif
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                in: rejectedPreference,
+                containing: "did not unblock you",
+                timeout: 20
+            ),
+            "Studio did not explain which delivered rescue failed."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                in: rejectedPreference,
+                containing: "will not repeat this move",
+                timeout: 5
+            ),
+            "Studio did not explain how the rejected rescue changes future guidance."
+        )
+        try recordStudioInstinctEvidence(
+            stage: "02-rescue-rejected",
+            expected: ["did not unblock you", "will not repeat this move"],
+            in: app,
+            fixture: fixture,
+            preferenceFamily: fixture.rejectedPreferenceFamily
+        )
+
+        app.terminate()
+        app = launchStudio()
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not reopen after the rejected rescue."
+        )
+        try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        let repairedMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.repairedStrongestMove,
+            in: app,
+            timeout: 35
+        )
+        try recordStudioInstinctEvidence(
+            stage: "03-relaunch-adapted",
+            expected: [fixture.repairedStrongestMove],
+            in: app,
+            fixture: fixture,
+            preferenceFamily: fixture.repairedPreferenceFamily
+        )
+        XCTAssertTrue(
+            repairedMatched,
+            "Clementine repeated the rejected rescue instead of adapting after relaunch."
+        )
+
         let rescueCommit = try await requestJSON(
             baseURL: fixture.baseURL,
             path: "/realtime/turn_commit",
@@ -949,6 +1041,7 @@ final class V1SmokeUITests: XCTestCase {
                 "request_id": "ui-instinct-rescue-success-\(UUID().uuidString.lowercased())",
                 "studio": [
                     "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
                     "screenplay_target": "page",
                     "screenplay_prompt_source": "typed",
                     "screenplay_anchor_scene_label": "INT. FERRY WAITING ROOM - NIGHT",
@@ -963,8 +1056,8 @@ final class V1SmokeUITests: XCTestCase {
         try assertHTTP(rescueCommit, context: "writer-block successful-rescue commit")
 
         revealStudioCreativeInstincts(in: app)
-        let baselinePreference = element(
-            identifier: "studio.story-preference.\(fixture.baselinePreferenceFamily)",
+        let repairedPreference = element(
+            identifier: "studio.story-preference.\(fixture.repairedPreferenceFamily)",
             in: app
         )
         let refreshPreferences = element(
@@ -983,20 +1076,64 @@ final class V1SmokeUITests: XCTestCase {
 #endif
         XCTAssertTrue(
             waitForAccessibilityText(
-                in: baselinePreference,
+                in: repairedPreference,
                 containing: "rescue that worked",
                 timeout: 20
             ),
-            "Studio did not explain that the baseline instinct came from a rescue that worked."
+            "Studio did not explain that the adapted rescue got the writer moving."
         )
         try recordStudioInstinctEvidence(
-            stage: "02-rescue-learned",
-            expected: [fixture.baselineStrongestMove, "rescue that worked"],
+            stage: "04-repaired-rescue-learned",
+            expected: [fixture.repairedStrongestMove, "rescue that worked"],
             in: app,
             fixture: fixture,
-            preferenceFamily: fixture.baselinePreferenceFamily
+            preferenceFamily: fixture.repairedPreferenceFamily
         )
 
+        try await setStudioStoryPosition(
+            act: "Act I",
+            featureSequence: "Opening Sequence",
+            currentBeat: "Mara first sees Eli holding a ferry ticket he should not have.",
+            fixture: fixture
+        )
+        app.terminate()
+        app = launchStudio()
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not reopen in the Act I isolation check."
+        )
+        try submitStudioWriterBlockPrompt(fixture.prompt, in: app)
+        let otherActMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.otherActStrongestMove,
+            in: app,
+            timeout: 35
+        )
+        try recordStudioInstinctEvidence(
+            stage: "05-other-act-unaffected",
+            expected: [fixture.otherActStrongestMove],
+            in: app,
+            fixture: fixture,
+            preferenceFamily: fixture.rejectedPreferenceFamily
+        )
+        XCTAssertTrue(
+            otherActMatched,
+            "The rejected Act II rescue incorrectly changed Clementine's Act I instincts."
+        )
+
+        try await setStudioStoryPosition(
+            act: "Act II",
+            featureSequence: "Bad Guys Close In",
+            currentBeat: "Mara cannot decide whether to trust Eli.",
+            fixture: fixture
+        )
+        app.terminate()
+        app = launchStudio()
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not reopen after restoring the Act II story position."
+        )
+        revealStudioCreativeInstincts(in: app)
         let preference = element(
             identifier: "studio.story-preference.\(fixture.preferenceFamily)",
             in: app
@@ -1045,7 +1182,7 @@ final class V1SmokeUITests: XCTestCase {
             timeout: 35
         )
         try recordStudioInstinctEvidence(
-            stage: "03-corrected-instinct",
+            stage: "06-explicit-correction",
             expected: [fixture.correctedStrongestMove],
             in: app,
             fixture: fixture
@@ -1066,6 +1203,7 @@ final class V1SmokeUITests: XCTestCase {
                 "request_id": "ui-instinct-canon-\(UUID().uuidString.lowercased())",
                 "studio": [
                     "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
                     "screenplay_target": "page",
                     "screenplay_prompt_source": "typed",
                     "screenplay_anchor_scene_label": "INT. CLOCK TOWER - NIGHT",
@@ -1095,7 +1233,7 @@ final class V1SmokeUITests: XCTestCase {
             timeout: 5
         )
         try recordStudioInstinctEvidence(
-            stage: "04-canon-protected",
+            stage: "07-canon-protected",
             expected: [fixture.canonStrongestMove, fixture.dueSetup],
             in: app,
             fixture: fixture
@@ -1708,6 +1846,53 @@ final class V1SmokeUITests: XCTestCase {
         submitFocusedPrompt(in: app, field: field)
     }
 
+    private func setStudioStoryPosition(
+        act: String,
+        featureSequence: String,
+        currentBeat: String,
+        fixture: StudioInstinctFixture
+    ) async throws {
+        let projectUpdate = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/screenplay/projects",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "project_id": fixture.projectID,
+                "title": fixture.projectTitle,
+                "phase": "scene_draft",
+                "act_position": act,
+                "protagonist_want": "get Eli onto the last ferry",
+                "protagonist_need": "stop using control as a substitute for trust",
+                "activate": true,
+            ]
+        )
+        try assertHTTP(projectUpdate, context: "writer-block story-position project update")
+
+        let continuityUpdate = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "Track the screenplay at \(act) for this continuity check.",
+                "reply": "I am tracking the current act and sequence.",
+                "request_id": "ui-instinct-position-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
+                    "screenplay_target": "voice_pin",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_act": act,
+                    "screenplay_feature_sequence": featureSequence,
+                    "screenplay_current_beat": currentBeat,
+                    "screenplay_character_focus": ["Mara", "Eli"],
+                ],
+            ]
+        )
+        try assertHTTP(continuityUpdate, context: "writer-block story-position continuity update")
+    }
+
     private func waitForAccessibilityText(
         identifier: String,
         containing expected: String,
@@ -1827,10 +2012,14 @@ final class V1SmokeUITests: XCTestCase {
         let clientToken: String
         let accessToken: String
         let projectID: String
+        let projectTitle: String
         let preferenceFamily: String
-        let baselinePreferenceFamily: String
+        let rejectedPreferenceFamily: String
+        let repairedPreferenceFamily: String
         let prompt: String
         let baselineStrongestMove: String
+        let repairedStrongestMove: String
+        let otherActStrongestMove: String
         let correctedStrongestMove: String
         let canonStrongestMove: String
         let acceptedPage: String
@@ -1916,15 +2105,25 @@ final class V1SmokeUITests: XCTestCase {
                 payload["project_id"],
                 message: "Studio instinct fixture missing projectID."
             ),
+            projectTitle: try firstNonEmptyString(
+                payload["projectTitle"],
+                payload["project_title"],
+                message: "Studio instinct fixture missing projectTitle."
+            ),
             preferenceFamily: try firstNonEmptyString(
                 payload["preferenceFamily"],
                 payload["preference_family"],
                 message: "Studio instinct fixture missing preferenceFamily."
             ),
-            baselinePreferenceFamily: try firstNonEmptyString(
-                payload["baselinePreferenceFamily"],
-                payload["baseline_preference_family"],
-                message: "Studio instinct fixture missing baselinePreferenceFamily."
+            rejectedPreferenceFamily: try firstNonEmptyString(
+                payload["rejectedPreferenceFamily"],
+                payload["rejected_preference_family"],
+                message: "Studio instinct fixture missing rejectedPreferenceFamily."
+            ),
+            repairedPreferenceFamily: try firstNonEmptyString(
+                payload["repairedPreferenceFamily"],
+                payload["repaired_preference_family"],
+                message: "Studio instinct fixture missing repairedPreferenceFamily."
             ),
             prompt: try firstNonEmptyString(
                 payload["prompt"],
@@ -1933,6 +2132,14 @@ final class V1SmokeUITests: XCTestCase {
             baselineStrongestMove: try firstNonEmptyString(
                 payload["baselineStrongestMove"],
                 message: "Studio instinct fixture missing baselineStrongestMove."
+            ),
+            repairedStrongestMove: try firstNonEmptyString(
+                payload["repairedStrongestMove"],
+                message: "Studio instinct fixture missing repairedStrongestMove."
+            ),
+            otherActStrongestMove: try firstNonEmptyString(
+                payload["otherActStrongestMove"],
+                message: "Studio instinct fixture missing otherActStrongestMove."
             ),
             correctedStrongestMove: try firstNonEmptyString(
                 payload["correctedStrongestMove"],
