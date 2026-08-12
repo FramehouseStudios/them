@@ -983,9 +983,19 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
     .map((entry, libraryIndex) => {
       const taste = context.storyMoveTasteProfile.find((item) => item.family === entry.key);
       const qualityContract = buildStoryRescueQualityContract(entry.key, context);
+      const failedInCurrentPosition = Boolean(
+        taste &&
+        taste.explicitStance !== "prefer" &&
+        Number(taste.failedRescueCount || 0) >= 0.99 &&
+        Number(taste.failedRescueCount || 0) > Number(taste.successfulRescueCount || 0)
+      );
+      const requiredByDueCanon = Boolean(
+        context.dueStoryThread && entry.key === "payoff_pressure"
+      );
       return {
         key: entry.key,
         libraryIndex,
+        suppressFailedRepeat: failedInCurrentPosition && !requiredByDueCanon,
         score: storyMoveScore(entry.key, context, selectedKeys),
         tasteBonus: taste?.tasteBonus || 0,
         tasteEvidenceCount: taste?.evidenceCount || 0,
@@ -1005,9 +1015,17 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
         successCheck: STORY_MOVE_SUCCESS_CHECKS[entry.key] || "The beat visibly changes story state.",
       };
     })
-    .sort((a, b) => b.score - a.score || a.libraryIndex - b.libraryIndex)
+    .sort((a, b) => (
+      Number(a.suppressFailedRepeat) - Number(b.suppressFailedRepeat) ||
+      b.score - a.score ||
+      a.libraryIndex - b.libraryIndex
+    ))
     .slice(0, Math.max(1, Math.min(5, Number(limit) || 3)))
-    .map(({ libraryIndex: _libraryIndex, ...move }, index) => ({ ...move, rank: index + 1 }));
+    .map(({
+      libraryIndex: _libraryIndex,
+      suppressFailedRepeat: _suppressFailedRepeat,
+      ...move
+    }, index) => ({ ...move, rank: index + 1 }));
   return ranked;
 }
 

@@ -1018,9 +1018,15 @@ final class V1SmokeUITests: XCTestCase {
             in: app,
             timeout: 35
         )
+        let repairMemoryMatched = waitForAccessibilityText(
+            identifier: "studio.voice-pin.latest.output",
+            containing: fixture.repairMemoryLine,
+            in: app,
+            timeout: 5
+        )
         try recordStudioInstinctEvidence(
             stage: "03-relaunch-adapted",
-            expected: [fixture.repairedStrongestMove],
+            expected: [fixture.repairedStrongestMove, fixture.repairMemoryLine],
             in: app,
             fixture: fixture,
             preferenceFamily: fixture.repairedPreferenceFamily
@@ -1028,6 +1034,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             repairedMatched,
             "Clementine repeated the rejected rescue instead of adapting after relaunch."
+        )
+        XCTAssertTrue(
+            repairMemoryMatched,
+            "Clementine adapted after relaunch but did not acknowledge what she learned."
         )
 
         let rescueCommit = try await requestJSON(
@@ -2019,6 +2029,7 @@ final class V1SmokeUITests: XCTestCase {
         let prompt: String
         let baselineStrongestMove: String
         let repairedStrongestMove: String
+        let repairMemoryLine: String
         let otherActStrongestMove: String
         let correctedStrongestMove: String
         let canonStrongestMove: String
@@ -2136,6 +2147,10 @@ final class V1SmokeUITests: XCTestCase {
             repairedStrongestMove: try firstNonEmptyString(
                 payload["repairedStrongestMove"],
                 message: "Studio instinct fixture missing repairedStrongestMove."
+            ),
+            repairMemoryLine: try firstNonEmptyString(
+                payload["repairMemoryLine"],
+                message: "Studio instinct fixture missing repairMemoryLine."
             ),
             otherActStrongestMove: try firstNonEmptyString(
                 payload["otherActStrongestMove"],

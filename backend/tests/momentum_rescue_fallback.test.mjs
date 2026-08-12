@@ -154,6 +154,59 @@ test("[momentum-rescue-fallback] applies corrected creative instincts without ou
   assert.match(canonBound, /Eli hid the key in Mara's coat/);
 });
 
+test("[momentum-rescue-fallback] acknowledges a failed rescue only in its story position", () => {
+  const failedReversal = {
+    questionId: "writer-block-rescue-failed-reversal",
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    answeredAt: 8_000,
+    updatedAt: 9_000,
+    actKey: "act2",
+    sequenceKey: "fallout",
+    writerBlocked: true,
+    recommendationOnly: true,
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: [
+      "reversal_pressure",
+      "relationship_pressure",
+      "obstacle_pressure",
+    ],
+    rescueFailedAt: 9_000,
+    failedRescueCount: 1,
+  };
+  const actTwoReply = buildMomentumRescueFallbackReply({
+    transcript: "I am still stuck. What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Bad Guys Close In",
+      screenplayCurrentBeat: "Mara cannot decide whether to trust Eli.",
+      screenplayCharacterFocus: ["Mara", "Eli"],
+      screenplayQuestionEffectiveness: [failedReversal],
+    },
+  });
+
+  assert.match(actTwoReply, /^Ranked strongest move - relationship pressure:/);
+  assert.match(
+    actTwoReply,
+    /I remember the last reversal did not get you moving here\. So I am changing the engine, not repainting the same idea: use relationship pressure\./,
+  );
+
+  const actOneReply = buildMomentumRescueFallbackReply({
+    transcript: "I am stuck at the opening. What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act I",
+      screenplayFeatureSequence: "Opening Sequence",
+      screenplayCurrentBeat: "Mara first sees Eli holding the wrong ferry ticket.",
+      screenplayCharacterFocus: ["Mara", "Eli"],
+      screenplayQuestionEffectiveness: [failedReversal],
+    },
+  });
+
+  assert.doesNotMatch(actOneReply, /I remember the last reversal did not get you moving here/);
+});
+
 test("[momentum-rescue-fallback] spends the oldest accepted-scene promise during provider fallback", () => {
   const reply = buildMomentumRescueFallbackReply({
     transcript: "I'm stuck before the hearing.",

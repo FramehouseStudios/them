@@ -211,6 +211,7 @@ function fixtureJSON(baseURL, identity, platform) {
     prompt: PROMPT,
     baselineStrongestMove: "Ranked strongest move - reversal pressure",
     repairedStrongestMove: "Ranked strongest move - relationship pressure",
+    repairMemoryLine: "I remember the last reversal did not get you moving here",
     otherActStrongestMove: "Ranked strongest move - reversal pressure",
     correctedStrongestMove: "Ranked strongest move - reversal pressure",
     canonStrongestMove: "Ranked strongest move - payoff pressure",

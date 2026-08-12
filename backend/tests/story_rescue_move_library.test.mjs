@@ -383,6 +383,31 @@ test("[story-rescue-move-library] learns from failed rescues and accepts later r
   assert.equal(failedRelationship.selectedCount, 0);
   assert.equal(failedRelationship.failedRescueCount, 1);
   assert.ok(failedRelationship.tasteBonus < 0);
+  const adapted = rankStoryRescueMovesForContext({
+    transcript: "I am still stuck in the middle.",
+    act: "Act II",
+    featureSequence: "Midpoint trap",
+    currentBeat: "Mara cannot decide whether to trust Eli.",
+    characters: ["Mara", "Eli"],
+    questionEffectiveness: [failedRescue],
+  });
+  assert.notEqual(adapted[0].key, "relationship_pressure");
+
+  const explicitlyRestored = rankStoryRescueMovesForContext({
+    transcript: "I am still stuck in the middle.",
+    act: "Act II",
+    featureSequence: "Midpoint trap",
+    currentBeat: "Mara cannot decide whether to trust Eli.",
+    protagonistNeed: "trust Eli with the crossing",
+    characters: ["Mara", "Eli"],
+    questionEffectiveness: [failedRescue],
+    storyMovePreferenceOverrides: [{
+      family: "relationship_pressure",
+      stance: "prefer",
+      updatedAt: 3_000,
+    }],
+  });
+  assert.equal(explicitlyRestored[0].key, "relationship_pressure");
 
   const repairedProfile = buildStoryMoveTasteProfile([{
     ...failedRescue,
@@ -422,7 +447,20 @@ test("[story-rescue-move-library] due canon outranks taste and protects feature 
       promisedPayoff: "Mara gives June control of the final crossing.",
       ageInScenes: 42,
     },
-    questionEffectiveness: relationshipTaste,
+    questionEffectiveness: [
+      ...relationshipTaste,
+      {
+        questionId: "failed-payoff-before-due-canon",
+        targetField: "story.writer_block_rescue",
+        responseStatus: "answered",
+        recommendationOnly: true,
+        selectedMoveFamily: "payoff_pressure",
+        offeredMoveFamilies: ["payoff_pressure", "relationship_pressure", "image_pressure"],
+        failedRescueCount: 1,
+        actKey: "act3",
+        answeredAt: 11_000,
+      },
+    ],
   });
 
   assert.equal(ranked[0].key, "payoff_pressure");
