@@ -173,7 +173,7 @@ final class StudioCreativeInstinctsModel: ObservableObject {
                 return
             }
             if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCreativeMemoryConflict {
+               backendError.isCrossDeviceMemoryConflict {
                 await load(
                     projectID: requestedProjectID,
                     projectTitle: requestedProjectTitle,
@@ -218,7 +218,7 @@ final class StudioCreativeInstinctsModel: ObservableObject {
                 return
             }
             if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCreativeMemoryConflict {
+               backendError.isCrossDeviceMemoryConflict {
                 await load(
                     projectID: requestedProjectID,
                     projectTitle: requestedProjectTitle,

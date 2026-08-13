@@ -3296,6 +3296,15 @@ export function isCreativeMemoryRevisionConflict(error) {
   return String(error?.code || "") === "stale_creative_memory_revision";
 }
 
+function assertCreativeMemoryRevision(current, expectedRevision = "") {
+  const cleanExpectedRevision = cleanText(expectedRevision, 96);
+  const currentRevision = buildCreativeMemoryRevision(current);
+  if (cleanExpectedRevision && cleanExpectedRevision !== currentRevision) {
+    throw creativeMemoryRevisionConflict(cleanExpectedRevision, currentRevision);
+  }
+  return currentRevision;
+}
+
 function correctionStateSnapshot(rec = null, { projectId = "", projectTitle = "" } = {}) {
   const record = rec && typeof rec === "object" ? rec : {};
   const project = selectProjectContinuity(record.projects, { projectId, projectTitle });
@@ -4338,11 +4347,7 @@ function createCreativeMemoryStore({
     if (!userId) return;
     await withUserLock(userId, async () => {
       const current = (await readUser(userId)) || makeEmptyMemory(userId);
-      const cleanExpectedRevision = cleanText(expectedRevision, 96);
-      const currentRevision = buildCreativeMemoryRevision(current);
-      if (cleanExpectedRevision && cleanExpectedRevision !== currentRevision) {
-        throw creativeMemoryRevisionConflict(cleanExpectedRevision, currentRevision);
-      }
+      assertCreativeMemoryRevision(current, expectedRevision);
       const next = mutator(clone(current)) || current;
       next.userId = userId;
       next.version = SCHEMA_VERSION;
@@ -4497,6 +4502,7 @@ function createCreativeMemoryStore({
     ambiguityId = "",
     selectedFacts = [],
     selectedFact = "",
+    expectedRevision = "",
   } = {}) {
     const cleanUserId = cleanText(userId, 128);
     const cleanAmbiguityId = cleanText(ambiguityId, 96);
@@ -4512,6 +4518,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
+      assertCreativeMemoryRevision(current, expectedRevision);
       const ambiguities = (Array.isArray(current.canonCorrectionAmbiguities)
         ? current.canonCorrectionAmbiguities
         : [])
@@ -4542,7 +4549,13 @@ function createCreativeMemoryStore({
           resolvedKeys.size === selectedKeys.size &&
           [...resolvedKeys].every((key) => selectedKeys.has(key))
         ) {
-          return { ok: true, status: "already_resolved", ambiguity, receipt };
+          return {
+            ok: true,
+            status: "already_resolved",
+            ambiguity,
+            receipt,
+            creativeMemoryRevision: buildCreativeMemoryRevision(current),
+          };
         }
         return { ok: false, status: "correction_ambiguity_already_resolved" };
       }
@@ -4721,11 +4734,16 @@ function createCreativeMemoryStore({
         status: "resolved",
         ambiguity: sanitizeCanonCorrectionAmbiguity(ambiguities[ambiguityIndex]),
         receipt: sanitizeCanonCorrectionReceipt(receipt),
+        creativeMemoryRevision: buildCreativeMemoryRevision(current),
       };
     });
   }
 
-  async function undoCanonCorrection({ userId, receiptId = "" } = {}) {
+  async function undoCanonCorrection({
+    userId,
+    receiptId = "",
+    expectedRevision = "",
+  } = {}) {
     const cleanUserId = cleanText(userId, 128);
     const cleanReceiptId = cleanText(receiptId, 96);
     if (!cleanUserId) return { ok: false, status: "user_id_required" };
@@ -4733,6 +4751,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
+      assertCreativeMemoryRevision(current, expectedRevision);
       const receipts = (Array.isArray(current.canonCorrectionReceipts)
         ? current.canonCorrectionReceipts
         : [])
@@ -4742,7 +4761,12 @@ function createCreativeMemoryStore({
       if (index < 0) return { ok: false, status: "correction_receipt_not_found" };
       const receipt = receipts[index];
       if (receipt.status === "undone") {
-        return { ok: true, status: "already_undone", receipt: sanitizeCanonCorrectionReceipt(receipt) };
+        return {
+          ok: true,
+          status: "already_undone",
+          receipt: sanitizeCanonCorrectionReceipt(receipt),
+          creativeMemoryRevision: buildCreativeMemoryRevision(current),
+        };
       }
       const projectKey = cleanText(receipt.projectId || receipt.projectTitle, 160).toLowerCase();
       const newerActiveReceipt = receipts.slice(0, index).some((item) => (
@@ -4763,6 +4787,7 @@ function createCreativeMemoryStore({
         ok: true,
         status: "undone",
         receipt: sanitizeCanonCorrectionReceipt(receipts[index]),
+        creativeMemoryRevision: buildCreativeMemoryRevision(current),
       };
     });
   }
@@ -5290,11 +5315,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, reason: "creative_memory_not_found" };
-      const cleanExpectedRevision = cleanText(expectedRevision, 96);
-      const currentRevision = buildCreativeMemoryRevision(current);
-      if (cleanExpectedRevision && cleanExpectedRevision !== currentRevision) {
-        throw creativeMemoryRevisionConflict(cleanExpectedRevision, currentRevision);
-      }
+      assertCreativeMemoryRevision(current, expectedRevision);
       const projects = (Array.isArray(current.projects) ? current.projects : [])
         .map(sanitizeProjectContinuity)
         .filter(Boolean);

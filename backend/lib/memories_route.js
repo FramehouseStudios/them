@@ -190,6 +190,15 @@ function mountMemoriesRoutes(app, deps = {}) {
     );
   }
 
+  function expectedStateVersion(req) {
+    return normalizeSnippet(
+      req.body?.expected_state_version ??
+        req.body?.expectedStateVersion ??
+        req.get("X-State-Version"),
+      96,
+    );
+  }
+
   function applyCreativeMemoryRevisionHeader(res, revision = "") {
     const cleanRevision = normalizeSnippet(revision, 96);
     if (cleanRevision) {
@@ -214,6 +223,25 @@ function mountMemoriesRoutes(app, deps = {}) {
       request_id: requestId,
       expected_creative_memory_revision: expectedRevision || null,
       current_creative_memory_revision: revision || null,
+    });
+  }
+
+  function sendMemoryStateConflict(res, {
+    action,
+    requestId,
+    expectedVersion,
+    currentMeta,
+  }) {
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, currentMeta);
+    return res.status(409).json({
+      ok: false,
+      action,
+      status: "stale_memory_state_version",
+      message: "Memory changed on another device. The newer Story Spine was preserved; reload before applying this edit.",
+      request_id: requestId,
+      expected_state_version: expectedVersion || null,
+      current_state_version: currentMeta?.stateVersion || null,
     });
   }
 
@@ -986,6 +1014,16 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "update",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const title = normalizeSnippet(req.body?.title ?? "", 84);
@@ -1042,6 +1080,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     if (!userId) return;
     const rid = req.requestId || createRequestId();
     const receiptId = String(req.body?.receipt_id ?? req.body?.receiptId ?? "").trim().slice(0, 96);
+    const expectedRevision = expectedCreativeMemoryRevision(req);
     if (!receiptId) {
       res.setHeader("Cache-Control", "no-store");
       return res.status(400).json({
@@ -1063,8 +1102,21 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     let mutation;
     try {
-      mutation = await creativeMemoryStore.undoCanonCorrection({ userId, receiptId });
+      const undoInput = {
+        userId,
+        receiptId,
+      };
+      if (expectedRevision) undoInput.expectedRevision = expectedRevision;
+      mutation = await creativeMemoryStore.undoCanonCorrection(undoInput);
     } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "undo_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
       logger.log(`[${rid}] memories_correction_undo error=${error?.message || error}`);
       res.setHeader("Cache-Control", "no-store");
       return res.status(500).json({
@@ -1093,6 +1145,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const receipt = mutation?.receipt || null;
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, mutation?.creativeMemoryRevision);
     logger.log(`[${rid}] memories_correction_undo status=${status} receipt=${receiptId}`);
     return res.status(statusCode).json({
       ok: Boolean(mutation?.ok),
@@ -1102,6 +1155,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         ? "Undo the newer correction for this project first."
         : null,
       correction_receipt: canonCorrectionReceiptPayload(receipt),
+      creative_memory_revision: mutation?.creativeMemoryRevision || null,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,
@@ -1119,6 +1173,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const userId = requireMemoryUser(req, res, "memories_correction_resolve");
     if (!userId) return;
     const rid = req.requestId || createRequestId();
+    const expectedRevision = expectedCreativeMemoryRevision(req);
     const ambiguityId = String(req.body?.ambiguity_id ?? req.body?.ambiguityId ?? "").trim().slice(0, 96);
     const legacySelectedFact = normalizeSnippet(
       req.body?.selected_fact ?? req.body?.selectedFact ?? "",
@@ -1152,12 +1207,22 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     let mutation;
     try {
-      mutation = await creativeMemoryStore.resolveCanonCorrectionAmbiguity({
+      const resolutionInput = {
         userId,
         ambiguityId,
         selectedFacts,
-      });
+      };
+      if (expectedRevision) resolutionInput.expectedRevision = expectedRevision;
+      mutation = await creativeMemoryStore.resolveCanonCorrectionAmbiguity(resolutionInput);
     } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "resolve_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
       logger.log(`[${rid}] memories_correction_resolve error=${error?.message || error}`);
       res.setHeader("Cache-Control", "no-store");
       return res.status(500).json({
@@ -1189,6 +1254,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, mutation?.creativeMemoryRevision);
     logger.log(`[${rid}] memories_correction_resolve status=${status} ambiguity=${ambiguityId}`);
     return res.status(statusCode).json({
       ok: Boolean(mutation?.ok),
@@ -1199,6 +1265,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         : null,
       correction_ambiguity: canonCorrectionAmbiguityPayload(mutation?.ambiguity),
       correction_receipt: canonCorrectionReceiptPayload(mutation?.receipt),
+      creative_memory_revision: mutation?.creativeMemoryRevision || null,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,

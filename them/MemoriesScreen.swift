@@ -340,7 +340,7 @@ final class MemoriesViewModel: ObservableObject {
             }
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCreativeMemoryConflict {
+               backendError.isCrossDeviceMemoryConflict {
                 await load(force: true, sinceVersion: nil)
             }
             throw error
@@ -397,7 +397,16 @@ final class MemoriesViewModel: ObservableObject {
 
     func undoCanonCorrection(receiptID: String) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.undoCanonCorrection(receiptID: receiptID)
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        do {
+            result = try await BackendMemoryAPI.shared.undoCanonCorrection(receiptID: receiptID)
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion
@@ -408,10 +417,19 @@ final class MemoriesViewModel: ObservableObject {
 
     func resolveCanonCorrection(ambiguityID: String, selectedFacts: [String]) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
-            ambiguityID: ambiguityID,
-            selectedFacts: selectedFacts
-        )
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        do {
+            result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
+                ambiguityID: ambiguityID,
+                selectedFacts: selectedFacts
+            )
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion
@@ -518,7 +536,7 @@ final class MemoriesViewModel: ObservableObject {
             }
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCreativeMemoryConflict {
+               backendError.isCrossDeviceMemoryConflict {
                 await load(force: true, sinceVersion: nil)
             }
             preferenceActionError = error.localizedDescription
@@ -548,7 +566,7 @@ final class MemoriesViewModel: ObservableObject {
             storyMovePreferences = result.payload.storyMovePreferences ?? []
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCreativeMemoryConflict {
+               backendError.isCrossDeviceMemoryConflict {
                 await load(force: true, sinceVersion: nil)
             }
             preferenceActionError = error.localizedDescription

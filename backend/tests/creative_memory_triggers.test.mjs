@@ -2665,4 +2665,21 @@ test("creative memory revisions serialize competing device corrections without l
 
   const finalLedger = await store.getCreativeMemoryLedger({ userId });
   assert.equal(finalLedger.characters[0].bible.arc.want, "Free Eli without becoming her father");
+  await assert.rejects(
+    store.undoCanonCorrection({
+      userId,
+      receiptId: "canon_correction_missing",
+      expectedRevision: characterBaseRevision,
+    }),
+    (error) => isCreativeMemoryRevisionConflict(error)
+  );
+  await assert.rejects(
+    store.resolveCanonCorrectionAmbiguity({
+      userId,
+      ambiguityId: "canon_ambiguity_missing",
+      selectedFact: "Mara abandons Eli.",
+      expectedRevision: characterBaseRevision,
+    }),
+    (error) => isCreativeMemoryRevisionConflict(error)
+  );
 });

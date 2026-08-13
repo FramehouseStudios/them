@@ -2724,12 +2724,18 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
         }
     }
 
-    var isCreativeMemoryConflict: Bool {
+    var isCrossDeviceMemoryConflict: Bool {
         if case .server(let status, let message) = self {
-            return status == 409 && message.localizedCaseInsensitiveContains("another device")
+            return status == 409 && (
+                message.localizedCaseInsensitiveContains("another device") ||
+                message.localizedCaseInsensitiveContains("stale_memory_state_version") ||
+                message.localizedCaseInsensitiveContains("stale_creative_memory_revision")
+            )
         }
         return false
     }
+
+    var isCreativeMemoryConflict: Bool { isCrossDeviceMemoryConflict }
 }
 
 nonisolated enum BackendCredentialMigration {
@@ -6527,20 +6533,34 @@ actor BackendMemoryAPI {
         let revisionProtectedPaths: Set<String> = [
             "/memories/character-bible/update",
             "/memories/story-preferences/update",
+            "/memories/corrections/undo",
+            "/memories/corrections/resolve",
         ]
-        if revisionProtectedPaths.contains(path), latestCreativeMemoryRevision.isEmpty {
+        let stateProtectedPaths: Set<String> = [
+            "/memories/update",
+        ]
+        let needsCreativeRevision = revisionProtectedPaths.contains(path)
+        let needsStateVersion = stateProtectedPaths.contains(path)
+        if (needsCreativeRevision && latestCreativeMemoryRevision.isEmpty) ||
+            (needsStateVersion && latestSeenStateVersion.isEmpty) {
             _ = try await fetchMemories(limit: 1, force: true)
         }
         var outgoingPayload = payload
-        if revisionProtectedPaths.contains(path), !latestCreativeMemoryRevision.isEmpty {
+        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
             outgoingPayload["expected_creative_memory_revision"] = latestCreativeMemoryRevision
         }
+        if needsStateVersion, !latestSeenStateVersion.isEmpty {
+            outgoingPayload["expected_state_version"] = latestSeenStateVersion
+        }
         var request = try makeWriteRequest(path: path)
-        if revisionProtectedPaths.contains(path), !latestCreativeMemoryRevision.isEmpty {
+        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
             request.setValue(
                 latestCreativeMemoryRevision,
                 forHTTPHeaderField: "X-Creative-Memory-Revision"
             )
+        }
+        if needsStateVersion, !latestSeenStateVersion.isEmpty {
+            request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
         let (data, response) = try await session.data(for: request)
@@ -6548,6 +6568,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.invalidResponse
         }
         adoptCreativeMemoryRevision(nil, response: http, errorData: data)
+        if http.statusCode == 409 {
+            updateSyncState(
+                syncFromHeaders(http, fallbackStatus: "degraded"),
+                emitTurnEvent: false
+            )
+        }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)

@@ -163,10 +163,10 @@ async function getJson(baseURL, path) {
   return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
 }
 
-async function postJson(baseURL, path, body) {
+async function postJson(baseURL, path, body, headers = {}) {
   const r = await fetch(`${baseURL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
@@ -480,6 +480,25 @@ test("[memories] POST /memories/update: 400 when mutation fails", async () => {
     assert.equal(r.body.ok, false);
     assert.equal(r.body.status, "not_found");
   });
+});
+
+test("[memories] POST /memories/update preserves a newer cross-device Story Spine", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/update", {
+      card_id: "screenplay-project-split-ferries",
+      story_spine: { next_scene_plan: "Mara returns for Eli." },
+      expected_state_version: "v8",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_memory_state_version");
+    assert.equal(r.body.expected_state_version, "v8");
+    assert.equal(r.body.current_state_version, "v9");
+    assert.equal(r.headers.get("x-state-version"), "v9");
+    assert.match(r.body.message, /another device/i);
+  });
+  assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/character-bible/update: records structured character correction", async () => {
@@ -806,6 +825,35 @@ test("[memories] POST /memories/corrections/undo refuses out-of-order project un
   assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
+test("[memories] POST /memories/corrections/undo rejects a stale device revision", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      undoCanonCorrection: async (input) => {
+        calls.push(input);
+        const error = new Error("Creative memory changed on another device.");
+        error.code = "stale_creative_memory_revision";
+        error.expectedRevision = input.expectedRevision;
+        error.currentRevision = "cm_current_undo";
+        throw error;
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/undo", {
+      receipt_id: "canon_correction_123",
+      expected_creative_memory_revision: "cm_stale_undo",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_creative_memory_revision");
+    assert.equal(r.body.current_creative_memory_revision, "cm_current_undo");
+    assert.equal(r.headers.get("x-creative-memory-revision"), "cm_current_undo");
+  });
+  assert.equal(calls[0].expectedRevision, "cm_stale_undo");
+  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 test("[memories] POST /memories/corrections/undo requires authenticated user", async () => {
   let called = false;
   const deps = defaultDeps({
@@ -933,6 +981,35 @@ test("[memories] POST /memories/corrections/resolve preserves the legacy singula
     ambiguityId: "canon_ambiguity_legacy",
     selectedFacts: ["Mara abandons Eli at the east ferry dock."],
   }]);
+});
+
+test("[memories] POST /memories/corrections/resolve rejects a stale device revision", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      resolveCanonCorrectionAmbiguity: async (input) => {
+        calls.push(input);
+        const error = new Error("Creative memory changed on another device.");
+        error.code = "stale_creative_memory_revision";
+        error.expectedRevision = input.expectedRevision;
+        error.currentRevision = "cm_current_resolution";
+        throw error;
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/resolve", {
+      ambiguity_id: "canon_ambiguity_123",
+      selected_fact: "Mara abandons Eli at the east ferry dock.",
+      expected_creative_memory_revision: "cm_stale_resolution",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_creative_memory_revision");
+    assert.equal(r.body.current_creative_memory_revision, "cm_current_resolution");
+  });
+  assert.equal(calls[0].expectedRevision, "cm_stale_resolution");
+  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/corrections/resolve rejects a stale accepted fact without syncing", async () => {

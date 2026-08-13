@@ -483,6 +483,88 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertFalse(recorder.requests.contains { $0.path == "/session" })
     }
 
+    func testStorySpineCorrectionPostsObservedStateVersion() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-spine", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-spine-before",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-spine-before", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
+                )
+            case "/memories/update":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-spine-after",
+                    ],
+                    body: Data(
+                        #"{ "ok": true, "action": "update", "status": "updated", "state_version": "state-spine-after" }"#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let storySpine = try decoder.decode(
+            BackendStorySpineMemory.self,
+            from: Data(
+                #"{ "project_id": "split-ferries", "project_title": "Split Ferries", "next_scene_plan": "Mara returns for Eli before the last ferry leaves." }"#.utf8
+            )
+        )
+
+        let result = try await api.updateMemoryCard(
+            id: "screenplay-project-split-ferries",
+            key: "split-ferries",
+            title: "Split Ferries",
+            summary: "Mara chooses to return.",
+            reason: "Protect the writer's corrected Act II turn.",
+            storySpine: storySpine
+        )
+
+        XCTAssertTrue(result.payload.ok)
+        XCTAssertEqual(result.sync.stateVersion, "state-spine-after")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/update" }
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_state_version"] as? String,
+            "state-spine-before"
+        )
+        let sentSpine = try XCTUnwrap(request.bodyObject?["story_spine"] as? [String: Any])
+        XCTAssertEqual(
+            sentSpine["next_scene_plan"] as? String,
+            "Mara returns for Eli before the last ferry leaves."
+        )
+    }
+
     func testStoryMovePreferenceCorrectionPostsProjectScopeAndDecodesRefreshedProfile() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in

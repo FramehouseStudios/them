@@ -355,6 +355,18 @@ final class BackendAccountDataControlsTests: XCTestCase {
                     headers: ["Content-Type": "application/json"],
                     body: Data(#"{ "client_token": "client-canon", "expires_in": 3600, "remembered_names": [] }"#.utf8)
                 )
+            case "/memories":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-canon-1",
+                        "X-Creative-Memory-Revision": "cm_canon_before",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-canon-1", "creative_memory_revision": "cm_canon_before", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
+                )
             case "/memories/corrections/resolve":
                 return AccountDataControlsHTTPStub(
                     status: 200,
@@ -366,6 +378,7 @@ final class BackendAccountDataControlsTests: XCTestCase {
                           "action": "resolve_correction",
                           "status": "resolved",
                           "message": null,
+                          "creative_memory_revision": "cm_canon_after",
                           "correction_ambiguity": {
                             "id": "ambiguity-1",
                             "status": "resolved",
@@ -455,6 +468,10 @@ final class BackendAccountDataControlsTests: XCTestCase {
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(request.bodyObject?["ambiguity_id"] as? String, "ambiguity-1")
         XCTAssertEqual(request.bodyObject?["selected_facts"] as? [String], selectedFacts)
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_canon_before"
+        )
         XCTAssertNil(request.bodyObject?["selected_fact"])
     }
 
@@ -466,6 +483,18 @@ final class BackendAccountDataControlsTests: XCTestCase {
                     status: 200,
                     headers: ["Content-Type": "application/json"],
                     body: Data(#"{ "client_token": "client-canon", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-canon-html",
+                        "X-Creative-Memory-Revision": "cm_canon_html",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-canon-html", "creative_memory_revision": "cm_canon_html", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
                 )
             case "/memories/corrections/resolve":
                 return AccountDataControlsHTTPStub(
