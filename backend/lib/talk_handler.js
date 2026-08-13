@@ -64,7 +64,7 @@ import {
   upsertPendingScreenplayLearningQuestion,
 } from "./screenplay_question_planner.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -311,7 +311,7 @@ function createTalkHandler(deps) {
     recordUserTalkMetrics,
     recordUserTurnQualityMetric,
     resolveTalkSessionKey,
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizeActiveThemes,
     sanitizeAdaptiveBias,
     sanitizeAdaptiveQualityTags,
@@ -323,7 +323,7 @@ function createTalkHandler(deps) {
     selectExecutableLocalActionCandidate,
     setAssistantSelfNameForIp,
     setPendingLocalAction,
-    persistWritableMemoryContext,
+    createTalkMemoryCommitter,
     shouldForceSessionCheckInOpener,
     shouldHoldForContinuation,
     shouldPrioritizeReassurance,
@@ -1496,11 +1496,9 @@ function createTalkHandler(deps) {
         .json({ stage: "upload", error: `Unsupported file type: ${mime || "unknown"}` });
     }
 
-    const memoryContext = resolveWritableMemoryContext(req, Date.now());
+    const memoryContext = await resolveCanonicalWritableMemoryContext(req, Date.now());
     const requesterIp = normalizeClientIp(memoryContext?.requesterIp || ip);
-    const persistTalkMemory = (nextMemory, nowTs = Date.now()) => {
-      return persistWritableMemoryContext(memoryContext, nextMemory, nowTs);
-    };
+    const persistTalkMemory = createTalkMemoryCommitter(memoryContext);
     const trustedUserId = String(
       req?.authUser?.id ||
       req?.userId ||
@@ -1709,7 +1707,7 @@ function createTalkHandler(deps) {
           emptyMemory.lastEmptyTranscriptAt = now;
           emptyMemory.lastUpdatedAt = now;
           activeSession.memory = emptyMemory;
-          persistTalkMemory(emptyMemory, now);
+          activeSession.memory = await persistTalkMemory(emptyMemory, now);
         }
         const allowEmptyPromptVoice = parseBool(
           req.body?.allow_empty_prompt ??
@@ -1763,7 +1761,7 @@ function createTalkHandler(deps) {
         previousMemory.lastEmptyTranscriptAt = 0;
         previousMemory.lastUpdatedAt = Date.now();
         activeSession.memory = previousMemory;
-        persistTalkMemory(previousMemory, Date.now());
+        activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
@@ -2145,7 +2143,7 @@ function createTalkHandler(deps) {
         holdMemory.lastContinuationReason = continuationGate.reason;
         holdMemory.lastUpdatedAt = Date.now();
         activeSession.memory = holdMemory;
-        persistTalkMemory(holdMemory, Date.now());
+        activeSession.memory = await persistTalkMemory(holdMemory, Date.now());
       }
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("x-turn-status", "continue_listening");
@@ -2204,14 +2202,15 @@ function createTalkHandler(deps) {
     const prevBehaviorMode = String(previousMemory?.behaviorMode || "surface");
     const prevFollowUpPromptCount = Math.max(0, Number(previousMemory?.followUpPromptCount || 0));
     const prevFollowUpAnswerCount = Math.max(0, Number(previousMemory?.followUpAnswerCount || 0));
-    const sessionMemory = activeSession
+    let sessionMemory = activeSession
       ? updateSessionEmotionMemory(activeSession.memory, transcript, flags, {
         sameDaySessionReturns,
       })
       : null;
     if (activeSession) activeSession.memory = sessionMemory;
     if (sessionMemory) {
-      persistTalkMemory(sessionMemory, Date.now());
+      sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
+      if (activeSession) activeSession.memory = sessionMemory;
     }
     const activeThemeRefreshPromise = talkTestDebugOfflineMode
       ? null
@@ -2297,7 +2296,7 @@ function createTalkHandler(deps) {
             sessionMemory.pendingScreenplayLearningQuestions,
             pendingScreenplayLearningQuestion
           );
-        persistTalkMemory(sessionMemory, Date.now());
+        sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
       }
       if (activeSession) activeSession.memory = sessionMemory;
     }
@@ -2750,7 +2749,7 @@ function createTalkHandler(deps) {
         screenplayOutput: talkScreenplayOutput,
         source: hasAuthoritativeScreenplayText ? "talk_screenplay_output" : "talk_turn",
       });
-      const committedMemory = activeSession
+      let committedMemory = activeSession
         ? updateSessionAfterReply(
           activeSession.memory,
           transcript,
@@ -2761,7 +2760,8 @@ function createTalkHandler(deps) {
         : null;
       if (committedMemory) {
         activeSession.memory = committedMemory;
-        persistTalkMemory(committedMemory, Date.now());
+        committedMemory = await persistTalkMemory(committedMemory, Date.now());
+        activeSession.memory = committedMemory;
       }
       const committedSessionId =
         String(req.get("X-Client-Token") || "").trim() || `ip:${normalizeClientIp(requesterIp)}`;
@@ -4117,7 +4117,7 @@ ${directorOutputRule}
       activeSession.memory.kpiTargetsMetCount = qualityTargetStatus.metCount;
       activeSession.memory.kpiTargetsTotal = qualityTargetStatus.total;
       activeSession.memory.kpiTargetsAllMet = Boolean(qualityTargetStatus.allMet);
-      persistTalkMemory(activeSession.memory, qualityAppliedAt);
+      activeSession.memory = await persistTalkMemory(activeSession.memory, qualityAppliedAt);
 
       if (process.env.NODE_ENV !== "production") {
         logger.log(
@@ -4137,7 +4137,7 @@ ${directorOutputRule}
           flags,
           routingLane,
         })
-          .then((llmEval) => {
+          .then(async (llmEval) => {
             if (!activeSession?.memory) return;
             const evalAt = Date.now();
             if (!llmEval || typeof llmEval !== "object") {
@@ -4146,7 +4146,7 @@ ${directorOutputRule}
                 Number(activeSession.memory.adaptiveEvalFailureCount || 0)
               ) + 1;
               activeSession.memory.lastUpdatedAt = evalAt;
-              persistTalkMemory(activeSession.memory, evalAt);
+              activeSession.memory = await persistTalkMemory(activeSession.memory, evalAt);
               if (process.env.NODE_ENV !== "production") {
                 logger.log(`[${rid}] adaptive_eval skipped=no_result`);
               }
@@ -4160,14 +4160,14 @@ ${directorOutputRule}
               evalAt,
               { countAsTurn: false }
             );
-            persistTalkMemory(activeSession.memory, evalAt);
+            activeSession.memory = await persistTalkMemory(activeSession.memory, evalAt);
             if (process.env.NODE_ENV !== "production") {
               logger.log(
                 `[${rid}] adaptive_eval score=${clampUnit(llmEval.score, 0.66).toFixed(2)} merged=${clampUnit(mergedQuality.score, 0.66).toFixed(2)} tags=${sanitizeAdaptiveQualityTags(llmEval.tags, 8).join(",") || "none"}`
               );
             }
           })
-          .catch((err) => {
+          .catch(async (err) => {
             if (!activeSession?.memory) return;
             const failAt = Date.now();
             activeSession.memory.adaptiveEvalFailureCount = Math.max(
@@ -4175,7 +4175,11 @@ ${directorOutputRule}
               Number(activeSession.memory.adaptiveEvalFailureCount || 0)
             ) + 1;
             activeSession.memory.lastUpdatedAt = failAt;
-            persistTalkMemory(activeSession.memory, failAt);
+            try {
+              activeSession.memory = await persistTalkMemory(activeSession.memory, failAt);
+            } catch (persistError) {
+              logger.log(`[${rid}] adaptive_eval memory_error=${String(persistError?.message || persistError)}`);
+            }
             if (process.env.NODE_ENV !== "production") {
               logger.log(`[${rid}] adaptive_eval error=${String(err?.message || err)}`);
             }
@@ -4292,7 +4296,8 @@ ${directorOutputRule}
             respondedAt: 0,
           };
           if (activeSession) activeSession.memory = sessionMemory;
-          persistTalkMemory(sessionMemory, Date.now());
+          sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
+          if (activeSession) activeSession.memory = sessionMemory;
         }
       }
     }

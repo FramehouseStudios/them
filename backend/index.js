@@ -161,6 +161,7 @@ import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.j
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
 import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
+import { createAccountMemoryTurnCommitter } from "./lib/account_memory_turn_commit.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
@@ -31181,7 +31182,19 @@ async function persistCanonicalWritableMemoryContext(context, nextMemory, nowTs 
   if (result.ok && safeContext.activeSession && typeof safeContext.activeSession === "object") {
     safeContext.activeSession.memory = result.memory;
   }
+  if (result.ok) {
+    safeContext.memory = result.memory;
+    if (result.record) safeContext.canonicalRecord = result.record;
+  }
   return result;
+}
+
+function createTalkMemoryCommitter(context) {
+  return createAccountMemoryTurnCommitter({
+    context,
+    persistMemory: persistCanonicalWritableMemoryContext,
+    sanitizeMemory: sanitizePersistedSessionMemory,
+  });
 }
 
 function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
@@ -32845,7 +32858,7 @@ const handleTalkRequest = createTalkHandler({
   recordUserTalkMetrics,
   recordUserTurnQualityMetric,
   resolveTalkSessionKey,
-  resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizeActiveThemes,
   sanitizeAdaptiveBias,
   sanitizeAdaptiveQualityTags,
@@ -32857,7 +32870,7 @@ const handleTalkRequest = createTalkHandler({
   selectExecutableLocalActionCandidate,
   setAssistantSelfNameForIp,
   setPendingLocalAction,
-  persistWritableMemoryContext,
+  createTalkMemoryCommitter,
   shouldForceSessionCheckInOpener,
   shouldHoldForContinuation,
   shouldPrioritizeReassurance,

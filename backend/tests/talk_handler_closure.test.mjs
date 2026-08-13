@@ -155,6 +155,21 @@ test("[phase7b] createTalkHandler enforces required deps at construction", async
   );
 });
 
+test("[talk-memory] live handler awaits canonical account memory reads and writes", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(
+    src,
+    /await resolveCanonicalWritableMemoryContext\(req, Date\.now\(\)\)/,
+  );
+  assert.doesNotMatch(src, /resolveWritableMemoryContext\(req,/);
+  assert.doesNotMatch(src, /persistWritableMemoryContext\(/);
+  const writes = src.split("\n").filter((line) => line.includes("persistTalkMemory("));
+  assert.ok(writes.length >= 8, "expected every live talk memory checkpoint to remain visible");
+  for (const write of writes) {
+    assert.match(write, /await persistTalkMemory\(/, `unawaited talk memory write: ${write}`);
+  }
+});
+
 test("[phase7c] extracted talk handler uses support-safe provider diagnostics", () => {
   const src = fs.readFileSync(LIB, "utf8");
   assert.match(src, /buildTalkFailureBody\(diagnostic\)/);
