@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildFailedStoryRescueRepair,
   buildStoryMoveTasteProfile,
   formatRankedStoryRescueMoveLine,
   inferStoryMoveActKind,
@@ -422,6 +423,72 @@ test("[story-rescue-move-library] learns from failed rescues and accepts later r
   assert.equal(repairedRelationship.failedRescueCount, 0);
   assert.equal(repairedRelationship.successfulRescueCount, 1);
   assert.ok(repairedRelationship.tasteBonus > 0);
+});
+
+test("[story-rescue-move-library] explicit current act outranks future payoff language", () => {
+  const ranked = rankStoryRescueMovesForContext({
+    transcript: "I am stuck. What should happen next?",
+    act: "Act I",
+    featureSequence: "Opening Sequence",
+    featureObligation: "Plant the question the Act III ending must answer.",
+    currentBeat: "Mara first sees Eli holding a ferry ticket.",
+    protagonistWant: "learn why Eli is leaving",
+    dueStoryThread: {
+      setup: "The ferry ticket",
+      promisedPayoff: "The ticket returns in Act III.",
+      sourceAct: "Act II",
+    },
+  });
+
+  assert.ok(ranked.length > 0);
+  assert.ok(ranked.every((move) => move.why.startsWith("Act I must")));
+  assert.ok(ranked.every((move) => /Act I progression:/.test(move.actProgression)));
+});
+
+test("[story-rescue-move-library] turns same-position failure into a private repair contract", () => {
+  const failedReversal = {
+    questionId: "failed-act-two-reversal",
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    recommendationOnly: true,
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: ["reversal_pressure", "relationship_pressure", "obstacle_pressure"],
+    failedRescueCount: 1,
+    actKey: "act2",
+    sequenceKey: "fallout",
+    answeredAt: 2_000,
+  };
+  const context = {
+    transcript: "I am still stuck. What happens next?",
+    act: "Act II",
+    featureSequence: "Bad Guys Close In",
+    currentBeat: "Mara cannot decide whether to trust Eli.",
+    characters: ["Mara", "Eli"],
+    questionEffectiveness: [failedReversal],
+  };
+  const ranked = rankStoryRescueMovesForContext(context);
+  const repair = buildFailedStoryRescueRepair(context, { rankedMoves: ranked });
+
+  assert.ok(repair);
+  assert.equal(repair.failedFamily, "reversal_pressure");
+  assert.equal(repair.nextFamily, ranked[0].key);
+  assert.match(repair.acknowledgment, /I remember the last reversal did not get you moving here/);
+  assert.match(repair.promptDirective, /one warm natural sentence/);
+  assert.match(repair.promptDirective, /Never mention internal labels, scores, classifiers, or memory machinery/);
+
+  assert.equal(buildFailedStoryRescueRepair({
+    ...context,
+    act: "Act I",
+    featureSequence: "Opening Sequence",
+  }), null);
+  assert.equal(buildFailedStoryRescueRepair({
+    ...context,
+    storyMovePreferenceOverrides: [{
+      family: "reversal_pressure",
+      stance: "prefer",
+      updatedAt: 3_000,
+    }],
+  }), null);
 });
 
 test("[story-rescue-move-library] due canon outranks taste and protects feature structure", () => {

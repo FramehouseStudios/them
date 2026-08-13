@@ -165,6 +165,34 @@ test("[read-state] groups screenplay history by turn and filters by project", ()
   assert.equal(threads[0].screenplay_write_id, "write-2");
 });
 
+test("[read-state] preserves full Studio voice-pin advice across restore", () => {
+  const helpers = createReadStateHelpers(deps());
+  const longAdvice = `Ranked strongest move - relationship pressure: ${"cost and consequence ".repeat(30)}I remember the last reversal did not get you moving here.`;
+  const memory = {
+    turnHistory: [
+      {
+        role: "assistant",
+        content: longAdvice,
+        turn: 4,
+        ts: 4_100,
+        studio: {
+          screenplayProjectId: "project-a",
+          screenplayTarget: "voice_pin",
+        },
+      },
+    ],
+  };
+
+  const threads = helpers.buildConversationHistoryThreads(memory, 10, {
+    screenplayProjectId: "project-a",
+  });
+
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].assistant, longAdvice.trim());
+  assert.match(threads[0].assistant, /I remember the last reversal did not get you moving here/);
+  assert.ok(threads[0].assistant.length > 280);
+});
+
 test("[read-state] daily recap keeps outcomes and next actions inside the requested window", () => {
   const now = (10 * DAY_MS) + 12_000;
   const todayStart = 10 * DAY_MS;

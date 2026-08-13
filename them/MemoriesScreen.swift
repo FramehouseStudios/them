@@ -1197,7 +1197,7 @@ private struct CreativeStoryPreferenceRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(preference.displayName). \(evidenceLine)")
+        .accessibilityLabel("\(preference.displayName). \(preferenceSummary) \(evidenceLine)")
         .accessibilityIdentifier(
             "memories.story-preference.\(preference.family)"
         )

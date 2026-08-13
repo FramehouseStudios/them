@@ -44,7 +44,7 @@ test("[studio-instinct-ui-smoke] defaults to the paired iPhone and macOS contrac
   assert.match(smokeSource, /rejectedPreferenceFamily: "reversal_pressure"/);
   assert.match(smokeSource, /repairedPreferenceFamily: "relationship_pressure"/);
   assert.match(smokeSource, /repairMemoryLine: "I remember the last reversal did not get you moving here"/);
-  assert.match(smokeSource, /otherActStrongestMove: "Ranked strongest move - reversal pressure"/);
+  assert.match(smokeSource, /otherActStrongestMove: "Ranked strongest move - objective pressure"/);
   assert.match(smokeSource, /rescueAcceptedPage: RESCUE_ACCEPTED_PAGE/);
   assert.match(smokeSource, /act_position: "Act II"/);
   assert.match(smokeSource, /did not write/);

@@ -2846,6 +2846,8 @@ function selectDueStoryThreadForPrompt(project = null) {
   const openSetups = normalizeStringList(project.unresolvedSetups, 8, 220);
   const promisedPayoffs = normalizeStringList(project.actThreePayoffPath, 5, 220);
   if (!openSetups.length && !promisedPayoffs.length) return null;
+  const activeAct = normalizeActLabel(project.act);
+  if (!openSetups.length && activeAct !== "Act III") return null;
   const scenes = (Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [])
     .map(sanitizeAcceptedSceneContinuity)
     .filter(Boolean)
@@ -2879,7 +2881,6 @@ function selectDueStoryThreadForPrompt(project = null) {
   candidates.sort((a, b) => b.ageInScenes - a.ageInScenes || a.setupIndex - b.setupIndex);
   const selected = candidates[0];
   if (!selected) return null;
-  const activeAct = normalizeActLabel(project.act);
   const kind = selected.promisedPayoff && (activeAct === "Act III" || !selected.setup)
     ? "payoff"
     : "setup";

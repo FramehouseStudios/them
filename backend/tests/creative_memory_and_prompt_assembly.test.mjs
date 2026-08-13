@@ -264,6 +264,50 @@ test("creative memory restores only the active project's feature ledger, charact
   assert.doesNotMatch(JSON.stringify(rain), /uncouples|brass ticket|stop the train/);
 });
 
+test("creative memory defers payoff-only motif guesses until Act III", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const payoff = "Bench returns as proof or cost in Act III.";
+  await store.recordProjectContinuity({
+    userId: "writer-payoff-timing",
+    continuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act II",
+      actThreePayoffPath: [payoff],
+      acceptedScenes: [{
+        act: "Act II",
+        sceneHeading: "INT. FERRY WAITING ROOM - NIGHT",
+        summary: "Mara and Eli miss the ferry.",
+        outcome: "The last safe exit closes.",
+        actThreePayoffPath: [payoff],
+      }],
+    },
+  });
+
+  const actTwo = await store.getCreativeMemoryForPrompt({
+    userId: "writer-payoff-timing",
+    projectId: "split-ferries",
+    query: "I am stuck in Act II.",
+  });
+  assert.equal(actTwo.dueStoryThread, undefined);
+
+  await store.recordProjectContinuity({
+    userId: "writer-payoff-timing",
+    continuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act III",
+    },
+  });
+  const actThree = await store.getCreativeMemoryForPrompt({
+    userId: "writer-payoff-timing",
+    projectId: "split-ferries",
+    query: "I am stuck in Act III.",
+  });
+  assert.equal(actThree.dueStoryThread?.promisedPayoff, payoff);
+});
+
 test("project continuity keeps corrections and supersedes conflicting replacements", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordProjectContinuity({
@@ -1536,6 +1580,59 @@ test("[screenplay-task] writer block rescue spends the oldest accepted-scene pro
   assert.ok(out.includes("rank_1: engine=payoff_pressure"));
   assert.ok(out.includes("evidence=due_story_thread: The red locket hidden in the courthouse clock."));
   assert.ok(out.includes("Mara uses the locket to expose who altered the verdict."));
+});
+
+test("[screenplay-task] normal model prompt acknowledges a failed rescue and changes engine", () => {
+  const task = inferScreenplayTask("I am still stuck. What happens next?");
+  const failedReversal = {
+    questionId: "failed-act-two-reversal",
+    targetField: "story.writer_block_rescue",
+    responseStatus: "answered",
+    recommendationOnly: true,
+    selectedMoveFamily: "reversal_pressure",
+    offeredMoveFamilies: ["reversal_pressure", "relationship_pressure", "obstacle_pressure"],
+    failedRescueCount: 1,
+    actKey: "act2",
+    sequenceKey: "fallout",
+    answeredAt: 8_000,
+  };
+  const creativeMemory = {
+    projectContinuity: {
+      questionEffectiveness: [failedReversal],
+    },
+  };
+  const sessionContext = {
+    projectId: "split-ferries",
+    act: "Act II",
+    featureSequence: "Bad Guys Close In",
+    currentBeat: "Mara cannot decide whether to trust Eli.",
+    characterFocus: ["Mara", "Eli"],
+  };
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    creativeMemory,
+    sessionContext,
+    screenplayTask: task,
+    userInput: "I am still stuck. What happens next?",
+  });
+
+  assert.match(out, /failed_rescue_repair: Briefly acknowledge that the last reversal did not get the writer moving at this exact story position/);
+  assert.match(out, /then change the engine to .+ by executing rank_1/);
+  assert.ok(out.includes("acknowledge what did not work in at most one warm sentence"));
+  assert.ok(out.indexOf("failed_rescue_repair:") < out.lastIndexOf("I am still stuck. What happens next?"));
+
+  const differentAct = buildModelPrompt({
+    persona: "PERSONA",
+    creativeMemory,
+    sessionContext: {
+      ...sessionContext,
+      act: "Act I",
+      featureSequence: "Opening Sequence",
+    },
+    screenplayTask: task,
+    userInput: "I am stuck in the opening.",
+  });
+  assert.ok(!differentAct.includes("failed_rescue_repair:"));
 });
 
 test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {

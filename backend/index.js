@@ -10765,7 +10765,9 @@ function sanitizeTurnHistoryItems(items) {
   for (const item of source) {
     if (!item || typeof item !== "object") continue;
     const role = normalizeHistoryRole(item.role);
-    const content = normalizeSnippet(item.content, 280);
+    const studio = sanitizeStudioTurnMetadata(item.studio || item);
+    const isStudioVoicePin = role === "assistant" && studio?.screenplayTarget === "voice_pin";
+    const content = normalizeSnippet(item.content, isStudioVoicePin ? 6000 : 280);
     if (!content) continue;
     out.push({
       role,
@@ -10773,7 +10775,7 @@ function sanitizeTurnHistoryItems(items) {
       turn: Math.max(0, Number(item.turn || 0)),
       ts: Math.max(0, Number(item.ts || 0)),
       requestId: normalizeSnippet(item.requestId ?? item.request_id ?? "", 120),
-      studio: sanitizeStudioTurnMetadata(item.studio || item),
+      studio,
     });
   }
   if (out.length > TURN_HISTORY_MAX_ENTRIES) {
@@ -11188,9 +11190,10 @@ function sanitizeStudioTurnMetadata(input) {
 function pushTurnHistory(items, { role, content, turn, ts, studio }, maxEntries = TURN_HISTORY_MAX_ENTRIES) {
   const history = sanitizeTurnHistoryItems(items);
   const nextRole = normalizeHistoryRole(role);
-  const nextContent = normalizeSnippet(content, 280);
-  if (!nextContent) return history;
   const nextStudio = sanitizeStudioTurnMetadata(studio);
+  const isStudioVoicePin = nextRole === "assistant" && nextStudio?.screenplayTarget === "voice_pin";
+  const nextContent = normalizeSnippet(content, isStudioVoicePin ? 6000 : 280);
+  if (!nextContent) return history;
 
   const entry = {
     role: nextRole,

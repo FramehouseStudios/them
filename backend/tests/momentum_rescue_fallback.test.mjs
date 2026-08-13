@@ -186,10 +186,15 @@ test("[momentum-rescue-fallback] acknowledges a failed rescue only in its story 
     },
   });
 
-  assert.match(actTwoReply, /^Ranked strongest move - relationship pressure:/);
+  assert.match(actTwoReply, /^I remember the last reversal did not get you moving here\./);
+  assert.match(actTwoReply, /Ranked strongest move - relationship pressure:/);
   assert.match(
     actTwoReply,
     /I remember the last reversal did not get you moving here\. So I am changing the engine, not repainting the same idea: use relationship pressure\./,
+  );
+  assert.ok(
+    actTwoReply.indexOf("I remember the last reversal") < actTwoReply.indexOf("Ranked strongest move"),
+    "the learned repair should lead the rescue before craft diagnostics",
   );
 
   const actOneReply = buildMomentumRescueFallbackReply({

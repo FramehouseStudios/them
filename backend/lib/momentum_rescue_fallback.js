@@ -1,5 +1,5 @@
 import {
-  buildStoryMoveTasteProfile,
+  buildFailedStoryRescueRepair,
   rankStoryRescueMovesForContext,
   selectStoryMoveLibraryLinesForContext,
 } from "./story_rescue_move_library.js";
@@ -215,60 +215,6 @@ function buildRankedFallbackMoveLines(rankedMoves = []) {
   return lines;
 }
 
-const STORY_MOVE_REPAIR_PHRASES = Object.freeze({
-  objective_pressure: "a concrete objective",
-  obstacle_pressure: "an active obstacle",
-  reversal_pressure: "another reversal",
-  information_pressure: "an information reveal",
-  relationship_pressure: "relationship pressure",
-  deadline_pressure: "a deadline",
-  choice_pressure: "an irreversible choice",
-  payoff_pressure: "the due payoff",
-  image_pressure: "a visual turn",
-});
-
-const STORY_MOVE_FAILED_PHRASES = Object.freeze({
-  objective_pressure: "the last objective-driven move",
-  obstacle_pressure: "the last obstacle",
-  reversal_pressure: "the last reversal",
-  information_pressure: "the last reveal",
-  relationship_pressure: "the last relationship-pressure move",
-  deadline_pressure: "the last deadline",
-  choice_pressure: "the last forced choice",
-  payoff_pressure: "the last payoff attempt",
-  image_pressure: "the last visual turn",
-});
-
-function failedRescueRepairLine({
-  questionEffectiveness = [],
-  storyMovePreferenceOverrides = [],
-  act = "",
-  featureSequence = "",
-  rankedMoves = [],
-} = {}) {
-  const strongestFamily = normalizeSnippet(rankedMoves?.[0]?.key, 48);
-  if (!strongestFamily) return "";
-  const profile = buildStoryMoveTasteProfile(questionEffectiveness, {
-    preferenceOverrides: storyMovePreferenceOverrides,
-    actKey: act,
-    sequenceKey: featureSequence,
-  });
-  const failed = profile
-    .filter((item) => (
-      item.family !== strongestFamily &&
-      item.explicitStance !== "prefer" &&
-      Number(item.failedRescueCount || 0) >= 0.99 &&
-      Number(item.failedRescueCount || 0) > Number(item.successfulRescueCount || 0)
-    ))
-    .sort((left, right) => (
-      Number(right.failedRescueCount || 0) - Number(left.failedRescueCount || 0)
-    ))[0];
-  if (!failed) return "";
-  const failedPhrase = STORY_MOVE_FAILED_PHRASES[failed.family] || "that kind of move";
-  const nextPhrase = STORY_MOVE_REPAIR_PHRASES[strongestFamily] || "a different kind of pressure";
-  return `I remember ${failedPhrase} did not get you moving here. So I am changing the engine, not repainting the same idea: use ${nextPhrase}.`;
-}
-
 function readableStoryMoveLine(line = "") {
   const clean = normalizeSnippet(line, 260);
   if (!clean) return "";
@@ -397,13 +343,15 @@ function buildMomentumRescueFallbackReply({
     storyMovePreferenceOverrides,
   });
   const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
-  const repairMemoryLine = failedRescueRepairLine({
+  const failedRescueRepair = buildFailedStoryRescueRepair({
     questionEffectiveness,
     storyMovePreferenceOverrides,
     act,
     featureSequence,
+  }, {
     rankedMoves: rankedRescueMoves,
   });
+  const repairMemoryLine = failedRescueRepair?.acknowledgment || "";
   const bestNextBeat = rankedRescueMoves[0]?.move
     ? `Best next beat: ${rankedRescueMoves[0].move}`
     : `Best next beat: have ${protagonist} pursue ${protagonistWant || strongestTurn}; collide with ${oppositionPressure}; make the cost ${cost}; exit on ${imagePressure}.`;
@@ -473,8 +421,8 @@ function buildMomentumRescueFallbackReply({
     : "";
 
   return [
+    ...(repairMemoryLine ? [repairMemoryLine] : []),
     ...rankedMoveLines,
-    repairMemoryLine,
     bestNextBeat,
     pressureLine,
     characterLine,

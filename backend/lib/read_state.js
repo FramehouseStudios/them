@@ -314,6 +314,7 @@ function createReadStateHelpers(deps = {}) {
       const item = history[idx];
       const turn = Math.max(0, Number(item.turn || 0));
       const key = turn > 0 ? `turn-${turn}` : `idx-${idx}`;
+      const studio = sanitizeStudioTurnMetadata(item.studio);
       const current = grouped.get(key) || {
         id: key,
         turn,
@@ -338,12 +339,14 @@ function createReadStateHelpers(deps = {}) {
         screenplayResolvedAnchorExcerpt: "",
       };
       if (item.role === "assistant") {
-        current.assistant = normalizeSnippet(item.content, 280);
+        current.assistant = normalizeSnippet(
+          item.content,
+          studio?.screenplayTarget === "voice_pin" ? 6000 : 280
+        );
       } else {
         current.user = normalizeSnippet(item.content, 280);
       }
       current.requestId = item.requestId || current.requestId;
-      const studio = sanitizeStudioTurnMetadata(item.studio);
       if (studio) {
         current.screenplayProjectId = studio.screenplayProjectId || current.screenplayProjectId;
         current.screenplayTarget = studio.screenplayTarget || current.screenplayTarget;
@@ -386,7 +389,7 @@ function createReadStateHelpers(deps = {}) {
           title: normalizeSnippet(titleSource, 120),
           preview: normalizeSnippet(previewSource, 170),
           user: normalizeSnippet(item.user, 280),
-          assistant: normalizeSnippet(item.assistant, 280),
+          assistant: normalizeSnippet(item.assistant, 6000),
           updatedAt: Math.max(0, Number(item.updatedAt || 0)),
           request_id: item.requestId || null,
           screenplay_project_id: item.screenplayProjectId || null,

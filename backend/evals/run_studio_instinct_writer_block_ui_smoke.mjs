@@ -25,6 +25,7 @@ const TEST_IDENTIFIER =
   "themUITests/V1SmokeUITests/test_studio_writer_block_rescue_follows_instinct_then_protects_due_canon";
 const PROJECT_ID = "studio-instinct-rescue";
 const PROJECT_TITLE = "Studio Instinct Rescue";
+const BASELINE_FEATURE_SEQUENCE = "Act II - Promise Of The Premise (p26-p40)";
 const EVIDENCE_DIR = "/tmp/them-smoke/studio-instinct-writer-block";
 const EVIDENCE_STAGES = [
   "01-baseline",
@@ -172,7 +173,7 @@ async function seedProject(server, identity) {
         projectId: PROJECT_ID,
         projectTitle: PROJECT_TITLE,
         act: "Act II",
-        featureSequence: "Bad Guys Close In",
+        featureSequence: BASELINE_FEATURE_SEQUENCE,
         currentBeat: "Mara cannot decide whether to trust Eli.",
         protagonistWant: "get Eli onto the last ferry",
         protagonistNeed: "stop using control as a substitute for trust",
@@ -205,6 +206,7 @@ function fixtureJSON(baseURL, identity, platform) {
     accessToken: identity.accessToken,
     projectID: PROJECT_ID,
     projectTitle: PROJECT_TITLE,
+    baselineFeatureSequence: BASELINE_FEATURE_SEQUENCE,
     preferenceFamily: "reversal_pressure",
     rejectedPreferenceFamily: "reversal_pressure",
     repairedPreferenceFamily: "relationship_pressure",
@@ -212,7 +214,7 @@ function fixtureJSON(baseURL, identity, platform) {
     baselineStrongestMove: "Ranked strongest move - reversal pressure",
     repairedStrongestMove: "Ranked strongest move - relationship pressure",
     repairMemoryLine: "I remember the last reversal did not get you moving here",
-    otherActStrongestMove: "Ranked strongest move - reversal pressure",
+    otherActStrongestMove: "Ranked strongest move - objective pressure",
     correctedStrongestMove: "Ranked strongest move - reversal pressure",
     canonStrongestMove: "Ranked strongest move - payoff pressure",
     acceptedPage: ACCEPTED_PAGE,
@@ -339,6 +341,8 @@ function runUITest({ platform, baseURL, identity }) {
         "-quiet",
         "-resultBundlePath",
         resultBundlePath,
+        "-derivedDataPath",
+        `/tmp/io-them-studio-instinct-${process.pid}-ios`,
       ], {
         cwd: ROOT_DIR,
         encoding: "utf8",
@@ -443,7 +447,7 @@ try {
     baselineStrongestMove: "reversal_pressure",
     rejectedStrongestMove: "reversal_pressure",
     repairedStrongestMove: "relationship_pressure",
-    otherActStrongestMove: "reversal_pressure",
+    otherActStrongestMove: "objective_pressure",
     correctedStrongestMove: "reversal_pressure",
     canonStrongestMove: "payoff_pressure",
     evidenceDirectory: EVIDENCE_DIR,

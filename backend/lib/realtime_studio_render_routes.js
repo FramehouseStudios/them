@@ -650,6 +650,7 @@ async function recordDeliveredStudioStoryRescue({
   requestId = "",
   systemPrompt = "",
   reply = "",
+  creativeMemory = null,
   creativeMemoryStore = null,
   resolveUserId,
 } = {}) {
@@ -664,6 +665,10 @@ async function recordDeliveredStudioStoryRescue({
     160,
   );
   if (!userId || (!projectId && !projectTitle)) return false;
+  const momentumMeta = studioMomentumMeta({
+    body: req?.body,
+    creativeMemory,
+  });
   const interaction = buildDeliveredStoryRescueInteraction({
     systemPrompt,
     reply,
@@ -671,11 +676,10 @@ async function recordDeliveredStudioStoryRescue({
     projectId,
     projectTitle,
     actKey: inferStoryMoveActKind([
-      req?.body?.screenplay_act,
-      req?.body?.screenplayAct,
-      req?.body?.screenplay_feature_sequence,
-      req?.body?.screenplayFeatureSequence,
+      momentumMeta.screenplayAct,
+      momentumMeta.screenplayFeatureSequence,
     ].filter(Boolean).join(" ")),
+    sequenceKey: momentumMeta.screenplayFeatureSequence,
   });
   if (!interaction) return false;
   try {
@@ -861,6 +865,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           requestId: rid,
           systemPrompt: memoryContext.systemPrompt,
           reply,
+          creativeMemory: memoryContext.creativeMemory,
           creativeMemoryStore,
           resolveUserId,
         });
@@ -1054,6 +1059,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           requestId: rid,
           systemPrompt: memoryContext.systemPrompt,
           reply,
+          creativeMemory: memoryContext.creativeMemory,
           creativeMemoryStore,
           resolveUserId,
         });

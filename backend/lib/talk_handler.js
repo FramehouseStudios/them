@@ -47,6 +47,7 @@ import {
   isNextSceneExecutionBriefRepairReason,
 } from "./talk_screenplay_repair_plan.js";
 import {
+  buildFailedStoryRescueRepair,
   buildDeliveredStoryRescueInteraction,
   formatRankedStoryRescueMoveLine,
   rankStoryRescueMovesForContext,
@@ -915,6 +916,12 @@ function createTalkHandler(deps) {
       questionEffectiveness: screenplayQuestionEffectiveness,
       storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
     });
+    const failedRescueRepair = buildFailedStoryRescueRepair({
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
+    }, { rankedMoves: rankedRescueMoves });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
@@ -933,6 +940,7 @@ function createTalkHandler(deps) {
       )),
       ...screenplayAcceptedPageContinuity.map((item) => `ACCEPTED_PAGE_CONTINUITY: ${item}`),
       ...screenplayRetrievedStoryMoments.map((item) => `AUTHORITATIVE_STORY_MEMORY: ${item}`),
+      failedRescueRepair ? `FAILED_RESCUE_REPAIR: ${failedRescueRepair.promptDirective}` : "",
       ...rankedRescueMoves.map((item) => `RANKED_RESCUE_MOVE: ${formatRankedStoryRescueMoveLine(item)}`),
       ...storyMoveLibraryLines.map((item) => `STORY_MOVE_LIBRARY: ${item}`),
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
@@ -951,6 +959,7 @@ function createTalkHandler(deps) {
           "Diagnose the precise story blockage silently, then answer with one strongest next move.",
           "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
           "When RANKED_RESCUE_MOVE is supplied, execute rank_1 unless it conflicts with a writer correction; preserve its named evidence and satisfy its success check.",
+          "When FAILED_RESCUE_REPAIR is supplied, acknowledge what failed in one warm natural sentence, then immediately change to rank_1. Never expose internal labels, scores, classifiers, or memory machinery.",
           "When DUE_STORY_THREAD is supplied, pressure or pay that accepted-page obligation before inventing a replacement thread.",
           "When BINDING_CAUSAL_FACT is supplied, continue its consequence. Never make a character unknow a revelation, restore an earlier relationship state, or undo an irreversible event offscreen.",
           "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",

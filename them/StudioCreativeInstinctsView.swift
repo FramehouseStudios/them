@@ -232,6 +232,7 @@ struct StudioCreativeInstinctsView: View {
                     .font(IOThemTypography.UI.caption.weight(.medium))
                     .foregroundStyle(Color.herText.opacity(0.68))
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.story-preferences")
 
                 Spacer(minLength: 8)
 
@@ -293,8 +294,6 @@ struct StudioCreativeInstinctsView: View {
                 .accessibilityIdentifier("studio.story-preferences.error")
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("studio.story-preferences")
         .confirmationDialog(
             "Reset creative preference learning for \(projectName)?",
             isPresented: $showsResetConfirmation,
@@ -339,9 +338,6 @@ private struct StudioCreativeInstinctRow: View {
         #endif
         }
         .padding(.vertical, 2)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(preference.displayName). \(evidenceLine)")
-        .accessibilityIdentifier("studio.story-preference.\(preference.family)")
     }
 
     private var preferenceCopy: some View {
@@ -372,6 +368,9 @@ private struct StudioCreativeInstinctRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .layoutPriority(1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(preference.displayName). \(preferenceSummary) \(evidenceLine)")
+        .accessibilityIdentifier("studio.story-preference.\(preference.family)")
     }
 
     @ViewBuilder
@@ -379,15 +378,15 @@ private struct StudioCreativeInstinctRow: View {
         if isUpdating {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: 26, height: 26)
+                .frame(width: 44, height: 44)
         } else {
-            #if os(macOS)
             Button {
                 onUpdate(preference, "prefer")
             } label: {
                 Image(systemName: "plus.circle")
                     .font(IOThemTypography.UI.body.weight(.medium))
-                    .frame(width: 26, height: 26)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -396,16 +395,8 @@ private struct StudioCreativeInstinctRow: View {
             .accessibilityIdentifier(
                 "studio.story-preference.\(preference.family).prefer"
             )
-            #endif
 
             Menu {
-                #if !os(macOS)
-                Button {
-                    onUpdate(preference, "prefer")
-                } label: {
-                    Label("Suggest More Like This", systemImage: "plus.circle")
-                }
-                #endif
                 Button {
                     onUpdate(preference, "avoid")
                 } label: {
@@ -419,7 +410,8 @@ private struct StudioCreativeInstinctRow: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(IOThemTypography.UI.body.weight(.medium))
-                    .frame(width: 26, height: 26)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)

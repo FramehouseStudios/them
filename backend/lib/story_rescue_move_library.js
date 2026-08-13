@@ -101,6 +101,30 @@ const STORY_STALL_MOVE_LIBRARY = Object.freeze([
   }),
 ]);
 
+const STORY_MOVE_REPAIR_PHRASES = Object.freeze({
+  objective_pressure: "a concrete objective",
+  obstacle_pressure: "an active obstacle",
+  reversal_pressure: "another reversal",
+  information_pressure: "an information reveal",
+  relationship_pressure: "relationship pressure",
+  deadline_pressure: "a deadline",
+  choice_pressure: "an irreversible choice",
+  payoff_pressure: "the due payoff",
+  image_pressure: "a visual turn",
+});
+
+const STORY_MOVE_FAILED_PHRASES = Object.freeze({
+  objective_pressure: "the last objective-driven move",
+  obstacle_pressure: "the last obstacle",
+  reversal_pressure: "the last reversal",
+  information_pressure: "the last reveal",
+  relationship_pressure: "the last relationship-pressure move",
+  deadline_pressure: "the last deadline",
+  choice_pressure: "the last forced choice",
+  payoff_pressure: "the last payoff attempt",
+  image_pressure: "the last visual turn",
+});
+
 const STORY_MOVE_FAMILY_KEYS = Object.freeze(
   STORY_STALL_MOVE_LIBRARY.map((entry) => entry.key)
 );
@@ -509,7 +533,9 @@ function selectStoryMoveLibraryLinesForContext({
     due?.sourceSceneSummary,
     due?.sourceSceneOutcome,
   ].filter(Boolean).join(" ");
-  const actKind = inferStoryMoveActKind([act, featureSequence, featureObligation, actPressureState, transcript].join(" "));
+  const actKind = normalizeStoryMoveActKey(act) || inferStoryMoveActKind(
+    [featureSequence, featureObligation, actPressureState, transcript].join(" ")
+  );
   return selectStoryMoveLibraryLines(source, { intent, actKind, act, problem });
 }
 
@@ -635,9 +661,11 @@ function normalizeStoryRescueContext(context = {}) {
     context.storyMovePreferenceOverrides ??
     context.story_move_preference_overrides
   );
-  const actKind = normalizeStoryMoveActKey(context.actKind ?? context.act_kind) || inferStoryMoveActKind(
-    [act, featureSequence, featureObligation, actPressureState, transcript].join(" ")
-  );
+  const actKind = normalizeStoryMoveActKey(context.actKind ?? context.act_kind) ||
+    normalizeStoryMoveActKey(act) ||
+    inferStoryMoveActKind(
+      [featureSequence, featureObligation, actPressureState, transcript].join(" ")
+    );
   const sequenceKey = normalizeSnippet(
     context.sequenceKey ?? context.sequence_key ?? featureSequence,
     180
@@ -1029,6 +1057,35 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
   return ranked;
 }
 
+function buildFailedStoryRescueRepair(input = {}, { rankedMoves = [] } = {}) {
+  const context = normalizeStoryRescueContext(input);
+  const ranked = Array.isArray(rankedMoves) && rankedMoves.length
+    ? rankedMoves
+    : rankStoryRescueMovesForContext(input);
+  const strongestFamily = normalizeStoryMoveFamily(ranked[0]?.key);
+  if (!strongestFamily) return null;
+  const failed = context.storyMoveTasteProfile
+    .filter((item) => (
+      item.family !== strongestFamily &&
+      item.explicitStance !== "prefer" &&
+      Number(item.failedRescueCount || 0) >= 0.99 &&
+      Number(item.failedRescueCount || 0) > Number(item.successfulRescueCount || 0)
+    ))
+    .sort((left, right) => (
+      Number(right.failedRescueCount || 0) - Number(left.failedRescueCount || 0)
+    ))[0];
+  if (!failed) return null;
+
+  const failedPhrase = STORY_MOVE_FAILED_PHRASES[failed.family] || "that kind of move";
+  const nextPhrase = STORY_MOVE_REPAIR_PHRASES[strongestFamily] || "a different kind of pressure";
+  return {
+    failedFamily: failed.family,
+    nextFamily: strongestFamily,
+    acknowledgment: `I remember ${failedPhrase} did not get you moving here. So I am changing the engine, not repainting the same idea: use ${nextPhrase}.`,
+    promptDirective: `failed_rescue_repair: Briefly acknowledge that ${failedPhrase} did not get the writer moving at this exact story position, then change the engine to ${nextPhrase} by executing rank_1. Use one warm natural sentence before the playable answer. Never mention internal labels, scores, classifiers, or memory machinery.`,
+  };
+}
+
 function selectProvisionalStoryMoveFamilies(input = {}) {
   const ranked = rankStoryRescueMovesForContext(input, { limit: 5 });
   const rankedKeys = ranked.map((item) => item.key).filter(Boolean);
@@ -1111,8 +1168,8 @@ function buildDeliveredStoryRescueInteraction({
     anchor: selectedMoveFamily,
     question: "Which delivered story move gets the writer moving again?",
     authority: "clementine_recommendation",
-    actKey: String(actKey || "").trim().toLowerCase(),
-    sequenceKey: String(sequenceKey || "").trim().toLowerCase(),
+    actKey: normalizeStoryMoveActKey(actKey),
+    sequenceKey: normalizeStoryMoveSequenceKey(sequenceKey),
     writerBlocked: true,
     recommendationOnly: true,
     selectedMoveFamily,
@@ -1126,6 +1183,7 @@ function buildDeliveredStoryRescueInteraction({
 export {
   STORY_STALL_MOVE_LIBRARY,
   STORY_MOVE_FAMILY_KEYS,
+  buildFailedStoryRescueRepair,
   buildStoryMoveTasteProfile,
   buildDeliveredStoryRescueInteraction,
   formatRankedStoryRescueMoveLine,

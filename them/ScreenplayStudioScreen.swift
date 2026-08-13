@@ -9202,6 +9202,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 .buttonStyle(.borderless)
                 .font(.system(size: 11, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.68))
+                .accessibilityIdentifier("studio.commandbar.toggle")
             }
             if shouldShowComposer {
                 VStack(alignment: .leading, spacing: 8) {
@@ -23734,6 +23735,13 @@ Return revised screenplay lines only.
                 : (thread.screenplayNoteBody ?? "")
         )
         let insertedText = (thread.screenplayInsertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let voicePinDevelopmentText: String? = {
+            guard target == .voicePin else { return nil }
+            if !assistant.isEmpty { return assistant }
+            let metadataNote = (thread.screenplayNoteBody ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return metadataNote.isEmpty ? nil : metadataNote
+        }()
 
         return StudioAskNoteExchange(
             id: UUID(),
@@ -23745,11 +23753,7 @@ Return revised screenplay lines only.
             source: source,
             noteTitle: noteTitle,
             noteBody: noteBody,
-            developmentText: target == .voicePin
-                ? ((thread.screenplayNoteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? assistant
-                    : (thread.screenplayNoteBody ?? ""))
-                : nil,
+            developmentText: voicePinDevelopmentText,
             writeID: thread.screenplayWriteId,
             replacedWriteID: thread.screenplayReplacedWriteId,
             anchorLine: thread.screenplayAnchorLine,

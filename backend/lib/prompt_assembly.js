@@ -26,6 +26,7 @@ import {
   buildFeatureScreenplayMapBlock,
 } from "./feature_screenplay_map.js";
 import {
+  buildFailedStoryRescueRepair,
   formatRankedStoryRescueMoveLine,
   rankStoryRescueMovesForContext,
   selectStoryMoveLibraryLines,
@@ -729,12 +730,19 @@ function buildMomentumRescueMoveOptionLines({
     questionEffectiveness,
     storyMovePreferenceOverrides,
   });
+  const failedRescueRepair = buildFailedStoryRescueRepair({
+    act,
+    featureSequence,
+    questionEffectiveness,
+    storyMovePreferenceOverrides,
+  }, { rankedMoves: ranked });
   return [
     "ranked_rescue_moves:",
     "  selection_method: score act fit, remembered continuity, character pressure, setup/payoff value, demonstrated writer taste, and ability to change story state now; taste is capped so canon and structural obligation stay authoritative.",
     ...ranked.map((move) => `  ${formatRankedStoryRescueMoveLine(move)}`),
+    failedRescueRepair ? `  ${failedRescueRepair.promptDirective}` : "",
     "  selection_rule: execute rank_1 unless it conflicts with a writer correction; use lower ranks only as distinct alternate forks.",
-  ];
+  ].filter(Boolean);
 }
 
 function buildScreenplayTaskBlock(screenplayTask) {
@@ -793,6 +801,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Use named characters, objects, setups, motifs, and act pressure already in memory before adding new mythology.");
     lines.push("  - If giving alternates, make each fork carry a different cost: reversal, relationship damage, setup payoff, public exposure, or moral choice.");
     lines.push("  - If enough scene context exists, include a playable micro-beat in Fountain style.");
+    lines.push("  - When failed_rescue_repair is present, acknowledge what did not work in at most one warm sentence, then immediately deliver the changed rank_1 engine. Never expose internal labels, scoring, classifiers, or memory machinery.");
     lines.push("  - Keep the user emotionally safe: blocked means the story is asking for pressure, not that the writer failed.");
   }
   const storyDiagnostic = task.storyDiagnostic ?? task.story_diagnostic;

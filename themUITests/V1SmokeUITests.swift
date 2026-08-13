@@ -956,7 +956,7 @@ final class V1SmokeUITests: XCTestCase {
                     "screenplay_target": "voice_pin",
                     "screenplay_prompt_source": "typed",
                     "screenplay_act": "Act II",
-                    "screenplay_feature_sequence": "Bad Guys Close In",
+                    "screenplay_feature_sequence": fixture.baselineFeatureSequence,
                 ],
             ]
         )
@@ -1065,25 +1065,17 @@ final class V1SmokeUITests: XCTestCase {
         )
         try assertHTTP(rescueCommit, context: "writer-block successful-rescue commit")
 
+        app.terminate()
+        app = launchStudio()
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not reopen after the accepted rescue."
+        )
         revealStudioCreativeInstincts(in: app)
         let repairedPreference = element(
             identifier: "studio.story-preference.\(fixture.repairedPreferenceFamily)",
             in: app
         )
-        let refreshPreferences = element(
-            identifier: "studio.story-preferences.refresh",
-            in: app
-        )
-        makeHittable(refreshPreferences, in: app)
-        XCTAssertTrue(
-            refreshPreferences.waitForExistence(timeout: 5) && refreshPreferences.isHittable,
-            "Creative Instincts did not expose its refresh control after the accepted rescue."
-        )
-#if os(macOS)
-        refreshPreferences.click()
-#else
-        refreshPreferences.tap()
-#endif
         XCTAssertTrue(
             waitForAccessibilityText(
                 in: repairedPreference,
@@ -1152,29 +1144,27 @@ final class V1SmokeUITests: XCTestCase {
             preference.waitForExistence(timeout: 20),
             "The preference required by the writer-block smoke was missing."
         )
-        let preferenceMenu = element(
-            identifier: "studio.story-preference.\(fixture.preferenceFamily).menu",
-            in: app
+        let preferActionQuery = app.buttons.matching(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily).prefer"
         )
-#if os(macOS)
-        let preferAction = app.buttons[
-            "studio.story-preference.\(fixture.preferenceFamily).prefer"
-        ]
+        let preferAction = waitForFirstVisibleElement(
+            in: preferActionQuery,
+            app: app,
+            timeout: 8
+        )
+        XCTAssertNotNil(
+            preferAction,
+            "The Creative Instincts row did not expose a visible primary correction action."
+        )
+        guard let preferAction else { return }
         makeHittable(preferAction, in: app)
         XCTAssertTrue(
-            preferAction.waitForExistence(timeout: 5) && preferAction.isHittable,
-            "The macOS Creative Instincts row did not expose its primary correction action."
+            preferAction.isHittable,
+            "The Creative Instincts primary correction action was visible but not interactive."
         )
+#if os(macOS)
         preferAction.click()
 #else
-        makeHittable(preferenceMenu, in: app)
-        XCTAssertTrue(preferenceMenu.isHittable, "The creative instinct menu was not tappable.")
-        preferenceMenu.tap()
-        let preferAction = app.buttons["Suggest More Like This"]
-        XCTAssertTrue(
-            preferAction.waitForExistence(timeout: 5),
-            "The iOS creative instinct menu did not expose Suggest More Like This."
-        )
         preferAction.tap()
 #endif
         let correctionSurfaced = waitForAccessibilityText(
@@ -1782,7 +1772,41 @@ final class V1SmokeUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
+    private func waitForFirstVisibleElement(
+        in query: XCUIElementQuery,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let interactionSurface = drawer.exists ? drawer : app
+        let deadline = Date().addingTimeInterval(timeout)
+        var swipes = 0
+        while Date() < deadline {
+            if let match = query.allElementsBoundByIndex.first(where: { $0.exists && $0.isHittable }) {
+                return match
+            }
+            if swipes < 4 {
+                interactionSurface.swipeDown()
+            } else if swipes < 12 {
+                interactionSurface.swipeUp()
+            }
+            swipes += 1
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        return query.allElementsBoundByIndex.first(where: { $0.exists && $0.isHittable })
+    }
+
     private func revealStudioCreativeInstincts(in app: XCUIApplication) {
+        let commandBarToggle = app.buttons["studio.commandbar.toggle"]
+        if commandBarToggle.waitForExistence(timeout: 2),
+           commandBarToggle.isHittable,
+           accessibilityText(of: commandBarToggle).localizedCaseInsensitiveContains("hide") {
+#if os(macOS)
+            commandBarToggle.click()
+#else
+            commandBarToggle.tap()
+#endif
+        }
         let section = element(identifier: "studio.story-preferences", in: app)
         let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
@@ -1792,11 +1816,12 @@ final class V1SmokeUITests: XCTestCase {
             rightToggle.tap()
         }
         let deadline = Date().addingTimeInterval(12)
-        while Date() < deadline, !section.exists {
-            app.swipeDown()
+        while Date() < deadline, (!section.exists || !section.isHittable) {
+            let interactionSurface = rightDrawer.exists ? rightDrawer : app
+            interactionSurface.swipeUp()
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
-        XCTAssertTrue(section.exists, "Studio did not reveal Creative Instincts.")
+        XCTAssertTrue(section.exists && section.isHittable, "Studio did not reveal Creative Instincts.")
     }
 
     private func makeHittable(_ element: XCUIElement, in app: XCUIApplication) {
@@ -1812,11 +1837,13 @@ final class V1SmokeUITests: XCTestCase {
             interactionSurface.swipeUp()
         }
 #else
+        let drawer = self.element(identifier: "studio.sidebar.right.drawer", in: app)
+        let interactionSurface = drawer.exists ? drawer : app
         for _ in 0..<4 where !element.isHittable {
-            app.swipeDown()
+            interactionSurface.swipeDown()
         }
         for _ in 0..<8 where !element.isHittable {
-            app.swipeUp()
+            interactionSurface.swipeUp()
         }
 #endif
     }
@@ -1829,7 +1856,47 @@ final class V1SmokeUITests: XCTestCase {
         app.activate()
         _ = app.windows.firstMatch.waitForExistence(timeout: 3)
 #endif
+        let home = element(identifier: "home.surface", in: app)
+        if home.exists {
+            let continueWriting = app.buttons["home.session-continuity.open-studio"]
+            let openStudio = app.buttons["home.open-studio"]
+            if continueWriting.waitForExistence(timeout: 3), continueWriting.isHittable {
+#if os(macOS)
+                continueWriting.click()
+#else
+                continueWriting.tap()
+#endif
+            } else {
+                makeHittable(openStudio, in: app)
+                if openStudio.exists, openStudio.isHittable {
+#if os(macOS)
+                    openStudio.click()
+#else
+                    openStudio.tap()
+#endif
+                }
+            }
+            XCTAssertTrue(
+                waitForDisappearance(of: home, timeout: 8),
+                "Home did not hand the restored project back to Studio."
+            )
+        }
         let field = element(identifier: "studio.prompt.field", in: app)
+        if !field.exists {
+            let commandBarToggle = app.buttons["studio.commandbar.toggle"]
+            let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            let interactionSurface = rightDrawer.exists ? rightDrawer : app
+            for _ in 0..<12 where !commandBarToggle.isHittable {
+                interactionSurface.swipeDown()
+            }
+            if commandBarToggle.waitForExistence(timeout: 3), commandBarToggle.isHittable {
+#if os(macOS)
+                commandBarToggle.click()
+#else
+                commandBarToggle.tap()
+#endif
+            }
+        }
         if !field.isHittable {
             let rightToggle = app.buttons["studio.sidebar.right.toggle"]
             if rightToggle.waitForExistence(timeout: 3),
@@ -1843,8 +1910,24 @@ final class V1SmokeUITests: XCTestCase {
             field.waitForExistence(timeout: 8),
             "Studio prompt field was missing."
         )
+#if os(macOS)
+        let window = app.windows.firstMatch
+        let fieldIsVisible = field.frame.width > 1 &&
+            field.frame.height > 1 &&
+            window.frame.intersects(field.frame)
+        XCTAssertTrue(
+            field.isHittable || fieldIsVisible,
+            "Studio prompt field was outside the active desktop window."
+        )
+        if field.isHittable {
+            field.click()
+        } else {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
+#else
         XCTAssertTrue(field.isHittable, "Studio prompt field was not tappable.")
         field.tap()
+#endif
 #if os(iOS)
         field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
         field.typeText(XCUIKeyboardKey.delete.rawValue)
@@ -1909,19 +1992,29 @@ final class V1SmokeUITests: XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        let target = app.staticTexts.matching(identifier: identifier).firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if target.exists,
-               accessibilityText(of: target)
-                .localizedCaseInsensitiveContains(expected) {
+            if accessibilityTexts(identifier: identifier, in: app).contains(where: {
+                $0.localizedCaseInsensitiveContains(expected)
+            }) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         }
-        return target.exists &&
-            accessibilityText(of: target)
-                .localizedCaseInsensitiveContains(expected)
+        return accessibilityTexts(identifier: identifier, in: app).contains(where: {
+            $0.localizedCaseInsensitiveContains(expected)
+        })
+    }
+
+    private func accessibilityTexts(
+        identifier: String,
+        in app: XCUIApplication
+    ) -> [String] {
+        app.staticTexts
+            .matching(identifier: identifier)
+            .allElementsBoundByIndex
+            .map { accessibilityText(of: $0) }
+            .filter { !$0.isEmpty }
     }
 
     private func waitForAccessibilityText(
@@ -1950,10 +2043,15 @@ final class V1SmokeUITests: XCTestCase {
         fixture: StudioInstinctFixture,
         preferenceFamily: String? = nil
     ) throws {
-        let output = app.staticTexts
-            .matching(identifier: "studio.voice-pin.latest.output")
-            .firstMatch
-        let observed = output.exists ? accessibilityText(of: output) : ""
+        let observed = accessibilityTexts(
+            identifier: "studio.voice-pin.latest.output",
+            in: app
+        )
+        .reduce(into: [String]()) { values, value in
+            guard !values.contains(value) else { return }
+            values.append(value)
+        }
+        .joined(separator: "\n")
         let preference = element(
             identifier: "studio.story-preference.\(preferenceFamily ?? fixture.preferenceFamily)",
             in: app
@@ -2023,6 +2121,7 @@ final class V1SmokeUITests: XCTestCase {
         let accessToken: String
         let projectID: String
         let projectTitle: String
+        let baselineFeatureSequence: String
         let preferenceFamily: String
         let rejectedPreferenceFamily: String
         let repairedPreferenceFamily: String
@@ -2120,6 +2219,11 @@ final class V1SmokeUITests: XCTestCase {
                 payload["projectTitle"],
                 payload["project_title"],
                 message: "Studio instinct fixture missing projectTitle."
+            ),
+            baselineFeatureSequence: try firstNonEmptyString(
+                payload["baselineFeatureSequence"],
+                payload["baseline_feature_sequence"],
+                message: "Studio instinct fixture missing baselineFeatureSequence."
             ),
             preferenceFamily: try firstNonEmptyString(
                 payload["preferenceFamily"],

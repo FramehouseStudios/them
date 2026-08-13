@@ -297,6 +297,10 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
       continuityWrites[0].continuity.questionEffectiveness[0].recommendationOnly,
       true,
     );
+    assert.equal(
+      continuityWrites[0].continuity.questionEffectiveness[0].sequenceKey,
+      "fallout",
+    );
   });
 });
 
@@ -338,6 +342,7 @@ test("[studio-render-stream] writer-block rescue records the delivered engine be
       screenplay_project_id: "split-ferries",
       screenplay_project_title: "Split Ferries",
       screenplay_act: "Act II",
+      screenplay_feature_sequence: "Bad Guys Close In",
     });
     assert.equal(r.status, 200);
     assert.match(r.text, /event: done/);
@@ -346,6 +351,7 @@ test("[studio-render-stream] writer-block rescue records the delivered engine be
     const [interaction] = continuityWrites[0].continuity.questionEffectiveness;
     assert.equal(interaction.selectedMoveFamily, "relationship_pressure");
     assert.equal(interaction.actKey, "act2");
+    assert.equal(interaction.sequenceKey, "fallout");
     assert.equal(interaction.recommendationOnly, true);
   });
 });

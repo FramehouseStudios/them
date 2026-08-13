@@ -36,6 +36,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "REQUIRED_DEPS",
   "applyTalkFailureHeaders",
   "buildCanonClarificationPayload",
+  "buildFailedStoryRescueRepair",
   "buildTalkFailureBody",
   "buildTalkFailureDiagnostics",
   "buildMomentumRescueFallbackReply",
@@ -85,12 +86,23 @@ test("[writer-block-learning] extracts the delivered rank without treating it as
   assert.equal(interaction.writerBlocked, true);
   assert.equal(interaction.responseStatus, "answered");
   assert.equal(interaction.questionId, "writer-block-rescue-req-studio-42");
+  assert.equal(interaction.actKey, "act2");
+  assert.equal(interaction.sequenceKey, "premise");
   assert.equal(buildDeliveredStoryRescueInteraction({ systemPrompt: "no ranking" }), null);
+
+  const canonicalizedPosition = buildDeliveredStoryRescueInteraction({
+    systemPrompt: "rank_1: engine=reversal_pressure; score=90",
+    actKey: "Act II",
+    sequenceKey: "Act II - Promise Of The Premise (p26-p40)",
+    deliveredAt: 4_201,
+  });
+  assert.equal(canonicalizedPosition.actKey, "act2");
+  assert.equal(canonicalizedPosition.sequenceKey, "premise");
 
   const deliveredOverride = buildDeliveredStoryRescueInteraction({
     systemPrompt: "rank_1: engine=reversal_pressure; score=90",
     reply: "Ranked strongest move - relationship pressure: Mara must choose Eli over the ferry.",
-    deliveredAt: 4_201,
+    deliveredAt: 4_202,
   });
   assert.equal(deliveredOverride.selectedMoveFamily, "relationship_pressure");
   assert.deepEqual(deliveredOverride.offeredMoveFamilies, [
