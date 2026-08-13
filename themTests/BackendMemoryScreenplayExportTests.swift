@@ -507,6 +507,7 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
                           "ok": true,
                           "action": "story_move_preference",
                           "status": "prefer",
+                          "creative_memory_revision": "cm_after_preference",
                           "story_move_preferences": [
                             {
                               "project_id": "split-ferries",
@@ -543,6 +544,7 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
                         {
                           "source": "auth_user",
                           "source_ip": "",
+                          "creative_memory_revision": "cm_before_preference",
                           "story_move_preferences": [
                             {
                               "project_id": "split-ferries",
@@ -606,6 +608,10 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
         XCTAssertEqual(request.bodyObject?["family"] as? String, "relationship_pressure")
         XCTAssertEqual(request.bodyObject?["action"] as? String, "prefer")
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_before_preference"
+        )
 
         let scoped = try await api.fetchMemories(
             limit: 1,

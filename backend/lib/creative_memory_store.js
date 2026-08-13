@@ -3235,6 +3235,67 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
   return out;
 }
 
+function stableRevisionJSON(value) {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map(stableRevisionJSON).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableRevisionJSON(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+const CREATIVE_MEMORY_REVISION_EPISODIC_MAX = 72;
+
+function creativeMemoryRevisionValue(value) {
+  if (Array.isArray(value)) {
+    const items = value
+      .map(creativeMemoryRevisionValue)
+      .filter((item) => item !== undefined);
+    return items.length ? items : undefined;
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+      if (["userId", "version", "updatedAt"].includes(key)) continue;
+      const item = creativeMemoryRevisionValue(value[key]);
+      if (item !== undefined) out[key] = item;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  if (value === null || value === undefined || value === "") return undefined;
+  return value;
+}
+
+export function buildCreativeMemoryRevision(rec = null) {
+  const ledger = sanitizeCreativeMemoryLedgerRecord(rec, {
+    includeSuperseded: true,
+    maxEpisodicMemories: CREATIVE_MEMORY_REVISION_EPISODIC_MAX,
+  });
+  const revisionValue = creativeMemoryRevisionValue(ledger) || {};
+  const digest = createHash("sha256")
+    .update(stableRevisionJSON(revisionValue))
+    .digest("hex")
+    .slice(0, 24);
+  return `cm_${digest}`;
+}
+
+function creativeMemoryRevisionConflict(expectedRevision, currentRevision) {
+  const error = new Error("Creative memory changed on another device.");
+  error.code = "stale_creative_memory_revision";
+  error.expectedRevision = expectedRevision;
+  error.currentRevision = currentRevision;
+  return error;
+}
+
+export function isCreativeMemoryRevisionConflict(error) {
+  return String(error?.code || "") === "stale_creative_memory_revision";
+}
+
 function correctionStateSnapshot(rec = null, { projectId = "", projectTitle = "" } = {}) {
   const record = rec && typeof rec === "object" ? rec : {};
   const project = selectProjectContinuity(record.projects, { projectId, projectTitle });
@@ -4273,10 +4334,15 @@ function createCreativeMemoryStore({
     await store.put({ domain: DOMAIN, key: userId, value });
   }
 
-  async function updateUser(userId, mutator) {
+  async function updateUser(userId, mutator, { expectedRevision = "" } = {}) {
     if (!userId) return;
     await withUserLock(userId, async () => {
       const current = (await readUser(userId)) || makeEmptyMemory(userId);
+      const cleanExpectedRevision = cleanText(expectedRevision, 96);
+      const currentRevision = buildCreativeMemoryRevision(current);
+      if (cleanExpectedRevision && cleanExpectedRevision !== currentRevision) {
+        throw creativeMemoryRevisionConflict(cleanExpectedRevision, currentRevision);
+      }
       const next = mutator(clone(current)) || current;
       next.userId = userId;
       next.version = SCHEMA_VERSION;
@@ -5202,6 +5268,7 @@ function createCreativeMemoryStore({
     projectTitle = "",
     family = "",
     action = "",
+    expectedRevision = "",
     at = nowMs(),
   } = {}) {
     const cleanUserId = cleanText(userId, 128);
@@ -5223,6 +5290,11 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, reason: "creative_memory_not_found" };
+      const cleanExpectedRevision = cleanText(expectedRevision, 96);
+      const currentRevision = buildCreativeMemoryRevision(current);
+      if (cleanExpectedRevision && cleanExpectedRevision !== currentRevision) {
+        throw creativeMemoryRevisionConflict(cleanExpectedRevision, currentRevision);
+      }
       const projects = (Array.isArray(current.projects) ? current.projects : [])
         .map(sanitizeProjectContinuity)
         .filter(Boolean);
@@ -5293,6 +5365,7 @@ function createCreativeMemoryStore({
         projectId: updatedProject?.projectId || project.projectId || "",
         projectTitle: updatedProject?.projectTitle || project.projectTitle || "",
         updatedAt,
+        creativeMemoryRevision: buildCreativeMemoryRevision(current),
       };
     });
   }
@@ -5317,6 +5390,7 @@ function createCreativeMemoryStore({
     metadata = null,
     traits = null,
     characterBible = null,
+    expectedRevision = "",
   }) {
     if (!userId || !characterName || typeof characterName !== "string") {
       return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
@@ -5448,7 +5522,7 @@ function createCreativeMemoryStore({
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
       rec.characters = characters.slice(0, CHARACTERS_MAX);
       return rec;
-    });
+    }, { expectedRevision });
     return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
   }
 

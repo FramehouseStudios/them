@@ -321,21 +321,29 @@ final class MemoriesViewModel: ObservableObject {
     ) async throws -> MemoryItem {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
-        if let characterBible {
-            result = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
-                id: itemID,
-                key: key,
-                characterBible: characterBible
-            )
-        } else {
-            result = try await BackendMemoryAPI.shared.updateMemoryCard(
-                id: itemID,
-                key: key,
-                title: title,
-                summary: summary,
-                reason: reason,
-                storySpine: storySpine
-            )
+        do {
+            if let characterBible {
+                result = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
+                    id: itemID,
+                    key: key,
+                    characterBible: characterBible
+                )
+            } else {
+                result = try await BackendMemoryAPI.shared.updateMemoryCard(
+                    id: itemID,
+                    key: key,
+                    title: title,
+                    summary: summary,
+                    reason: reason,
+                    storySpine: storySpine
+                )
+            }
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCreativeMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
         }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
@@ -509,6 +517,10 @@ final class MemoriesViewModel: ObservableObject {
                 await load(force: true, sinceVersion: nil)
             }
         } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCreativeMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
             preferenceActionError = error.localizedDescription
         }
     }
@@ -535,6 +547,10 @@ final class MemoriesViewModel: ObservableObject {
             }
             storyMovePreferences = result.payload.storyMovePreferences ?? []
         } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCreativeMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
             preferenceActionError = error.localizedDescription
         }
     }

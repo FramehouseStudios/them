@@ -172,6 +172,15 @@ final class StudioCreativeInstinctsModel: ObservableObject {
                   requestedProjectTitle == activeProjectTitle else {
                 return
             }
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCreativeMemoryConflict {
+                await load(
+                    projectID: requestedProjectID,
+                    projectTitle: requestedProjectTitle,
+                    force: true,
+                    reportErrors: false
+                )
+            }
             errorText = error.localizedDescription
         }
     }
@@ -207,6 +216,15 @@ final class StudioCreativeInstinctsModel: ObservableObject {
             guard requestedProjectID == activeProjectID,
                   requestedProjectTitle == activeProjectTitle else {
                 return
+            }
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCreativeMemoryConflict {
+                await load(
+                    projectID: requestedProjectID,
+                    projectTitle: requestedProjectTitle,
+                    force: true,
+                    reportErrors: false
+                )
             }
             errorText = error.localizedDescription
         }

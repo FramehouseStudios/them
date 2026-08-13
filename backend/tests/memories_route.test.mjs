@@ -223,6 +223,11 @@ test("[memories] GET /memories: full envelope on happy path", async () => {
     assert.ok(Array.isArray(r.body.conversation_samples));
     assert.equal(r.headers.get("cache-control"), "no-store");
     assert.equal(r.headers.get("x-state-version"), "v9");
+    assert.match(r.body.creative_memory_revision, /^cm_[a-f0-9]{24}$/);
+    assert.equal(
+      r.headers.get("x-creative-memory-revision"),
+      r.body.creative_memory_revision
+    );
   });
 });
 
@@ -348,6 +353,35 @@ test("[memories] POST story preference update is authenticated and returns refre
     assert.ok(r.body.memory_updated_at >= 5_000);
     assert.equal(calls[0].userId, "user_memories_test");
     assert.equal(calls[0].projectId, "split-ferries");
+  });
+});
+
+test("[memories] rejects a stale cross-device story preference before writing", async () => {
+  const calls = [];
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async (input) => {
+      calls.push(input);
+      const error = new Error("Creative memory changed on another device.");
+      error.code = "stale_creative_memory_revision";
+      error.expectedRevision = input.expectedRevision;
+      error.currentRevision = "cm_current_revision";
+      throw error;
+    },
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_id: "split-ferries",
+      family: "relationship_pressure",
+      action: "avoid",
+      expected_creative_memory_revision: "cm_stale_revision",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_creative_memory_revision");
+    assert.equal(r.body.expected_creative_memory_revision, "cm_stale_revision");
+    assert.equal(r.body.current_creative_memory_revision, "cm_current_revision");
+    assert.equal(r.headers.get("x-creative-memory-revision"), "cm_current_revision");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].expectedRevision, "cm_stale_revision");
   });
 });
 

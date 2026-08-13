@@ -690,6 +690,7 @@ nonisolated struct BackendMemoriesResponse: Decodable {
     let seasonProgress: Double?
     let sessionId: String?
     let stateVersion: String?
+    let creativeMemoryRevision: String?
     let lastUpdatedAt: TimeInterval?
     let historyUpdatedAt: TimeInterval?
     let memoryUpdatedAt: TimeInterval?
@@ -1251,6 +1252,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let storyMovePreferences: [BackendStoryMovePreference]?
     let sessionId: String?
     let stateVersion: String?
+    let creativeMemoryRevision: String?
     let lastTurnId: String?
     let lastUpdatedAt: TimeInterval?
     let historyUpdatedAt: TimeInterval?
@@ -2721,6 +2723,13 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
             return "Backend error \(status): \(message)"
         }
     }
+
+    var isCreativeMemoryConflict: Bool {
+        if case .server(let status, let message) = self {
+            return status == 409 && message.localizedCaseInsensitiveContains("another device")
+        }
+        return false
+    }
 }
 
 nonisolated enum BackendCredentialMigration {
@@ -4000,6 +4009,7 @@ actor BackendMemoryAPI {
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
     private var latestSeenStateVersion: String = ""
+    private var latestCreativeMemoryRevision: String = ""
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
     private var didInjectExpiredScreenplaySaveAuthForUITest = false
@@ -4478,6 +4488,7 @@ actor BackendMemoryAPI {
         }
 
         if canUseSharedCache, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
+            adoptCreativeMemoryRevision(cached.payload.creativeMemoryRevision, response: http)
             let headerSync = syncFromHeaders(http, fallbackStatus: "up")
             let incoming = mergeSyncStates(base: cached.sync, incoming: headerSync)
             updateSyncState(incoming, emitTurnEvent: false)
@@ -4492,6 +4503,7 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(BackendMemoriesResponse.self, from: data)
+        adoptCreativeMemoryRevision(payload.creativeMemoryRevision, response: http)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromMemoriesPayload(payload)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
@@ -6512,12 +6524,30 @@ actor BackendMemoryAPI {
             _ = try? await fetchHealth()
         }
         _ = try? await bootstrapSession(force: false)
+        let revisionProtectedPaths: Set<String> = [
+            "/memories/character-bible/update",
+            "/memories/story-preferences/update",
+        ]
+        if revisionProtectedPaths.contains(path), latestCreativeMemoryRevision.isEmpty {
+            _ = try await fetchMemories(limit: 1, force: true)
+        }
+        var outgoingPayload = payload
+        if revisionProtectedPaths.contains(path), !latestCreativeMemoryRevision.isEmpty {
+            outgoingPayload["expected_creative_memory_revision"] = latestCreativeMemoryRevision
+        }
         var request = try makeWriteRequest(path: path)
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        if revisionProtectedPaths.contains(path), !latestCreativeMemoryRevision.isEmpty {
+            request.setValue(
+                latestCreativeMemoryRevision,
+                forHTTPHeaderField: "X-Creative-Memory-Revision"
+            )
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        adoptCreativeMemoryRevision(nil, response: http, errorData: data)
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -6542,6 +6572,7 @@ actor BackendMemoryAPI {
                 message: "Backend returned an incompatible API response. Please try again."
             )
         }
+        adoptCreativeMemoryRevision(parsed.creativeMemoryRevision, response: http)
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromMemoryMutationPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
@@ -7415,6 +7446,7 @@ actor BackendMemoryAPI {
         if clearSyncState {
             syncState = .empty
             latestSeenStateVersion = ""
+            latestCreativeMemoryRevision = ""
         }
     }
 
@@ -7538,6 +7570,30 @@ actor BackendMemoryAPI {
             print(
                 "[BackendMemoryAPI] persona contract mismatch path=\(path) response=\(responsePersona) expected=\(personaFlowKey)"
             )
+        }
+    }
+
+    private func adoptCreativeMemoryRevision(
+        _ payloadRevision: String?,
+        response: HTTPURLResponse,
+        errorData: Data? = nil
+    ) {
+        var revision = payloadRevision?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if revision.isEmpty {
+            revision = headerValue(response, "x-creative-memory-revision")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if revision.isEmpty,
+           let errorData,
+           let object = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any] {
+            revision = String(
+                describing: object["current_creative_memory_revision"] ??
+                    object["creative_memory_revision"] ?? ""
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if !revision.isEmpty {
+            latestCreativeMemoryRevision = revision
         }
     }
 

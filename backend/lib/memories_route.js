@@ -51,7 +51,11 @@
 
 import express from "express";
 import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
-import { extractCharacterMemoryCorrection } from "./creative_memory_store.js";
+import {
+  buildCreativeMemoryRevision,
+  extractCharacterMemoryCorrection,
+  isCreativeMemoryRevisionConflict,
+} from "./creative_memory_store.js";
 import {
   buildStoryMoveTasteProfile,
   normalizeStoryMoveFamily,
@@ -175,6 +179,42 @@ function mountMemoriesRoutes(app, deps = {}) {
       logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
       return null;
     }
+  }
+
+  function expectedCreativeMemoryRevision(req) {
+    return normalizeSnippet(
+      req.body?.expected_creative_memory_revision ??
+        req.body?.expectedCreativeMemoryRevision ??
+        req.get("X-Creative-Memory-Revision"),
+      96,
+    );
+  }
+
+  function applyCreativeMemoryRevisionHeader(res, revision = "") {
+    const cleanRevision = normalizeSnippet(revision, 96);
+    if (cleanRevision) {
+      res.setHeader("x-creative-memory-revision", cleanRevision);
+    }
+    return cleanRevision;
+  }
+
+  function sendCreativeMemoryConflict(res, {
+    action,
+    requestId,
+    expectedRevision,
+    currentRevision,
+  }) {
+    const revision = applyCreativeMemoryRevisionHeader(res, currentRevision);
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(409).json({
+      ok: false,
+      action,
+      status: "stale_creative_memory_revision",
+      message: "Memory changed on another device. The newer version was preserved; reload before applying this edit.",
+      request_id: requestId,
+      expected_creative_memory_revision: expectedRevision || null,
+      current_creative_memory_revision: revision || null,
+    });
   }
 
   function normalizeStringListPayload(value, maxItems = 8, maxChars = 220) {
@@ -531,6 +571,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const selected = selectMemoryRecordForRead(req, Date.now());
     const memory = sanitizePersistedSessionMemory(selected.memory);
     const creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible");
+    const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
     const historyThreads = buildConversationHistoryThreads(
       memory,
       Math.max(12, Math.min(limit * 2, 140)),
@@ -563,6 +604,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
     if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemory) {
       return res.status(200).json({
         source: selected.source,
@@ -577,6 +619,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         season_progress: clampUnit(memory?.seasonProgress, 0),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
         last_updated_at: readMeta.lastUpdatedAt || null,
         history_updated_at: readMeta.historyUpdatedAt || null,
         memory_updated_at: readMeta.memoryUpdatedAt || null,
@@ -608,6 +651,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       season_progress: clampUnit(memory?.seasonProgress, 0),
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
+      creative_memory_revision: creativeMemoryRevision,
       last_updated_at: readMeta.lastUpdatedAt || null,
       history_updated_at: readMeta.historyUpdatedAt || null,
       memory_updated_at: readMeta.memoryUpdatedAt || null,
@@ -645,6 +689,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const family = normalizeStoryMoveFamily(
       req.body?.family ?? req.body?.move_family ?? req.body?.moveFamily
     );
+    const expectedRevision = expectedCreativeMemoryRevision(req);
     if (!projectId && !projectTitle) {
       res.setHeader("Cache-Control", "no-store");
       return res.status(400).json({
@@ -683,6 +728,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         projectTitle,
         family,
         action,
+        expectedRevision,
       });
       if (!receipt?.ok) {
         const notFound = ["creative_memory_not_found", "project_not_found"].includes(receipt?.reason);
@@ -701,11 +747,13 @@ function mountMemoriesRoutes(app, deps = {}) {
         userId,
         `${receipt.projectTitle || projectTitle} story move preferences`
       );
+      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
       const selected = selectMemoryRecordForRead(req, Date.now());
       const memory = sanitizePersistedSessionMemory(selected.memory);
       const readMeta = buildReadStateMeta(req, memory, selected.ip);
       res.setHeader("Cache-Control", "no-store");
       applyReadStateHeaders(res, readMeta);
+      applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
       return res.status(200).json({
         ok: true,
         action: "story_move_preference",
@@ -721,6 +769,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         }),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
         last_turn_id: readMeta.lastTurnId || null,
         last_updated_at: readMeta.lastUpdatedAt || null,
         history_updated_at: readMeta.historyUpdatedAt || null,
@@ -733,6 +782,14 @@ function mountMemoriesRoutes(app, deps = {}) {
         backend_boot_id: readMeta.backendBootId,
       });
     } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "story_move_preference",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
       logger.log(`[memories_story_preferences_update_failed] error=${error?.message || error}`);
       res.setHeader("Cache-Control", "no-store");
       return res.status(500).json({
@@ -760,6 +817,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
     const nowTs = Date.now();
+    const expectedRevision = expectedCreativeMemoryRevision(req);
     const { character, characterBible: rawCharacterBible } = normalizeCharacterBiblePatch(req.body || {});
     const characterBible = enrichCharacterBiblePatchWithCorrectionParser(character, rawCharacterBible);
     if (!character || !characterBible) {
@@ -779,8 +837,17 @@ function mountMemoriesRoutes(app, deps = {}) {
         characterName: character,
         source: "memory_character_bible_edit",
         characterBible,
+        expectedRevision,
       });
     } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "character_bible_update",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
       logger.log(`[${rid}] memories_character_bible_update error=${error?.message || error}`);
       res.setHeader("Cache-Control", "no-store");
       return res.status(500).json({
@@ -805,6 +872,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const creativeMemory = await readCreativeMemoryForUser(userId, character);
+    const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
     const cards = buildMemoryCards(persisted, historyThreads, 160, creativeMemory);
     const normalizedTargetId = normalizeMemoryCardId(`character-${character}`);
     const updatedCard = cards.find((card) => (
@@ -815,6 +883,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
     logger.log(
       `[${rid}] memories_character_bible_update status=${receipt?.action || "updated"} character=${character}`,
     );
@@ -826,6 +895,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       memory_card: updatedCard,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
+      creative_memory_revision: creativeMemoryRevision,
       last_turn_id: readMeta.lastTurnId || null,
       last_updated_at: readMeta.lastUpdatedAt || null,
       history_updated_at: readMeta.historyUpdatedAt || null,

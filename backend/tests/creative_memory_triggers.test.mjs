@@ -8,8 +8,10 @@ import { test } from "node:test";
 
 import {
   buildCharacterFieldProvenance,
+  buildCreativeMemoryRevision,
   buildProjectFieldProvenance,
   createCreativeMemoryStore,
+  isCreativeMemoryRevisionConflict,
 } from "../lib/creative_memory_store.js";
 import {
   buildStoryMoveTasteProfile,
@@ -2584,4 +2586,83 @@ test("story move preference corrections persist and reset without deleting quest
   assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
   assert.equal(ledger.projects[0].questionEffectiveness[0].offeredMoveFamilies, undefined);
   assert.equal(ledger.projects[0].storyMovePreferenceOverrides, undefined);
+});
+
+test("creative memory revisions serialize competing device corrections without lost updates", async () => {
+  assert.equal(
+    buildCreativeMemoryRevision(null),
+    buildCreativeMemoryRevision({
+      userId: "fresh-user",
+      version: 1,
+      updatedAt: Date.now(),
+      style: { lexicalFingerprint: [] },
+      projects: [],
+      characters: [],
+      episodicMemories: [],
+      tone: {},
+      habits: {},
+    })
+  );
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-cross-device-memory-cas";
+  await store.recordProjectContinuity({
+    userId,
+    continuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act II",
+    },
+  });
+
+  const initialRevision = buildCreativeMemoryRevision(
+    await store.getCreativeMemoryLedger({ userId })
+  );
+  const competingPreferences = await Promise.allSettled([
+    store.updateStoryMovePreference({
+      userId,
+      projectId: "split-ferries",
+      family: "relationship_pressure",
+      action: "prefer",
+      expectedRevision: initialRevision,
+      at: 5_000,
+    }),
+    store.updateStoryMovePreference({
+      userId,
+      projectId: "split-ferries",
+      family: "relationship_pressure",
+      action: "avoid",
+      expectedRevision: initialRevision,
+      at: 5_001,
+    }),
+  ]);
+  assert.equal(competingPreferences.filter((item) => item.status === "fulfilled").length, 1);
+  const rejectedPreference = competingPreferences.find((item) => item.status === "rejected");
+  assert.equal(isCreativeMemoryRevisionConflict(rejectedPreference?.reason), true);
+
+  const afterPreference = await store.getCreativeMemoryLedger({ userId });
+  const characterBaseRevision = buildCreativeMemoryRevision(afterPreference);
+  await store.recordCharacterMention({
+    userId,
+    characterName: "Mara",
+    source: "memory_character_bible_edit",
+    characterBible: {
+      arc: { want: "Free Eli without becoming her father" },
+    },
+    expectedRevision: characterBaseRevision,
+  });
+  await assert.rejects(
+    store.recordCharacterMention({
+      userId,
+      characterName: "Mara",
+      source: "memory_character_bible_edit",
+      characterBible: {
+        arc: { want: "Control Eli's escape" },
+      },
+      expectedRevision: characterBaseRevision,
+    }),
+    (error) => isCreativeMemoryRevisionConflict(error)
+  );
+
+  const finalLedger = await store.getCreativeMemoryLedger({ userId });
+  assert.equal(finalLedger.characters[0].bible.arc.want, "Free Eli without becoming her father");
 });
