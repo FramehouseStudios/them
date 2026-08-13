@@ -43,11 +43,8 @@
 // ownership.
 //
 // Per the #238 invariant inheritance: this lib does NOT mutate
-// any module-level state. The shared per-IP persistence call
-// (`setPersistedUserMemoryForIp` on the GET /memories backfill
-// path) is preserved as the byte-identical side-effect from the
-// inline handler — it's a write to an existing accessor, not a
-// new setter.
+// module-level state. Authenticated account reads and writer-owned
+// mutations resolve through the injected canonical persistence lane.
 
 import express from "express";
 import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
@@ -79,10 +76,10 @@ function mountMemoriesRoutes(app, deps = {}) {
     // ---------- memory context resolution ----------
     selectMemoryRecordForRead,
     resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
     persistWritableMemoryContext,
-    setPersistedUserMemoryForIp,
-    normalizeClientToken,
+    persistCanonicalWritableMemoryContext,
     // ---------- read-state pipeline ----------
     buildReadStateMeta,
     applyReadStateHeaders,
@@ -121,8 +118,8 @@ function mountMemoriesRoutes(app, deps = {}) {
   const requiredFns = {
     parseQueryLimit, createRequestId, normalizeSnippet, clampUnit,
     selectMemoryRecordForRead, resolveWritableMemoryContext,
-    sanitizePersistedSessionMemory, persistWritableMemoryContext,
-    setPersistedUserMemoryForIp, normalizeClientToken,
+    resolveCanonicalWritableMemoryContext, sanitizePersistedSessionMemory,
+    persistWritableMemoryContext, persistCanonicalWritableMemoryContext,
     buildReadStateMeta, applyReadStateHeaders, ifNoneMatchStateHit,
     buildConversationHistoryThreads, buildMemoryCards,
     buildMemoryQualitySnapshot, maybeBackfillThemesFromHistory,
@@ -245,6 +242,97 @@ function mountMemoriesRoutes(app, deps = {}) {
       expected_state_version: expectedVersion || null,
       current_state_version: currentMeta?.stateVersion || null,
     });
+  }
+
+  function sendMemoryPersistenceUnavailable(res, {
+    action,
+    requestId,
+  }) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(503).json({
+      ok: false,
+      action,
+      status: "memory_persistence_unavailable",
+      message: "Memory sync is temporarily unavailable. No changes were applied.",
+      request_id: requestId,
+    });
+  }
+
+  async function loadCanonicalMemoryContext(req, res, {
+    action,
+    requestId,
+    nowTs,
+  }) {
+    try {
+      return await resolveCanonicalWritableMemoryContext(req, nowTs);
+    } catch (error) {
+      logger.log(`[${requestId}] memories_${action} canonical_read_error=${error?.message || error}`);
+      sendMemoryPersistenceUnavailable(res, { action, requestId });
+      return null;
+    }
+  }
+
+  async function commitCanonicalMemoryMutation(req, res, {
+    action,
+    requestId,
+    expectedVersion,
+    context,
+    memory,
+    nowTs,
+    repairMutation = null,
+  }) {
+    let candidateContext = context;
+    let candidateMemory = memory;
+    const maxAttempts = typeof repairMutation === "function" ? 3 : 1;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      let result;
+      try {
+        result = await persistCanonicalWritableMemoryContext(
+          candidateContext,
+          candidateMemory,
+          nowTs,
+        );
+      } catch (error) {
+        logger.log(`[${requestId}] memories_${action} canonical_write_error=${error?.message || error}`);
+        sendMemoryPersistenceUnavailable(res, { action, requestId });
+        return null;
+      }
+      if (result?.ok) return result.memory;
+      if (
+        result?.status === "stale_memory_state_version" &&
+        attempt + 1 < maxAttempts &&
+        typeof repairMutation === "function"
+      ) {
+        candidateMemory = sanitizePersistedSessionMemory(result.memory);
+        const repair = repairMutation(candidateMemory);
+        if (!repair?.ok) break;
+        if (repair.skipCommit) return candidateMemory;
+        candidateContext = {
+          ...candidateContext,
+          canonical: true,
+          canonicalRecord: result.record || null,
+          memory: candidateMemory,
+        };
+        continue;
+      }
+      const currentMemory = sanitizePersistedSessionMemory(result?.memory || candidateContext.memory);
+      const currentMeta = buildReadStateMeta(req, currentMemory, candidateContext.requesterIp);
+      sendMemoryStateConflict(res, {
+        action,
+        requestId,
+        expectedVersion,
+        currentMeta,
+      });
+      return null;
+    }
+    const currentMeta = buildReadStateMeta(req, candidateMemory, candidateContext.requesterIp);
+    sendMemoryStateConflict(res, {
+      action,
+      requestId,
+      expectedVersion,
+      currentMeta,
+    });
+    return null;
   }
 
   function normalizeStringListPayload(value, maxItems = 8, maxChars = 220) {
@@ -596,31 +684,54 @@ function mountMemoriesRoutes(app, deps = {}) {
   app.get("/memories", async (req, res) => {
     const userId = requireMemoryUser(req, res, "memories");
     if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const nowTs = Date.now();
     const limit = parseQueryLimit(req.query?.limit, 24, 120);
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
+    const selected = selectMemoryRecordForRead(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "read",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+    const originalMemory = sanitizePersistedSessionMemory(context.memory);
+    let memory = sanitizePersistedSessionMemory(originalMemory);
     const creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible");
     const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
-    const historyThreads = buildConversationHistoryThreads(
+    let historyThreads = buildConversationHistoryThreads(
       memory,
       Math.max(12, Math.min(limit * 2, 140)),
     );
     const backfillResult = maybeBackfillThemesFromHistory(
       memory,
       historyThreads,
-      Date.now(),
+      nowTs,
       { trigger: "memories_read" },
     );
-    if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-      setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-        clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-      });
-      logger.log(
-        `[memories_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`,
-      );
+    if (backfillResult.applied) {
+      try {
+        const backfillCommit = await persistCanonicalWritableMemoryContext(context, memory, nowTs);
+        memory = sanitizePersistedSessionMemory(
+          backfillCommit?.memory || originalMemory,
+        );
+        historyThreads = buildConversationHistoryThreads(
+          memory,
+          Math.max(12, Math.min(limit * 2, 140)),
+        );
+        logger.log(
+          `[memories_backfill] status=${backfillCommit?.status || "unknown"} source=${selected.source} user=${userId} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`,
+        );
+      } catch (error) {
+        memory = originalMemory;
+        historyThreads = buildConversationHistoryThreads(
+          memory,
+          Math.max(12, Math.min(limit * 2, 140)),
+        );
+        logger.log(`[${rid}] memories_read backfill_write_error=${error?.message || error}`);
+      }
     }
-    const readMeta = buildReadStateMeta(req, memory, selected.ip);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
     const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory, {
@@ -859,6 +970,12 @@ function mountMemoriesRoutes(app, deps = {}) {
         message: "Character and at least one character bible field are required.",
       });
     }
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "character_bible_update",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
 
     let receipt;
     try {
@@ -888,7 +1005,6 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
 
-    const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
     const storySpineRepair = repairScreenplayProjectMemoryForCharacterBible(
       memory,
@@ -897,8 +1013,25 @@ function mountMemoriesRoutes(app, deps = {}) {
       nowTs,
     );
     const persisted = storySpineRepair.repaired
-      ? persistWritableMemoryContext(context, memory, nowTs)
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "character_bible_update",
+        requestId: rid,
+        expectedVersion: expectedStateVersion(req),
+        context,
+        memory,
+        nowTs,
+        repairMutation: (winnerMemory) => {
+          const repair = repairScreenplayProjectMemoryForCharacterBible(
+            winnerMemory,
+            character,
+            characterBible,
+            nowTs,
+          );
+          return { ok: true, skipCommit: !repair.repaired };
+        },
+      })
       : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const creativeMemory = await readCreativeMemoryForUser(userId, character);
@@ -941,14 +1074,22 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== GET /memories/export ==============
-  app.get("/memories/export", (req, res) => {
+  app.get("/memories/export", async (req, res) => {
     if (!requireMemoryUser(req, res, "memories_export")) return;
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const readMeta = buildReadStateMeta(req, memory, selected.ip);
+    const rid = req.requestId || createRequestId();
+    const nowTs = Date.now();
+    const selected = selectMemoryRecordForRead(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "export",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(memory, 280);
     const memoryCards = buildMemoryCards(memory, historyThreads, 180);
-    const memoryQuality = buildMemoryQualitySnapshot(memory, memoryCards, Date.now());
+    const memoryQuality = buildMemoryQualitySnapshot(memory, memoryCards, nowTs);
     const tasks = buildTaskSnapshot(memory, {
       status: "all",
       limit: TASKS_MAX_STORED,
@@ -1010,11 +1151,16 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/update ==============
-  app.post("/memories/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
     if (!requireMemoryUser(req, res, "memories_update")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "update",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
     const expectedVersion = expectedStateVersion(req);
     const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
@@ -1039,7 +1185,17 @@ function mountMemoriesRoutes(app, deps = {}) {
       { cardId, key, title, summary, reason, storySpine },
       nowTs,
     );
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "update",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);
@@ -1140,9 +1296,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
-    const persisted = mutation?.ok && status === "undone"
-      ? persistWritableMemoryContext(context, memory, nowTs)
-      : memory;
+    const persisted = memory;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const receipt = mutation?.receipt || null;
     res.setHeader("Cache-Control", "no-store");
@@ -1250,9 +1404,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
-    const persisted = mutation?.ok && status === "resolved"
-      ? persistWritableMemoryContext(context, memory, nowTs)
-      : memory;
+    const persisted = memory;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -1288,7 +1440,12 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "forget",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
     const expectedVersion = expectedStateVersion(req);
     const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
@@ -1348,7 +1505,20 @@ function mountMemoriesRoutes(app, deps = {}) {
       }
     }
     const mutation = forgetMemoryCardInMemory(memory, { cardId, key }, nowTs);
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "forget",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+        repairMutation: durableMemoryDeleted !== null
+          ? (winnerMemory) => forgetMemoryCardInMemory(winnerMemory, { cardId, key }, nowTs)
+          : null,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const cards = buildMemoryCards(
       persisted,
@@ -1388,11 +1558,16 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/promote ==============
-  app.post("/memories/promote", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/promote", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
     if (!requireMemoryUser(req, res, "memories_promote")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "promote",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
     const expectedVersion = expectedStateVersion(req);
     const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
@@ -1414,7 +1589,17 @@ function mountMemoriesRoutes(app, deps = {}) {
       { cardId, key, title, summary, reason },
       nowTs,
     );
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "promote",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);
@@ -1453,11 +1638,16 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/feedback ==============
-  app.post("/memories/feedback", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/feedback", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
     if (!requireMemoryUser(req, res, "memories_feedback")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "feedback",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
     const expectedVersion = expectedStateVersion(req);
     const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
@@ -1517,7 +1707,17 @@ function mountMemoriesRoutes(app, deps = {}) {
         };
     }
 
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "feedback",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);

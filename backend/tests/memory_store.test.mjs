@@ -206,6 +206,27 @@ test("[memory-store] setPersistedUserMemoryForUserId + getPersistedUserMemoryFor
   assert.equal(typeof got, "object");
 });
 
+test("[memory-store] cache synchronization can skip stale adapter dual-writes", () => {
+  resetMaps();
+  const writes = [];
+  const storePath = tempStorePath();
+  configureMemoryStore(minimalDeps({
+    USER_MEMORY_STORE_PATH: storePath,
+    persistence: {
+      put: async (entry) => writes.push(entry),
+    },
+  }));
+  setPersistedUserMemoryForUserId(
+    "user_cas_winner",
+    { assistantSelfName: "Clementine" },
+    1_700_000_000_000,
+    { skipPersistenceWrite: true },
+  );
+  assert.equal(writes.length, 0);
+  assert.ok(fs.existsSync(storePath), "the local recovery mirror should still be updated");
+  assert.ok(getPersistedUserMemoryForUserId("user_cas_winner", 1_700_000_000_000));
+});
+
 test("[memory-store] getPersistedUserMemoryForUserId returns null for unknown userId", () => {
   resetMaps();
   configureMemoryStore(minimalDeps());

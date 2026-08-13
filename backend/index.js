@@ -160,6 +160,7 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
@@ -17808,7 +17809,7 @@ function setPersistedUserMemoryForAccount(userId, memory, now = Date.now(), opti
   if (!normalizedUserId) {
     return sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
   }
-  const persisted = setPersistedUserMemoryForUserId(normalizedUserId, memory, now);
+  const persisted = setPersistedUserMemoryForUserId(normalizedUserId, memory, now, options);
   const legacyIp = legacyAuthMemoryIp(normalizedUserId);
   if (legacyIp) {
     setPersistedUserMemoryForIp(legacyIp, persisted, now, options);
@@ -31125,6 +31126,64 @@ function persistWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
   return memory;
 }
 
+const accountMemoryCAS = createAccountMemoryCAS({
+  persistence: sharedPersistence,
+  sanitizeMemory: sanitizePersistedSessionMemory,
+  cacheMemory: ({ userId, memory, now, clientTokenAliases }) => {
+    setPersistedUserMemoryForAccount(userId, memory, now, {
+      clientTokenAliases,
+      skipPersistenceWrite: true,
+    });
+  },
+});
+
+async function resolveCanonicalWritableMemoryContext(req, nowTs = Date.now()) {
+  const localContext = resolveWritableMemoryContext(req, nowTs);
+  const userId = normalizeAuthenticatedUserId(localContext.authenticatedUserId);
+  if (!userId) {
+    return {
+      ...localContext,
+      canonical: false,
+      canonicalRecord: null,
+    };
+  }
+  const canonical = await accountMemoryCAS.read({
+    userId,
+    fallbackMemory: localContext.memory,
+  });
+  return {
+    ...localContext,
+    canonical: true,
+    canonicalRecord: canonical.record,
+    memory: canonical.memory,
+  };
+}
+
+async function persistCanonicalWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
+  const safeContext = context && typeof context === "object" ? context : {};
+  const userId = normalizeAuthenticatedUserId(safeContext.authenticatedUserId);
+  if (!userId || !safeContext.canonical) {
+    const memory = persistWritableMemoryContext(safeContext, nextMemory, nowTs);
+    return {
+      ok: true,
+      status: "legacy_committed",
+      record: null,
+      memory,
+    };
+  }
+  const result = await accountMemoryCAS.commit({
+    userId,
+    expectedRecord: safeContext.canonicalRecord || null,
+    memory: nextMemory,
+    now: nowTs,
+    clientTokenAliases: [normalizeClientToken(safeContext.clientToken)],
+  });
+  if (result.ok && safeContext.activeSession && typeof safeContext.activeSession === "object") {
+    safeContext.activeSession.memory = result.memory;
+  }
+  return result;
+}
+
 function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
   const base = sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
   base.turns = 0;
@@ -31751,10 +31810,10 @@ mountMemoriesRoutes(app, {
   clampUnit,
   selectMemoryRecordForRead,
   resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
   persistWritableMemoryContext,
-  setPersistedUserMemoryForIp,
-  normalizeClientToken,
+  persistCanonicalWritableMemoryContext,
   buildReadStateMeta,
   applyReadStateHeaders,
   ifNoneMatchStateHit,

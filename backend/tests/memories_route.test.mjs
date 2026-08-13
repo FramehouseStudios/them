@@ -2,7 +2,7 @@
 // `mountMemoriesRoutes`. Covers all 6 routes + mount guards +
 // #238 no-setter regression.
 //
-// Test strategy: stub all 31 fn deps + 2 constants so each
+// Test strategy: stub all required fn deps + 2 constants so each
 // route's response shape is pinned without spinning up the real
 // memory store. The stubs return canonical fixtures matching
 // what the live helpers produce in the happy path.
@@ -20,8 +20,9 @@ function defaultDeps(overrides = {}) {
   const calls = {
     selectMemoryRecordForRead: 0,
     resolveWritableMemoryContext: 0,
+    resolveCanonicalWritableMemoryContext: 0,
     persistWritableMemoryContext: 0,
-    setPersistedUserMemoryForIp: 0,
+    persistCanonicalWritableMemoryContext: 0,
     maybeBackfillThemesFromHistory: 0,
     updateMemoryCardInMemory: [],
     forgetMemoryCardInMemory: [],
@@ -71,15 +72,25 @@ function defaultDeps(overrides = {}) {
       calls.resolveWritableMemoryContext += 1;
       return { memory: baseMemory, requesterIp: "10.0.0.1" };
     },
+    resolveCanonicalWritableMemoryContext: async () => {
+      calls.resolveCanonicalWritableMemoryContext += 1;
+      return {
+        memory: baseMemory,
+        requesterIp: "10.0.0.1",
+        authenticatedUserId: "user_memories_test",
+        canonical: true,
+        canonicalRecord: { userId: "user_memories_test", memory: baseMemory },
+      };
+    },
     sanitizePersistedSessionMemory: (m) => m || baseMemory,
     persistWritableMemoryContext: (_ctx, mem, _ts) => {
       calls.persistWritableMemoryContext += 1;
       return mem;
     },
-    setPersistedUserMemoryForIp: () => {
-      calls.setPersistedUserMemoryForIp += 1;
+    persistCanonicalWritableMemoryContext: async (_ctx, mem, _ts) => {
+      calls.persistCanonicalWritableMemoryContext += 1;
+      return { ok: true, status: "committed", memory: mem };
     },
-    normalizeClientToken: (v) => String(v || "").trim(),
     buildReadStateMeta: () => baseReadMeta,
     applyReadStateHeaders: (res, meta) => {
       res.setHeader("x-state-version", String(meta.stateVersion || ""));
@@ -183,10 +194,11 @@ test("[memories] mount fails without Express app", () => {
 });
 
 test("[memories] mount fails when a required fn dep is missing", () => {
-  // Spot-check a representative subset (full list = 31).
+  // Spot-check a representative subset of the dependency contract.
   const sample = [
     "parseQueryLimit", "selectMemoryRecordForRead", "resolveWritableMemoryContext",
-    "persistWritableMemoryContext", "buildReadStateMeta", "buildMemoryCards",
+    "resolveCanonicalWritableMemoryContext", "persistWritableMemoryContext",
+    "persistCanonicalWritableMemoryContext", "buildReadStateMeta", "buildMemoryCards",
     "updateMemoryCardInMemory", "forgetMemoryCardInMemory",
     "promoteMemoryCardToThemeInMemory", "incrementThemeQualitySignal",
   ];
@@ -228,6 +240,47 @@ test("[memories] GET /memories: full envelope on happy path", async () => {
       r.headers.get("x-creative-memory-revision"),
       r.body.creative_memory_revision
     );
+  });
+});
+
+test("[memories] GET /memories serves the canonical account row over a stale local mirror", async () => {
+  const staleMemory = {
+    assistantSelfName: "Old Clementine",
+    userPrimaryName: "Old Name",
+  };
+  const canonicalMemory = {
+    assistantSelfName: "Clementine",
+    userPrimaryName: "Ada Canonical",
+    relationshipDepthScore: 0.8,
+    behaviorMode: "deepening",
+    cycleIndex: 7,
+    season: 2,
+    seasonProgress: 0.4,
+  };
+  const deps = defaultDeps({
+    selectMemoryRecordForRead: () => ({
+      source: "ip",
+      ip: "10.0.0.1",
+      memory: staleMemory,
+    }),
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: canonicalMemory,
+      requesterIp: "10.0.0.1",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: {
+        userId: "user_memories_test",
+        memory: canonicalMemory,
+      },
+    }),
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/memories");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.assistant_name, "Clementine");
+    assert.equal(r.body.user_name, "Ada Canonical");
+    assert.equal(r.body.relationship_depth_score, 0.8);
+    assert.equal(r.body.behavior_mode, "deepening");
   });
 });
 
@@ -423,7 +476,7 @@ test("[memories] GET /memories: backfill side-effect fires when applied", async 
   });
   await withTestServer(deps, async (baseURL) => {
     await getJson(baseURL, "/memories");
-    assert.equal(deps._calls.setPersistedUserMemoryForIp, 1);
+    assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 1);
   });
 });
 
@@ -439,6 +492,42 @@ test("[memories] GET /memories/export: export envelope with embedded JSON string
     const inner = JSON.parse(r.body.export_json);
     assert.equal(inner.exported_at, r.body.exported_at);
     assert.equal(inner.session_id, r.body.session_id);
+  });
+});
+
+test("[memories] GET /memories/export serializes the canonical account row", async () => {
+  const canonicalMemory = {
+    assistantSelfName: "Clementine",
+    userPrimaryName: "Ada Canonical",
+    relationshipDepthScore: 0.8,
+    behaviorMode: "deepening",
+    cycleIndex: 7,
+    season: 2,
+    seasonProgress: 0.4,
+  };
+  const deps = defaultDeps({
+    selectMemoryRecordForRead: () => ({
+      source: "ip",
+      ip: "10.0.0.1",
+      memory: { userPrimaryName: "Old Name" },
+    }),
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: canonicalMemory,
+      requesterIp: "10.0.0.1",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: {
+        userId: "user_memories_test",
+        memory: canonicalMemory,
+      },
+    }),
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/memories/export");
+    assert.equal(r.status, 200);
+    const exported = JSON.parse(r.body.export_json);
+    assert.equal(exported.user_name, "Ada Canonical");
+    assert.equal(exported.behavior_mode, "deepening");
   });
 });
 
@@ -498,6 +587,82 @@ test("[memories] POST /memories/update preserves a newer cross-device Story Spin
     assert.match(r.body.message, /another device/i);
   });
   assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/update returns the durable winner when adapter CAS loses", async () => {
+  const localMemory = { version: "v9", story: "Mara waits." };
+  const winnerMemory = { version: "v10", story: "Mara goes back for Eli." };
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: localMemory,
+      requesterIp: "authuser:user_memories_test",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: { memory: localMemory },
+    }),
+    persistCanonicalWritableMemoryContext: async () => ({
+      ok: false,
+      status: "stale_memory_state_version",
+      memory: winnerMemory,
+      record: { memory: winnerMemory },
+    }),
+    buildReadStateMeta: (_req, memory) => ({
+      stateVersion: memory.version,
+      sessionId: "sess_cas",
+      schemaVersion: 1,
+      backendBuild: "test-build",
+      backendBootId: "test-boot",
+    }),
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/update", {
+      card_id: "screenplay-project-split-ferries",
+      story_spine: { next_scene_plan: "Mara follows June." },
+      expected_state_version: "v9",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_memory_state_version");
+    assert.equal(r.body.current_state_version, "v10");
+    assert.equal(r.headers.get("x-state-version"), "v10");
+  });
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/update fails closed when canonical memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/update", {
+      card_id: "screenplay-project-split-ferries",
+      story_spine: { next_scene_plan: "Mara goes back." },
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.status, "memory_persistence_unavailable");
+    assert.match(r.body.message, /No changes were applied/i);
+  });
+  assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/update fails closed when canonical memory cannot be committed", async () => {
+  const deps = defaultDeps({
+    persistCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/update", {
+      card_id: "screenplay-project-split-ferries",
+      story_spine: { next_scene_plan: "Mara goes back." },
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.status, "memory_persistence_unavailable");
+  });
+  assert.equal(deps._calls.updateMemoryCardInMemory.length, 1);
   assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
@@ -654,11 +819,17 @@ test("[memories] POST /memories/character-bible/update: repairs active Story Spi
   };
   const deps = defaultDeps({
     selectMemoryRecordForRead: () => ({ source: "ip", ip: "10.0.0.1", memory }),
-    resolveWritableMemoryContext: () => ({ memory, requesterIp: "10.0.0.1" }),
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory,
+      requesterIp: "10.0.0.1",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: { userId: "user_memories_test", memory },
+    }),
     sanitizePersistedSessionMemory: (value) => value || memory,
-    persistWritableMemoryContext: (_context, value) => {
+    persistCanonicalWritableMemoryContext: async (_context, value) => {
       persistedMemory = JSON.parse(JSON.stringify(value));
-      return value;
+      return { ok: true, status: "committed", memory: value };
     },
     creativeMemoryStore: {
       recordCharacterMention: async (args) => {
@@ -800,7 +971,7 @@ test("[memories] POST /memories/corrections/undo restores one authenticated corr
     ]);
   });
   assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
   assert.deepEqual(calls, [{
     userId: "user_memories_test",
     receiptId: "canon_correction_123",
@@ -955,7 +1126,7 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
     ],
   }]);
   assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/corrections/resolve preserves the legacy singular request", async () => {
@@ -1206,6 +1377,46 @@ test("[memories] POST /memories/forget: does not hide a durable card when deleti
   });
 });
 
+test("[memories] POST /memories/forget repairs the visible card after a concurrent account write", async () => {
+  let attempts = 0;
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async () => ({
+        ok: true,
+        forgotten: true,
+        creativeMemoryRevision: "cm_after_forget",
+      }),
+    },
+    persistCanonicalWritableMemoryContext: async (_context, memory) => {
+      attempts += 1;
+      if (attempts === 1) {
+        const winnerMemory = { ...memory, concurrentTheme: "grief" };
+        return {
+          ok: false,
+          status: "stale_memory_state_version",
+          memory: winnerMemory,
+          record: { memory: winnerMemory },
+        };
+      }
+      return { ok: true, status: "committed", memory };
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "character-mara",
+      key: "character:Mara",
+      expected_state_version: "v9",
+      expected_creative_memory_revision: "cm_before_forget",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.durable_memory_deleted, true);
+    assert.equal(r.body.creative_memory_revision, "cm_after_forget");
+  });
+  assert.equal(attempts, 2);
+  assert.equal(deps._calls.forgetMemoryCardInMemory.length, 2);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 // ============== POST /memories/promote ==============
 
 test("[memories] POST /memories/promote: returns theme_key + memory_card", async () => {
@@ -1300,32 +1511,24 @@ test("[memories] POST /memories/feedback: 400 when signal is invalid", async () 
 
 // ============== persistence side-effect invariants ==============
 
-test("[memories] all 4 legacy card mutation routes persist writable context exactly once", async () => {
+test("[memories] all 4 account card mutation routes persist canonical context exactly once", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     await postJson(baseURL, "/memories/update", { card_id: "c", title: "t" });
     await postJson(baseURL, "/memories/forget", { card_id: "c" });
     await postJson(baseURL, "/memories/promote", { card_id: "c", key: "k", title: "t", summary: "s" });
     await postJson(baseURL, "/memories/feedback", { card_id: "c", key: "k", signal: "hit" });
-    assert.equal(deps._calls.persistWritableMemoryContext, 4);
+    assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 4);
+    assert.equal(deps._calls.persistWritableMemoryContext, 0);
   });
 });
 
 // ============== #238 invariant inheritance ==============
 
-test("[memories] lib does NOT accept any setter-shaped fn dep (except the inline-source setPersistedUserMemoryForIp which is a write, not a state-replacement setter)", () => {
+test("[memories] lib does NOT accept setter-shaped function dependencies", () => {
   const deps = defaultDeps();
-  // The one exception is `setPersistedUserMemoryForIp` — that's a
-  // write to an existing accessor, not a new setRealtimeSupplier-
-  // style state-replacement setter. The byte-identical inline
-  // source calls this same accessor on the backfill path, so the
-  // lib mirrors that.
   const setters = Object.keys(deps).filter((k) =>
     !k.startsWith("_") && /^set[A-Z]/.test(k),
   );
-  assert.deepEqual(
-    setters,
-    ["setPersistedUserMemoryForIp"],
-    "only setPersistedUserMemoryForIp is allowed (byte-identical inline-source write); any other setter would indicate new module-level state mutation",
-  );
+  assert.deepEqual(setters, []);
 });

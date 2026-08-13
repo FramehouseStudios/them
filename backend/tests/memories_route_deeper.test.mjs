@@ -10,8 +10,7 @@
 //   - backfill side-effect runs ONLY when there's something to apply
 //   - export filename pattern (date-stamped)
 //   - logger.log prefix per mutation route
-//   - persistence call order: persistWritableMemoryContext BEFORE
-//     setPersistedUserMemoryForIp on mutations
+//   - canonical persistence completes before mutation responses
 //   - sanitize call chain: persisted memory goes through sanitize
 //     before the response envelope is built
 
@@ -63,6 +62,13 @@ function deps(overrides = {}) {
     },
     selectMemoryRecordForRead: () => ({ source: "ip", ip: "10.0.0.1", memory: baseMemory }),
     resolveWritableMemoryContext: () => ({ memory: baseMemory, requesterIp: "10.0.0.1" }),
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: baseMemory,
+      requesterIp: "10.0.0.1",
+      authenticatedUserId: "user_memories_deeper",
+      canonical: true,
+      canonicalRecord: { userId: "user_memories_deeper", memory: baseMemory },
+    }),
     sanitizePersistedSessionMemory: (m) => {
       calls.sanitizeCalls += 1;
       return m || baseMemory;
@@ -71,10 +77,10 @@ function deps(overrides = {}) {
       calls.persistOrder.push("persistWritableMemoryContext");
       return mem;
     },
-    setPersistedUserMemoryForIp: () => {
-      calls.persistOrder.push("setPersistedUserMemoryForIp");
+    persistCanonicalWritableMemoryContext: async (_ctx, mem) => {
+      calls.persistOrder.push("persistCanonicalWritableMemoryContext");
+      return { ok: true, status: "committed", memory: mem };
     },
-    normalizeClientToken: (v) => String(v || "").trim(),
     buildReadStateMeta: () => baseReadMeta,
     applyReadStateHeaders: (res, meta) => {
       res.setHeader("x-state-version", String(meta.stateVersion || ""));
@@ -226,9 +232,7 @@ test("[memories-deeper] backfill side-effect skipped when applied=false", async 
   });
   await withServer(d, async (baseURL) => {
     await getJson(baseURL, "/memories");
-    // applied=false → setPersistedUserMemoryForIp NOT called for the
-    // backfill code path (it would only fire on applied=true).
-    assert.equal(d._calls.persistOrder.filter((c) => c === "setPersistedUserMemoryForIp").length, 0);
+    assert.equal(d._calls.persistOrder.filter((c) => c === "persistCanonicalWritableMemoryContext").length, 0);
   });
 });
 
@@ -238,7 +242,7 @@ test("[memories-deeper] backfill side-effect fires when applied=true", async () 
   });
   await withServer(d, async (baseURL) => {
     await getJson(baseURL, "/memories");
-    assert.equal(d._calls.persistOrder.filter((c) => c === "setPersistedUserMemoryForIp").length, 1);
+    assert.equal(d._calls.persistOrder.filter((c) => c === "persistCanonicalWritableMemoryContext").length, 1);
   });
 });
 
@@ -276,8 +280,7 @@ test("[memories-deeper] POST /memories/update: persist BEFORE response", async (
       summary: "Updated",
     });
     assert.equal(r.status, 200);
-    // persistWritableMemoryContext was called at least once.
-    assert.ok(d._calls.persistOrder.includes("persistWritableMemoryContext"),
+    assert.ok(d._calls.persistOrder.includes("persistCanonicalWritableMemoryContext"),
       "persist should be called before responding");
   });
 });
@@ -287,7 +290,7 @@ test("[memories-deeper] POST /memories/forget: persist call before response", as
   await withServer(d, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/forget", { card_id: "card_1" });
     assert.equal(r.status, 200);
-    assert.ok(d._calls.persistOrder.includes("persistWritableMemoryContext"));
+    assert.ok(d._calls.persistOrder.includes("persistCanonicalWritableMemoryContext"));
   });
 });
 

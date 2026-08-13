@@ -411,7 +411,7 @@ function cleanupUserMemoryStore(now = Date.now()) {
   }
 }
 
-function saveUserMemoryStore(now = Date.now()) {
+function saveUserMemoryStore(now = Date.now(), options = {}) {
   const deps = memoryStoreDeps();
   const {
     USER_MEMORY_STORE_PATH,
@@ -436,13 +436,14 @@ function saveUserMemoryStore(now = Date.now()) {
     entries,
     users,
   };
-  // Existing JSON-file path stays canonical until cutover completes.
+  // Keep the JSON file as a local recovery mirror for legacy callers. Durable
+  // CAS callers set skipPersistenceWrite after the adapter row has committed.
   const fileOk = writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
   // T07c: dual-write to the persistence adapter when configured.
   // Records are namespaced by source bucket so reverse migration can
   // reconstruct the legacy byUserId / byIp / byClientToken structure.
   const persistenceWrites = [];
-  if (persistence && typeof persistence.put === "function") {
+  if (!options?.skipPersistenceWrite && persistence && typeof persistence.put === "function") {
     for (const entry of entries) {
       persistenceWrites.push(Promise.resolve(persistence.put({
         domain: "user_memory",
@@ -625,12 +626,12 @@ function getPersistedUserMemoryForIp(ip, now = Date.now()) {
   return sanitizePersistedSessionMemory(record.memory);
 }
 
-function setPersistedUserMemoryForUserId(userId, memory, now = Date.now()) {
+function setPersistedUserMemoryForUserId(userId, memory, now = Date.now(), options = {}) {
   const key = String(userId || "").trim();
   if (!key) return sanitizePersistedSessionMemory(memory);
   const sanitized = sanitizePersistedSessionMemory(memory);
   userMemoryByUserId.set(key, { memory: sanitized, updatedAt: now });
-  saveUserMemoryStore(now);
+  saveUserMemoryStore(now, options);
   return sanitized;
 }
 
@@ -655,7 +656,7 @@ function setPersistedUserMemoryForIp(ip, memory, now = Date.now(), options = {})
   for (const token of aliases) {
     userMemoryByClientToken.set(token, key);
   }
-  saveUserMemoryStore(now);
+  saveUserMemoryStore(now, options);
   if (typeof syncUserMemoryRecordToBackplane === "function") {
     syncUserMemoryRecordToBackplane(key, { memory: sanitized, updatedAt: now, clientTokens: aliases });
   }
