@@ -1817,6 +1817,14 @@ function mergeLearnedCharacterFields(incoming = [], existing = []) {
   return out;
 }
 
+function applyLearnedCharacterFields(arc = null, fields = []) {
+  const current = sanitizeCharacterArcState(arc) || { schemaVersion: 1 };
+  for (const item of mergeLearnedCharacterFields(fields, [])) {
+    current[item.field] = item.value;
+  }
+  return sanitizeCharacterArcState(current);
+}
+
 function applyWriterCanonCharacterTargetsToRecords(characters = [], {
   targets = [],
   projectId = "",
@@ -1929,7 +1937,10 @@ function sanitizeCharacterBibleDelta(value = null) {
     []
   );
   const arc = applyAuthoritativeCharacterFields(
-    value.arc ?? value.characterArc ?? value.character_arc,
+    applyLearnedCharacterFields(
+      value.arc ?? value.characterArc ?? value.character_arc,
+      learnedFields
+    ),
     authoritativeFields
   );
   const correctedTerms = collectCharacterBibleItems(value.correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120)
@@ -2044,7 +2055,10 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
     existing.learnedFields
   );
   const arc = applyAuthoritativeCharacterFields(
-    mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null),
+    applyLearnedCharacterFields(
+      mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null),
+      learnedFields
+    ),
     authoritativeFields
   );
   const existingCorrections = filterCharacterBibleItems(
@@ -2090,7 +2104,7 @@ export function buildCharacterFieldProvenance(bible = null) {
     const authoritative = authoritativeByField.get(field) || null;
     if (!learned && !authoritative) continue;
     const value = cleanText(
-      authoritative?.value || readArcField(cleanBible.arc, field) || learned?.value,
+      authoritative?.value || learned?.value || readArcField(cleanBible.arc, field),
       field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS
     );
     if (!value) continue;

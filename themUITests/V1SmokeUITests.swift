@@ -773,131 +773,264 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
-    func test_cross_platform_learned_answer_appears_after_relaunch() throws {
+    func test_cross_platform_learned_answer_appears_after_relaunch() async throws {
         guard let fixture = try learnedMemoryFixtureFromEnvironment() else {
             throw XCTSkip("No cross-platform learned-memory fixture was provided.")
         }
 
-        for launchIndex in 1...2 {
-            let app = launchApp(
-                openMemories: true,
-                liveMemory: true,
-                launchEnvironment: fixture.appLaunchEnvironment
-            )
-            let memoriesSurface = learnedMemorySurface(in: app)
-            XCTAssertTrue(
-                memoriesSurface.waitForExistence(timeout: 12),
-                "Memories did not open on learned-memory launch \(launchIndex). Accessibility hierarchy:\n\(app.debugDescription)"
-            )
-            let preferenceSection = element(
-                identifier: "memories.story-preferences",
-                in: app
-            )
-            XCTAssertTrue(
-                preferenceSection.waitForExistence(timeout: 30),
-                "The iPhone-learned creative instincts section was not restored."
-            )
-            let preferenceToggle = element(
-                identifier: "memories.story-preferences.toggle",
-                in: app
-            )
-            XCTAssertTrue(
-                preferenceToggle.waitForExistence(timeout: 5),
-                "Creative instincts did not expose its disclosure control."
-            )
-            preferenceToggle.tap()
-            let preference = element(
-                identifier: "memories.story-preference.\(fixture.preferenceFamily)",
-                in: app
-            )
-            XCTAssertTrue(
-                preference.waitForExistence(timeout: 30),
-                "The iPhone-learned story preference was not restored on launch \(launchIndex)."
-            )
-            let preferenceText = accessibilityText(of: preference)
-            XCTAssertTrue(
-                preferenceText.localizedCaseInsensitiveContains(fixture.preferenceLabel),
-                "Expected story preference '\(fixture.preferenceLabel)', got '\(preferenceText)'."
-            )
-            XCTAssertTrue(
-                preferenceText.localizedCaseInsensitiveContains("corrected"),
-                "The explicitly corrected preference did not retain correction status."
-            )
-            preferenceToggle.tap()
-            let card = learnedMemoryCard(
-                character: fixture.character,
-                in: memoriesSurface
-            )
-            XCTAssertTrue(
-                card.waitForExistence(timeout: 30),
-                "The learned character was not restored on launch \(launchIndex)."
-            )
-            openLearnedMemoryCard(card, in: memoriesSurface)
-            assertLearnedMemoryFields(fixture, prefix: "memory.learned-field", in: app)
-            closeLearnedMemorySurfaceIfNeeded(memoriesSurface, in: app)
-            app.terminate()
+        switch fixture.handoffStage {
+        case "iphone_source":
+            try await assertIPhoneRescueRejectionPersists(fixture)
+        case "mac_repair":
+            try assertMacAdaptsAndCorrectsRescue(fixture)
+        case "iphone_round_trip":
+            try await assertIPhoneReceivesCorrectionAndProtectsCanon(fixture)
+        default:
+            XCTFail("Unknown learned-memory handoff stage: \(fixture.handoffStage)")
         }
+    }
 
-        let studio = launchApp(
-            openStudio: true,
+    @MainActor
+    private func assertIPhoneRescueRejectionPersists(
+        _ fixture: LearnedMemoryFixture
+    ) async throws {
+        let app = launchLearnedMemoryStudio(fixture)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not open for the iPhone source handoff."
+        )
+        try submitStudioWriterBlockPrompt(fixture.writerBlockPrompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.baselineStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "The source iPhone did not receive the baseline reversal rescue."
+        )
+
+        let rejectionCommit = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "That did not help. I am still stuck. Try a different move.",
+                "reply": "You are right. I will change the story engine.",
+                "request_id": "cross-device-rescue-failed-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
+                    "screenplay_target": "voice_pin",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_act": "Act II",
+                    "screenplay_feature_sequence": fixture.featureSequence,
+                ],
+            ]
+        )
+        try assertHTTP(rejectionCommit, context: "cross-device failed-rescue commit")
+
+        revealStudioCreativeInstincts(in: app)
+        let refresh = element(identifier: "studio.story-preferences.refresh", in: app)
+        makeHittable(refresh, in: app)
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5) && refresh.isHittable)
+#if os(macOS)
+        refresh.click()
+#else
+        refresh.tap()
+#endif
+        let rejectedPreference = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            in: app
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                in: rejectedPreference,
+                containing: "did not unblock you",
+                timeout: 20
+            ),
+            "The source iPhone did not persist the failed rescue into Creative Instincts."
+        )
+    }
+
+    @MainActor
+    private func assertMacAdaptsAndCorrectsRescue(
+        _ fixture: LearnedMemoryFixture
+    ) throws {
+        let app = launchLearnedMemoryStudio(fixture)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not open for the macOS repair handoff."
+        )
+        try submitStudioWriterBlockPrompt(fixture.writerBlockPrompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.repairedStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "macOS repeated the rejected reversal instead of adapting the rescue."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.repairMemoryLine,
+                in: app,
+                timeout: 5
+            ),
+            "macOS adapted without acknowledging the failed iPhone rescue."
+        )
+
+        revealStudioCreativeInstincts(in: app)
+        let preference = element(
+            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
+            in: app
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(in: preference, containing: "did not unblock you", timeout: 20),
+            "macOS did not restore the iPhone rescue evidence after backend restart."
+        )
+        let preferAction = waitForFirstVisibleElement(
+            in: app.buttons.matching(
+                identifier: "studio.story-preference.\(fixture.preferenceFamily).prefer"
+            ),
+            app: app,
+            timeout: 8
+        )
+        XCTAssertNotNil(preferAction, "macOS did not expose the real prefer correction control.")
+        guard let preferAction else { return }
+        makeHittable(preferAction, in: app)
+        XCTAssertTrue(preferAction.isHittable)
+#if os(macOS)
+        preferAction.click()
+#else
+        preferAction.tap()
+#endif
+        XCTAssertTrue(
+            waitForAccessibilityText(in: preference, containing: "corrected", timeout: 15),
+            studioInstinctCorrectionFailure(in: app)
+        )
+    }
+
+    @MainActor
+    private func assertIPhoneReceivesCorrectionAndProtectsCanon(
+        _ fixture: LearnedMemoryFixture
+    ) async throws {
+        var app = launchApp(
+            openMemories: true,
             liveMemory: true,
-            restoreProjectID: fixture.projectID,
             launchEnvironment: fixture.appLaunchEnvironment
         )
-        defer { studio.terminate() }
+        let memoriesSurface = learnedMemorySurface(in: app)
         XCTAssertTrue(
-            element(identifier: "studio.surface", in: studio).waitForExistence(timeout: 12),
-            "Studio did not open for the learned-memory handoff."
+            memoriesSurface.waitForExistence(timeout: 12),
+            "Memories did not open on the returning iPhone."
         )
-        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: studio)
-        let rightToggle = studio.buttons["studio.sidebar.right.toggle"]
-        if !rightDrawer.exists,
-           rightToggle.waitForExistence(timeout: 5),
-           rightToggle.isHittable {
-            rightToggle.tap()
-        }
-        let studioPreferenceSection = element(
-            identifier: "studio.story-preferences",
-            in: studio
+        let preferenceToggle = element(identifier: "memories.story-preferences.toggle", in: app)
+        XCTAssertTrue(preferenceToggle.waitForExistence(timeout: 30))
+        preferenceToggle.tap()
+        let preference = element(
+            identifier: "memories.story-preference.\(fixture.preferenceFamily)",
+            in: app
         )
         XCTAssertTrue(
-            studioPreferenceSection.waitForExistence(timeout: 30),
-            "Studio did not restore Creative Instincts from the other device."
+            waitForAccessibilityText(in: preference, containing: "corrected", timeout: 30),
+            "The macOS correction did not appear in iPhone Memories after relaunch."
         )
-        let studioPreference = element(
-            identifier: "studio.story-preference.\(fixture.preferenceFamily)",
-            in: studio
+        preferenceToggle.tap()
+        let card = learnedMemoryCard(character: fixture.character, in: memoriesSurface)
+        XCTAssertTrue(
+            card.waitForExistence(timeout: 30),
+            "The original iPhone character learning disappeared during the rescue handoff."
+        )
+        openLearnedMemoryCard(card, in: memoriesSurface)
+        assertLearnedMemoryFields(fixture, prefix: "memory.learned-field", in: app)
+        app.terminate()
+
+        app = launchLearnedMemoryStudio(fixture)
+        defer { app.terminate() }
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12),
+            "Studio did not reopen on the returning iPhone."
+        )
+        try submitStudioWriterBlockPrompt(fixture.writerBlockPrompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.correctedStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "The returning iPhone did not honor the explicit macOS rescue correction."
+        )
+
+        let canonCommit = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/realtime/turn_commit",
+            method: "POST",
+            headers: fixture.authorizedHeaders,
+            body: [
+                "transcript": "Keep this accepted page and its setup as canon.",
+                "reply": fixture.acceptedCanonPage,
+                "request_id": "cross-device-due-canon-\(UUID().uuidString.lowercased())",
+                "studio": [
+                    "screenplay_project_id": fixture.projectID,
+                    "screenplay_project_title": fixture.projectTitle,
+                    "screenplay_target": "page",
+                    "screenplay_prompt_source": "typed",
+                    "screenplay_anchor_scene_label": "INT. CLOCK TOWER - NIGHT",
+                    "screenplay_inserted_text": fixture.acceptedCanonPage,
+                    "screenplay_act": "Act II",
+                    "screenplay_feature_sequence": fixture.featureSequence,
+                    "screenplay_scene_summary": "Mara hides the red locket inside the courthouse clock.",
+                    "screenplay_current_beat": "Mara leaves without telling Eli where the locket is.",
+                    "screenplay_character_focus": ["Mara", "Eli"],
+                    "screenplay_unresolved_setups": [fixture.dueSetup],
+                    "screenplay_act_three_payoff_path": [fixture.duePayoff],
+                ],
+            ]
+        )
+        try assertHTTP(canonCommit, context: "cross-device due-canon commit")
+
+        try submitStudioWriterBlockPrompt(fixture.writerBlockPrompt, in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.canonStrongestMove,
+                in: app,
+                timeout: 35
+            ),
+            "Due canon did not outrank the corrected cross-device instinct."
         )
         XCTAssertTrue(
-            studioPreference.waitForExistence(timeout: 30),
-            "Studio did not restore the corrected creative preference."
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: fixture.dueSetup,
+                in: app,
+                timeout: 5
+            ),
+            "The returning iPhone rescue omitted the protected due setup."
         )
-        let studioPreferenceText = accessibilityText(of: studioPreference)
-        XCTAssertTrue(
-            studioPreferenceText.localizedCaseInsensitiveContains(fixture.preferenceLabel),
-            "Expected Studio preference '\(fixture.preferenceLabel)', got '\(studioPreferenceText)'."
+    }
+
+    @MainActor
+    private func launchLearnedMemoryStudio(
+        _ fixture: LearnedMemoryFixture
+    ) -> XCUIApplication {
+        launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            liveMemory: true,
+            restoreProjectID: fixture.projectID,
+            submitTransportMode: "live-backend",
+            launchEnvironment: fixture.appLaunchEnvironment
         )
-        XCTAssertTrue(
-            studioPreferenceText.localizedCaseInsensitiveContains("corrected"),
-            "Studio did not preserve the creative preference correction status."
-        )
-        XCTAssertTrue(
-            element(
-                identifier: "studio.story-preference.\(fixture.preferenceFamily).menu",
-                in: studio
-            ).waitForExistence(timeout: 5),
-            "Studio did not expose correction controls for the learned preference."
-        )
-        let studioPrefix = "studio.learned-field.\(fixture.characterKey)"
-        let studioValue = element(
-            identifier: "\(studioPrefix).\(fixture.fieldKey).value",
-            in: studio
-        )
-        XCTAssertTrue(
-            studioValue.waitForExistence(timeout: 30),
-            "Studio did not surface the learned character field."
-        )
-        assertLearnedMemoryFields(fixture, prefix: studioPrefix, in: studio)
     }
 
     @MainActor
@@ -2304,6 +2437,10 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     private struct LearnedMemoryFixture {
+        let baseURL: URL
+        let appToken: String
+        let clientToken: String
+        let accessToken: String
         let character: String
         let field: String
         let value: String
@@ -2313,10 +2450,29 @@ final class V1SmokeUITests: XCTestCase {
         let preferenceLabel: String
         let preferenceStance: String
         let projectID: String
+        let projectTitle: String
+        let handoffStage: String
+        let featureSequence: String
+        let writerBlockPrompt: String
+        let baselineStrongestMove: String
+        let repairedStrongestMove: String
+        let repairMemoryLine: String
+        let correctedStrongestMove: String
+        let canonStrongestMove: String
+        let acceptedCanonPage: String
+        let dueSetup: String
+        let duePayoff: String
         let appLaunchEnvironment: [String: String]
 
         var characterKey: String { Self.accessibilityKey(character) }
         var fieldKey: String { Self.accessibilityKey(field) }
+        var authorizedHeaders: [String: String] {
+            [
+                "X-APP-TOKEN": appToken,
+                "X-Client-Token": clientToken,
+                "Authorization": "Bearer \(accessToken)",
+            ]
+        }
 
         private static func accessibilityKey(_ value: String) -> String {
             let characters = value
@@ -2446,6 +2602,13 @@ final class V1SmokeUITests: XCTestCase {
             payload["base_url"],
             message: "Learned-memory fixture missing baseURL."
         )
+        guard let resolvedBaseURL = URL(string: baseURL) else {
+            throw NSError(
+                domain: "themUITests.learnedMemory",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Learned-memory fixture has an invalid baseURL."]
+            )
+        }
         let appToken = stringValue(payload["appToken"]).isEmpty
             ? "them-dev"
             : stringValue(payload["appToken"])
@@ -2471,6 +2634,10 @@ final class V1SmokeUITests: XCTestCase {
             message: "Learned-memory fixture missing clientTokenExpiry."
         )
         return LearnedMemoryFixture(
+            baseURL: resolvedBaseURL,
+            appToken: appToken,
+            clientToken: clientToken,
+            accessToken: accessToken,
             character: try firstNonEmptyString(
                 payload["character"],
                 message: "Learned-memory fixture missing character."
@@ -2510,6 +2677,58 @@ final class V1SmokeUITests: XCTestCase {
                 payload["projectID"],
                 payload["project_id"],
                 message: "Learned-memory fixture missing project ID."
+            ),
+            projectTitle: try firstNonEmptyString(
+                payload["projectTitle"],
+                payload["project_title"],
+                message: "Learned-memory fixture missing project title."
+            ),
+            handoffStage: try firstNonEmptyString(
+                payload["handoffStage"],
+                payload["handoff_stage"],
+                message: "Learned-memory fixture missing handoff stage."
+            ),
+            featureSequence: try firstNonEmptyString(
+                payload["featureSequence"],
+                payload["feature_sequence"],
+                message: "Learned-memory fixture missing feature sequence."
+            ),
+            writerBlockPrompt: try firstNonEmptyString(
+                payload["writerBlockPrompt"],
+                payload["writer_block_prompt"],
+                message: "Learned-memory fixture missing writer-block prompt."
+            ),
+            baselineStrongestMove: try firstNonEmptyString(
+                payload["baselineStrongestMove"],
+                message: "Learned-memory fixture missing baseline rescue."
+            ),
+            repairedStrongestMove: try firstNonEmptyString(
+                payload["repairedStrongestMove"],
+                message: "Learned-memory fixture missing repaired rescue."
+            ),
+            repairMemoryLine: try firstNonEmptyString(
+                payload["repairMemoryLine"],
+                message: "Learned-memory fixture missing repair acknowledgment."
+            ),
+            correctedStrongestMove: try firstNonEmptyString(
+                payload["correctedStrongestMove"],
+                message: "Learned-memory fixture missing corrected rescue."
+            ),
+            canonStrongestMove: try firstNonEmptyString(
+                payload["canonStrongestMove"],
+                message: "Learned-memory fixture missing canon rescue."
+            ),
+            acceptedCanonPage: try firstNonEmptyString(
+                payload["acceptedCanonPage"],
+                message: "Learned-memory fixture missing accepted canon page."
+            ),
+            dueSetup: try firstNonEmptyString(
+                payload["dueSetup"],
+                message: "Learned-memory fixture missing due setup."
+            ),
+            duePayoff: try firstNonEmptyString(
+                payload["duePayoff"],
+                message: "Learned-memory fixture missing due payoff."
             ),
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURL,

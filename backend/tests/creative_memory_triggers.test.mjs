@@ -191,6 +191,30 @@ test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned s
   assert.ok(memory.episodicMemories[0].tags.includes("writer-clarification"));
   assert.ok(memory.episodicMemories[0].tags.includes("question-answer"));
   assert.equal(memory.episodicMemories[0].tags.includes("correction"), false);
+
+  await restartedStore.recordCharacterMention({
+    userId: "u-trig-learning-answer",
+    characterName: "Mara",
+    source: "screenplay_project_restore",
+    metadata: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+    },
+    characterBible: {
+      arc: { want: "get Eli onto the last ferry" },
+    },
+  });
+  const afterAutomaticRestore = await restartedStore.getCreativeMemoryForPrompt({
+    userId: "u-trig-learning-answer",
+    projectId: "split-ferries",
+    query: "What does Mara want after restoring the project?",
+  });
+  const restoredMara = afterAutomaticRestore.characters.find((item) => item.name === "Mara");
+  assert.equal(restoredMara.bible.arc.want, "Freedom");
+  assert.equal(
+    buildCharacterFieldProvenance(restoredMara.bible)[0].value,
+    "Freedom"
+  );
 });
 
 test("memory storage downgrades and discards an uncertain clarification from any caller", async () => {
