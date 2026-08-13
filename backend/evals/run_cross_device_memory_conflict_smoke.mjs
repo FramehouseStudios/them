@@ -99,6 +99,63 @@ async function updateCharacter(baseURL, identity, device, want, revision) {
   });
 }
 
+async function promoteMemory(baseURL, identity, device, card, stateVersion) {
+  return requestStudioRestoreJSON({
+    baseURL,
+    path: "/memories/promote",
+    method: "POST",
+    headers: {
+      ...headers(identity, device),
+      "X-State-Version": stateVersion,
+    },
+    body: {
+      card_id: card.id,
+      key: "returning_for_people",
+      title: "Returning for people",
+      summary: "Mara keeps choosing people over escape.",
+      reason: "Cross-device theme promotion",
+      expected_state_version: stateVersion,
+    },
+  });
+}
+
+async function markMemoryQuality(baseURL, identity, device, card, signal, stateVersion) {
+  return requestStudioRestoreJSON({
+    baseURL,
+    path: "/memories/feedback",
+    method: "POST",
+    headers: {
+      ...headers(identity, device),
+      "X-State-Version": stateVersion,
+    },
+    body: {
+      card_id: card.id,
+      key: card.key,
+      signal,
+      expected_state_version: stateVersion,
+    },
+  });
+}
+
+async function forgetMemory(baseURL, identity, device, card, stateVersion, revision) {
+  return requestStudioRestoreJSON({
+    baseURL,
+    path: "/memories/forget",
+    method: "POST",
+    headers: {
+      ...headers(identity, device),
+      "X-State-Version": stateVersion,
+      "X-Creative-Memory-Revision": revision,
+    },
+    body: {
+      card_id: card.id,
+      key: card.key,
+      expected_state_version: stateVersion,
+      expected_creative_memory_revision: revision,
+    },
+  });
+}
+
 function assertOneWinner(results, label) {
   const winner = results.find((item) => item.status === 200);
   const stale = results.find((item) => item.status === 409);
@@ -128,6 +185,30 @@ function assertOneStateWinner(results, label) {
     stale.payload?.current_state_version === winner.payload?.state_version,
     `${label} did not return the winning state version.`
   );
+  return { winner, stale };
+}
+
+function assertOneMemoryWinner(results, label) {
+  const winner = results.find((item) => item.status === 200);
+  const stale = results.find((item) => item.status === 409);
+  assert(winner, `${label} did not produce one successful write.`);
+  assert(stale, `${label} did not reject the competing stale write.`);
+  const status = String(stale.payload?.status || "");
+  assert(
+    status === "stale_memory_state_version" || status === "stale_creative_memory_revision",
+    `${label} returned the wrong stale-write contract.`
+  );
+  if (status === "stale_memory_state_version") {
+    assert(
+      stale.payload?.current_state_version === winner.payload?.state_version,
+      `${label} did not return the winning state version.`
+    );
+  } else {
+    assert(
+      stale.payload?.current_creative_memory_revision === winner.payload?.creative_memory_revision,
+      `${label} did not return the winning creative-memory revision.`
+    );
+  }
   return { winner, stale };
 }
 
@@ -184,6 +265,22 @@ try {
       updatedAt: now,
       memory: {
         lastUpdatedAt: now,
+        lastConversationAt: now,
+        lastConversationRecap: "Mara keeps returning for people when escape would be easier.",
+        lastConversationSnapshot: "The writer wants connection to cost Mara her clean exit.",
+        lastConversationSnapshotAt: now,
+        turns: 1,
+        turnHistory: [{
+          role: "user",
+          content: "Mara keeps returning for people when escape would be easier.",
+          turn: 1,
+          ts: now,
+        }, {
+          role: "assistant",
+          content: "That choice can become the feature's emotional pattern.",
+          turn: 1,
+          ts: now + 1,
+        }],
         screenplayProjectMemoryUpdatedAt: now,
         screenplayProjectMemory: [{
           projectId: PROJECT_ID,
@@ -204,6 +301,16 @@ try {
       projectTitle: PROJECT_TITLE,
       act: "Act II",
       featureSequence: "Promise of the Premise",
+    },
+  });
+  await store.recordCharacterMention({
+    userId: identity.userID,
+    characterName: "June",
+    source: "memory_character_bible_edit",
+    characterBible: {
+      projectId: PROJECT_ID,
+      projectTitle: PROJECT_TITLE,
+      arc: { want: "Make Mara choose without coercion" },
     },
   });
   const acceptedPage = [
@@ -433,6 +540,69 @@ try {
   );
   assert(correctedUndo.status === 200, "The refreshed correction undo failed.");
 
+  const beforePromotion = await getMemories(server.baseUrl, identity, "theme-promotion-base");
+  const recapCard = beforePromotion.payload?.memories?.find((item) => item?.source === "history");
+  assert(recapCard?.id, "The conversation-history card needed for theme promotion was not restored.");
+  const promotionRace = await Promise.all([
+    promoteMemory(server.baseUrl, identity, "iphone-theme", recapCard, beforePromotion.stateVersion),
+    promoteMemory(server.baseUrl, identity, "mac-theme", recapCard, beforePromotion.stateVersion),
+  ]);
+  assertOneStateWinner(promotionRace, "Theme promotion race");
+
+  const beforeFeedback = await getMemories(server.baseUrl, identity, "theme-feedback-base");
+  const themeCard = beforeFeedback.payload?.memories?.find((item) => (
+    item?.key === "returning_for_people" || item?.id === "theme-returning_for_people"
+  ));
+  assert(themeCard?.id, "The promoted theme was not visible after refresh.");
+  const feedbackRace = await Promise.all([
+    markMemoryQuality(
+      server.baseUrl,
+      identity,
+      "iphone-feedback",
+      themeCard,
+      "hit",
+      beforeFeedback.stateVersion,
+    ),
+    markMemoryQuality(
+      server.baseUrl,
+      identity,
+      "mac-feedback",
+      themeCard,
+      "correction",
+      beforeFeedback.stateVersion,
+    ),
+  ]);
+  assertOneStateWinner(feedbackRace, "Theme feedback race");
+
+  const beforeForget = await getMemories(server.baseUrl, identity, "durable-forget-base");
+  const juneCard = beforeForget.payload?.memories?.find((item) => (
+    String(item?.key || "").toLowerCase() === "character:june"
+  ));
+  assert(juneCard?.id, "June's durable character card was not restored.");
+  const forgetRace = await Promise.all([
+    forgetMemory(
+      server.baseUrl,
+      identity,
+      "iphone-forget",
+      juneCard,
+      beforeForget.stateVersion,
+      beforeForget.revision,
+    ),
+    forgetMemory(
+      server.baseUrl,
+      identity,
+      "mac-forget",
+      juneCard,
+      beforeForget.stateVersion,
+      beforeForget.revision,
+    ),
+  ]);
+  const forgetResult = assertOneMemoryWinner(forgetRace, "Durable forget race");
+  assert(
+    forgetResult.winner.payload?.durable_memory_deleted === true,
+    "The winning durable forget did not delete the creative-memory record."
+  );
+
   const finalStore = createCreativeMemoryStore({ persistence });
   const finalLedger = await finalStore.getCreativeMemoryLedger({ userId: identity.userID });
   const mara = finalLedger?.characters?.find((item) => item?.name === "Mara");
@@ -440,9 +610,13 @@ try {
     mara?.bible?.arc?.want === "Free Eli without mistaking control for love",
     "Undo replaced an unrelated newer Character Bible correction."
   );
+  assert(
+    !finalLedger?.characters?.some((item) => item?.name === "June"),
+    "The forgotten character remained in durable creative memory."
+  );
   const finalRevision = buildCreativeMemoryRevision(finalLedger);
   assert(
-    finalRevision === correctedUndo.payload.creative_memory_revision,
+    finalRevision === forgetResult.winner.payload.creative_memory_revision,
     "The final client and durable creative-memory revisions diverged."
   );
 
@@ -455,6 +629,9 @@ try {
     storySpineConflictRejected: true,
     correctionResolutionConflictRejected: true,
     correctionUndoConflictRejected: true,
+    themePromotionConflictRejected: true,
+    themeFeedbackConflictRejected: true,
+    durableForgetConflictRejected: true,
     refreshedRetrySucceeded: true,
     finalRevision,
     finalStoryPlan,

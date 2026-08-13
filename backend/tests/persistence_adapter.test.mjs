@@ -39,9 +39,28 @@ function createPgMock() {
       m = trimmed.match(/^INSERT INTO (\w+) \(key, value, updated_at\)/i);
       if (m) {
         const tbl = ensure(m[1]);
+        if (/ON CONFLICT \(key\) DO NOTHING RETURNING key$/i.test(trimmed)) {
+          if (tbl.has(params[0])) return { rows: [], rowCount: 0 };
+          const value = JSON.parse(params[1]);
+          tbl.set(params[0], { value, updated_at: new Date() });
+          return { rows: [{ key: params[0] }], rowCount: 1 };
+        }
         const value = JSON.parse(params[1]);
         tbl.set(params[0], { value, updated_at: new Date() });
         return { rowCount: 1 };
+      }
+      // Compare-and-swap update
+      m = trimmed.match(/^UPDATE (\w+) SET value = \$3::jsonb, updated_at = NOW\(\) WHERE key = \$1 AND value = \$2::jsonb RETURNING key$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const row = tbl.get(params[0]);
+        const expected = JSON.parse(params[1]);
+        if (!row || JSON.stringify(row.value) !== JSON.stringify(expected)) {
+          return { rows: [], rowCount: 0 };
+        }
+        row.value = JSON.parse(params[2]);
+        row.updated_at = new Date();
+        return { rows: [{ key: params[0] }], rowCount: 1 };
       }
       // DELETE one
       m = trimmed.match(/^DELETE FROM (\w+) WHERE key = \$1$/i);
@@ -126,6 +145,39 @@ for (const impl of makeImplementations()) {
     try {
       const v = await p.get({ domain: "outbox", key: "nope" });
       assert.equal(v, null);
+    } finally {
+      await p.close();
+    }
+  });
+
+  test(`[${impl.name}] compareAndSwap rejects stale writers without replacing the winner`, async () => {
+    const p = impl.create();
+    try {
+      const initial = { revision: 1, story: "Mara waits." };
+      const winner = { revision: 2, story: "Mara goes back." };
+      const stale = { revision: 2, story: "Mara leaves." };
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: null,
+        value: initial,
+      }), true);
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: initial,
+        value: winner,
+      }), true);
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: initial,
+        value: stale,
+      }), false);
+      assert.deepEqual(
+        await p.get({ domain: "creative_memory", key: "writer-1" }),
+        winner,
+      );
     } finally {
       await p.close();
     }

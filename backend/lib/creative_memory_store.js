@@ -4339,20 +4339,53 @@ function createCreativeMemoryStore({
     return clone(raw);
   }
 
-  async function writeUser(userId, value) {
+  async function writeUser(userId, value, {
+    expectedValue,
+    expectedRevision = "",
+  } = {}) {
+    if (expectedValue !== undefined && typeof store.compareAndSwap === "function") {
+      const swapped = await store.compareAndSwap({
+        domain: DOMAIN,
+        key: userId,
+        expectedValue,
+        value,
+      });
+      if (!swapped) {
+        const latest = await readUser(userId);
+        throw creativeMemoryRevisionConflict(
+          cleanText(expectedRevision, 96) || buildCreativeMemoryRevision(expectedValue),
+          buildCreativeMemoryRevision(latest),
+        );
+      }
+      return;
+    }
     await store.put({ domain: DOMAIN, key: userId, value });
   }
 
   async function updateUser(userId, mutator, { expectedRevision = "" } = {}) {
     if (!userId) return;
     await withUserLock(userId, async () => {
-      const current = (await readUser(userId)) || makeEmptyMemory(userId);
-      assertCreativeMemoryRevision(current, expectedRevision);
-      const next = mutator(clone(current)) || current;
-      next.userId = userId;
-      next.version = SCHEMA_VERSION;
-      next.updatedAt = nowMs();
-      await writeUser(userId, next);
+      const maxAttempts = expectedRevision ? 1 : 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const persisted = await readUser(userId);
+        const current = persisted || makeEmptyMemory(userId);
+        assertCreativeMemoryRevision(current, expectedRevision);
+        const next = mutator(clone(current)) || current;
+        next.userId = userId;
+        next.version = SCHEMA_VERSION;
+        next.updatedAt = nowMs();
+        try {
+          await writeUser(userId, next, {
+            expectedValue: persisted,
+            expectedRevision,
+          });
+          return;
+        } catch (error) {
+          if (expectedRevision || !isCreativeMemoryRevisionConflict(error) || attempt >= maxAttempts) {
+            throw error;
+          }
+        }
+      }
     });
   }
 
@@ -4420,6 +4453,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
+      const baseline = clone(current);
       const createdAt = nowMs();
       const receipt = appendCanonCorrectionReceipt(current, {
         receiptId,
@@ -4436,7 +4470,7 @@ function createCreativeMemoryStore({
       });
       if (!receipt) return { ok: false, status: "invalid_correction_receipt" };
       current.updatedAt = createdAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, { expectedValue: baseline });
       return {
         ok: true,
         status: "recorded",
@@ -4461,6 +4495,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
+      const baseline = clone(current);
       const ambiguities = (Array.isArray(current.canonCorrectionAmbiguities)
         ? current.canonCorrectionAmbiguities
         : [])
@@ -4492,7 +4527,7 @@ function createCreativeMemoryStore({
         .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
         .slice(0, CANON_CORRECTION_AMBIGUITIES_MAX);
       current.updatedAt = createdAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, { expectedValue: baseline });
       return { ok: true, status: existingIndex >= 0 ? "updated" : "recorded", ambiguity };
     });
   }
@@ -4519,6 +4554,7 @@ function createCreativeMemoryStore({
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
       assertCreativeMemoryRevision(current, expectedRevision);
+      const baseline = clone(current);
       const ambiguities = (Array.isArray(current.canonCorrectionAmbiguities)
         ? current.canonCorrectionAmbiguities
         : [])
@@ -4728,7 +4764,10 @@ function createCreativeMemoryStore({
       });
       if (!receipt) return { ok: false, status: "correction_receipt_failed" };
       current.updatedAt = resolvedAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, {
+        expectedValue: baseline,
+        expectedRevision,
+      });
       return {
         ok: true,
         status: "resolved",
@@ -4752,6 +4791,7 @@ function createCreativeMemoryStore({
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
       assertCreativeMemoryRevision(current, expectedRevision);
+      const baseline = clone(current);
       const receipts = (Array.isArray(current.canonCorrectionReceipts)
         ? current.canonCorrectionReceipts
         : [])
@@ -4782,7 +4822,10 @@ function createCreativeMemoryStore({
       receipts[index] = { ...receipt, status: "undone", undoneAt };
       current.canonCorrectionReceipts = receipts;
       current.updatedAt = undoneAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, {
+        expectedValue: baseline,
+        expectedRevision,
+      });
       return {
         ok: true,
         status: "undone",
@@ -4808,6 +4851,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const rec = await readUser(cleanUserId);
       if (!rec) return { ok: true, promoted: 0, reason: "cold_user" };
+      const baseline = clone(rec);
       let matched = 0;
       let promoted = 0;
       rec.episodicMemories = sortEpisodicMemoriesForStorage(
@@ -4834,7 +4878,7 @@ function createCreativeMemoryStore({
       ).slice(0, EPISODIC_MEMORIES_MAX);
       if (promoted > 0) {
         rec.updatedAt = nowMs();
-        await writeUser(cleanUserId, rec);
+        await writeUser(cleanUserId, rec, { expectedValue: baseline });
       }
       return {
         ok: true,
@@ -5198,6 +5242,7 @@ function createCreativeMemoryStore({
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
       if (!current) return { ok: true, acceptedPages: 0, blockResolutions: 0, failedRescues: 0 };
+      const baseline = clone(current);
       const projects = (Array.isArray(current.projects) ? current.projects : [])
         .map(sanitizeProjectContinuity)
         .filter(Boolean);
@@ -5282,7 +5327,7 @@ function createCreativeMemoryStore({
         .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
         .slice(0, PROJECT_CONTINUITY_MAX);
       current.updatedAt = outcomeAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, { expectedValue: baseline });
       return { ok: true, acceptedPages, blockResolutions, failedRescues };
     });
   }
@@ -5316,6 +5361,7 @@ function createCreativeMemoryStore({
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, reason: "creative_memory_not_found" };
       assertCreativeMemoryRevision(current, expectedRevision);
+      const baseline = clone(current);
       const projects = (Array.isArray(current.projects) ? current.projects : [])
         .map(sanitizeProjectContinuity)
         .filter(Boolean);
@@ -5378,7 +5424,10 @@ function createCreativeMemoryStore({
         .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
         .slice(0, PROJECT_CONTINUITY_MAX);
       current.updatedAt = updatedAt;
-      await writeUser(cleanUserId, current);
+      await writeUser(cleanUserId, current, {
+        expectedValue: baseline,
+        expectedRevision,
+      });
       return {
         ok: true,
         action: cleanAction,
@@ -5911,7 +5960,11 @@ function createCreativeMemoryStore({
     });
   }
 
-  async function forgetMemoryCard({ userId, key } = {}) {
+  async function forgetMemoryCard({
+    userId,
+    key,
+    expectedRevision = "",
+  } = {}) {
     const cleanUserId = String(userId || "").trim();
     const cleanKey = String(key || "").trim();
     const separatorIndex = cleanKey.indexOf(":");
@@ -5929,6 +5982,8 @@ function createCreativeMemoryStore({
       if (!current) {
         return { ok: true, forgotten: false, type, key: cleanKey, userId: cleanUserId };
       }
+      assertCreativeMemoryRevision(current, expectedRevision);
+      const baseline = clone(current);
       let forgotten = false;
       if (type === "character") {
         const targetName = target.toLowerCase();
@@ -5946,9 +6001,19 @@ function createCreativeMemoryStore({
       }
       if (forgotten) {
         current.updatedAt = nowMs();
-        await writeUser(cleanUserId, current);
+        await writeUser(cleanUserId, current, {
+          expectedValue: baseline,
+          expectedRevision,
+        });
       }
-      return { ok: true, forgotten, type, key: cleanKey, userId: cleanUserId };
+      return {
+        ok: true,
+        forgotten,
+        type,
+        key: cleanKey,
+        userId: cleanUserId,
+        creativeMemoryRevision: buildCreativeMemoryRevision(current),
+      };
     });
   }
 

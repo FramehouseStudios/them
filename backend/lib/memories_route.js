@@ -238,7 +238,9 @@ function mountMemoriesRoutes(app, deps = {}) {
       ok: false,
       action,
       status: "stale_memory_state_version",
-      message: "Memory changed on another device. The newer Story Spine was preserved; reload before applying this edit.",
+      message: action === "update"
+        ? "Memory changed on another device. The newer Story Spine was preserved; reload before applying this edit."
+        : "Memory changed on another device. The newer memory state was preserved; reload before applying this action.",
       request_id: requestId,
       expected_state_version: expectedVersion || null,
       current_state_version: currentMeta?.stateVersion || null,
@@ -1286,7 +1288,21 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
+    const context = resolveWritableMemoryContext(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "forget",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
+    const expectedRevision = expectedCreativeMemoryRevision(req);
     let durableMemoryDeleted = null;
+    let creativeMemoryRevision = "";
     if (isDurableCreativeMemoryKey(key)) {
       if (!creativeMemoryStore || typeof creativeMemoryStore.forgetMemoryCard !== "function") {
         res.setHeader("Cache-Control", "no-store");
@@ -1298,7 +1314,9 @@ function mountMemoriesRoutes(app, deps = {}) {
         });
       }
       try {
-        const receipt = await creativeMemoryStore.forgetMemoryCard({ userId, key });
+        const forgetInput = { userId, key };
+        if (expectedRevision) forgetInput.expectedRevision = expectedRevision;
+        const receipt = await creativeMemoryStore.forgetMemoryCard(forgetInput);
         if (!receipt?.ok) {
           res.setHeader("Cache-Control", "no-store");
           return res.status(400).json({
@@ -1309,7 +1327,16 @@ function mountMemoriesRoutes(app, deps = {}) {
           });
         }
         durableMemoryDeleted = Boolean(receipt.forgotten);
+        creativeMemoryRevision = String(receipt.creativeMemoryRevision || "");
       } catch (error) {
+        if (isCreativeMemoryRevisionConflict(error)) {
+          return sendCreativeMemoryConflict(res, {
+            action: "forget",
+            requestId: rid,
+            expectedRevision: error.expectedRevision || expectedRevision,
+            currentRevision: error.currentRevision,
+          });
+        }
         logger.log(`[${rid}] memories_forget creative_error=${error?.message || error}`);
         res.setHeader("Cache-Control", "no-store");
         return res.status(500).json({
@@ -1320,8 +1347,6 @@ function mountMemoriesRoutes(app, deps = {}) {
         });
       }
     }
-    const context = resolveWritableMemoryContext(req, nowTs);
-    const memory = sanitizePersistedSessionMemory(context.memory);
     const mutation = forgetMemoryCardInMemory(memory, { cardId, key }, nowTs);
     const persisted = persistWritableMemoryContext(context, memory, nowTs);
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
@@ -1335,6 +1360,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
     logger.log(
       `[${rid}] memories_forget status=${mutation.status} forgotten=${String(mutation.forgottenId || cardId || "none")}`,
     );
@@ -1347,6 +1373,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       forgotten_id: String(mutation.forgottenId || cardId || ""),
       theme_key: String(mutation.themeKey || ""),
       durable_memory_deleted: durableMemoryDeleted,
+      creative_memory_revision: creativeMemoryRevision || null,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,
@@ -1367,6 +1394,16 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "promote",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const title = normalizeSnippet(req.body?.title ?? "", 84);
@@ -1422,6 +1459,16 @@ function mountMemoriesRoutes(app, deps = {}) {
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "feedback",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const signal = normalizeMemoryQualitySignal(req.body?.signal ?? req.body?.feedback ?? "");

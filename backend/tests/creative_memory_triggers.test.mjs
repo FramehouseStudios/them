@@ -2683,3 +2683,49 @@ test("creative memory revisions serialize competing device corrections without l
     (error) => isCreativeMemoryRevisionConflict(error)
   );
 });
+
+test("creative memory CAS rejects a stale write across independent store instances", async () => {
+  const persistence = freshPersistence();
+  const iphoneStore = createCreativeMemoryStore({ persistence });
+  const macStore = createCreativeMemoryStore({ persistence });
+  const userId = "u-cross-instance-memory-cas";
+  await iphoneStore.recordProjectContinuity({
+    userId,
+    continuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act II",
+    },
+  });
+  const baseRevision = buildCreativeMemoryRevision(
+    await iphoneStore.getCreativeMemoryLedger({ userId })
+  );
+
+  const writes = await Promise.allSettled([
+    iphoneStore.updateStoryMovePreference({
+      userId,
+      projectId: "split-ferries",
+      family: "relationship_pressure",
+      action: "prefer",
+      expectedRevision: baseRevision,
+      at: 7_000,
+    }),
+    macStore.updateStoryMovePreference({
+      userId,
+      projectId: "split-ferries",
+      family: "relationship_pressure",
+      action: "avoid",
+      expectedRevision: baseRevision,
+      at: 7_001,
+    }),
+  ]);
+
+  assert.equal(writes.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(writes.filter((item) => item.status === "rejected").length, 1);
+  assert.equal(
+    isCreativeMemoryRevisionConflict(writes.find((item) => item.status === "rejected")?.reason),
+    true,
+  );
+  const finalLedger = await macStore.getCreativeMemoryLedger({ userId });
+  assert.equal(finalLedger.projects[0].storyMovePreferenceOverrides.length, 1);
+});

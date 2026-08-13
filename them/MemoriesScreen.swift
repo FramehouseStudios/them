@@ -373,10 +373,19 @@ final class MemoriesViewModel: ObservableObject {
 
     func forgetMemory(itemID: String, key: String) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.forgetMemoryCard(
-            id: itemID,
-            key: key
-        )
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        do {
+            result = try await BackendMemoryAPI.shared.forgetMemoryCard(
+                id: itemID,
+                key: key
+            )
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion
@@ -444,11 +453,20 @@ final class MemoriesViewModel: ObservableObject {
         signal: String
     ) async throws -> MemoryItem {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.markMemoryQuality(
-            id: itemID,
-            key: key,
-            signal: signal
-        )
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        do {
+            result = try await BackendMemoryAPI.shared.markMemoryQuality(
+                id: itemID,
+                key: key,
+                signal: signal
+            )
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion
@@ -479,13 +497,22 @@ final class MemoriesViewModel: ObservableObject {
         reason: String
     ) async throws -> MemoryItem {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.promoteMemoryCard(
-            id: itemID,
-            key: key.isEmpty ? nil : key,
-            title: title,
-            summary: summary,
-            reason: reason
-        )
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        do {
+            result = try await BackendMemoryAPI.shared.promoteMemoryCard(
+                id: itemID,
+                key: key.isEmpty ? nil : key,
+                title: title,
+                summary: summary,
+                reason: reason
+            )
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            throw error
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion

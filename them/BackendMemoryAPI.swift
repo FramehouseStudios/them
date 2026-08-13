@@ -6535,9 +6535,13 @@ actor BackendMemoryAPI {
             "/memories/story-preferences/update",
             "/memories/corrections/undo",
             "/memories/corrections/resolve",
+            "/memories/forget",
         ]
         let stateProtectedPaths: Set<String> = [
             "/memories/update",
+            "/memories/forget",
+            "/memories/promote",
+            "/memories/feedback",
         ]
         let needsCreativeRevision = revisionProtectedPaths.contains(path)
         let needsStateVersion = stateProtectedPaths.contains(path)

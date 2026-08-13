@@ -565,6 +565,77 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         )
     }
 
+    func testDurableMemoryForgetPostsObservedStateAndCreativeRevisions() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-forget", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-forget-before",
+                        "X-Creative-Memory-Revision": "cm_forget_before",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-forget-before", "creative_memory_revision": "cm_forget_before", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
+                )
+            case "/memories/forget":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-forget-after",
+                        "X-Creative-Memory-Revision": "cm_forget_after",
+                    ],
+                    body: Data(
+                        #"{ "ok": true, "action": "forget", "status": "forgotten", "forgotten_id": "character-mara", "durable_memory_deleted": true, "state_version": "state-forget-after", "creative_memory_revision": "cm_forget_after" }"#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let result = try await api.forgetMemoryCard(
+            id: "character-mara",
+            key: "character:Mara"
+        )
+
+        XCTAssertTrue(result.payload.ok)
+        XCTAssertEqual(result.sync.stateVersion, "state-forget-after")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/forget" }
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_state_version"] as? String,
+            "state-forget-before"
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_forget_before"
+        )
+    }
+
     func testStoryMovePreferenceCorrectionPostsProjectScopeAndDecodesRefreshedProfile() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in

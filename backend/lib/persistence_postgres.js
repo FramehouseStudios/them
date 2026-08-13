@@ -90,6 +90,33 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
       );
     },
 
+    async compareAndSwap({ domain, key, expectedValue, value }) {
+      assertDomain(domain);
+      assertKey(key);
+      assertValue(expectedValue);
+      assertValue(value);
+      const c = await client();
+      let r;
+      if (expectedValue === null) {
+        r = await c.query(
+          `INSERT INTO ${tableName(domain)} (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key`,
+          [key, JSON.stringify(value)],
+        );
+      } else {
+        r = await c.query(
+          `UPDATE ${tableName(domain)}
+           SET value = $3::jsonb, updated_at = NOW()
+           WHERE key = $1 AND value = $2::jsonb
+           RETURNING key`,
+          [key, JSON.stringify(expectedValue), JSON.stringify(value)],
+        );
+      }
+      return Number(r?.rowCount || r?.rows?.length || 0) === 1;
+    },
+
     async delete({ domain, key }) {
       assertDomain(domain);
       assertKey(key);

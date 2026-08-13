@@ -10,8 +10,10 @@
 //
 // Adapter selection is driven by DATABASE_URL: present → Postgres,
 // absent → JSON. A single createPersistence() factory returns the
-// correct one. All stores accept a persistence handle via DI; no
-// store imports either implementation directly.
+// correct one. Both adapters also expose compareAndSwap so durable
+// read-modify-write operations can reject stale writers across instances.
+// All stores accept a persistence handle via DI; no store imports either
+// implementation directly.
 //
 // Both implementations satisfy the same contract, exercised by
 // backend/tests/persistence_adapter.test.mjs.

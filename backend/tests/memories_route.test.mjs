@@ -1096,6 +1096,92 @@ test("[memories] POST /memories/forget: deletes durable character memory before 
   });
 });
 
+test("[memories] POST /memories/forget: forwards both revisions for durable deletion", async () => {
+  const calls = [];
+  await withTestServer(defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async (input) => {
+        calls.push(input);
+        return {
+          ok: true,
+          forgotten: true,
+          creativeMemoryRevision: "cm_after_forget",
+        };
+      },
+    },
+  }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "character-mara",
+      key: "character:Mara",
+      expected_state_version: "v9",
+      expected_creative_memory_revision: "cm_before_forget",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.creative_memory_revision, "cm_after_forget");
+    assert.equal(r.headers.get("x-creative-memory-revision"), "cm_after_forget");
+    assert.deepEqual(calls, [{
+      userId: "user_memories_test",
+      key: "character:Mara",
+      expectedRevision: "cm_before_forget",
+    }]);
+  });
+});
+
+test("[memories] POST /memories/forget: rejects stale state before durable deletion", async () => {
+  let durableForgetCalled = false;
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async () => {
+        durableForgetCalled = true;
+        return { ok: true, forgotten: true };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "character-mara",
+      key: "character:Mara",
+      expected_state_version: "v8",
+    });
+
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_memory_state_version");
+    assert.equal(r.body.current_state_version, "v9");
+  });
+  assert.equal(durableForgetCalled, false);
+  assert.equal(deps._calls.forgetMemoryCardInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/forget: returns typed creative conflict without hiding the card", async () => {
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async (input) => {
+        const error = new Error("Creative memory changed on another device.");
+        error.code = "stale_creative_memory_revision";
+        error.expectedRevision = input.expectedRevision;
+        error.currentRevision = "cm_current_forget";
+        throw error;
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "character-mara",
+      key: "character:Mara",
+      expected_state_version: "v9",
+      expected_creative_memory_revision: "cm_stale_forget",
+    });
+
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_creative_memory_revision");
+    assert.equal(r.body.current_creative_memory_revision, "cm_current_forget");
+  });
+  assert.equal(deps._calls.forgetMemoryCardInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 test("[memories] POST /memories/forget: does not hide a durable card when deletion fails", async () => {
   let legacyForgetCalled = false;
   await withTestServer(defaultDeps({
@@ -1137,6 +1223,22 @@ test("[memories] POST /memories/promote: returns theme_key + memory_card", async
   });
 });
 
+test("[memories] POST /memories/promote: preserves a newer cross-device theme state", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/promote", {
+      card_id: "card_1",
+      key: "growth",
+      title: "Growth",
+      expected_state_version: "v8",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_memory_state_version");
+  });
+  assert.equal(deps._calls.promoteMemoryCardToThemeInMemory.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 // ============== POST /memories/feedback ==============
 
 test("[memories] POST /memories/feedback: 200 on valid signal + theme card", async () => {
@@ -1151,6 +1253,22 @@ test("[memories] POST /memories/feedback: 200 on valid signal + theme card", asy
     assert.equal(r.body.action, "feedback");
     assert.equal(r.body.status, "hit");
   });
+});
+
+test("[memories] POST /memories/feedback: preserves newer cross-device quality feedback", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/feedback", {
+      card_id: "card_1",
+      key: "tone",
+      signal: "correction",
+      expected_state_version: "v8",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "stale_memory_state_version");
+  });
+  assert.equal(deps._calls.incrementThemeQualitySignal.length, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/feedback: 400 when card is not a theme", async () => {
