@@ -34,6 +34,7 @@ import {
   normalizeStoryMoveFamily,
   normalizeStoryMovePreferenceOverrides,
 } from "./story_rescue_move_library.js";
+import { buildFeatureStoryGraph } from "./feature_story_graph.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -5083,6 +5084,12 @@ function createCreativeMemoryStore({
         preferredSceneHeading: dueStoryThread?.sourceSceneHeading,
         preferredSceneSummary: dueStoryThread?.sourceSceneSummary,
       });
+      const featureStoryGraph = buildFeatureStoryGraph({
+        projectContinuity,
+        acceptedScenes: projectContinuity.acceptedScenes,
+        acceptedCausalFacts,
+        dueStoryThread,
+      });
       const promptProjectContinuity = clone(projectContinuity);
       delete promptProjectContinuity.acceptedScenes;
       delete promptProjectContinuity.writerCanonFacts;
@@ -5090,6 +5097,7 @@ function createCreativeMemoryStore({
       if (acceptedScenes.length) out.acceptedScenes = acceptedScenes;
       if (acceptedCausalFacts.length) out.acceptedCausalFacts = acceptedCausalFacts;
       if (dueStoryThread) out.dueStoryThread = dueStoryThread;
+      if (featureStoryGraph) out.featureStoryGraph = featureStoryGraph;
     }
     if (rec.style && Object.keys(rec.style).length) {
       const style = clone(rec.style);

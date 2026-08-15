@@ -195,6 +195,36 @@ test("[system-prompt-trim] does not slice through protected correction memory bl
   assert.ok(out.includes("rank_1: engine=reversal_pressure"));
 });
 
+test("[system-prompt-trim] preserves feature story graph state and its due promise under pressure", () => {
+  const prompt = [
+    "PERSONA " + "voice. ".repeat(400),
+    [
+      "<creative_memory>",
+      "feature-story-graph:",
+      "  authority: derived from accepted pages and corrections.",
+      "  current_state: act=Act II; latest=INT. FERRY TERMINAL; changed_state=Eli refuses to cooperate; handoff=June leaves through the service tunnel.",
+      "  accepted_scene_chain:",
+      "    - Act II; INT. FERRY TERMINAL; accepted_changes=relationship_change=Eli stops cooperating; outcome=Mara loses leverage.",
+      "  open_story_threads:",
+      "    - status=DUE; setup=The cracked ferry token; source=EXT. EAST DOCK; promised_payoff=June returns it when Mara gives her the wheel.",
+      "  detail: " + "accepted continuity. ".repeat(220),
+      "</creative_memory>",
+    ].join("\n"),
+    "DIRECTOR " + "runtime. ".repeat(400),
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "fast" },
+    fastMaxChars: 900,
+    richMaxChars: 1_400,
+  });
+
+  assert.ok(out.length <= 900);
+  assert.match(out, /current_state:.*Eli refuses to cooperate/i);
+  assert.match(out, /accepted_changes=relationship_change=Eli stops cooperating/i);
+  assert.match(out, /status=DUE; setup=The cracked ferry token/i);
+});
+
 test("[system-prompt-trim] keeps ranked rescue authority inside the live rich-turn budget", () => {
   const writerBlock = [
     "<writer_block_memory>",

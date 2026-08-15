@@ -994,6 +994,72 @@ function serializeDueStoryThread(value) {
   return `due-story-thread:\n${lines.join("\n")}`;
 }
 
+function serializeFeatureStoryGraph(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const nodes = Array.isArray(value.nodes) ? value.nodes.slice(-8) : [];
+  const facts = Array.isArray(value.bindingFacts) ? value.bindingFacts.slice(0, 8) : [];
+  const threads = Array.isArray(value.openThreads) ? value.openThreads.slice(0, 6) : [];
+  const state = value.currentState && typeof value.currentState === "object"
+    ? value.currentState
+    : {};
+  if (!nodes.length && !facts.length && !threads.length && !Object.keys(state).length) return "";
+  const lines = [
+    "  authority: causal working state derived from accepted Studio pages and explicit writer corrections; it is project truth, not a generic beat sheet.",
+    "  rule: inherit every accepted state change. Chronology is not automatically causation; only an accepted handoff or binding fact may be treated as causal evidence.",
+  ];
+  const stateParts = [
+    trimContextLine(state.act, 80) ? `act=${trimContextLine(state.act, 80)}` : "",
+    trimContextLine(state.sequence, 140) ? `sequence=${trimContextLine(state.sequence, 140)}` : "",
+    trimContextLine(state.currentBeat, 180) ? `beat=${trimContextLine(state.currentBeat, 180)}` : "",
+    trimContextLine(state.lastAcceptedScene, 120) ? `latest=${trimContextLine(state.lastAcceptedScene, 120)}` : "",
+    trimContextLine(state.lastAcceptedOutcome, 180) ? `changed_state=${trimContextLine(state.lastAcceptedOutcome, 180)}` : "",
+    trimContextLine(state.nextScenePlan, 200) ? `handoff=${trimContextLine(state.nextScenePlan, 200)}` : "",
+    trimContextLine(state.characterArcState, 180) ? `arc_pressure=${trimContextLine(state.characterArcState, 180)}` : "",
+    trimContextLine(state.endingImage, 160) ? `ending_image=${trimContextLine(state.endingImage, 160)}` : "",
+  ].filter(Boolean);
+  if (stateParts.length) lines.push(`  current_state: ${stateParts.join("; ")}`);
+  if (nodes.length) lines.push("  accepted_scene_chain:");
+  for (const node of nodes) {
+    const changes = [
+      ...sanitizeContextList(node.decisions, 2, 150).map((item) => `decision=${item}`),
+      ...sanitizeContextList(node.revelations, 2, 150).map((item) => `revelation=${item}`),
+      ...sanitizeContextList(node.relationshipChanges, 2, 150).map((item) => `relationship_change=${item}`),
+      ...sanitizeContextList(node.irreversibleConsequences, 2, 150).map((item) => `irreversible=${item}`),
+    ];
+    const parts = [
+      trimContextLine(node.act, 60),
+      trimContextLine(node.heading, 120),
+      trimContextLine(node.summary, 160) ? `scene=${trimContextLine(node.summary, 160)}` : "",
+      changes.length ? `accepted_changes=${changes.join(" / ")}` : "",
+      trimContextLine(node.outcome, 160) ? `outcome=${trimContextLine(node.outcome, 160)}` : "",
+      trimContextLine(node.nextScenePlan, 180) ? `handoff=${trimContextLine(node.nextScenePlan, 180)}` : "",
+    ].filter(Boolean);
+    if (parts.length) lines.push(`    - ${parts.join("; ")}`);
+  }
+  if (facts.length) lines.push("  binding_causal_facts:");
+  for (const fact of facts) {
+    const authority = trimContextLine(fact.authority, 48);
+    const source = [
+      trimContextLine(fact.sourceAct, 60),
+      trimContextLine(fact.sourceSceneHeading, 120),
+    ].filter(Boolean).join(" / ");
+    lines.push(`    - ${authority === "writer_correction" ? "WRITER_CORRECTION" : "ACCEPTED_FACT"} [${trimContextLine(fact.kind, 48) || "state_change"}${source ? `; ${source}` : ""}]: ${trimContextLine(fact.fact, 220)}`);
+  }
+  if (threads.length) lines.push("  open_story_threads:");
+  for (const thread of threads) {
+    const parts = [
+      `status=${thread.due ? "DUE" : "open"}`,
+      `setup=${trimContextLine(thread.setup, 200)}`,
+      trimContextLine(thread.sourceSceneHeading, 120) ? `source=${trimContextLine(thread.sourceSceneHeading, 120)}` : "",
+      trimContextLine(thread.promisedPayoff, 180) ? `promised_payoff=${trimContextLine(thread.promisedPayoff, 180)}` : "",
+      Number(thread.ageInScenes || 0) > 0 ? `age=${Math.round(Number(thread.ageInScenes))}_accepted_scenes` : "",
+    ].filter(Boolean);
+    lines.push(`    - ${parts.join("; ")}`);
+  }
+  lines.push("  next_move_contract: begin from current_state, spend a due thread before inventing unrelated mythology, and make the next scene produce a visible state change plus a causal handoff.");
+  return `feature-story-graph:\n${lines.join("\n")}`;
+}
+
 function normalizeAcceptedCausalFacts(value = []) {
   const source = Array.isArray(value) ? value : [];
   const out = [];
@@ -1267,6 +1333,7 @@ function buildMemoryBlock(creativeMemory) {
       creativeMemory.projectContinuity?.act
     ),
     serializeDueStoryThread(creativeMemory.dueStoryThread),
+    serializeFeatureStoryGraph(creativeMemory.featureStoryGraph),
     serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
     serializeStoryBibleRecall(creativeMemory),
     serializeEpisodicMemories(creativeMemory.episodicMemories),
