@@ -858,6 +858,14 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
 
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "story_move_preference",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
     try {
       const receipt = await creativeMemoryStore.updateStoryMovePreference({
         userId,
@@ -885,9 +893,8 @@ function mountMemoriesRoutes(app, deps = {}) {
         `${receipt.projectTitle || projectTitle} story move preferences`
       );
       const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
-      const selected = selectMemoryRecordForRead(req, Date.now());
-      const memory = sanitizePersistedSessionMemory(selected.memory);
-      const readMeta = buildReadStateMeta(req, memory, selected.ip);
+      const memory = sanitizePersistedSessionMemory(context.memory);
+      const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
       res.setHeader("Cache-Control", "no-store");
       applyReadStateHeaders(res, readMeta);
       applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);

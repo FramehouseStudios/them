@@ -358,6 +358,10 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
 
 test("[memories] POST story preference update is authenticated and returns refreshed profile", async () => {
   const calls = [];
+  const canonicalMemory = {
+    source: "canonical-account",
+    lastUpdatedAt: 4_900,
+  };
   const project = {
     projectId: "split-ferries",
     projectTitle: "Split Ferries",
@@ -383,7 +387,35 @@ test("[memories] POST story preference update is authenticated and returns refre
     },
     getCreativeMemoryLedger: async () => ({ projects: [project] }),
   };
-  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+  const deps = defaultDeps({
+    creativeMemoryStore,
+    selectMemoryRecordForRead: () => {
+      throw new Error("story preference update must not use local memory");
+    },
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: canonicalMemory,
+      requesterIp: "authuser:user_memories_test",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: { userId: "user_memories_test", memory: canonicalMemory },
+    }),
+    sanitizePersistedSessionMemory: (memory) => memory,
+    buildReadStateMeta: (_req, memory) => {
+      assert.equal(memory, canonicalMemory);
+      return {
+        sessionId: "sess_story_preferences",
+        stateVersion: "state_story_preferences_42",
+        lastUpdatedAt: memory.lastUpdatedAt,
+        historyUpdatedAt: null,
+        memoryUpdatedAt: memory.lastUpdatedAt,
+        lastTurnId: "turn_story_preferences",
+        schemaVersion: 1,
+        backendBuild: "test-build",
+        backendBootId: "test-boot",
+      };
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/story-preferences/update", {
       project_id: "split-ferries",
       family: "relationship_pressure",
@@ -393,10 +425,39 @@ test("[memories] POST story preference update is authenticated and returns refre
     assert.equal(r.body.ok, true);
     assert.equal(r.body.status, "avoid");
     assert.equal(r.body.story_move_preferences[0].explicit_stance, "avoid");
+    assert.equal(r.body.state_version, "state_story_preferences_42");
+    assert.equal(r.headers.get("x-state-version"), "state_story_preferences_42");
     assert.ok(r.body.memory_updated_at >= 5_000);
     assert.equal(calls[0].userId, "user_memories_test");
     assert.equal(calls[0].projectId, "split-ferries");
   });
+});
+
+test("[memories] story preference updates fail closed when canonical account memory is unavailable", async () => {
+  let updateCalls = 0;
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("account memory unavailable");
+    },
+    creativeMemoryStore: {
+      updateStoryMovePreference: async () => {
+        updateCalls += 1;
+        return { ok: true };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_id: "split-ferries",
+      family: "relationship_pressure",
+      action: "avoid",
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.action, "story_move_preference");
+    assert.equal(response.body.status, "memory_persistence_unavailable");
+    assert.match(response.body.message, /No changes were applied/i);
+  });
+  assert.equal(updateCalls, 0);
 });
 
 test("[memories] rejects a stale cross-device story preference before writing", async () => {
