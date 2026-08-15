@@ -31802,7 +31802,8 @@ mountDataRoutes(app, {
 
 // GET /history + POST /history/annotate_turn extracted to lib/history_routes.js.
 // Mounted in place to preserve Express registration order and response contracts.
-// Annotation writes use canonical account CAS so concurrent voice turns survive.
+// Authenticated reads use canonical account state, and annotation writes use
+// canonical CAS, so history remains current across backend instances and devices.
 mountHistoryRoutes(app, {
   applyReadStateHeaders,
   buildConversationHistoryThreads,

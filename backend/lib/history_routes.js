@@ -43,11 +43,33 @@ function mountHistoryRoutes(app, deps = {}) {
     throw new Error("mountHistoryRoutes requires numeric USER_MEMORY_REMEMBERED_PEOPLE_MAX");
   }
 
-  app.get("/history", (req, res) => {
+  app.get("/history", async (req, res) => {
     const limit = parseQueryLimit(req.query?.limit, 60, 240);
     const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
     const screenplayProjectId = normalizeSnippet(req.query?.screenplayProjectId ?? "", 96);
-    const selected = selectMemoryRecordForRead(req, Date.now());
+    const nowTs = Date.now();
+    const localSelected = selectMemoryRecordForRead(req, nowTs);
+    let selected = localSelected;
+    try {
+      const canonicalContext = await resolveCanonicalWritableMemoryContext(req, nowTs);
+      if (canonicalContext?.canonical) {
+        selected = {
+          source: "auth_user",
+          ip: String(canonicalContext.requesterIp || localSelected.ip || ""),
+          memory: canonicalContext.memory,
+        };
+      }
+    } catch (error) {
+      const rid = String(req.requestId || "history_read");
+      logger.error?.(
+        `[${rid}] history memory_read_failed error=${String(error?.message || error)}`,
+      );
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "history",
+        error: "memory_read_failed",
+      });
+    }
     const memory = sanitizePersistedSessionMemory(selected.memory);
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const fullThreads = buildConversationHistoryThreads(

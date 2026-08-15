@@ -96,6 +96,7 @@ function defaultReadMeta() {
 
 function defaultDeps(overrides = {}) {
   const calls = {
+    canonicalReads: [],
     memoryCommits: [],
     upsertScreenplayProjectMemory: [],
   };
@@ -138,11 +139,14 @@ function defaultDeps(overrides = {}) {
       context.memory = structuredClone(nextMemory);
       return context.memory;
     },
-    resolveCanonicalWritableMemoryContext: async () => ({
-      requesterIp: "127.0.0.1",
-      clientToken: "",
-      memory: structuredClone(memory),
-    }),
+    resolveCanonicalWritableMemoryContext: async (_req, nowTs) => {
+      calls.canonicalReads.push({ nowTs });
+      return {
+        requesterIp: "127.0.0.1",
+        clientToken: "",
+        memory: structuredClone(memory),
+      };
+    },
     sanitizePersistedSessionMemory: (value) => structuredClone(value || {}),
     sanitizeRememberedPeople: (people) => Array.isArray(people) ? people : [],
     sanitizeStudioTurnMetadata: (input) => input && typeof input === "object" ? {
@@ -159,6 +163,7 @@ function defaultDeps(overrides = {}) {
     upsertScreenplayProjectMemory: (nextMemory, studioMeta, context) => {
       calls.upsertScreenplayProjectMemory.push({ nextMemory, studioMeta, context });
     },
+    logger: { error() {} },
     USER_MEMORY_REMEMBERED_PEOPLE_MAX: 24,
     ...overrides,
   };
@@ -217,7 +222,8 @@ test("[history-routes] mount guards required deps", () => {
 });
 
 test("[history-routes] GET /history returns the canonical envelope", async () => {
-  await withServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  await withServer(deps, async (baseURL) => {
     const r = await getJson(baseURL, "/history?sinceTurnId=turn-1");
     assert.equal(r.status, 200);
     assert.equal(r.headers.get("cache-control"), "no-store");
@@ -229,6 +235,114 @@ test("[history-routes] GET /history returns the canonical envelope", async () =>
     assert.deepEqual(r.body.remembered_names, [{ name: "Mara", relation: "protagonist" }]);
     assert.equal(r.body.threads.length, 1);
     assert.equal(r.body.threads[0].turn, 2);
+    assert.equal(deps._calls.canonicalReads.length, 1);
+  });
+});
+
+test("[history-routes] GET /history fails closed when canonical account state is unavailable", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/history");
+    assert.equal(r.status, 503);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+    assert.equal(r.body.stage, "history");
+    assert.equal(r.body.error, "memory_read_failed");
+  });
+});
+
+test("[history-routes] GET /history reads a newer turn from an independent instance", async () => {
+  const jsonRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-history-read-freshness-"));
+  const userId = "writer-history-read-freshness";
+  const writerStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const readerStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const initial = await writerStore.read({ userId, fallbackMemory: {
+    ...defaultMemory(),
+    lastUpdatedAt: 100,
+  } });
+  await writerStore.commit({
+    userId,
+    expectedRecord: initial.record,
+    memory: initial.memory,
+    now: 100,
+  });
+  const staleLocal = await readerStore.read({ userId });
+  const writerRead = await writerStore.read({ userId });
+  const latest = structuredClone(writerRead.memory);
+  latest.userPrimaryName = "June Across Devices";
+  latest.turnHistory.push(
+    {
+      turn: 2,
+      role: "user",
+      content: "Continue after the projector starts.",
+      ts: 1700000000200,
+    },
+    {
+      turn: 2,
+      role: "assistant",
+      content: "Mara turns toward the light.",
+      ts: 1700000000300,
+    },
+  );
+  await writerStore.commit({
+    userId,
+    expectedRecord: writerRead.record,
+    memory: latest,
+    now: 120,
+  });
+
+  const deps = defaultDeps({
+    memory: staleLocal.memory,
+    selectMemoryRecordForRead: () => ({
+      source: "auth_user",
+      ip: `auth:${userId}`,
+      memory: staleLocal.memory,
+    }),
+    resolveCanonicalWritableMemoryContext: async () => {
+      const canonical = await readerStore.read({ userId });
+      return {
+        authenticatedUserId: userId,
+        canonical: true,
+        canonicalRecord: canonical.record,
+        requesterIp: `auth:${userId}`,
+        memory: canonical.memory,
+      };
+    },
+    buildConversationHistoryThreads: (memory) => memory.turnHistory
+      .filter((item) => item.role === "user")
+      .map((item) => ({
+        id: `turn-${item.turn}`,
+        turn: item.turn,
+        title: item.content,
+        preview: item.content,
+        user: item.content,
+        assistant: "",
+        updatedAt: item.ts,
+      }))
+      .sort((left, right) => right.turn - left.turn),
+    buildReadStateMeta: (_req, memory) => ({
+      ...defaultReadMeta(),
+      stateVersion: `v-${memory.lastUpdatedAt}`,
+      etag: `W/\"v-${memory.lastUpdatedAt}\"`,
+    }),
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/history");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.source, "auth_user");
+    assert.equal(r.body.user_name, "June Across Devices");
+    assert.equal(r.body.threads[0].turn, 2);
+    assert.equal(r.body.threads[0].user, "Continue after the projector starts.");
+    assert.equal(r.headers.get("x-state-version"), "v-120");
   });
 });
 
