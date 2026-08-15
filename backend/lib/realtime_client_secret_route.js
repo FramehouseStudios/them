@@ -37,6 +37,7 @@
 // + voice, never the client secret value.
 
 import express from "express";
+import { resolveClementineVoiceDirection } from "./clementine_voice_director.js";
 import {
   selectPendingScreenplayLearningQuestion,
   selectProvisionalScreenplayMoveFamilies,
@@ -385,6 +386,13 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       screenplayProjectTitle,
     } = parseProjectGroundingRequest(req, normalizeSnippet);
     const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
+    const requestedEmotionLane = String(
+      req.body?.emotion_lane ?? req.body?.emotionLane ?? "",
+    ).trim();
+    const voiceDirection = resolveClementineVoiceDirection(requestedEmotionLane);
+    const resolvedVoice = requestedVoice || (
+      requestedEmotionLane ? voiceDirection.voice : OPENAI_REALTIME_VOICE
+    );
     const requestedModel = String(req.body?.model || "").trim();
     const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
     const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
@@ -443,7 +451,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       && currentSupplierKind !== "stub";
     const mintParams = {
       instructions: sessionPrompt,
-      voice: requestedVoice || OPENAI_REALTIME_VOICE,
+      voice: resolvedVoice,
       model: requestedModel || OPENAI_REALTIME_MODEL,
       ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
     };
@@ -495,7 +503,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
       instructions: sessionPrompt,
       model: requestedModel || OPENAI_REALTIME_MODEL,
-      voice: requestedVoice || OPENAI_REALTIME_VOICE,
+      voice: resolvedVoice,
     });
     const clientSecretValue = String(minted?.value || "").trim();
     const expiresAt = Math.max(0, Number(minted?.expiresAt || 0));
@@ -509,7 +517,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       });
     }
 
-    const sessionVoice = sessionConfig.audio?.output?.voice || requestedVoice || OPENAI_REALTIME_VOICE;
+    const sessionVoice = sessionConfig.audio?.output?.voice || resolvedVoice;
     const sessionModel = sessionConfig.model || requestedModel || OPENAI_REALTIME_MODEL;
     console.warn(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
 
@@ -521,6 +529,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       ...(fallbackReason ? { fallback: true, fallback_reason: fallbackReason, primary_supplier: primarySupplierKind } : {}),
       model: sessionModel,
       voice: sessionVoice,
+      emotion_lane: voiceDirection.emotionLane,
       ...(projectGrounding ? { memory_grounding: projectGrounding } : {}),
       session: {
         type: sessionConfig.type || "realtime",

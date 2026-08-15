@@ -203,6 +203,68 @@ test("[realtime-client-secret] primary_ok: 201 with canonical envelope", async (
   });
 });
 
+test("[realtime-client-secret] emotion lane directs the voice at session creation", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Stay close and playful.",
+      emotion_lane: "bright_playful",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "coral");
+    assert.equal(r.body.voice, "coral");
+    assert.equal(r.body.emotion_lane, "bright_playful");
+  });
+});
+
+test("[realtime-client-secret] clients without an emotion lane retain the configured default", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "alloy");
+    assert.equal(r.body.voice, "alloy");
+  });
+});
+
+test("[realtime-client-secret] explicit voice still overrides emotion-directed default", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      emotion_lane: "calm_grounded_safe",
+      voice: "marin",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "marin");
+    assert.equal(r.body.voice, "marin");
+    assert.equal(r.body.emotion_lane, "calm_grounded_safe");
+  });
+});
+
 test("[realtime-client-secret] grounds screenplay sessions in authenticated project memory and one pending question", async () => {
   let capturedMintParams = null;
   let capturedRecallOptions = null;

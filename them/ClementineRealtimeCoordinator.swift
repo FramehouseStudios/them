@@ -223,6 +223,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         isScreenplayMode: Bool,
         screenplayProjectId: String? = nil,
         screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
         supplierMode: ClementineRealtimeSupplierMode = .serverDefault,
         forceRefresh: Bool = false
     ) async -> BackendRealtimeBootstrap? {
@@ -234,6 +235,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
             isScreenplayMode: isScreenplayMode,
             screenplayProjectId: screenplayProjectId,
             screenplayProjectTitle: screenplayProjectTitle,
+            emotionLane: emotionLane,
             supplierMode: supplierMode
         )
 
@@ -258,6 +260,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
                 isScreenplayMode: isScreenplayMode,
                 screenplayProjectId: screenplayProjectId,
                 screenplayProjectTitle: screenplayProjectTitle,
+                emotionLane: emotionLane,
                 realtimeProvider: supplierMode.providerParameter
             )
             guard generation == preparationGeneration else { return nil }
@@ -278,12 +281,14 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         isScreenplayMode: Bool,
         screenplayProjectId: String?,
         screenplayProjectTitle: String?,
+        emotionLane: String?,
         supplierMode: ClementineRealtimeSupplierMode
     ) -> String {
         let cleanPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanUser = userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanProjectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanProjectTitle = screenplayProjectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanProjectId)|\(cleanProjectTitle)|\(cleanUser)|\(cleanPrompt)"
+        let cleanEmotionLane = emotionLane?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanProjectId)|\(cleanProjectTitle)|\(cleanEmotionLane)|\(cleanUser)|\(cleanPrompt)"
     }
 }

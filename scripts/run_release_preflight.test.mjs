@@ -103,6 +103,29 @@ test("[run-release-preflight] gates writer-block craft quality before UI evidenc
   );
 });
 
+test("[run-release-preflight] gates live structural story quality before UI evidence", () => {
+  assert.match(
+    scriptSource,
+    /RUN_LIVE_STUDIO_STRUCTURAL_CANARY="\$\{RUN_LIVE_STUDIO_STRUCTURAL_CANARY:-1\}"/,
+  );
+  assert.match(
+    scriptSource,
+    /npm --prefix "\$\{ROOT\}\/backend" run eval:live-studio-structural/,
+  );
+  assert.match(scriptSource, /Skipping live Studio structural canary/);
+  assert.ok(
+    scriptSource.indexOf("run eval:live-studio-structural") <
+      scriptSource.indexOf("run eval:studio-instinct-writer-block-ui"),
+  );
+
+  assert.match(workflowSource, /name: Verify Live Scene Doctor And Feature Architecture/);
+  assert.match(workflowSource, /run: npm run eval:live-studio-structural/);
+  assert.ok(
+    workflowSource.indexOf("run: npm run eval:live-studio-structural") <
+      workflowSource.indexOf("run: npm run eval:studio-instinct-writer-block-ui"),
+  );
+});
+
 test("[run-release-preflight] archives the production Mac app by default", () => {
   assert.match(scriptSource, /MAC_DESKTOP_CONFIGURATION="\$\{MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release\}"/);
   assert.match(scriptSource, /MAC_DESKTOP_ACTION="\$\{MAC_DESKTOP_ACTION:-archive\}"/);

@@ -792,6 +792,7 @@ struct RootExperienceView: View {
     @State private var promptSpeaker = PersonalityPromptSpeaker()
     @State private var typedReplySpeaker = StreamingSpeechPlayer()
     @State private var uiReflection = BackendTalkUIReflection.default
+    @State private var lastClementineEmotionLane = "curious_steady"
     @State private var localStateVersion = ""
     @State private var sessionContinuitySnapshot: BackendSessionContinuitySnapshot?
     @State private var dismissedSessionContinuityFingerprint = ""
@@ -7173,6 +7174,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             withAnimation(.easeInOut(duration: 0.45)) {
                 uiReflection = result.uiReflection
             }
+            if let emotionLane = result.voiceEmotionLane?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !emotionLane.isEmpty {
+                lastClementineEmotionLane = emotionLane
+            }
             HerLog.ui.info(
                 "ui reflection cycle=\(result.uiReflection.cycleIndex) sat=\(result.uiReflection.orbSaturation) react=\(result.uiReflection.orbReactivity) smooth=\(result.uiReflection.orbSmoothing) voice_speed=\(result.uiReflection.voiceSpeed) guard=\(result.uiReflection.overAttachmentSafeguardActive)"
             )
@@ -9192,6 +9198,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             dialogueTimeline: nil,
             assistantSelfName: nil,
             userName: evolution.preferredName,
+            voiceEmotionLane: lastClementineEmotionLane,
+            ttsVoice: nil,
             uiReflection: uiReflection,
             knowledgeTrace: .empty,
             creativeMemoryTrace: .empty,
@@ -10684,6 +10692,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: isScreenplayMode,
             screenplayProjectId: projectIdentity.id,
             screenplayProjectTitle: projectIdentity.title,
+            emotionLane: lastClementineEmotionLane,
             supplierMode: realtimeSupplierMode,
             forceRefresh: forceCredentialRefresh
         )

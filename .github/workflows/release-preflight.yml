@@ -81,6 +81,10 @@ jobs:
         working-directory: backend
         run: npm run eval:writer-block-rescue
 
+      - name: Verify Live Scene Doctor And Feature Architecture
+        working-directory: backend
+        run: npm run eval:live-studio-structural
+
       - name: Verify Clementine Studio Writer Block Rescue
         working-directory: backend
         run: npm run eval:studio-instinct-writer-block-ui
@@ -139,6 +143,7 @@ jobs:
             echo "- RUN_QUALITY_GATE: enforced"
             echo "- Backend/app gate: enforced before iPhone and Mac desktop preflight"
             echo "- Clementine quality gate: every rescue proves playable specificity, causal advancement, character cost, and correct act progression"
+            echo "- Live structural canary: Scene Doctor and feature architecture pass canon continuity, act causality, character arc, and payoff quality"
             echo "- Clementine Studio gate: instinct correction changes rescue rank while due canon remains protected on iPhone and macOS"
             echo "- Mac desktop preflight: production scaffold archive"
             echo "- Release-candidate tag convention: \`rc-*\`"

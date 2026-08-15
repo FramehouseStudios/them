@@ -65,6 +65,7 @@ import {
   runOutboxWorkerTick,
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
+import { applyClementineVoiceDirection } from "./lib/clementine_voice_director.js";
 import {
   buildCharacterFieldProvenance,
   buildProjectFieldProvenance,
@@ -228,9 +229,11 @@ const ALLOWED_TTS_VOICES = new Set([
   "alloy",
   "ash",
   "ballad",
+  "cedar",
   "coral",
   "echo",
   "fable",
+  "marin",
   "nova",
   "onyx",
   "sage",
@@ -7059,6 +7062,7 @@ async function synthesizeTalkScreenplayPageAudio({
   const cues = [];
   const remainderSegments = [];
   const providerLabels = [];
+  const voiceLabels = [];
   let firstSegmentBuffer = Buffer.alloc(0);
   let spokenSegmentCount = 0;
   let cursorMs = 0;
@@ -7112,11 +7116,13 @@ async function synthesizeTalkScreenplayPageAudio({
       remainderSegments.push(stripLeadingId3Tag(rawBuffer));
     }
     providerLabels.push(String(ttsResult?.provider || "openai"));
+    voiceLabels.push(String(ttsResult?.voice || ""));
     spokenSegmentCount += 1;
   }
 
   const remainderBuffer = remainderSegments.length ? Buffer.concat(remainderSegments) : Buffer.alloc(0);
   const uniqueProviders = [...new Set(providerLabels.filter(Boolean))];
+  const uniqueVoices = [...new Set(voiceLabels.filter(Boolean))];
   return {
     firstSegmentBuffer,
     remainderBuffer,
@@ -7126,6 +7132,9 @@ async function synthesizeTalkScreenplayPageAudio({
     providerLabel: uniqueProviders.length > 1
       ? uniqueProviders.join("+")
       : String(uniqueProviders[0] || "openai"),
+    voiceLabel: uniqueVoices.length > 1
+      ? uniqueVoices.join("+")
+      : String(uniqueVoices[0] || ""),
   };
 }
 
@@ -7348,6 +7357,8 @@ function storeSpeculativeTalkPrepared({
   reply = "",
   audioBuffer = Buffer.alloc(0),
   ttsProvider = "openai",
+  ttsVoice = "",
+  emotionLane = "curious_steady",
   preparedAt = Date.now(),
 } = {}) {
   const normalizedKey = normalizeSpeculativeKey(key);
@@ -7365,6 +7376,8 @@ function storeSpeculativeTalkPrepared({
     reply: normalizeSnippet(reply, 8_000),
     audioBuffer: audio,
     ttsProvider: normalizeSnippet(ttsProvider, 40) || "openai",
+    ttsVoice: normalizeSnippet(ttsVoice, 80),
+    emotionLane: normalizeSnippet(emotionLane, 64) || "curious_steady",
     preparedAt: now,
   });
 }
@@ -20465,11 +20478,13 @@ ASSISTANT SELF-NAME:
     reply,
     audioBuffer,
     ttsProvider: String(ttsResult?.provider || "openai"),
+    ttsVoice: String(ttsResult?.voice || interactiveVoiceProfile?.openaiVoice || ""),
+    emotionLane: String(ttsResult?.emotionLane || interactiveVoiceProfile?.emotionLane || "curious_steady"),
     promptHash: computeSpeculativePromptHash(baseSystem),
   };
 }
 
-async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
+async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice, instructions = "" }) {
   let ttsResp;
   try {
     ttsResp = await fetchWithTimeout(
@@ -20486,6 +20501,9 @@ async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
           format: "mp3",
           speed,
           input: inputText,
+          ...(String(instructions || "").trim()
+            ? { instructions: String(instructions).trim() }
+            : {}),
         }),
       },
       TTS_TIMEOUT_MS
@@ -20512,7 +20530,12 @@ async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
   return { buffer: mp3Buffer, provider: "openai" };
 }
 
-async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
+async function synthesizeSpeechMp3ElevenLabs({
+  inputText,
+  voiceId,
+  modelId,
+  voiceSettings = {},
+}) {
   const effectiveVoiceId = normalizeElevenLabsVoiceId(voiceId, ELEVENLABS_DEFAULT_VOICE_ID);
   const effectiveModelId = String(modelId || ELEVENLABS_MODEL_ID).trim() || ELEVENLABS_MODEL_ID;
   const url =
@@ -20534,10 +20557,27 @@ async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
           text: inputText,
           model_id: effectiveModelId,
           voice_settings: {
-            stability: ELEVENLABS_STABILITY,
-            similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
-            style: ELEVENLABS_STYLE,
-            use_speaker_boost: ELEVENLABS_SPEAKER_BOOST,
+            stability: parseNumberInRange(
+              voiceSettings.stability,
+              0,
+              1,
+              ELEVENLABS_STABILITY,
+            ),
+            similarity_boost: parseNumberInRange(
+              voiceSettings.similarityBoost,
+              0,
+              1,
+              ELEVENLABS_SIMILARITY_BOOST,
+            ),
+            style: parseNumberInRange(
+              voiceSettings.style,
+              0,
+              1,
+              ELEVENLABS_STYLE,
+            ),
+            use_speaker_boost: voiceSettings.useSpeakerBoost == null
+              ? ELEVENLABS_SPEAKER_BOOST
+              : Boolean(voiceSettings.useSpeakerBoost),
           },
         }),
       },
@@ -20592,6 +20632,8 @@ async function synthesizeSpeechMp3({
       "openai"
     ),
     openaiVoice: parseOneOf(voiceProfile?.openaiVoice, ALLOWED_TTS_VOICES, CLEMENTINE_PROFILE.voice.openaiVoice),
+    openaiInstructions: normalizeSnippet(voiceProfile?.openaiInstructions, 600),
+    emotionLane: normalizeSnippet(voiceProfile?.emotionLane, 64) || "curious_steady",
     elevenlabsVoiceId: normalizeElevenLabsVoiceId(
       voiceProfile?.elevenlabsVoiceId || CLEMENTINE_PROFILE.voice.elevenlabsVoiceId,
       ELEVENLABS_DEFAULT_VOICE_ID
@@ -20599,6 +20641,7 @@ async function synthesizeSpeechMp3({
     elevenlabsModelId: String(
       voiceProfile?.elevenlabsModelId || CLEMENTINE_PROFILE.voice.elevenlabsModelId || ELEVENLABS_MODEL_ID
     ).trim() || ELEVENLABS_MODEL_ID,
+    elevenlabsSettings: voiceProfile?.elevenlabsSettings || {},
   };
   const providerPlan = resolveTtsProviderPlan(effectiveVoiceProfile);
   if (providerPlan.invalid) {
@@ -20619,6 +20662,7 @@ async function synthesizeSpeechMp3({
         inputText,
         voiceId: providerPlan.elevenlabsVoiceId || effectiveVoiceProfile.elevenlabsVoiceId,
         modelId: effectiveVoiceProfile.elevenlabsModelId,
+        voiceSettings: effectiveVoiceProfile.elevenlabsSettings,
       });
     } catch (err) {
       const errMsg = String(err?.message || err || "");
@@ -20654,6 +20698,7 @@ async function synthesizeSpeechMp3({
           inputText,
           speed,
           voice: effectiveVoiceProfile.openaiVoice,
+          instructions: effectiveVoiceProfile.openaiInstructions,
         });
       } else {
         throw err;
@@ -20664,6 +20709,7 @@ async function synthesizeSpeechMp3({
       inputText,
       speed,
       voice: effectiveVoiceProfile.openaiVoice,
+      instructions: effectiveVoiceProfile.openaiInstructions,
     });
   }
 
@@ -20694,6 +20740,10 @@ async function synthesizeSpeechMp3({
     elapsedMs,
     text: inputText,
     provider,
+    voice: provider === "openai"
+      ? effectiveVoiceProfile.openaiVoice
+      : effectiveVoiceProfile.elevenlabsVoiceId,
+    emotionLane: effectiveVoiceProfile.emotionLane,
   };
 }
 
@@ -32854,6 +32904,7 @@ const handleTalkRequest = createTalkHandler({
   buildTherapeuticDepthAddendum,
   buildTimeOfDayToneAddendum,
   buildTurnPlanner,
+  applyClementineVoiceDirection,
   buildWeeklyEmotionalArcAddendum,
   buildWeeklyExpansionArcAddendum,
   captureLocalNote,
@@ -33237,6 +33288,7 @@ export {
   buildCreativeMemoryPromptTrace,
   buildRealtimeSessionConfig,
   renderRealtimeBridgeHtml,
+  renderStudioRealtimeText,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,

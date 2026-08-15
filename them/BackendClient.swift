@@ -1416,6 +1416,8 @@ struct BackendTalkResult {
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let assistantSelfName: String?
     let userName: String?
+    let voiceEmotionLane: String?
+    let ttsVoice: String?
     let uiReflection: BackendTalkUIReflection
     let knowledgeTrace: BackendTalkKnowledgeTrace
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
@@ -3026,6 +3028,7 @@ final class BackendClient {
         isScreenplayMode: Bool = false,
         screenplayProjectId: String? = nil,
         screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
         voice: String? = nil,
         model: String? = nil,
         realtimeProvider: String? = nil
@@ -3034,6 +3037,7 @@ final class BackendClient {
             "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "is_screenplay_mode": isScreenplayMode,
+            "emotion_lane": emotionLane?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
         ]
@@ -3163,6 +3167,7 @@ final class BackendClient {
         isScreenplayMode: Bool = false,
         screenplayProjectId: String? = nil,
         screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
         voice: String? = nil,
         model: String? = nil,
         realtimeProvider: String? = nil,
@@ -3192,6 +3197,7 @@ final class BackendClient {
             isScreenplayMode: isScreenplayMode,
             screenplayProjectId: screenplayProjectId,
             screenplayProjectTitle: screenplayProjectTitle,
+            emotionLane: emotionLane,
             voice: voice,
             model: model,
             realtimeProvider: realtimeProvider
@@ -3214,6 +3220,7 @@ final class BackendClient {
                         isScreenplayMode: isScreenplayMode,
                         screenplayProjectId: screenplayProjectId,
                         screenplayProjectTitle: screenplayProjectTitle,
+                        emotionLane: emotionLane,
                         voice: voice,
                         model: model,
                         realtimeProvider: realtimeProvider,
@@ -4844,6 +4851,8 @@ final class BackendClient {
         let userName = http?.value(forHTTPHeaderField: "x-user-name")?
             .removingPercentEncoding?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceEmotionLane = parseOptionalHeaderString(http, field: "x-voice-emotion-lane")
+        let ttsVoice = parseOptionalHeaderString(http, field: "x-tts-voice")
         let turnStatus = (http?.value(forHTTPHeaderField: "x-turn-status") ?? "responded")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -4969,6 +4978,8 @@ final class BackendClient {
             dialogueTimeline: dialogueTimeline,
             assistantSelfName: assistantSelfName,
             userName: userName,
+            voiceEmotionLane: voiceEmotionLane,
+            ttsVoice: ttsVoice,
             uiReflection: uiReflection,
             knowledgeTrace: knowledgeTrace,
             creativeMemoryTrace: creativeMemoryTrace,

@@ -69,7 +69,7 @@ import {
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
 function mergeProviderUsage(current = null, additional = null) {
   const merged = {};
@@ -166,6 +166,7 @@ function createTalkHandler(deps) {
     WEEKLY_EXPANSION_SELF_AWARENESS_TURNS,
     appendCraftContextToSystem,
     appendDirectorAddendum,
+    applyClementineVoiceDirection,
     applyAdaptiveTurnLearning,
     applyTtsLeadIn,
     applyUserIdentityIntentToMemory,
@@ -1518,10 +1519,10 @@ function createTalkHandler(deps) {
   const ip = clientIp(req);
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
-  const interactiveVoiceProfile = {
+  let interactiveVoiceProfile = applyClementineVoiceDirection({
     ...CLEMENTINE_PROFILE.voice,
     provider: INTERACTIVE_TTS_PROVIDER,
-  };
+  }, "curious_steady");
   let thinkingDelayMs = pickThinkingDurationMs();
   const thinkingStartedAt = Date.now();
   let screenplayLearningAnswerContext = null;
@@ -2081,6 +2082,8 @@ function createTalkHandler(deps) {
         reply: prepared.reply,
         audioBuffer: prepared.audioBuffer,
         ttsProvider: prepared.ttsProvider,
+        ttsVoice: prepared.ttsVoice,
+        emotionLane: prepared.emotionLane,
         preparedAt: Date.now(),
       });
       res.setHeader("Cache-Control", "no-store");
@@ -2587,6 +2590,10 @@ function createTalkHandler(deps) {
       behaviorMode,
       memory: sessionMemory,
     });
+    interactiveVoiceProfile = applyClementineVoiceDirection(
+      interactiveVoiceProfile,
+      turnPlanner.emotionToMatch,
+    );
     const runtimeStatusSnapshot = deriveBackendRuntimeStatus();
     const chatModelPlan = selectChatModelForTurn({
       transcript: talkGenerationTranscript,
@@ -3800,7 +3807,9 @@ ${directorOutputRule}
       speculativeReuseApplied = Boolean(
         speculativeReuse?.reply &&
         Buffer.isBuffer(speculativeReuse?.audioBuffer) &&
-        speculativeReuse.audioBuffer.length
+        speculativeReuse.audioBuffer.length &&
+        String(speculativeReuse?.emotionLane || "curious_steady") ===
+          String(interactiveVoiceProfile.emotionLane || "curious_steady")
       );
       logger.log(
         `[${rid}] speculative_reuse requested=1 hit=${speculativeReuseApplied ? "1" : "0"} key=${speculativeReuseKeyInput} prompt_hash=${speculativePromptHashInput}`
@@ -4601,6 +4610,11 @@ ${directorOutputRule}
     let secondMp3 = Buffer.alloc(0);
     let secondTtsResult = null;
     let ttsProviderUsed = "openai";
+    let ttsVoiceUsed = String(
+      interactiveVoiceProfile.provider === "openai"
+        ? interactiveVoiceProfile.openaiVoice
+        : interactiveVoiceProfile.elevenlabsVoiceId,
+    );
     if (speculativeReuseApplied) {
       firstMp3 = Buffer.from(speculativeReuse.audioBuffer || []);
       if (!firstMp3.length || !isLikelyMp3Buffer(firstMp3)) {
@@ -4611,6 +4625,7 @@ ${directorOutputRule}
         firstMp3 = Buffer.alloc(0);
       } else {
         ttsProviderUsed = String(speculativeReuse.ttsProvider || "speculative");
+        ttsVoiceUsed = String(speculativeReuse.ttsVoice || ttsVoiceUsed);
         ttsMs = 0;
       }
     }
@@ -4626,6 +4641,7 @@ ${directorOutputRule}
           firstMp3 = Buffer.from(screenplaySpeech?.firstSegmentBuffer || []);
           secondMp3 = Buffer.from(screenplaySpeech?.remainderBuffer || []);
           ttsProviderUsed = String(screenplaySpeech?.providerLabel || "openai");
+          ttsVoiceUsed = String(screenplaySpeech?.voiceLabel || ttsVoiceUsed);
           talkTtsSegmentCount = Math.max(1, Number(screenplaySpeech?.segmentCount || 1));
           talkAudioDurationMs = Math.max(
             0,
@@ -4750,6 +4766,7 @@ ${directorOutputRule}
         ttsProviderUsed = firstProvider === secondProvider
           ? firstProvider
           : `${firstProvider}+${secondProvider}`;
+        ttsVoiceUsed = String(firstTtsResult?.voice || secondTtsResult?.voice || ttsVoiceUsed);
         talkTtsSegmentCount = remainderSpeech ? 2 : 1;
       }
     }
@@ -4898,6 +4915,14 @@ ${directorOutputRule}
     }
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
+    res.setHeader(
+      "x-voice-emotion-lane",
+      encodeURIComponent(String(interactiveVoiceProfile.emotionLane || "curious_steady")),
+    );
+    res.setHeader(
+      "x-tts-voice",
+      encodeURIComponent(ttsVoiceUsed),
+    );
     res.setHeader("x-tts-filler", encodeURIComponent(ttsLeadIn || ""));
     res.setHeader("x-tts-segments", String(Math.max(1, Number(talkTtsSegmentCount || 1))));
     res.setHeader("x-tts-first-bytes", String(Math.max(0, Number(firstMp3.length || 0))));

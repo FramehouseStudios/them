@@ -83,6 +83,13 @@ else
   echo "[release-preflight] Skipping deterministic writer-block quality gate (RUN_WRITER_BLOCK_QUALITY_GATE=${RUN_WRITER_BLOCK_QUALITY_GATE})."
 fi
 
+RUN_LIVE_STUDIO_STRUCTURAL_CANARY="${RUN_LIVE_STUDIO_STRUCTURAL_CANARY:-1}"
+if [[ "${RUN_LIVE_STUDIO_STRUCTURAL_CANARY}" == "1" ]]; then
+  npm --prefix "${ROOT}/backend" run eval:live-studio-structural
+else
+  echo "[release-preflight] Skipping live Studio structural canary (RUN_LIVE_STUDIO_STRUCTURAL_CANARY=${RUN_LIVE_STUDIO_STRUCTURAL_CANARY})."
+fi
+
 if [[ "${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE}" == "1" ]]; then
   npm --prefix "${ROOT}/backend" run eval:studio-instinct-writer-block-ui
 else

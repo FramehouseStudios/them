@@ -1420,6 +1420,7 @@ final class BackendClientCraftAPITests: XCTestCase {
             isScreenplayMode: true,
             screenplayProjectId: "  project-1  ",
             screenplayProjectTitle: "  Ferry Light  ",
+            emotionLane: "  bright_playful  ",
             voice: "  marin  ",
             model: "  gpt-realtime-1.5  ",
             realtimeProvider: ""
@@ -1427,6 +1428,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertNil(serverDefault["realtime_provider"])
         XCTAssertEqual(serverDefault["system_prompt"] as? String, "write in screenplay mode")
         XCTAssertEqual(serverDefault["user_name"] as? String, "June")
+        XCTAssertEqual(serverDefault["emotion_lane"] as? String, "bright_playful")
         XCTAssertEqual(serverDefault["voice"] as? String, "marin")
         XCTAssertEqual(serverDefault["model"] as? String, "gpt-realtime-1.5")
         XCTAssertEqual(serverDefault["is_screenplay_mode"] as? Bool, true)
@@ -1617,21 +1619,32 @@ final class BackendClientCraftAPITests: XCTestCase {
             systemPrompt: "Stay cinematic.",
             userName: "June",
             isScreenplayMode: true,
-            screenplayProjectId: "project-1"
+            screenplayProjectId: "project-1",
+            emotionLane: "warm_attuned"
         )
         let cached = await coordinator.prepareIfNeeded(
             backend: client,
             systemPrompt: "Stay cinematic.",
             userName: "June",
             isScreenplayMode: true,
-            screenplayProjectId: "project-1"
+            screenplayProjectId: "project-1",
+            emotionLane: "warm_attuned"
+        )
+        let differentEmotion = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1",
+            emotionLane: "bright_playful"
         )
         let differentProject = await coordinator.prepareIfNeeded(
             backend: client,
             systemPrompt: "Stay cinematic.",
             userName: "June",
             isScreenplayMode: true,
-            screenplayProjectId: "project-2"
+            screenplayProjectId: "project-2",
+            emotionLane: "bright_playful"
         )
         let refreshed = await coordinator.prepareIfNeeded(
             backend: client,
@@ -1639,24 +1652,33 @@ final class BackendClientCraftAPITests: XCTestCase {
             userName: "June",
             isScreenplayMode: true,
             screenplayProjectId: "project-2",
+            emotionLane: "bright_playful",
             forceRefresh: true
         )
 
         XCTAssertEqual(first?.clientSecret.value, "ephemeral-1")
         XCTAssertEqual(cached?.clientSecret.value, "ephemeral-1")
-        XCTAssertEqual(differentProject?.clientSecret.value, "ephemeral-2")
-        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-3")
+        XCTAssertEqual(differentEmotion?.clientSecret.value, "ephemeral-2")
+        XCTAssertEqual(differentProject?.clientSecret.value, "ephemeral-3")
+        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-4")
         XCTAssertEqual(
             recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
-            3
+            4
         )
         let realtimeBodies = recorder.requests
             .filter { $0.path == "/realtime/client_secret" }
             .compactMap(\.bodyObject)
         XCTAssertEqual(realtimeBodies.map { $0["screenplay_project_id"] as? String }, [
             "project-1",
+            "project-1",
             "project-2",
             "project-2",
+        ])
+        XCTAssertEqual(realtimeBodies.map { $0["emotion_lane"] as? String }, [
+            "warm_attuned",
+            "bright_playful",
+            "bright_playful",
+            "bright_playful",
         ])
     }
 
