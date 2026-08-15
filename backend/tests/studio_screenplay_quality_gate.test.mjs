@@ -80,7 +80,7 @@ test("[studio-quality] recap instead of pages gets exactly one bounded repair", 
   assert.equal(result.quality.attempted_repair, true);
   assert.equal(result.quality.repair_outcome, "repaired");
   assert.equal(repairCalls.length, 1);
-  assert.equal(repairCalls[0].modelTier, "rich");
+  assert.equal(repairCalls[0].modelTier, "structural_repair");
   assert.equal(repairCalls[0].repairAttempt, true);
   assert.equal(repairCalls[0].maxTokens, 1_600);
   assert.match(repairCalls[0].systemPrompt, /QUALITY_FAILURE:/);

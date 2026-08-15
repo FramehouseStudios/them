@@ -510,6 +510,7 @@ function fitSystemPromptForTurnLatency(
     chatModelPlan,
     fastMaxChars = 3_800,
     richMaxChars = 6_200,
+    structuralMaxChars = 10_000,
     protectedTagNames = DEFAULT_PROTECTED_TAGS,
   } = {}
 ) {
@@ -518,7 +519,9 @@ function fitSystemPromptForTurnLatency(
 
   const lane = String(routingLane || "normal_rotation");
   const tier = String(chatModelPlan?.tier || "fast");
+  const needsStructuralBudget = tier === "structural";
   const needsRichBudget =
+    needsStructuralBudget ||
     tier === "rich" ||
     Boolean(turnPlanner?.requiresSubstantiveAnswer) ||
     Boolean(flags?.therapeuticDepth) ||
@@ -530,7 +533,14 @@ function fitSystemPromptForTurnLatency(
     lane === "philosophical" ||
     lane === "creative";
 
-  const budget = Math.max(500, Math.floor(needsRichBudget ? richMaxChars : fastMaxChars));
+  const budget = Math.max(
+    500,
+    Math.floor(
+      needsStructuralBudget
+        ? Math.max(richMaxChars, structuralMaxChars)
+        : (needsRichBudget ? richMaxChars : fastMaxChars)
+    )
+  );
   if (normalized.length <= budget) return normalized;
 
   const protectedBlocks = extractTaggedBlocks(normalized, protectedTagNames);

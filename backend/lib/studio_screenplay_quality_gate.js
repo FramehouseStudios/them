@@ -382,7 +382,7 @@ async function enforceStudioScreenplayQuality({
     const repairedRawReply = await renderRepair({
       ...repairRequest,
       maxTokens: studioScreenplayMaxTokens(initial.requestedPages),
-      modelTier: "rich",
+      modelTier: "structural_repair",
       repairAttempt: true,
     });
     const repaired = evaluateStudioScreenplayReply({

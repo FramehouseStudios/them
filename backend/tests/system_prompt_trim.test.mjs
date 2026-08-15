@@ -129,6 +129,22 @@ test("[system-prompt-trim] preserves prior head-tail behavior when no protected 
   assert.ok(!out.includes("<session>"));
 });
 
+test("[system-prompt-trim] structural screenplay turns receive their larger bounded context budget", () => {
+  const prompt = `${"FEATURE CONTEXT ".repeat(700)}\nEND OF CANON`;
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "structural" },
+    fastMaxChars: 1_200,
+    richMaxChars: 2_000,
+    structuralMaxChars: 4_000,
+  });
+
+  assert.ok(prompt.length > 4_000);
+  assert.ok(out.length <= 4_000);
+  assert.ok(out.length > 2_000);
+  assert.match(out, /FEATURE CONTEXT/);
+  assert.match(out, /END OF CANON/);
+});
+
 test("[system-prompt-trim] does not slice through protected correction memory blocks", () => {
   const protectedBlocks = [
     ["clementine_core", `identity: Clementine\n${"core voice. ".repeat(80)}`],

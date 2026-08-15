@@ -824,7 +824,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         transcript,
         ...(shouldApplyScreenplayContract
           ? {
-              modelTier: "rich",
+              modelTier: "structural",
               maxTokens: studioScreenplayMaxTokens(requestedPages),
             }
           : {}),
@@ -970,7 +970,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         transcript,
         ...(shouldApplyScreenplayContract
           ? {
-              modelTier: "rich",
+              modelTier: "structural",
               maxTokens: studioScreenplayMaxTokens(requestedPages),
             }
           : {}),

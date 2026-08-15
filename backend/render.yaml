@@ -44,6 +44,18 @@ services:
         value: "true"
       - key: AUTH_REQUIRE_EMAIL_VERIFIED
         value: "false"
+      - key: CHAT_STRUCTURAL_REASONING_ENABLED
+        value: "true"
+      - key: CHAT_MODEL_STRUCTURAL
+        value: "gpt-5.6-sol"
+      - key: CHAT_MODEL_STRUCTURAL_FALLBACK
+        value: "gpt-4o"
+      - key: CHAT_STRUCTURAL_REASONING_EFFORT
+        value: "medium"
+      - key: CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT
+        value: "high"
+      - key: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS
+        value: "10000"
 
 databases:
   - name: them-postgres

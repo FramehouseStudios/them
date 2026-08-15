@@ -42,12 +42,12 @@ function defaultDeps(overrides = {}) {
     normalizeSnippet: (v, _max) => (typeof v === "string" ? v.trim() : ""),
     renderStudioRealtimeText: async (options) => {
       calls.renderInvocations.push(options);
-      return options.modelTier === "rich" ? VALID_SCREENPLAY_REPLY : "rendered reply";
+      return options.modelTier === "structural" ? VALID_SCREENPLAY_REPLY : "rendered reply";
     },
     streamStudioRealtimeText: async (options) => {
       const { onDelta } = options;
       calls.streamInvocations.push(options);
-      if (options.modelTier === "rich") {
+      if (options.modelTier === "structural") {
         const splitAt = VALID_SCREENPLAY_REPLY.indexOf("MARA\n");
         const first = VALID_SCREENPLAY_REPLY.slice(0, splitAt);
         await onDelta(first, first);
@@ -510,7 +510,7 @@ test("[studio-render] sync: page target strips labels, dividers, and trailing cr
   });
 });
 
-test("[studio-render] sync: page generation uses rich model budget and returns quality metadata", async () => {
+test("[studio-render] sync: page generation uses structural model budget and returns quality metadata", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
@@ -523,7 +523,7 @@ test("[studio-render] sync: page generation uses rich model budget and returns q
     assert.equal(r.body.screenplay_quality.ok, true);
     assert.equal(r.body.screenplay_quality.repair_outcome, "not_needed");
     assert.equal(deps._calls.renderInvocations.length, 1);
-    assert.equal(deps._calls.renderInvocations[0].modelTier, "rich");
+    assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
     assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_600);
   });
 });
@@ -638,7 +638,7 @@ test("[studio-render] sync: malformed page receives exactly one repair before su
     assert.equal(r.body.screenplay_quality.repair_outcome, "repaired");
     assert.equal(calls.length, 2);
     assert.equal(calls[1].repairAttempt, true);
-    assert.equal(calls[1].modelTier, "rich");
+    assert.equal(calls[1].modelTier, "structural_repair");
     assert.match(calls[1].systemPrompt, /QUALITY_FAILURE:/);
     assert.match(calls[1].systemPrompt, /Mara is Eli's sister/);
     assert.match(calls[1].transcript, /WRITER_REQUEST:/);
@@ -998,7 +998,7 @@ test("[studio-render-stream] sse: repaired final replaces provisional page witho
   const repairCalls = [];
   const deps = defaultDeps({
     streamStudioRealtimeText: async ({ onDelta, modelTier, maxTokens }) => {
-      assert.equal(modelTier, "rich");
+      assert.equal(modelTier, "structural");
       assert.equal(maxTokens, 1_600);
       await onDelta(provisional, provisional);
       return provisional;

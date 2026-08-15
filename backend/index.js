@@ -132,6 +132,12 @@ import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
 import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
+import {
+  normalizeOpenAITextResponseRaw,
+  normalizeReasoningEffort,
+  parseOpenAITextStreamLine,
+  requestOpenAIText,
+} from "./lib/openai_text_generation.js";
 import { probeSupplierShape, probeSupplierLive, createSupplierHealthCache } from "./lib/realtime_supplier_health.js";
 import { mintWithFailover } from "./lib/realtime_supplier_failover.js";
 import {
@@ -414,6 +420,13 @@ const RICH_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
     parsePositiveInt(process.env.RICH_TURN_SYSTEM_PROMPT_MAX_CHARS, 6_200)
   )
 );
+const STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
+  RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+  Math.min(
+    MAX_SYSTEM_PROMPT_CHARS,
+    parsePositiveInt(process.env.STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS, 10_000)
+  )
+);
 const CHAT_MAX_TOKENS = parsePositiveInt(process.env.CHAT_MAX_TOKENS, 124);
 const CHAT_SCREENPLAY_PAGE_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 900);
 const CHAT_SCREENPLAY_BATCH_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_BATCH_MAX_TOKENS, 3200);
@@ -425,6 +438,21 @@ const USER_NAME_MENTION_EVERY_TURNS = Math.max(
 const CHAT_MODEL_FAST = String(process.env.CHAT_MODEL_FAST || "gpt-4o-mini").trim();
 const CHAT_MODEL_RICH = String(process.env.CHAT_MODEL_RICH || "gpt-4o").trim();
 const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_RICH).trim();
+const CHAT_STRUCTURAL_REASONING_ENABLED = process.env.CHAT_STRUCTURAL_REASONING_ENABLED == null
+  ? true
+  : parseBool(process.env.CHAT_STRUCTURAL_REASONING_ENABLED);
+const CHAT_MODEL_STRUCTURAL = String(process.env.CHAT_MODEL_STRUCTURAL || "gpt-5.6-sol").trim();
+const CHAT_MODEL_STRUCTURAL_FALLBACK = String(
+  process.env.CHAT_MODEL_STRUCTURAL_FALLBACK || CHAT_MODEL_RICH
+).trim();
+const CHAT_STRUCTURAL_REASONING_EFFORT = normalizeReasoningEffort(
+  process.env.CHAT_STRUCTURAL_REASONING_EFFORT,
+  "medium"
+);
+const CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT = normalizeReasoningEffort(
+  process.env.CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT,
+  "high"
+);
 const VISUAL_CONTEXT_MODEL = String(process.env.VISUAL_CONTEXT_MODEL || CHAT_MODEL_FAST).trim();
 const VISUAL_CONTEXT_TIMEOUT_MS = parsePositiveInt(process.env.VISUAL_CONTEXT_TIMEOUT_MS, 7_500);
 const VISUAL_CONTEXT_SUMMARY_MAX_CHARS = parsePositiveInt(
@@ -20008,6 +20036,27 @@ async function summarizeVisualContextFromImage({
   };
 }
 
+function resolveStudioTextModelPolicy(modelTier = "fast") {
+  const tier = String(modelTier || "fast").trim().toLowerCase();
+  const structural = CHAT_STRUCTURAL_REASONING_ENABLED && tier.startsWith("structural");
+  if (structural) {
+    return {
+      model: CHAT_MODEL_STRUCTURAL,
+      apiMode: "responses",
+      reasoningEffort: tier === "structural_repair"
+        ? CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT
+        : CHAT_STRUCTURAL_REASONING_EFFORT,
+      fallbackModel: CHAT_MODEL_STRUCTURAL_FALLBACK,
+    };
+  }
+  return {
+    model: tier === "rich" ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST) : CHAT_MODEL_FAST,
+    apiMode: "chat_completions",
+    reasoningEffort: "",
+    fallbackModel: "",
+  };
+}
+
 async function renderStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
@@ -20028,31 +20077,28 @@ async function renderStudioRealtimeText({
     return STUDIO_RENDER_TEST_REPLY;
   }
 
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: String(modelTier || "").toLowerCase() === "rich"
-          ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST)
-          : CHAT_MODEL_FAST,
-        temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.min(
-          8_000,
-          Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
-        ),
-        messages: [
-          { role: "system", content: cleanSystemPrompt },
-          { role: "user", content: cleanTranscript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const policy = resolveStudioTextModelPolicy(modelTier);
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    ...policy,
+    messages: [
+      { role: "system", content: cleanSystemPrompt },
+      { role: "user", content: cleanTranscript },
+    ],
+    temperature: CHAT_TEMPERATURE,
+    maxTokens: Math.min(
+      8_000,
+      Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+    ),
+    fetchWithTimeout,
+    timeoutMs: CHAT_TIMEOUT_MS,
+  });
+  if (requestResult.fallbackUsed) {
+    console.warn(
+      `[studio_render] structural_model_fallback model=${requestResult.model} mode=${requestResult.apiMode}`
+    );
+  }
+  const resp = requestResult.response;
 
   const raw = await resp.text();
   if (!resp.ok) {
@@ -20064,7 +20110,10 @@ async function renderStudioRealtimeText({
 
   let payload = null;
   try {
-    payload = raw ? JSON.parse(raw) : null;
+    const normalizedRaw = normalizeOpenAITextResponseRaw(raw, requestResult.apiMode, {
+      model: requestResult.model,
+    });
+    payload = normalizedRaw ? JSON.parse(normalizedRaw) : null;
   } catch {
     payload = null;
   }
@@ -20109,32 +20158,29 @@ async function streamStudioRealtimeText({
     return STUDIO_RENDER_TEST_REPLY;
   }
 
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: String(modelTier || "").toLowerCase() === "rich"
-          ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST)
-          : CHAT_MODEL_FAST,
-        temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.min(
-          8_000,
-          Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
-        ),
-        stream: true,
-        messages: [
-          { role: "system", content: cleanSystemPrompt },
-          { role: "user", content: cleanTranscript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const policy = resolveStudioTextModelPolicy(modelTier);
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    ...policy,
+    messages: [
+      { role: "system", content: cleanSystemPrompt },
+      { role: "user", content: cleanTranscript },
+    ],
+    temperature: CHAT_TEMPERATURE,
+    maxTokens: Math.min(
+      8_000,
+      Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+    ),
+    stream: true,
+    fetchWithTimeout,
+    timeoutMs: CHAT_TIMEOUT_MS,
+  });
+  if (requestResult.fallbackUsed) {
+    console.warn(
+      `[studio_render_stream] structural_model_fallback model=${requestResult.model} mode=${requestResult.apiMode}`
+    );
+  }
+  const resp = requestResult.response;
 
   if (!resp.ok) {
     const raw = await resp.text();
@@ -20163,24 +20209,21 @@ async function streamStudioRealtimeText({
     if (!trimmed.startsWith("data:")) return false;
     const payload = trimmed.slice(5).trim();
     if (!payload) return false;
-    if (payload === "[DONE]") {
-      sawDoneToken = true;
-      return true;
+    const event = parseOpenAITextStreamLine(trimmed, requestResult.apiMode);
+    if (event.error) {
+      const err = new Error(event.error);
+      err.stage = "studio_render";
+      err.status = 502;
+      throw err;
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(payload);
-    } catch (_) {
-      return false;
-    }
-    const delta = parsed?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) {
-      fullReply += delta;
+    if (event.delta) {
+      fullReply += event.delta;
       if (typeof onDelta === "function") {
-        await onDelta(delta, fullReply);
+        await onDelta(event.delta, fullReply);
       }
     }
-    return false;
+    if (event.done) sawDoneToken = true;
+    return event.done;
   };
 
   try {
@@ -20592,29 +20635,28 @@ async function streamChatReplyWithFirstSentence({
   model = CHAT_MODEL_FAST,
   temperature = CHAT_TEMPERATURE,
   maxTokens = CHAT_MAX_TOKENS,
+  apiMode = "chat_completions",
+  reasoningEffort = "",
+  fallbackModel = "",
 }) {
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: String(model || CHAT_MODEL_FAST),
-        temperature,
-        max_tokens: Math.max(64, Number(maxTokens || CHAT_MAX_TOKENS)),
-        stream: true,
-        messages: [
-          { role: "system", content: system },
-          ...shortTermContextMessages,
-          { role: "user", content: transcript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    apiMode,
+    model: String(model || CHAT_MODEL_FAST),
+    temperature,
+    maxTokens: Math.max(64, Number(maxTokens || CHAT_MAX_TOKENS)),
+    reasoningEffort,
+    fallbackModel,
+    stream: true,
+    messages: [
+      { role: "system", content: system },
+      ...shortTermContextMessages,
+      { role: "user", content: transcript },
+    ],
+    fetchWithTimeout,
+    timeoutMs: CHAT_TIMEOUT_MS,
+  });
+  const resp = requestResult.response;
 
   if (!resp.ok) {
     const text = await resp.text();
@@ -20644,19 +20686,15 @@ async function streamChatReplyWithFirstSentence({
     if (!trimmed.startsWith("data:")) return false;
     const payload = trimmed.slice(5).trim();
     if (!payload) return false;
-    if (payload === "[DONE]") {
-      sawDoneToken = true;
-      return true;
+    const event = parseOpenAITextStreamLine(trimmed, requestResult.apiMode);
+    if (event.error) {
+      const err = new Error(event.error);
+      err.stage = "chat";
+      err.status = 502;
+      throw err;
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(payload);
-    } catch (_) {
-      return false;
-    }
-    const delta = parsed?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) {
-      fullReply += delta;
+    if (event.delta) {
+      fullReply += event.delta;
       if (!firstSentence) {
         const candidate = extractFirstSentenceCandidate(fullReply);
         if (candidate && countWords(candidate) >= 3) {
@@ -20669,7 +20707,8 @@ async function streamChatReplyWithFirstSentence({
         }
       }
     }
-    return false;
+    if (event.done) sawDoneToken = true;
+    return event.done;
   };
 
   try {
@@ -20707,6 +20746,10 @@ async function streamChatReplyWithFirstSentence({
   return {
     reply: finalReply,
     firstSentence: String(firstSentence || "").trim(),
+    model: requestResult.model,
+    apiMode: requestResult.apiMode,
+    reasoningEffort: requestResult.reasoningEffort,
+    fallbackUsed: requestResult.fallbackUsed,
   };
 }
 
@@ -20774,6 +20817,7 @@ function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
     ...args,
     fastMaxChars: FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
     richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    structuralMaxChars: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS,
   });
 }
 
@@ -24648,6 +24692,31 @@ function buildTurnPlanner({
   };
 }
 
+function buildChatModelPlan({
+  model,
+  tier,
+  reason,
+  loadShed = false,
+  loadShedCause = "",
+} = {}) {
+  const structural = CHAT_STRUCTURAL_REASONING_ENABLED && tier === "structural";
+  const structuralRepair = CHAT_STRUCTURAL_REASONING_ENABLED && Boolean(CHAT_MODEL_STRUCTURAL);
+  return {
+    model: String(model || CHAT_MODEL_FAST),
+    tier,
+    reason,
+    apiMode: structural ? "responses" : "chat_completions",
+    reasoningEffort: structural ? CHAT_STRUCTURAL_REASONING_EFFORT : "",
+    fallbackModel: structural ? CHAT_MODEL_STRUCTURAL_FALLBACK : "",
+    repairModel: structuralRepair ? CHAT_MODEL_STRUCTURAL : (CHAT_MODEL_RICH || CHAT_MODEL_FAST),
+    repairApiMode: structuralRepair ? "responses" : "chat_completions",
+    repairReasoningEffort: structuralRepair ? CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT : "",
+    repairFallbackModel: structuralRepair ? CHAT_MODEL_STRUCTURAL_FALLBACK : "",
+    loadShed: Boolean(loadShed),
+    loadShedCause: String(loadShedCause || ""),
+  };
+}
+
 function selectChatModelForTurn({
   transcript,
   turnPlanner,
@@ -24835,6 +24904,12 @@ function selectChatModelForTurn({
     }
   }
 
+  if (screenplayPageWrite && CHAT_STRUCTURAL_REASONING_ENABLED && CHAT_MODEL_STRUCTURAL) {
+    model = CHAT_MODEL_STRUCTURAL;
+    tier = "structural";
+    reason = "screenplay_page_write";
+  }
+
   const runtime = runtimeStatus && typeof runtimeStatus === "object"
     ? runtimeStatus
     : deriveBackendRuntimeStatus();
@@ -24868,22 +24943,22 @@ function selectChatModelForTurn({
     model = CHAT_MODEL_FAST;
     tier = "fast";
     reason = `load_shed_${shedCause}`;
-    return {
-      model: String(model || CHAT_MODEL_FAST),
+    return buildChatModelPlan({
+      model,
       tier,
       reason,
       loadShed: true,
       loadShedCause: shedCause,
-    };
+    });
   }
 
-  return {
-    model: String(model || CHAT_MODEL_FAST),
+  return buildChatModelPlan({
+    model,
     tier,
     reason,
     loadShed: false,
     loadShedCause: "",
-  };
+  });
 }
 
 function selectChatTemperatureForTurn({ chatModelPlan, flags, turnPlanner }) {

@@ -199,7 +199,7 @@ test("[screenplay-budget] project target length is never treated as a per-turn b
   );
 });
 
-test("[screenplay-model] short Studio commands keep the rich screenplay model under load", () => {
+test("[screenplay-model] short Studio commands keep the structural screenplay model under load", () => {
   const voiceTranscript = "Continue.";
   const generationTranscript = [
     voiceTranscript,
@@ -220,8 +220,12 @@ test("[screenplay-model] short Studio commands keep the rich screenplay model un
     screenplayPageWrite: true,
   });
 
-  assert.equal(modelPlan.tier, "rich");
+  assert.equal(modelPlan.tier, "structural");
   assert.equal(modelPlan.reason, "screenplay_page_write");
   assert.equal(modelPlan.loadShed, false, "feature pages must not fall back to the chat model");
   assert.notEqual(modelPlan.model, "gpt-4o-mini");
+  assert.equal(modelPlan.apiMode, "responses");
+  assert.equal(modelPlan.reasoningEffort, "medium");
+  assert.equal(modelPlan.fallbackModel, "gpt-4o");
+  assert.equal(modelPlan.repairReasoningEffort, "high");
 });

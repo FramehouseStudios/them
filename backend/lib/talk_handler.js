@@ -1002,12 +1002,20 @@ function createTalkHandler(deps) {
       const requestedMaxTokens = Number(chatMaxTokens);
       const repairMaxTokens = Math.max(512, Math.min(1_800, Number.isFinite(requestedMaxTokens) ? requestedMaxTokens : 1_200));
       const repairResult = await chatSupplier.chat({
-        model: String(chatModelPlan?.model || ""),
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
         temperature: repairTemperature,
         maxTokens: repairMaxTokens,
         messages: repairMessages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "chat_completions"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || ""),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || ""),
       });
       const repairMs = Date.now() - startedAt;
+      if (repairResult?.fallbackUsed) {
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass structural_fallback model=${String(repairResult?.model || "unknown")}`
+        );
+      }
       if (!repairResult?.response?.ok) {
         logger.log(
           `[${rid}] momentum_rescue_repair_pass failed status=${Number(repairResult?.response?.status || 0)}`
@@ -1335,12 +1343,20 @@ function createTalkHandler(deps) {
         );
       }
       const repairResult = await chatSupplier.chat({
-        model: String(chatModelPlan?.model || ""),
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
         temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.4))),
         maxTokens: Math.max(512, Math.min(6_000, Number(chatMaxTokens || 1_500))),
         messages: repairMessages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "chat_completions"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || ""),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || ""),
       });
       const repairMs = Date.now() - startedAt;
+      if (repairResult?.fallbackUsed) {
+        logger.log(
+          `[${rid}] screenplay_repair_pass structural_fallback model=${String(repairResult?.model || "unknown")}`
+        );
+      }
       if (!repairResult?.response?.ok) {
         logger.log(
           `[${rid}] screenplay_repair_pass failed status=${Number(repairResult?.response?.status || 0)} source=${currentSource || "unknown"}`
@@ -3681,6 +3697,10 @@ ${directorOutputRule}
     let rawReply = "";
     let streamFirstSentence = "";
     let streamChatUsed = false;
+    let effectiveChatModel = String(chatModelPlan.model || "unknown");
+    let effectiveChatApiMode = String(chatModelPlan.apiMode || "chat_completions");
+    let effectiveChatReasoningEffort = String(chatModelPlan.reasoningEffort || "");
+    let chatModelFallbackUsed = false;
     let earlyTtsPromise = null;
     let earlyTtsSeedSpeech = "";
     let earlyTtsLeadIn = "";
@@ -3732,10 +3752,19 @@ ${directorOutputRule}
             model: chatModelPlan.model,
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
+            apiMode: chatModelPlan.apiMode,
+            reasoningEffort: chatModelPlan.reasoningEffort,
+            fallbackModel: chatModelPlan.fallbackModel,
           });
           rawReply = String(streamResult.reply || "").trim();
           streamFirstSentence = String(streamResult.firstSentence || "").trim();
           streamChatUsed = Boolean(rawReply);
+          effectiveChatModel = String(streamResult.model || effectiveChatModel);
+          effectiveChatApiMode = String(streamResult.apiMode || effectiveChatApiMode);
+          effectiveChatReasoningEffort = String(
+            streamResult.reasoningEffort ?? effectiveChatReasoningEffort
+          );
+          chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
           chatMs = Date.now() - streamStart;
           if (streamFirstSentence && !earlyTtsPromise) {
             maybeStartEarlyTts(streamFirstSentence);
@@ -3759,6 +3788,9 @@ ${directorOutputRule}
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
             messages: chatMessages,
+            apiMode: chatModelPlan.apiMode,
+            reasoningEffort: chatModelPlan.reasoningEffort,
+            fallbackModel: chatModelPlan.fallbackModel,
           });
         } catch (err) {
           throw createTalkFailureError({
@@ -3771,6 +3803,12 @@ ${directorOutputRule}
 
         const chatResp = chatResult.response;
         const chatText = chatResult.rawText;
+        effectiveChatModel = String(chatResult.model || effectiveChatModel);
+        effectiveChatApiMode = String(chatResult.apiMode || effectiveChatApiMode);
+        effectiveChatReasoningEffort = String(
+          chatResult.reasoningEffort ?? effectiveChatReasoningEffort
+        );
+        chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
         chatMs = Date.now() - chatStart;
 
         if (!chatResp.ok) {
@@ -4574,9 +4612,12 @@ ${directorOutputRule}
     if (speculativeReuseApplied && speculativePromptHashInput) {
       res.setHeader("x-speculative-prompt-hash", speculativePromptHashInput);
     }
-    res.setHeader("x-chat-model", chatModelPlan.model);
+    res.setHeader("x-chat-model", effectiveChatModel);
     res.setHeader("x-chat-model-tier", chatModelPlan.tier);
     res.setHeader("x-chat-model-reason", chatModelPlan.reason);
+    res.setHeader("x-chat-api-mode", effectiveChatApiMode);
+    res.setHeader("x-chat-reasoning-effort", effectiveChatReasoningEffort || "none");
+    res.setHeader("x-chat-model-fallback", chatModelFallbackUsed ? "1" : "0");
     res.setHeader("x-chat-load-shed", chatModelPlan.loadShed ? "1" : "0");
     res.setHeader("x-chat-load-shed-cause", encodeURIComponent(String(chatModelPlan.loadShedCause || "none")));
     res.setHeader("x-chat-temperature", chatTemperature.toFixed(2));
@@ -4811,7 +4852,7 @@ ${directorOutputRule}
         chatStreamUsed: streamChatUsed,
         talkStatus,
         lane: actionLaneMeta?.lane || "chat",
-        model: chatModelPlan.model,
+        model: effectiveChatModel,
         ...buildScreenplayMetricFields({
           talkScreenplayModeEnabled,
           studioMeta,
@@ -4836,7 +4877,10 @@ ${directorOutputRule}
           streamAudio: true,
           chatStreamUsed: Boolean(streamChatUsed),
           lane: String(actionLaneMeta?.lane || "chat"),
-          model: String(chatModelPlan.model || "unknown"),
+          model: effectiveChatModel,
+          modelTier: String(chatModelPlan.tier || "unknown"),
+          reasoningEffort: effectiveChatReasoningEffort || "none",
+          modelFallback: Boolean(chatModelFallbackUsed),
           speculativeReuse: Boolean(speculativeReuseApplied),
         },
       });
@@ -4861,9 +4905,12 @@ ${directorOutputRule}
   tts_segments=${Math.max(1, Number(talkTtsSegmentCount || 1))}
   tts_provider=${ttsProviderUsed}
   chat_stream_used=${streamChatUsed ? 1 : 0}
-  chat_model=${chatModelPlan.model}
+  chat_model=${effectiveChatModel}
   chat_tier=${chatModelPlan.tier}
   chat_reason=${chatModelPlan.reason}
+  chat_api=${effectiveChatApiMode}
+  chat_reasoning=${effectiveChatReasoningEffort || "none"}
+  chat_fallback=${chatModelFallbackUsed ? 1 : 0}
   chat_temp=${chatTemperature.toFixed(2)}
   knowledge_cards=${knowledgeCardsUsed.length}
   knowledge_semantic=${knowledgeMeta?.semanticUsed ? 1 : 0}
@@ -4920,7 +4967,7 @@ ${directorOutputRule}
       chatStreamUsed: streamChatUsed,
       talkStatus,
       lane: actionLaneMeta?.lane || "chat",
-      model: chatModelPlan.model,
+      model: effectiveChatModel,
       ...buildScreenplayMetricFields({
         talkScreenplayModeEnabled,
         studioMeta,
@@ -4945,7 +4992,10 @@ ${directorOutputRule}
         streamAudio: false,
         chatStreamUsed: Boolean(streamChatUsed),
         lane: String(actionLaneMeta?.lane || "chat"),
-        model: String(chatModelPlan.model || "unknown"),
+        model: effectiveChatModel,
+        modelTier: String(chatModelPlan.tier || "unknown"),
+        reasoningEffort: effectiveChatReasoningEffort || "none",
+        modelFallback: Boolean(chatModelFallbackUsed),
         speculativeReuse: Boolean(speculativeReuseApplied),
       },
     });
@@ -4961,9 +5011,12 @@ ${directorOutputRule}
   tts_segments=${Math.max(1, Number(talkTtsSegmentCount || 1))}
   tts_provider=${ttsProviderUsed}
   chat_stream_used=${streamChatUsed ? 1 : 0}
-  chat_model=${chatModelPlan.model}
+  chat_model=${effectiveChatModel}
   chat_tier=${chatModelPlan.tier}
   chat_reason=${chatModelPlan.reason}
+  chat_api=${effectiveChatApiMode}
+  chat_reasoning=${effectiveChatReasoningEffort || "none"}
+  chat_fallback=${chatModelFallbackUsed ? 1 : 0}
   chat_temp=${chatTemperature.toFixed(2)}
   knowledge_cards=${knowledgeCardsUsed.length}
   knowledge_semantic=${knowledgeMeta?.semanticUsed ? 1 : 0}
