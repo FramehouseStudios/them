@@ -14,15 +14,42 @@ function mountRecapRoutes(app, deps = {}) {
   const buildDailyRecapPayload = requireRouteDep(deps, "buildDailyRecapPayload");
   const buildReadStateMeta = requireRouteDep(deps, "buildReadStateMeta");
   const ifNoneMatchStateHit = requireRouteDep(deps, "ifNoneMatchStateHit");
+  const resolveCanonicalWritableMemoryContext = requireRouteDep(
+    deps,
+    "resolveCanonicalWritableMemoryContext",
+  );
   const sanitizePersistedSessionMemory = requireRouteDep(deps, "sanitizePersistedSessionMemory");
   const selectMemoryRecordForRead = requireRouteDep(deps, "selectMemoryRecordForRead");
+  const logger = deps.logger || console;
 
-  function sendRecapResponse(req, res, windowKey = "today") {
-    const selected = selectMemoryRecordForRead(req, Date.now());
+  async function sendRecapResponse(req, res, windowKey = "today") {
+    const nowTs = Date.now();
+    const localSelected = selectMemoryRecordForRead(req, nowTs);
+    let selected = localSelected;
+    try {
+      const canonicalContext = await resolveCanonicalWritableMemoryContext(req, nowTs);
+      if (canonicalContext?.canonical) {
+        selected = {
+          source: "auth_user",
+          ip: String(canonicalContext.requesterIp || localSelected.ip || ""),
+          memory: canonicalContext.memory,
+        };
+      }
+    } catch (error) {
+      const rid = String(req.requestId || "recap_read");
+      logger.error?.(
+        `[${rid}] recap memory_read_failed error=${String(error?.message || error)}`,
+      );
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "recap",
+        error: "memory_read_failed",
+      });
+    }
     const memory = sanitizePersistedSessionMemory(selected.memory);
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const historyThreads = buildConversationHistoryThreads(memory, 140);
-    const recap = buildDailyRecapPayload(memory, historyThreads, Date.now(), windowKey);
+    const recap = buildDailyRecapPayload(memory, historyThreads, nowTs, windowKey);
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -57,12 +84,12 @@ function mountRecapRoutes(app, deps = {}) {
     });
   }
 
-  app.get("/recap", (req, res) => {
+  app.get("/recap", async (req, res) => {
     const requestedWindow = String(req.query?.window || "today").trim().toLowerCase();
     return sendRecapResponse(req, res, requestedWindow);
   });
 
-  app.get("/recap/today", (req, res) => {
+  app.get("/recap/today", async (req, res) => {
     return sendRecapResponse(req, res, "today");
   });
 }

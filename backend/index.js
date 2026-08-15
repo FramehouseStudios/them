@@ -31913,15 +31913,18 @@ mountTasksRoutes(app, {
 });
 
 // GET /recap + GET /recap/today extracted to lib/recap_routes.js.
-// Mounted in place to preserve Express registration order and response contracts.
+// Authenticated reads use canonical account state so recaps stay current across
+// backend instances and devices while preserving the existing response contracts.
 mountRecapRoutes(app, {
   applyReadStateHeaders,
   buildConversationHistoryThreads,
   buildDailyRecapPayload,
   buildReadStateMeta,
   ifNoneMatchStateHit,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
   selectMemoryRecordForRead,
+  logger: console,
 });
 
 app.post("/session", sessionRateLimitGuard, async (req, res) => {

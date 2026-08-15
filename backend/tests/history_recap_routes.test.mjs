@@ -526,7 +526,8 @@ test("[recap-routes] mount guards required deps", () => {
 });
 
 test("[recap-routes] GET /recap and /recap/today return recap envelopes", async () => {
-  await withServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  await withServer(deps, async (baseURL) => {
     const weekly = await getJson(baseURL, "/recap?window=last_7_days");
     assert.equal(weekly.status, 200);
     assert.equal(weekly.body.window, "last_7_days");
@@ -536,6 +537,119 @@ test("[recap-routes] GET /recap and /recap/today return recap envelopes", async 
     assert.equal(today.status, 200);
     assert.equal(today.body.window, "today");
     assert.deepEqual(today.body.next_actions, ["Finish the archive scene."]);
+    assert.equal(deps._calls.canonicalReads.length, 2);
+  });
+});
+
+test("[recap-routes] GET /recap fails closed when canonical account state is unavailable", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/recap");
+    assert.equal(r.status, 503);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+    assert.equal(r.body.stage, "recap");
+    assert.equal(r.body.error, "memory_read_failed");
+  });
+});
+
+test("[recap-routes] GET /recap/today summarizes a newer turn from an independent instance", async () => {
+  const jsonRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-recap-read-freshness-"));
+  const userId = "writer-recap-read-freshness";
+  const writerStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const readerStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const initial = await writerStore.read({ userId, fallbackMemory: {
+    ...defaultMemory(),
+    lastUpdatedAt: 100,
+  } });
+  await writerStore.commit({
+    userId,
+    expectedRecord: initial.record,
+    memory: initial.memory,
+    now: 100,
+  });
+  const staleLocal = await readerStore.read({ userId });
+  const writerRead = await writerStore.read({ userId });
+  const latest = structuredClone(writerRead.memory);
+  latest.lastConversationRecap = "Mara chooses to screen the lost reel.";
+  latest.turnHistory.push({
+    turn: 2,
+    role: "user",
+    content: "Mara screens the reel for June.",
+    ts: 1700000000200,
+  });
+  await writerStore.commit({
+    userId,
+    expectedRecord: writerRead.record,
+    memory: latest,
+    now: 120,
+  });
+
+  const deps = defaultDeps({
+    memory: staleLocal.memory,
+    selectMemoryRecordForRead: () => ({
+      source: "auth_user",
+      ip: `auth:${userId}`,
+      memory: staleLocal.memory,
+    }),
+    resolveCanonicalWritableMemoryContext: async () => {
+      const canonical = await readerStore.read({ userId });
+      return {
+        authenticatedUserId: userId,
+        canonical: true,
+        canonicalRecord: canonical.record,
+        requesterIp: `auth:${userId}`,
+        memory: canonical.memory,
+      };
+    },
+    buildConversationHistoryThreads: (memory) => memory.turnHistory.map((item) => ({
+      id: `turn-${item.turn}`,
+      turn: item.turn,
+      title: item.content,
+      preview: item.content,
+      user: item.role === "user" ? item.content : "",
+      assistant: item.role === "assistant" ? item.content : "",
+      updatedAt: item.ts,
+    })),
+    buildDailyRecapPayload: (memory, threads, _now, windowKey) => ({
+      window: windowKey,
+      windowLabel: windowKey,
+      windowStartAt: 1700000000000,
+      windowEndAt: 1700086400000,
+      localDay: "2023-11-14",
+      generatedAt: 1700000000400,
+      recap: memory.lastConversationRecap,
+      highlights: threads.slice(-1).map((thread) => thread.preview),
+      outcomes: [],
+      nextActions: [],
+      openTasks: [],
+      completedToday: [],
+      stats: { windowTurns: threads.length },
+    }),
+    buildReadStateMeta: (_req, memory) => ({
+      ...defaultReadMeta(),
+      stateVersion: `v-${memory.lastUpdatedAt}`,
+      etag: `W/\"v-${memory.lastUpdatedAt}\"`,
+    }),
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await getJson(baseURL, "/recap/today");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.source, "auth_user");
+    assert.equal(r.body.window, "today");
+    assert.equal(r.body.recap, "Mara chooses to screen the lost reel.");
+    assert.deepEqual(r.body.highlights, ["Mara screens the reel for June."]);
+    assert.equal(r.body.stats.windowTurns, 3);
+    assert.equal(r.headers.get("x-state-version"), "v-120");
   });
 });
 
