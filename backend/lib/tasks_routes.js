@@ -18,6 +18,10 @@ function mountTasksRoutes(app, deps = {}) {
   const buildTaskSnapshot = requireRouteDep(deps, "buildTaskSnapshot");
   const clearCompletedTasksInMemory = requireRouteDep(deps, "clearCompletedTasksInMemory");
   const completeTaskInMemory = requireRouteDep(deps, "completeTaskInMemory");
+  const createCanonicalMemoryMutationCommitter = requireRouteDep(
+    deps,
+    "createCanonicalMemoryMutationCommitter",
+  );
   const createRequestId = requireRouteDep(deps, "createRequestId");
   const createTaskInMemory = requireRouteDep(deps, "createTaskInMemory");
   const deleteTaskInMemory = requireRouteDep(deps, "deleteTaskInMemory");
@@ -26,13 +30,14 @@ function mountTasksRoutes(app, deps = {}) {
   const normalizeTaskPriority = requireRouteDep(deps, "normalizeTaskPriority");
   const parseOneOf = requireRouteDep(deps, "parseOneOf");
   const parseQueryLimit = requireRouteDep(deps, "parseQueryLimit");
-  const persistWritableMemoryContext = requireRouteDep(deps, "persistWritableMemoryContext");
   const reopenTaskInMemory = requireRouteDep(deps, "reopenTaskInMemory");
-  const resolveWritableMemoryContext = requireRouteDep(deps, "resolveWritableMemoryContext");
+  const resolveCanonicalWritableMemoryContext = requireRouteDep(
+    deps,
+    "resolveCanonicalWritableMemoryContext",
+  );
   const sanitizePersistedSessionMemory = requireRouteDep(deps, "sanitizePersistedSessionMemory");
   const selectMemoryRecordForRead = requireRouteDep(deps, "selectMemoryRecordForRead");
   const toTaskPayload = requireRouteDep(deps, "toTaskPayload");
-  const trimToMax = requireRouteDep(deps, "trimToMax");
   const logger = deps.logger || console;
   const TASKS_LIST_DEFAULT_LIMIT = Number(deps.TASKS_LIST_DEFAULT_LIMIT);
   const TASKS_MAX_STORED = Number(deps.TASKS_MAX_STORED);
@@ -45,14 +50,31 @@ function mountTasksRoutes(app, deps = {}) {
     throw new Error("mountTasksRoutes requires numeric TASKS_MAX_STORED");
   }
 
-  app.get("/tasks", (req, res) => {
+  app.get("/tasks", async (req, res) => {
     const limit = parseQueryLimit(req.query?.limit, TASKS_LIST_DEFAULT_LIMIT, TASKS_MAX_STORED);
     const status = parseOneOf(
       String(req.query?.status || "all").trim().toLowerCase(),
       TASK_STATUS_FILTERS,
       "all"
     );
-    const selected = selectMemoryRecordForRead(req, Date.now());
+    const nowTs = Date.now();
+    const localSelected = selectMemoryRecordForRead(req, nowTs);
+    let selected = localSelected;
+    try {
+      const canonicalContext = await resolveCanonicalWritableMemoryContext(req, nowTs);
+      if (canonicalContext?.canonical) {
+        selected = {
+          source: "auth_user",
+          ip: String(canonicalContext.requesterIp || localSelected.ip || ""),
+          memory: canonicalContext.memory,
+        };
+      }
+    } catch (error) {
+      const rid = String(req.requestId || "tasks_read");
+      logger.error?.(`[${rid}] tasks memory_read_failed error=${String(error?.message || error)}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ stage: "tasks", error: "memory_read_failed" });
+    }
     const memory = sanitizePersistedSessionMemory(selected.memory);
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const snapshot = buildTaskSnapshot(memory, { status, limit });
@@ -83,11 +105,9 @@ function mountTasksRoutes(app, deps = {}) {
     });
   });
 
-  app.post("/tasks/update", express.json({ limit: TASKS_UPDATE_BODY_LIMIT }), (req, res) => {
+  app.post("/tasks/update", express.json({ limit: TASKS_UPDATE_BODY_LIMIT }), async (req, res) => {
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
-    const memory = sanitizePersistedSessionMemory(context.memory);
     const action = parseOneOf(
       String(req.body?.action || "complete").trim().toLowerCase(),
       TASK_UPDATE_ACTIONS,
@@ -100,53 +120,75 @@ function mountTasksRoutes(app, deps = {}) {
     );
     const dueAt = Math.max(0, Number(req.body?.due_at ?? req.body?.dueAt ?? 0));
     const priority = normalizeTaskPriority(req.body?.priority);
+    let context;
+    try {
+      context = await resolveCanonicalWritableMemoryContext(req, nowTs);
+    } catch (error) {
+      logger.error?.(`[${rid}] tasks_update memory_read_failed error=${String(error?.message || error)}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ stage: "tasks", error: "memory_read_failed" });
+    }
+
     let status = "ok";
     let message = "";
     let task = null;
     let removedCount = 0;
-
-    if (action === "add") {
-      if (!title) {
-        status = "failed";
-        message = "Missing task title.";
-      } else {
-        task = createTaskInMemory(memory, {
-          title,
-          dueAt,
-          priority,
-          source: "api",
-        }, nowTs);
-        if (!task) {
-          status = "failed";
-          message = "Task was not created.";
-        } else if (task.duplicate) {
-          status = "duplicate";
-        } else {
-          status = "created";
+    let persisted;
+    try {
+      const commitMemoryMutation = createCanonicalMemoryMutationCommitter(context);
+      persisted = await commitMemoryMutation((currentMemory) => {
+        const memory = sanitizePersistedSessionMemory(currentMemory);
+        status = "ok";
+        message = "";
+        task = null;
+        removedCount = 0;
+        if (action === "add") {
+          if (!title) {
+            status = "failed";
+            message = "Missing task title.";
+          } else {
+            task = createTaskInMemory(memory, {
+              title,
+              dueAt,
+              priority,
+              source: "api",
+            }, nowTs);
+            if (!task) {
+              status = "failed";
+              message = "Task was not created.";
+            } else if (task.duplicate) {
+              status = "duplicate";
+            } else {
+              status = "created";
+            }
+          }
+        } else if (action === "complete") {
+          task = completeTaskInMemory(memory, query, nowTs);
+          status = task ? "completed" : "none";
+        } else if (action === "reopen") {
+          task = reopenTaskInMemory(memory, query, nowTs);
+          status = task ? "reopened" : "none";
+        } else if (action === "delete") {
+          task = deleteTaskInMemory(memory, query, nowTs);
+          status = task ? "deleted" : "none";
+        } else if (action === "clear_completed") {
+          removedCount = clearCompletedTasksInMemory(memory, nowTs);
+          status = removedCount > 0 ? "cleared_completed" : "none";
         }
-      }
-    } else if (action === "complete") {
-      task = completeTaskInMemory(memory, query, nowTs);
-      status = task ? "completed" : "none";
-    } else if (action === "reopen") {
-      task = reopenTaskInMemory(memory, query, nowTs);
-      status = task ? "reopened" : "none";
-    } else if (action === "delete") {
-      task = deleteTaskInMemory(memory, query, nowTs);
-      status = task ? "deleted" : "none";
-    } else if (action === "clear_completed") {
-      removedCount = clearCompletedTasksInMemory(memory, nowTs);
-      status = removedCount > 0 ? "cleared_completed" : "none";
+        return memory;
+      }, nowTs);
+    } catch (error) {
+      logger.error?.(`[${rid}] tasks_update memory_write_failed error=${String(error?.message || error)}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({ stage: "tasks", error: "memory_write_failed" });
     }
-
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const snapshot = buildTaskSnapshot(persisted, { status: "all", limit: TASKS_LIST_DEFAULT_LIMIT });
     const payloadTask = toTaskPayload(task);
     const ok = status !== "failed";
     const statusCode = ok ? 200 : 400;
     logger.log(
-      `[${rid}] tasks_update action=${action} status=${status} removed=${removedCount} title="${trimToMax(String(payloadTask?.title || title || ""), 96)}"`
+      `[${rid}] tasks_update action=${action} status=${status} removed=${removedCount} title_chars=${String(payloadTask?.title || title || "").length}`
     );
 
     res.setHeader("Cache-Control", "no-store");
