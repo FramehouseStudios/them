@@ -23,22 +23,19 @@
 //
 // Per the #227 design note's "memory-write test" constraint:
 // this is the third decomp sub-phase deliberately because the
-// memory write surface (resolveWritableMemoryContext,
-// sanitizePersistedSessionMemory, updateSessionEmotionMemory,
-// updateSessionAfterReply, persistWritableMemoryContext,
-// storeTalkTurnMeta, etc.) is the heaviest dep set in the 5b
+// memory write surface (canonical account read, bounded CAS
+// committers, emotion updates, and turn metadata) is the
+// heaviest dep set in the 5b
 // chain. The extraction passes all of those as deps so they
 // remain swappable for tests, and the lib does NOT mutate any
 // module-level state itself — same byte-identical-rotation
 // rule that Codex flagged in the 5b.1 review.
 //
-// Access-control posture: SAFE-PUBLIC at the HTTP layer (the
-// inline handler had no bearer-token guard). The memory write
-// surface itself is PER-USER scoped — `resolveWritableMemoryContext`
-// resolves the writable scope from the request (IP, user
-// session). The route is the public commit handler iOS uses
-// after a realtime turn lands; the per-user gating happens
-// inside the dep functions.
+// Access control is enforced by the server's production auth
+// middleware before this mount. The memory write surface is also
+// identity scoped: authenticated requests use the canonical account
+// row, while non-production local requests retain their existing
+// scoped fallback. iOS calls this after a realtime turn lands.
 
 import express from "express";
 import { buildCanonClarificationPayload } from "./canon_clarification.js";
@@ -65,9 +62,10 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     normalizeSnippet,
     sanitizeStudioTurnMetadata,
     // ---------- memory context resolution ----------
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
+    createTalkMemoryCommitter,
+    createCanonicalMemoryMutationCommitter,
     // ---------- request / IP ----------
     normalizeClientIp,
     clientIp,
@@ -94,9 +92,10 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     createRequestId,
     normalizeSnippet,
     sanitizeStudioTurnMetadata,
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
+    createTalkMemoryCommitter,
+    createCanonicalMemoryMutationCommitter,
     normalizeClientIp,
     clientIp,
     directorFlagsFromTranscript,
@@ -152,7 +151,20 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       });
     }
 
-    const context = resolveWritableMemoryContext(req, nowTs);
+    let context;
+    try {
+      context = await resolveCanonicalWritableMemoryContext(req, nowTs);
+    } catch (error) {
+      console.error(
+        `[${rid}] realtime_turn_commit memory_read_failed error=${String(error?.message || error || "unknown")}`,
+      );
+      return res.status(503).json({
+        stage: "realtime_turn_commit",
+        error: "memory_read_failed",
+      });
+    }
+    const commitTurnMemory = createTalkMemoryCommitter(context);
+    const commitMemoryMutation = createCanonicalMemoryMutationCommitter(context);
     const previousMemory = sanitizePersistedSessionMemory(context.memory);
     const screenplayProjectId = normalizeSnippet(
       studioMeta?.screenplayProjectId ??
@@ -286,7 +298,19 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         }
       });
 
-    let persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
+    let persisted;
+    try {
+      nextMemory = await commitTurnMemory(nextMemory, nowTs);
+      persisted = nextMemory;
+    } catch (error) {
+      console.error(
+        `[${rid}] realtime_turn_commit memory_write_failed error=${String(error?.message || error || "unknown")}`,
+      );
+      return res.status(Number(error?.status || 503)).json({
+        stage: "realtime_turn_commit",
+        error: "memory_write_failed",
+      });
+    }
     const creativeMemoryWritePromise = Promise.resolve()
       .then(() => recordCreativeMemoryTriggersForRequest(req, {
         transcript,
@@ -312,12 +336,26 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       creativeMemoryWriteSummary.skipped !== true
     );
     if (screenplayQuestionResolved) {
-      nextMemory.pendingScreenplayLearningQuestions =
-        removePendingScreenplayLearningQuestion(
-          nextMemory.pendingScreenplayLearningQuestions,
-          pendingScreenplayQuestion,
+      try {
+        persisted = await commitMemoryMutation((currentMemory) => {
+          const current = sanitizePersistedSessionMemory(currentMemory);
+          current.pendingScreenplayLearningQuestions =
+            removePendingScreenplayLearningQuestion(
+              current.pendingScreenplayLearningQuestions,
+              pendingScreenplayQuestion,
+            );
+          return current;
+        }, nowTs);
+        nextMemory = persisted;
+      } catch (error) {
+        console.error(
+          `[${rid}] realtime_turn_commit question_state_write_failed error=${String(error?.message || error || "unknown")}`,
         );
-      persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
+        return res.status(Number(error?.status || 503)).json({
+          stage: "realtime_turn_commit",
+          error: "memory_write_failed",
+        });
+      }
     }
 
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);

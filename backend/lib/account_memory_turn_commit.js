@@ -255,7 +255,66 @@ function createAccountMemoryTurnCommitter({
   };
 }
 
+function createAccountMemoryMutationCommitter({
+  context,
+  persistMemory,
+  sanitizeMemory,
+  maxAttempts = 3,
+} = {}) {
+  if (!context || typeof context !== "object") {
+    throw new Error("createAccountMemoryMutationCommitter requires context");
+  }
+  if (typeof persistMemory !== "function") {
+    throw new Error("createAccountMemoryMutationCommitter requires persistMemory");
+  }
+  if (typeof sanitizeMemory !== "function") {
+    throw new Error("createAccountMemoryMutationCommitter requires sanitizeMemory");
+  }
+  const attemptCap = Math.max(1, Math.min(5, Number(maxAttempts) || 3));
+  let queue = Promise.resolve();
+
+  async function commitNow(mutator, nowTs) {
+    if (typeof mutator !== "function") {
+      throw new Error("account memory mutation must be a function");
+    }
+    for (let attempt = 0; attempt < attemptCap; attempt += 1) {
+      const current = cloneJson(sanitizeMemory(context.memory));
+      const mutated = mutator(cloneJson(current));
+      const candidate = sanitizeMemory(mutated === undefined ? current : mutated);
+      const result = await persistMemory(context, candidate, nowTs);
+      if (result?.ok) {
+        const committed = sanitizeMemory(result.memory || candidate);
+        context.memory = committed;
+        if (result.record) context.canonicalRecord = result.record;
+        if (context.activeSession && typeof context.activeSession === "object") {
+          context.activeSession.memory = committed;
+        }
+        return committed;
+      }
+      if (result?.status !== "stale_memory_state_version") break;
+      const winner = sanitizeMemory(result.memory || context.memory);
+      context.memory = winner;
+      context.canonicalRecord = result.record || null;
+      if (context.activeSession && typeof context.activeSession === "object") {
+        context.activeSession.memory = winner;
+      }
+    }
+    const error = new Error("Clementine memory changed too many times to apply this update safely.");
+    error.code = "memory_commit_conflict";
+    error.stage = "memory";
+    error.status = 503;
+    throw error;
+  }
+
+  return function commitMemoryMutation(mutator, nowTs = Date.now()) {
+    const pending = queue.then(() => commitNow(mutator, nowTs));
+    queue = pending.catch(() => undefined);
+    return pending;
+  };
+}
+
 export {
+  createAccountMemoryMutationCommitter,
   createAccountMemoryTurnCommitter,
   mergeConcurrentAccountMemory,
 };

@@ -35,19 +35,16 @@ function defaultDeps(overrides = {}, initialQuestion = pendingQuestion) {
   return {
     createRequestId: () => "req-question",
     normalizeSnippet: (value, max) => String(value ?? "").trim().slice(0, max),
-    resolveWritableMemoryContext: () => ({
+    resolveCanonicalWritableMemoryContext: async () => ({
       memory: storedMemory,
       requesterIp: "127.0.0.1",
     }),
     sanitizePersistedSessionMemory: (memory) => structuredClone(memory || {}),
-    persistWritableMemoryContext: (_context, memory) => {
+    createCanonicalMemoryMutationCommitter: (context) => async (mutator) => {
       calls.persisted += 1;
-      storedMemory = structuredClone(memory);
-      return {
-        source: "user",
-        ip: "127.0.0.1",
-        memory: storedMemory,
-      };
+      storedMemory = structuredClone(mutator(structuredClone(context.memory || {})));
+      context.memory = storedMemory;
+      return storedMemory;
     },
     recordCreativeMemoryTriggersForRequest: async (_req, turn) => {
       calls.creativeMemory.push(turn);
@@ -118,10 +115,10 @@ test("[screenplay-question-route] body limit is intentionally small", () => {
 
 test("[screenplay-question-route] mount fails when a required dependency is absent", () => {
   const deps = defaultDeps();
-  delete deps.persistWritableMemoryContext;
+  delete deps.createCanonicalMemoryMutationCommitter;
   assert.throws(
     () => mountScreenplayQuestionRoutes(express(), deps),
-    /persistWritableMemoryContext/
+    /createCanonicalMemoryMutationCommitter/
   );
 });
 
@@ -135,6 +132,44 @@ test("[screenplay-question-route] requires trusted user auth", async () => {
     assert.equal(result.status, 401);
     assert.equal(result.body.error, "user_auth_required");
   }, { authenticated: false });
+});
+
+test("[screenplay-question-route] fails closed when canonical memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const result = await postResolution(baseURL, {
+      question_id: pendingQuestion.id,
+      project_id: pendingQuestion.projectId,
+      response_status: "declined",
+    });
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, "memory_read_failed");
+    assert.equal(deps._calls.creativeMemory.length, 0);
+  });
+});
+
+test("[screenplay-question-route] fails closed when resolved state cannot be committed", async () => {
+  const deps = defaultDeps({
+    createCanonicalMemoryMutationCommitter: () => async () => {
+      const error = new Error("contention");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const result = await postResolution(baseURL, {
+      question_id: pendingQuestion.id,
+      project_id: pendingQuestion.projectId,
+      response_status: "declined",
+    });
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, "memory_write_failed");
+    assert.equal(deps._calls.creativeMemory.length, 1);
+  });
 });
 
 test("[screenplay-question-route] promotes an explicit answer before clearing it", async () => {

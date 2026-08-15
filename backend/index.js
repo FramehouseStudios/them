@@ -161,7 +161,10 @@ import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.j
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
 import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
-import { createAccountMemoryTurnCommitter } from "./lib/account_memory_turn_commit.js";
+import {
+  createAccountMemoryMutationCommitter,
+  createAccountMemoryTurnCommitter,
+} from "./lib/account_memory_turn_commit.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
@@ -31199,6 +31202,14 @@ function createTalkMemoryCommitter(context) {
   });
 }
 
+function createCanonicalMemoryMutationCommitter(context) {
+  return createAccountMemoryMutationCommitter({
+    context,
+    persistMemory: persistCanonicalWritableMemoryContext,
+    sanitizeMemory: sanitizePersistedSessionMemory,
+  });
+}
+
 function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
   const base = sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
   base.turns = 0;
@@ -31859,9 +31870,9 @@ mountMemoriesRoutes(app, {
 mountScreenplayQuestionRoutes(app, {
   createRequestId,
   normalizeSnippet,
-  resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
-  persistWritableMemoryContext,
+  createCanonicalMemoryMutationCommitter,
   recordCreativeMemoryTriggersForRequest,
   buildReadStateMeta,
   applyReadStateHeaders,
@@ -32495,8 +32506,9 @@ app.post(
 // T-decompose-phase5b3-turn-commit: route moved to
 // lib/realtime_turn_commit_route.js. Byte-identical with the
 // previous inline handler — same 201 envelope, same 400
-// missing-fields guard, same memory-write pipeline, same
-// storeTalkTurnMeta call, same read-state headers. See
+// missing-fields guard, same storeTalkTurnMeta call, and same
+// read-state headers. Its writes now use the canonical account
+// CAS pipeline shared with /talk. See
 // docs/specs/T-decompose-backend-index.md and the #227
 // design note.
 app.use(
@@ -32508,9 +32520,10 @@ mountRealtimeTurnCommitRoute(app, {
   createRequestId,
   normalizeSnippet,
   sanitizeStudioTurnMetadata,
-  resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
-  persistWritableMemoryContext,
+  createTalkMemoryCommitter,
+  createCanonicalMemoryMutationCommitter,
   normalizeClientIp,
   clientIp,
   directorFlagsFromTranscript,

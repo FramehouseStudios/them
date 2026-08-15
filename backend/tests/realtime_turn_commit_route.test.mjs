@@ -11,8 +11,8 @@
 // - request_id falls back to rid when not in the body.
 // - userMessage / user_message / transcript field-name fallbacks
 //   honored.
-// - Memory-write side-effect: persistWritableMemoryContext
-//   called with (context, nextMemory, nowTs).
+// - Memory-write side-effect: the canonical turn committer is
+//   called with (nextMemory, nowTs).
 // - No module-level supplier rotation — the route does NOT
 //   touch any state outside the deps (same byte-identical-
 //   rotation invariant Codex flagged in 5b.1).
@@ -28,9 +28,10 @@ import {
 
 function defaultDeps(overrides = {}) {
   const calls = {
-    resolveWritableMemoryContext: [],
+    resolveCanonicalWritableMemoryContext: [],
     sanitizePersistedSessionMemory: [],
-    persistWritableMemoryContext: [],
+    memoryCommits: [],
+    commitMemoryMutation: [],
     updateSessionEmotionMemory: [],
     updateSessionAfterReply: [],
     recordUserTalkMetrics: [],
@@ -46,18 +47,26 @@ function defaultDeps(overrides = {}) {
     normalizeSnippet: (v, _max) => (typeof v === "string" ? v.trim() : ""),
     sanitizeStudioTurnMetadata: (v) => v || null,
     // Memory context
-    resolveWritableMemoryContext: (req, nowTs) => {
+    resolveCanonicalWritableMemoryContext: async (req, nowTs) => {
       const ctx = { memory: null, requesterIp: "10.0.0.1", activeSession: null };
-      calls.resolveWritableMemoryContext.push({ nowTs });
+      calls.resolveCanonicalWritableMemoryContext.push({ nowTs });
       return ctx;
     },
     sanitizePersistedSessionMemory: (m) => {
       calls.sanitizePersistedSessionMemory.push(m);
       return m || { behaviorMode: "surface", followUpPromptCount: 0, followUpAnswerCount: 0 };
     },
-    persistWritableMemoryContext: (ctx, nextMem, ts) => {
-      calls.persistWritableMemoryContext.push({ ctx, nextMem, ts });
-      return { ok: true };
+    createTalkMemoryCommitter: (ctx) => async (nextMem, ts) => {
+      calls.memoryCommits.push({ ctx, nextMem, ts, kind: "turn" });
+      ctx.memory = structuredClone(nextMem);
+      return structuredClone(nextMem);
+    },
+    createCanonicalMemoryMutationCommitter: (ctx) => async (mutator, ts) => {
+      const nextMem = mutator(structuredClone(ctx.memory || {}));
+      calls.memoryCommits.push({ ctx, nextMem, ts, kind: "mutation" });
+      calls.commitMemoryMutation.push({ ctx, nextMem, ts });
+      ctx.memory = structuredClone(nextMem);
+      return structuredClone(nextMem);
     },
     // IP
     normalizeClientIp: (ip) => String(ip || "").trim() || "0.0.0.0",
@@ -148,8 +157,9 @@ test("[turn-commit] mount fails without Express app", () => {
 test("[turn-commit] mount fails when any required dep function is missing", () => {
   const required = [
     "createRequestId", "normalizeSnippet", "sanitizeStudioTurnMetadata",
-    "resolveWritableMemoryContext", "sanitizePersistedSessionMemory",
-    "persistWritableMemoryContext", "normalizeClientIp", "clientIp",
+    "resolveCanonicalWritableMemoryContext", "sanitizePersistedSessionMemory",
+    "createTalkMemoryCommitter", "createCanonicalMemoryMutationCommitter",
+    "normalizeClientIp", "clientIp",
     "directorFlagsFromTranscript", "getUserMetricState",
     "countSessionStartsForDay", "formatLocalDateStamp",
     "updateSessionEmotionMemory", "updateSessionAfterReply",
@@ -201,6 +211,38 @@ test("[turn-commit] 400 when both missing", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, {});
     assert.equal(r.status, 400);
+  });
+});
+
+test("[turn-commit] fails closed when canonical account memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, { transcript: "x", reply: "y" });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_turn_commit");
+    assert.equal(r.body.error, "memory_read_failed");
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 0);
+  });
+});
+
+test("[turn-commit] fails closed when the canonical turn cannot be committed", async () => {
+  const deps = defaultDeps({
+    createTalkMemoryCommitter: () => async () => {
+      const error = new Error("contention");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, { transcript: "x", reply: "y" });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_turn_commit");
+    assert.equal(r.body.error, "memory_write_failed");
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 0);
   });
 });
 
@@ -368,12 +410,12 @@ test("[turn-commit] applyReadStateHeaders is invoked once with the meta object",
 
 // ---------- memory-write side-effect invariant (#227 constraint) ----------
 
-test("[turn-commit] persistWritableMemoryContext invoked with (ctx, nextMemory, nowTs)", async () => {
+test("[turn-commit] canonical turn committer receives nextMemory and nowTs", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     await postJson(baseURL, { transcript: "x", reply: "y" });
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
-    const args = deps._calls.persistWritableMemoryContext[0];
+    assert.equal(deps._calls.memoryCommits.length, 1);
+    const args = deps._calls.memoryCommits[0];
     assert.ok(args.ctx, "context should be passed");
     assert.ok(args.nextMem, "nextMemory should be passed");
     assert.equal(typeof args.ts, "number", "timestamp should be epoch ms");
@@ -386,9 +428,9 @@ test("[turn-commit] memory write pipeline: emotion → afterReply → persist (i
     await postJson(baseURL, { transcript: "x", reply: "y" });
     assert.equal(deps._calls.updateSessionEmotionMemory.length, 1);
     assert.equal(deps._calls.updateSessionAfterReply.length, 1);
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
+    assert.equal(deps._calls.memoryCommits.length, 1);
     // updateSessionEmotionMemory feeds updateSessionAfterReply.
-    // updateSessionAfterReply feeds persistWritableMemoryContext.
+    // updateSessionAfterReply feeds the canonical turn committer.
     // (Stub asserts the order by capture-time, not by tree.)
   });
 });
@@ -409,7 +451,7 @@ test("[turn-commit] promotes a spoken screenplay answer before clearing its pend
     askedAt: 1_725_000_000_000,
   };
   const deps = defaultDeps();
-  deps.resolveWritableMemoryContext = () => ({
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
     memory: {
       turns: 5,
       pendingScreenplayLearningQuestions: [pending],
@@ -458,9 +500,9 @@ test("[turn-commit] promotes a spoken screenplay answer before clearing its pend
       deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
       "answered",
     );
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 2);
+    assert.equal(deps._calls.memoryCommits.length, 2);
     assert.deepEqual(
-      deps._calls.persistWritableMemoryContext.at(-1).nextMem.pendingScreenplayLearningQuestions,
+      deps._calls.memoryCommits.at(-1).nextMem.pendingScreenplayLearningQuestions,
       [],
     );
   });
@@ -513,7 +555,7 @@ test("[turn-commit] turns uncertain spoken brainstorming into provisional option
     askedAt: 1_725_000_000_000,
   };
   const deps = defaultDeps();
-  deps.resolveWritableMemoryContext = () => ({
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
     memory: {
       turns: 7,
       pendingScreenplayLearningQuestions: [pending],
@@ -555,7 +597,7 @@ test("[turn-commit] turns uncertain spoken brainstorming into provisional option
       deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction,
       null,
     );
-    const persisted = deps._calls.persistWritableMemoryContext.at(-1).nextMem;
+    const persisted = deps._calls.memoryCommits.at(-1).nextMem;
     assert.equal(persisted.pendingScreenplayLearningQuestions.length, 1);
     assert.equal(
       persisted.pendingScreenplayLearningQuestions[0].provisionalOptions[1].value,
@@ -589,7 +631,7 @@ test("[turn-commit] promotes only the explicit realtime option selection", async
     askedAt: 1_725_000_000_000,
   };
   const deps = defaultDeps();
-  deps.resolveWritableMemoryContext = () => ({
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
     memory: {
       turns: 8,
       pendingScreenplayLearningQuestions: [pending],
@@ -625,7 +667,7 @@ test("[turn-commit] promotes only the explicit realtime option selection", async
     assert.equal(write.learningContext.selectedMoveFamily, "relationship_pressure");
     assert.equal(write.learningContext.provisionalOptions.length, 3);
     assert.equal(
-      deps._calls.persistWritableMemoryContext.at(-1).nextMem
+      deps._calls.memoryCommits.at(-1).nextMem
         .pendingScreenplayLearningQuestions.length,
       0
     );
@@ -675,7 +717,7 @@ test("[turn-commit] never mislearns a spoken page command as a screenplay answer
     askedAt: 1_725_000_000_000,
   };
   const deps = defaultDeps();
-  deps.resolveWritableMemoryContext = () => ({
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
     memory: {
       turns: 6,
       pendingScreenplayLearningQuestions: [pending],
@@ -728,7 +770,7 @@ test("[turn-commit] request_id replay executes the realtime memory pipeline exac
     assert.equal(replay.headers.get("x-idempotency-replayed"), "1");
     assert.deepEqual(replay.body, first.body);
     assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
+    assert.equal(deps._calls.memoryCommits.length, 1);
     assert.equal(deps._calls.storeTalkTurnMeta.length, 1);
   });
 });

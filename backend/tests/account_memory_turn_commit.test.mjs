@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import { createAccountMemoryCAS } from "../lib/account_memory_cas.js";
 import {
+  createAccountMemoryMutationCommitter,
   createAccountMemoryTurnCommitter,
   mergeConcurrentAccountMemory,
 } from "../lib/account_memory_turn_commit.js";
@@ -279,6 +280,129 @@ test("real independent stores merge a Studio correction into an in-flight voice 
   assert.deepEqual(merged.screenplayProjectMemory[0].correctedTerms, ["abandons"]);
   const relaunched = await studioStore.read({ userId: "writer-cross-device" });
   assert.deepEqual(relaunched.memory, merged);
+});
+
+test("a Studio question resolution rebases over a concurrent realtime voice turn", async () => {
+  const jsonRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-question-voice-race-"));
+  const studioStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: clone,
+  });
+  const voiceStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: clone,
+  });
+  const userId = "writer-question-voice-race";
+  const question = {
+    id: "screenplay-learning-8-project.theme_argument",
+    projectId: "split-ferries",
+    targetField: "project.theme_argument",
+  };
+  const initial = await studioStore.read({
+    userId,
+    fallbackMemory: {
+      turns: 8,
+      turnHistory: [],
+      pendingScreenplayLearningQuestions: [question],
+      lastUpdatedAt: 100,
+    },
+  });
+  await studioStore.commit({
+    userId,
+    expectedRecord: initial.record,
+    memory: initial.memory,
+    now: 100,
+  });
+
+  const studioRead = await studioStore.read({ userId });
+  const voiceRead = await voiceStore.read({ userId });
+  const studioContext = {
+    authenticatedUserId: userId,
+    canonical: true,
+    canonicalRecord: studioRead.record,
+    memory: studioRead.memory,
+  };
+  const commitStudioMutation = createAccountMemoryMutationCommitter({
+    context: studioContext,
+    sanitizeMemory: clone,
+    persistMemory: (context, memory, now) => studioStore.commit({
+      userId: context.authenticatedUserId,
+      expectedRecord: context.canonicalRecord,
+      memory,
+      now,
+    }),
+  });
+
+  const voiceMemory = clone(voiceRead.memory);
+  voiceMemory.turns += 1;
+  voiceMemory.turnHistory.push({
+    role: "user",
+    content: "Mara chooses June over the evidence.",
+    ts: 120,
+  });
+  await voiceStore.commit({
+    userId,
+    expectedRecord: voiceRead.record,
+    memory: voiceMemory,
+    now: 120,
+  });
+
+  const resolved = await commitStudioMutation((current) => {
+    current.pendingScreenplayLearningQuestions =
+      current.pendingScreenplayLearningQuestions.filter((item) => item.id !== question.id);
+    return current;
+  }, 125);
+
+  assert.equal(resolved.turns, 9);
+  assert.equal(resolved.turnHistory.at(-1).content, "Mara chooses June over the evidence.");
+  assert.deepEqual(resolved.pendingScreenplayLearningQuestions, []);
+  const relaunched = await voiceStore.read({ userId });
+  assert.deepEqual(relaunched.memory, resolved);
+});
+
+test("account memory mutations fail closed after repeated contention", async () => {
+  const context = { memory: { turns: 1, lastUpdatedAt: 1 } };
+  const commitMutation = createAccountMemoryMutationCommitter({
+    context,
+    persistMemory: async () => ({
+      ok: false,
+      status: "stale_memory_state_version",
+      memory: { turns: 2, lastUpdatedAt: 2 },
+      record: { memory: { turns: 2, lastUpdatedAt: 2 } },
+    }),
+    sanitizeMemory: clone,
+    maxAttempts: 2,
+  });
+  await assert.rejects(
+    commitMutation((memory) => ({ ...memory, turns: memory.turns + 1 })),
+    (error) => error.code === "memory_commit_conflict" && error.status === 503,
+  );
+});
+
+test("realtime and screenplay-question routes use canonical account committers", () => {
+  const realtimeSource = fs.readFileSync(
+    new URL("../lib/realtime_turn_commit_route.js", import.meta.url),
+    "utf8",
+  );
+  const questionSource = fs.readFileSync(
+    new URL("../lib/screenplay_question_routes.js", import.meta.url),
+    "utf8",
+  );
+  const indexSource = fs.readFileSync(new URL("../index.js", import.meta.url), "utf8");
+
+  assert.match(realtimeSource, /await resolveCanonicalWritableMemoryContext\(req, nowTs\)/);
+  assert.match(realtimeSource, /await commitTurnMemory\(nextMemory, nowTs\)/);
+  assert.match(realtimeSource, /await commitMemoryMutation\(\(currentMemory\) =>/);
+  assert.match(questionSource, /await resolveCanonicalWritableMemoryContext\(req, now\)/);
+  assert.match(questionSource, /await commitMemoryMutation\(\(currentMemory\) =>/);
+  assert.match(
+    indexSource,
+    /mountRealtimeTurnCommitRoute\(app, \{[\s\S]*?createCanonicalMemoryMutationCommitter,/,
+  );
+  assert.match(
+    indexSource,
+    /mountScreenplayQuestionRoutes\(app, \{[\s\S]*?createCanonicalMemoryMutationCommitter,/,
+  );
 });
 
 test("bounded committer fails closed after repeated contention", async () => {

@@ -15,9 +15,9 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
   const {
     createRequestId,
     normalizeSnippet,
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
+    createCanonicalMemoryMutationCommitter,
     recordCreativeMemoryTriggersForRequest,
     buildReadStateMeta,
     applyReadStateHeaders,
@@ -27,9 +27,9 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
   const requiredFns = {
     createRequestId,
     normalizeSnippet,
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
+    createCanonicalMemoryMutationCommitter,
     recordCreativeMemoryTriggersForRequest,
     buildReadStateMeta,
     applyReadStateHeaders,
@@ -90,7 +90,19 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
       }
 
       const now = Date.now();
-      const context = resolveWritableMemoryContext(req, now);
+      let context;
+      try {
+        context = await resolveCanonicalWritableMemoryContext(req, now);
+      } catch (error) {
+        logger.error?.(
+          `[${rid}] screenplay_question_resolution memory_read_failed error=${String(error?.message || error)}`
+        );
+        return res.status(503).json({
+          stage: "screenplay_question_resolution",
+          error: "memory_read_failed",
+        });
+      }
+      const commitMemoryMutation = createCanonicalMemoryMutationCommitter(context);
       const memory = sanitizePersistedSessionMemory(context.memory);
       const pendingQuestions = sanitizePendingScreenplayLearningQuestions(
         memory.pendingScreenplayLearningQuestions
@@ -170,9 +182,26 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
         });
       }
 
-      memory.pendingScreenplayLearningQuestions =
-        removePendingScreenplayLearningQuestion(pendingQuestions, pending);
-      const persisted = persistWritableMemoryContext(context, memory, now);
+      let persisted;
+      try {
+        persisted = await commitMemoryMutation((currentMemory) => {
+          const current = sanitizePersistedSessionMemory(currentMemory);
+          current.pendingScreenplayLearningQuestions =
+            removePendingScreenplayLearningQuestion(
+              current.pendingScreenplayLearningQuestions,
+              pending,
+            );
+          return current;
+        }, now);
+      } catch (error) {
+        logger.error?.(
+          `[${rid}] screenplay_question_resolution state_write_failed error=${String(error?.message || error)}`
+        );
+        return res.status(Number(error?.status || 503)).json({
+          stage: "screenplay_question_resolution",
+          error: "memory_write_failed",
+        });
+      }
       const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
       applyReadStateHeaders(res, readMeta);
 
