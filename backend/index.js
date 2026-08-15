@@ -5208,6 +5208,14 @@ function recordTalkMetric(sample) {
     inputTokens: Math.max(0, Number(sample?.inputTokens || 0)),
     outputTokens: Math.max(0, Number(sample?.outputTokens || 0)),
     reasoningTokens: Math.max(0, Number(sample?.reasoningTokens || 0)),
+    structuralQualityApplicable: Boolean(sample?.structuralQualityApplicable),
+    structuralQualityPassed: Boolean(sample?.structuralQualityPassed),
+    structuralQualityRepaired: Boolean(sample?.structuralQualityRepaired),
+    structuralQualityOutcome: normalizeSnippet(sample?.structuralQualityOutcome, 48) || "not_applicable",
+    structuralQualityReason: normalizeSnippet(sample?.structuralQualityReason, 96) || "none",
+    structuralQualityInitialScore: Math.max(0, Math.min(1, Number(sample?.structuralQualityInitialScore || 0))),
+    structuralQualityFinalScore: Math.max(0, Math.min(1, Number(sample?.structuralQualityFinalScore || 0))),
+    structuralRepairMs: Math.max(0, Number(sample?.structuralRepairMs || 0)),
     ...screenplayMetric,
   };
   talkMetricsSamples.push(normalized);
@@ -5241,6 +5249,18 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
     .reduce((totalTokens, sample) => totalTokens + Number(sample.outputTokens || 0), 0);
   const structuralReasoningTokens = structuralSuccess
     .reduce((totalTokens, sample) => totalTokens + Number(sample.reasoningTokens || 0), 0);
+  const structuralQualityEvaluated = structuralSuccess
+    .filter((sample) => sample.structuralQualityApplicable);
+  const structuralQualityPassCount = structuralQualityEvaluated
+    .filter((sample) => sample.structuralQualityPassed).length;
+  const structuralQualityRepairCount = structuralQualityEvaluated
+    .filter((sample) => sample.structuralQualityRepaired).length;
+  const structuralQualityInitialTotal = structuralQualityEvaluated
+    .reduce((score, sample) => score + Number(sample.structuralQualityInitialScore || 0), 0);
+  const structuralQualityFinalTotal = structuralQualityEvaluated
+    .reduce((score, sample) => score + Number(sample.structuralQualityFinalScore || 0), 0);
+  const structuralRepairMsTotal = structuralQualityEvaluated
+    .reduce((elapsed, sample) => elapsed + Number(sample.structuralRepairMs || 0), 0);
   const screenplay = summarizeTalkScreenplayMetrics(recent);
   return {
     windowMs: Math.max(1_000, Number(windowMs || TALK_METRICS_WINDOW_MS)),
@@ -5270,6 +5290,24 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
       inputTokens: structuralInputTokens,
       outputTokens: structuralOutputTokens,
       reasoningTokens: structuralReasoningTokens,
+      qualityEvaluatedCount: structuralQualityEvaluated.length,
+      qualityPassCount: structuralQualityPassCount,
+      qualityPassRate: structuralQualityEvaluated.length > 0
+        ? structuralQualityPassCount / structuralQualityEvaluated.length
+        : 0,
+      qualityRepairCount: structuralQualityRepairCount,
+      qualityRepairRate: structuralQualityEvaluated.length > 0
+        ? structuralQualityRepairCount / structuralQualityEvaluated.length
+        : 0,
+      averageInitialQualityScore: structuralQualityEvaluated.length > 0
+        ? structuralQualityInitialTotal / structuralQualityEvaluated.length
+        : 0,
+      averageFinalQualityScore: structuralQualityEvaluated.length > 0
+        ? structuralQualityFinalTotal / structuralQualityEvaluated.length
+        : 0,
+      averageRepairMs: structuralQualityEvaluated.length > 0
+        ? structuralRepairMsTotal / structuralQualityEvaluated.length
+        : 0,
     },
     screenplay,
   };

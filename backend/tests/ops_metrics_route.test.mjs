@@ -204,6 +204,14 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     inputTokens: 900,
     outputTokens: 300,
     reasoningTokens: 120,
+    structuralQualityApplicable: true,
+    structuralQualityPassed: true,
+    structuralQualityRepaired: true,
+    structuralQualityOutcome: "repaired_pass",
+    structuralQualityReason: "ok",
+    structuralQualityInitialScore: 0.43,
+    structuralQualityFinalScore: 1,
+    structuralRepairMs: 680,
     screenplayMode: true,
     screenplayRequestedTarget: "page",
     screenplayFinalTarget: "page",
@@ -225,6 +233,14 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     assert.equal(r.body.recent[0].input_tokens, 900);
     assert.equal(r.body.recent[0].output_tokens, 300);
     assert.equal(r.body.recent[0].reasoning_tokens, 120);
+    assert.equal(r.body.recent[0].structural_quality_applicable, 1);
+    assert.equal(r.body.recent[0].structural_quality_passed, 1);
+    assert.equal(r.body.recent[0].structural_quality_repaired, 1);
+    assert.equal(r.body.recent[0].structural_quality_outcome, "repaired_pass");
+    assert.equal(r.body.recent[0].structural_quality_reason, "ok");
+    assert.equal(r.body.recent[0].structural_quality_initial_score, 0.43);
+    assert.equal(r.body.recent[0].structural_quality_final_score, 1);
+    assert.equal(r.body.recent[0].structural_repair_ms, 680);
     assert.equal(r.body.recent[0].screenplay_mode, 1);
     assert.equal(r.body.recent[0].screenplay_requested_target, "page");
     assert.equal(r.body.recent[0].screenplay_final_target, "page");

@@ -63,8 +63,22 @@ import {
   selectPendingScreenplayLearningQuestion,
   upsertPendingScreenplayLearningQuestion,
 } from "./screenplay_question_planner.js";
+import {
+  buildStructuralScreenplayRepairMessages,
+  evaluateStructuralScreenplayReply,
+  shouldAcceptStructuralRepair,
+} from "./structural_screenplay_quality.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
+
+function mergeProviderUsage(current = null, additional = null) {
+  const merged = {};
+  for (const key of ["inputTokens", "outputTokens", "reasoningTokens", "totalTokens"]) {
+    merged[key] = Math.max(0, Number(current?.[key] || 0)) +
+      Math.max(0, Number(additional?.[key] || 0));
+  }
+  return merged;
+}
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -694,6 +708,99 @@ function createTalkHandler(deps) {
       screenplayPageCount: positiveInt(base.screenplayPageCount, memoryProject.pageCount),
       screenplayTargetPages: positiveInt(base.screenplayTargetPages, memoryProject.targetPages),
     };
+  }
+
+  async function attemptStructuralScreenplayAnalysisRepairPass({
+    initialQuality = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.3,
+    chatMaxTokens = 1_000,
+    rid = "",
+  } = {}) {
+    if (!initialQuality?.applicable || initialQuality.ok) return null;
+    const modelReason = String(chatModelPlan?.reason || "").trim().toLowerCase();
+    const messages = buildStructuralScreenplayRepairMessages({
+      modelReason,
+      userRequest: transcript,
+      weakDraft: rawReply,
+      quality: initialQuality,
+      studioMeta,
+    });
+    if (!messages.length) return null;
+
+    const startedAt = Date.now();
+    try {
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
+        temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.3))),
+        maxTokens: Math.max(700, Math.min(1_400, Number(chatMaxTokens || 1_000))),
+        messages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "responses"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || chatModelPlan?.reasoningEffort || "medium"),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || chatModelPlan?.fallbackModel || ""),
+      });
+      const elapsedMs = Date.now() - startedAt;
+      const metadata = {
+        elapsedMs,
+        usage: repairResult?.usage || null,
+        fallbackUsed: Boolean(repairResult?.fallbackUsed),
+        model: String(repairResult?.model || ""),
+        apiMode: String(repairResult?.apiMode || ""),
+        reasoningEffort: String(repairResult?.reasoningEffort || ""),
+      };
+      if (!repairResult?.response?.ok) {
+        return { ...metadata, repaired: false, outcome: "supplier_failed" };
+      }
+      let payload;
+      try {
+        payload = JSON.parse(String(repairResult.rawText || ""));
+      } catch {
+        return { ...metadata, repaired: false, outcome: "invalid_json" };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        payload?.choices?.[0]?.message?.content || "",
+        10_000
+      );
+      const candidateQuality = evaluateStructuralScreenplayReply({
+        reply: candidateReply,
+        modelReason,
+      });
+      if (!candidateReply || !shouldAcceptStructuralRepair(initialQuality, candidateQuality)) {
+        logger.log(
+          `[${rid}] structural_analysis_repair rejected initial=${Number(initialQuality?.score || 0).toFixed(2)} candidate=${Number(candidateQuality?.score || 0).toFixed(2)}`
+        );
+        return {
+          ...metadata,
+          repaired: false,
+          outcome: "not_improved",
+          quality: candidateQuality,
+        };
+      }
+      logger.log(
+        `[${rid}] structural_analysis_repair accepted reason=${modelReason} initial=${Number(initialQuality?.score || 0).toFixed(2)} candidate=${Number(candidateQuality?.score || 0).toFixed(2)} passed=${candidateQuality.ok ? 1 : 0}`
+      );
+      return {
+        ...metadata,
+        repaired: true,
+        outcome: candidateQuality.ok ? "repaired_pass" : "improved",
+        reply: candidateReply,
+        quality: candidateQuality,
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] structural_analysis_repair error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return {
+        repaired: false,
+        outcome: "error",
+        elapsedMs: Date.now() - startedAt,
+        usage: null,
+        fallbackUsed: false,
+      };
+    }
   }
 
   async function attemptTalkMomentumRescueRepairPass({
@@ -4044,6 +4151,18 @@ ${directorOutputRule}
       elapsedMs: 0,
       reason: "",
     };
+    const structuralQualityTrace = {
+      applicable: false,
+      attempted: false,
+      repaired: false,
+      passed: true,
+      outcome: "not_applicable",
+      initialReason: "",
+      finalReason: "",
+      initialScore: 1,
+      finalScore: 1,
+      elapsedMs: 0,
+    };
     if (isScreenplayPageWriteTurn && !localActionReply) {
       talkScreenplayOutput = buildTalkScreenplayOutput({
         reply,
@@ -4100,6 +4219,68 @@ ${directorOutputRule}
           message: "Screenplay generation did not pass the requested page-quality contract.",
           errorClass: "screenplay_page_quality_failed",
         });
+      }
+    }
+    if (!isScreenplayPageWriteTurn && !localActionReply) {
+      const initialStructuralQuality = evaluateStructuralScreenplayReply({
+        reply,
+        modelReason: chatModelPlan.reason,
+      });
+      if (initialStructuralQuality.applicable) {
+        structuralQualityTrace.applicable = true;
+        structuralQualityTrace.passed = Boolean(initialStructuralQuality.ok);
+        structuralQualityTrace.outcome = initialStructuralQuality.ok ? "initial_pass" : "initial_fail";
+        structuralQualityTrace.initialReason = normalizeSnippet(initialStructuralQuality.reason, 96);
+        structuralQualityTrace.finalReason = structuralQualityTrace.initialReason;
+        structuralQualityTrace.initialScore = Math.max(0, Number(initialStructuralQuality.score || 0));
+        structuralQualityTrace.finalScore = structuralQualityTrace.initialScore;
+        if (!initialStructuralQuality.ok) {
+          structuralQualityTrace.attempted = true;
+          const repairStudioMeta = mergeTalkMomentumRepairStudioMeta(
+            studioMeta,
+            sessionMemory,
+            req.creativeMemoryTrace
+          );
+          const repairPass = await attemptStructuralScreenplayAnalysisRepairPass({
+            initialQuality: initialStructuralQuality,
+            rawReply: reply,
+            transcript: talkGenerationTranscript,
+            studioMeta: repairStudioMeta,
+            chatModelPlan,
+            chatTemperature,
+            chatMaxTokens,
+            rid,
+          });
+          structuralQualityTrace.elapsedMs = Math.max(0, Number(repairPass?.elapsedMs || 0));
+          chatMs += structuralQualityTrace.elapsedMs;
+          effectiveChatUsage = mergeProviderUsage(effectiveChatUsage, repairPass?.usage);
+          chatModelFallbackUsed = chatModelFallbackUsed || Boolean(repairPass?.fallbackUsed);
+          structuralQualityTrace.outcome = normalizeSnippet(
+            repairPass?.outcome || "not_repaired",
+            48
+          ) || "not_repaired";
+          if (repairPass?.repaired && repairPass.reply && repairPass.quality) {
+            reply = repairPass.reply;
+            rawReply = reply;
+            replyRepaired = true;
+            structuralQualityTrace.repaired = true;
+            structuralQualityTrace.passed = Boolean(repairPass.quality.ok);
+            structuralQualityTrace.finalReason = normalizeSnippet(repairPass.quality.reason, 96);
+            structuralQualityTrace.finalScore = Math.max(0, Number(repairPass.quality.score || 0));
+            effectiveChatModel = String(repairPass.model || effectiveChatModel);
+            effectiveChatApiMode = String(repairPass.apiMode || effectiveChatApiMode);
+            effectiveChatReasoningEffort = String(
+              repairPass.reasoningEffort || effectiveChatReasoningEffort
+            );
+            heuristicTurnQuality = evaluateTurnQualityHeuristics({
+              transcript,
+              reply,
+              flags,
+              routingLane,
+              turnIntent: String(turnPlanner.intent || "unknown"),
+            });
+          }
+        }
       }
     }
     const usedBoundaryEdgeLine = hasBoundaryEdgeStatement(reply);
@@ -4635,6 +4816,13 @@ ${directorOutputRule}
     res.setHeader("x-chat-output-tokens", String(Math.max(0, Number(effectiveChatUsage.outputTokens || 0))));
     res.setHeader("x-chat-reasoning-tokens", String(Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0))));
     res.setHeader("x-chat-total-tokens", String(Math.max(0, Number(effectiveChatUsage.totalTokens || 0))));
+    res.setHeader("x-structural-quality-applicable", structuralQualityTrace.applicable ? "1" : "0");
+    res.setHeader("x-structural-quality-passed", structuralQualityTrace.passed ? "1" : "0");
+    res.setHeader("x-structural-quality-repaired", structuralQualityTrace.repaired ? "1" : "0");
+    res.setHeader("x-structural-quality-outcome", structuralQualityTrace.outcome);
+    res.setHeader("x-structural-quality-reason", encodeURIComponent(structuralQualityTrace.finalReason || "none"));
+    res.setHeader("x-structural-quality-score", Number(structuralQualityTrace.finalScore || 0).toFixed(3));
+    res.setHeader("x-structural-repair-ms", String(Math.max(0, Number(structuralQualityTrace.elapsedMs || 0))));
     res.setHeader("x-chat-load-shed", chatModelPlan.loadShed ? "1" : "0");
     res.setHeader("x-chat-load-shed-cause", encodeURIComponent(String(chatModelPlan.loadShedCause || "none")));
     res.setHeader("x-chat-temperature", chatTemperature.toFixed(2));
@@ -4852,7 +5040,7 @@ ${directorOutputRule}
       const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
       res.setHeader(
         "Server-Timing",
-        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
@@ -4877,6 +5065,14 @@ ${directorOutputRule}
         inputTokens: effectiveChatUsage.inputTokens,
         outputTokens: effectiveChatUsage.outputTokens,
         reasoningTokens: effectiveChatUsage.reasoningTokens,
+        structuralQualityApplicable: structuralQualityTrace.applicable,
+        structuralQualityPassed: structuralQualityTrace.passed,
+        structuralQualityRepaired: structuralQualityTrace.repaired,
+        structuralQualityOutcome: structuralQualityTrace.outcome,
+        structuralQualityReason: structuralQualityTrace.finalReason,
+        structuralQualityInitialScore: structuralQualityTrace.initialScore,
+        structuralQualityFinalScore: structuralQualityTrace.finalScore,
+        structuralRepairMs: structuralQualityTrace.elapsedMs,
         ...buildScreenplayMetricFields({
           talkScreenplayModeEnabled,
           studioMeta,
@@ -4908,6 +5104,10 @@ ${directorOutputRule}
           inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
           outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
           reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
+          structuralQualityPassed: Boolean(structuralQualityTrace.passed),
+          structuralQualityRepaired: Boolean(structuralQualityTrace.repaired),
+          structuralQualityScore: Math.max(0, Number(structuralQualityTrace.finalScore || 0)),
+          structuralRepairMs: Math.max(0, Number(structuralQualityTrace.elapsedMs || 0)),
           speculativeReuse: Boolean(speculativeReuseApplied),
         },
       });
@@ -4977,7 +5177,7 @@ ${directorOutputRule}
     const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
     res.setHeader(
       "Server-Timing",
-      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
     commitTalkIdempotencySuccess(req, {
       statusCode: 200,
@@ -5002,6 +5202,14 @@ ${directorOutputRule}
       inputTokens: effectiveChatUsage.inputTokens,
       outputTokens: effectiveChatUsage.outputTokens,
       reasoningTokens: effectiveChatUsage.reasoningTokens,
+      structuralQualityApplicable: structuralQualityTrace.applicable,
+      structuralQualityPassed: structuralQualityTrace.passed,
+      structuralQualityRepaired: structuralQualityTrace.repaired,
+      structuralQualityOutcome: structuralQualityTrace.outcome,
+      structuralQualityReason: structuralQualityTrace.finalReason,
+      structuralQualityInitialScore: structuralQualityTrace.initialScore,
+      structuralQualityFinalScore: structuralQualityTrace.finalScore,
+      structuralRepairMs: structuralQualityTrace.elapsedMs,
       ...buildScreenplayMetricFields({
         talkScreenplayModeEnabled,
         studioMeta,
@@ -5033,6 +5241,10 @@ ${directorOutputRule}
         inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
         outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
         reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
+        structuralQualityPassed: Boolean(structuralQualityTrace.passed),
+        structuralQualityRepaired: Boolean(structuralQualityTrace.repaired),
+        structuralQualityScore: Math.max(0, Number(structuralQualityTrace.finalScore || 0)),
+        structuralRepairMs: Math.max(0, Number(structuralQualityTrace.elapsedMs || 0)),
         speculativeReuse: Boolean(speculativeReuseApplied),
       },
     });
