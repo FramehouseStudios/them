@@ -108,6 +108,7 @@ import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
+import { restoreAuthenticatedSessionMemory } from "./lib/session_memory_restore.js";
 import { mountStateRoute } from "./lib/state_route.js";
 import { mountDataRoutes } from "./lib/data_routes.js";
 import { mountOutboxRoutes } from "./lib/outbox_routes.js";
@@ -17823,6 +17824,26 @@ function setPersistedUserMemoryForAccount(userId, memory, now = Date.now(), opti
   return persisted;
 }
 
+function initializeSessionMemoryState(memory, now, assistantSelfName) {
+  const nextMemory = sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
+  nextMemory.assistantSelfName = assistantSelfName;
+  nextMemory.assistantSelfNameUpdatedAt = now;
+  nextMemory.sessionStartedAt = now;
+  nextMemory.checkInPromptsUsed = 0;
+  nextMemory.lastCheckInAt = 0;
+  nextMemory.continuationHoldCount = 0;
+  nextMemory.lastContinuationReason = "";
+  nextMemory.socialSparkYassCount = 0;
+  nextMemory.lastSocialSparkYassTurn = 0;
+  nextMemory.lastSocialSparkYassAt = 0;
+  if (!(Number(nextMemory.relationshipDepthDailyGain || 0) >= 0)) {
+    nextMemory.relationshipDepthDailyGain = 0;
+  }
+  nextMemory.relationshipDepthDailyStamp = formatLocalDateStamp(now);
+  nextMemory.lastUpdatedAt = now;
+  return nextMemory;
+}
+
 function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const now = Date.now();
   cleanupExpiredSessions(now);
@@ -17844,28 +17865,17 @@ function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const persistedMemory = shouldReusePreviousMemory
     ? (getPersistedUserMemoryForClientToken(previousToken, now) || getPersistedUserMemoryForIp(ip, now))
     : (getPersistedUserMemoryForAccount(normalizedUserId, now) || getPersistedUserMemoryForIp(legacyUserIp, now));
-  const memory = persistedMemory
+  let memory = persistedMemory
     ? sanitizePersistedSessionMemory(persistedMemory)
     : createEmptyEmotionMemory();
   const assistantSelfName = getAssistantSelfNameForIp(ip);
-  memory.assistantSelfName = assistantSelfName;
-  memory.assistantSelfNameUpdatedAt = now;
-  memory.sessionStartedAt = now;
-  memory.checkInPromptsUsed = 0;
-  memory.lastCheckInAt = 0;
-  memory.continuationHoldCount = 0;
-  memory.lastContinuationReason = "";
-  memory.socialSparkYassCount = 0;
-  memory.lastSocialSparkYassTurn = 0;
-  memory.lastSocialSparkYassAt = 0;
-  if (!(Number(memory.relationshipDepthDailyGain || 0) >= 0)) {
-    memory.relationshipDepthDailyGain = 0;
-  }
-  memory.relationshipDepthDailyStamp = formatLocalDateStamp(now);
-  memory.lastUpdatedAt = now;
+  memory = initializeSessionMemoryState(memory, now, assistantSelfName);
   const sessionIp = normalizedUserId ? legacyUserIp : normalizeClientIp(ip);
   const persisted = normalizedUserId
-    ? setPersistedUserMemoryForAccount(normalizedUserId, memory, now, { clientTokenAliases: [token] })
+    ? setPersistedUserMemoryForAccount(normalizedUserId, memory, now, {
+        clientTokenAliases: [token],
+        skipPersistenceWrite: true,
+      })
     : setPersistedUserMemoryForIp(sessionIp, memory, now, {
       clientTokenAliases: shouldReusePreviousMemory ? [token, previousToken] : [token],
     });
@@ -31958,6 +31968,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
       );
       existingSession.memory = setPersistedUserMemoryForAccount(authUserId, existingSession.memory, Date.now(), {
         clientTokenAliases: [requestedClientToken],
+        skipPersistenceWrite: true,
       });
     } else {
       setPersistedUserMemoryForIp(existingSession.ip, existingSession.memory, Date.now(), {
@@ -31972,31 +31983,65 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
 
   const sessionKpis = recordUserInitiatedSession(requesterIp);
   const sessionTargets = evaluateKpiTargets(sessionKpis);
-  let restoredMemory = sanitizePersistedSessionMemory(clientSessions.get(token)?.memory);
-  const sessionHistoryThreads = buildConversationHistoryThreads(
-    restoredMemory,
-    Math.max(20, MEMORY_BACKFILL_MAX_SCAN)
-  );
-  const backfillResult = maybeBackfillThemesFromHistory(
-    restoredMemory,
-    sessionHistoryThreads,
-    Date.now(),
-    { trigger: "session_load" }
-  );
-  if (backfillResult.applied) {
-    const active = clientSessions.get(token);
-    if (active && typeof active === "object") {
-      active.memory = restoredMemory;
-    }
-    if (authUserId) {
-      restoredMemory = setPersistedUserMemoryForAccount(authUserId, restoredMemory, Date.now(), {
-        clientTokenAliases: [token],
+  const sessionNowTs = Date.now();
+  const activeSession = clientSessions.get(token) || null;
+  let restoredMemory;
+  let backfillResult = { applied: false, created: 0, trigger: "session_load", keys: [] };
+  if (authUserId) {
+    try {
+      const restored = await restoreAuthenticatedSessionMemory({
+        req,
+        token,
+        activeSession,
+        isNewSession: !existingSession,
+        nowTs: sessionNowTs,
+        resolveCanonicalWritableMemoryContext,
+        persistCanonicalWritableMemoryContext,
+        sanitizeMemory: sanitizePersistedSessionMemory,
+        initializeNewSessionMemory: (memory, nowTs) => initializeSessionMemoryState(
+          memory,
+          nowTs,
+          getAssistantSelfNameForIp(requesterIp),
+        ),
+        buildConversationHistoryThreads,
+        maybeBackfillThemesFromHistory,
+        historyLimit: Math.max(20, MEMORY_BACKFILL_MAX_SCAN),
       });
-    } else {
+      restoredMemory = restored.memory;
+      backfillResult = restored.backfillResult;
+      setPersistedUserMemoryForAccount(authUserId, restoredMemory, sessionNowTs, {
+        clientTokenAliases: [token],
+        skipPersistenceWrite: true,
+      });
+    } catch (error) {
+      const rid = String(req.requestId || "session_restore");
+      console.error(`[${rid}] session memory_restore_failed error=${String(error?.message || error)}`);
+      if (!existingSession && token) clientSessions.delete(token);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "session",
+        error: "memory_restore_failed",
+      });
+    }
+  } else {
+    restoredMemory = sanitizePersistedSessionMemory(activeSession?.memory);
+    const sessionHistoryThreads = buildConversationHistoryThreads(
+      restoredMemory,
+      Math.max(20, MEMORY_BACKFILL_MAX_SCAN)
+    );
+    backfillResult = maybeBackfillThemesFromHistory(
+      restoredMemory,
+      sessionHistoryThreads,
+      sessionNowTs,
+      { trigger: "session_load" }
+    );
+    if (backfillResult.applied) {
       setPersistedUserMemoryForIp(normalizeClientIp(requesterIp), restoredMemory, Date.now(), {
         clientTokenAliases: [token],
       });
     }
+  }
+  if (backfillResult.applied) {
     console.log(
       `[session_backfill] token=${token.slice(0, 8)} created=${backfillResult.created} trigger=${backfillResult.trigger} keys=${(backfillResult.keys || []).join(",") || "none"}`
     );

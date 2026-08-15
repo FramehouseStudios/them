@@ -19,6 +19,22 @@ async function signup(server, email) {
   };
 }
 
+async function waitForMemoryName(server, token, accessToken, expectedName, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  let latest = null;
+  while ((Date.now() - startedAt) < timeoutMs) {
+    latest = await apiRequest(server, "/memories", {
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "X-Client-Token": token,
+      },
+    });
+    if (latest.status === 200 && latest.json?.user_name === expectedName) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(`memory name did not become ${expectedName}: ${latest?.text || "no response"}`);
+}
+
 test("[memory-auth] memory routes reject spoofed X-User-Id even when global auth gate is disabled", async () => {
   const server = await startBackend({
     env: {
@@ -132,6 +148,73 @@ test("[memory-auth] authenticated session memory persists by account and restore
     assert.equal(userRecord.memory?.userPrimaryName, "June");
   } finally {
     await server.stop();
+  }
+});
+
+test("[memory-auth] a stale backend session cannot overwrite newer account memory", async () => {
+  const primary = await startBackend();
+  let stale = null;
+  try {
+    const alice = await signup(primary, "memory-session-race@example.com");
+    const firstSession = await apiRequest(primary, "/session", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + alice.token },
+    });
+    assert.equal(firstSession.status, 201, `session failed: ${firstSession.text}`);
+    const firstToken = String(firstSession.json?.client_token || "");
+    assert.ok(firstToken, "session returns a client token");
+
+    const initialWrite = await apiRequest(primary, "/session/evolution", {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer " + alice.token,
+        "X-Client-Token": firstToken,
+      },
+      json: { preferred_name: "June Before Rewrite" },
+    });
+    assert.equal(initialWrite.status, 204, `initial memory write failed: ${initialWrite.text}`);
+    await waitForMemoryName(
+      primary,
+      firstToken,
+      alice.token,
+      "June Before Rewrite",
+    );
+
+    stale = await startBackend({ dataDir: primary.dataDir });
+
+    const newerWrite = await apiRequest(primary, "/session/evolution", {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer " + alice.token,
+        "X-Client-Token": firstToken,
+      },
+      json: { preferred_name: "June After Rewrite" },
+    });
+    assert.equal(newerWrite.status, 204, `newer memory write failed: ${newerWrite.text}`);
+    await waitForMemoryName(
+      primary,
+      firstToken,
+      alice.token,
+      "June After Rewrite",
+    );
+
+    const restored = await apiRequest(stale, "/session", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + alice.token },
+    });
+    assert.equal(restored.status, 201, `stale instance restore failed: ${restored.text}`);
+    assert.equal(restored.json?.user_name, "June After Rewrite");
+
+    const durableAfterRestore = await waitForMemoryName(
+      primary,
+      firstToken,
+      alice.token,
+      "June After Rewrite",
+    );
+    assert.equal(durableAfterRestore.json?.user_name, "June After Rewrite");
+  } finally {
+    if (stale) await stale.stop();
+    await primary.stop();
   }
 });
 
