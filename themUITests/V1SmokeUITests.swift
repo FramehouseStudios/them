@@ -52,6 +52,86 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "LUCY", timeout: 5))
     }
 
+    func test_structural_repair_is_canon_aware_for_typed_and_voice_studio_turns() {
+        let weakDraftMarker = "WEAK STRUCTURAL DRAFT"
+        let canonMarker = "Mara already burned the ferry ledger"
+
+        var app = launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            routeVoicePin: true,
+            autoSubmitVoicePinPrompt: "Scene doctor this sequence and give me the highest-leverage fix without changing canon.",
+            submitTransportMode: "structural-quality-stub"
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: "REPAIRED SCENE DOCTOR",
+                in: app,
+                timeout: 12
+            ),
+            "Typed Scene Doctor did not surface the repaired answer. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: canonMarker,
+                in: app,
+                timeout: 3
+            ),
+            "Typed Scene Doctor lost the protected canon fact."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: "Typed",
+                in: app,
+                timeout: 3
+            ),
+            "Typed Scene Doctor was not identified as a typed Studio turn."
+        )
+        XCTAssertFalse(
+            accessibilityTexts(identifier: "studio.voice-pin.latest.output", in: app)
+                .contains(where: { $0.localizedCaseInsensitiveContains(weakDraftMarker) }),
+            "Typed Scene Doctor exposed the buffered weak draft."
+        )
+        app.terminate()
+
+        app = launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            routeVoicePin: true,
+            autoSubmitVoiceSourcePrompt: "Plan this feature from Act I through Act II and Act III without changing canon.",
+            submitTransportMode: "structural-quality-stub"
+        )
+        defer { app.terminate() }
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.voice-pin.latest.output",
+                containing: "REPAIRED FEATURE ARCHITECTURE",
+                in: app,
+                timeout: 12
+            ),
+            "Voice-sourced feature planning did not surface the repaired answer. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        for expected in ["Voice", canonMarker, "Act I", "Act II", "Act III"] {
+            XCTAssertTrue(
+                waitForAccessibilityText(
+                    identifier: "studio.voice-pin.latest.output",
+                    containing: expected,
+                    in: app,
+                    timeout: 3
+                ),
+                "Voice-sourced feature planning omitted \(expected)."
+            )
+        }
+        XCTAssertFalse(
+            accessibilityTexts(identifier: "studio.voice-pin.latest.output", in: app)
+                .contains(where: { $0.localizedCaseInsensitiveContains(weakDraftMarker) }),
+            "Voice-sourced feature planning exposed the buffered weak draft."
+        )
+    }
+
     func test_sequential_screenplay_batches_insert_once_and_survive_relaunch() throws {
         let firstAnchor = "INT. KITCHEN - DAY"
         let secondAnchor = "EXT. FERRY TERMINAL - DAWN"
@@ -1519,6 +1599,7 @@ final class V1SmokeUITests: XCTestCase {
         screenplaySaveExpireAuthOnce: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
+        autoSubmitVoiceSourcePrompt: String? = nil,
         restoreProjectID: String? = nil,
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
@@ -1614,6 +1695,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if let autoSubmitVoicePinPrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-voice-pin-prompt", autoSubmitVoicePinPrompt])
+        }
+        if let autoSubmitVoiceSourcePrompt {
+            arguments.append(contentsOf: ["--ui-auto-submit-voice-source-prompt", autoSubmitVoiceSourcePrompt])
         }
         if let restoreProjectID {
             arguments.append(contentsOf: ["-studio_debug_load_project_id", restoreProjectID])

@@ -2,6 +2,18 @@ import XCTest
 import ScreenplayStudio
 @testable import them
 
+private actor StudioRenderPartialCollector {
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        values.append(value)
+    }
+
+    func snapshot() -> [String] {
+        values
+    }
+}
+
 final class BackendClientCraftAPITests: XCTestCase {
     func testRealtimeTurnCommitDecodesDurableCanonClarification() throws {
         let data = Data(#"""
@@ -614,6 +626,58 @@ final class BackendClientCraftAPITests: XCTestCase {
         }
     }
 
+    func testStudioRenderDecodesRepairedStructuralQuality() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "studio_render",
+                  "reply": "REPAIRED SCENE DOCTOR. Canon protected: Mara already burned the ferry ledger.",
+                  "structural_quality": {
+                    "applicable": true,
+                    "passed": true,
+                    "repaired": true,
+                    "attempted_repair": true,
+                    "outcome": "repaired_pass",
+                    "reason": "ok",
+                    "initial_reason": "underdeveloped_scene_doctor",
+                    "initial_score": 0.25,
+                    "final_score": 1.0,
+                    "passed_dimensions": 4,
+                    "total_dimensions": 4,
+                    "dimensions": { "diagnosis": true, "evidence": true, "move": true, "canon": true },
+                    "repair_ms": 84,
+                    "model_reason": "screenplay_scene_doctor",
+                    "task_intent": "scene_doctor"
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.renderRealtimeStudioResult(
+            transcript: "Scene doctor this sequence.",
+            systemPrompt: "Protect canon.",
+            screenplayTarget: "voice_pin"
+        )
+
+        XCTAssertTrue(result.reply.contains("Canon protected"))
+        XCTAssertEqual(result.structuralQuality?.passed, true)
+        XCTAssertEqual(result.structuralQuality?.repaired, true)
+        XCTAssertEqual(result.structuralQuality?.outcome, "repaired_pass")
+        XCTAssertEqual(result.structuralQuality?.initialReason, "underdeveloped_scene_doctor")
+        XCTAssertEqual(result.structuralQuality?.modelReason, "screenplay_scene_doctor")
+        XCTAssertEqual(result.structuralQuality?.dimensions["canon"], true)
+    }
+
     func testStudioRenderStreamReturnsOnlyAuthoritativeDoneReply() async throws {
         let client = makeClient(recorder: CraftRequestRecorder()) { request in
             switch (request.httpMethod, request.url?.path) {
@@ -644,6 +708,59 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(result.reply, "INT. ARCHIVE - NIGHT\n\nMara opens the locker.")
         XCTAssertEqual(result.screenplayQuality?.repairOutcome, "repaired")
         XCTAssertEqual(result.screenplayQuality?.talkQuality.confidence, "repaired")
+    }
+
+    func testStudioStructuralStreamNeverSurfacesBufferedWeakDraft() async throws {
+        let weakDraft = "WEAK STRUCTURAL DRAFT. The scene needs more emotion."
+        let repairedReply = "REPAIRED FEATURE ARCHITECTURE. Canon protected: Mara already burned the ferry ledger. Act I turns the case. Act II breaks the alliance. Act III pays off Mara's trust."
+        let repairedReplyJSON = String(
+            data: try JSONEncoder().encode(repairedReply),
+            encoding: .utf8
+        )!
+        let qualityJSON = #"{"applicable":true,"passed":true,"repaired":true,"attempted_repair":true,"outcome":"repaired_pass","reason":"ok","initial_reason":"underdeveloped_feature_architecture","initial_score":0.2,"final_score":1,"passed_dimensions":5,"total_dimensions":5,"dimensions":{"act_progression":true,"causality":true,"character_arc":true,"payoff":true,"canon":true},"repair_ms":95,"model_reason":"screenplay_feature_architecture","task_intent":"feature_architecture"}"#
+        let collector = StudioRenderPartialCollector()
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse("""
+                event: trace
+                data: {"ok":true,"action":"studio_render_stream","kind":"first_delta_buffered","request_id":"structural-1","first_delta_ms":31,"delta_chunks":0}
+
+                event: trace
+                data: {"ok":true,"action":"studio_render_stream","kind":"structural_quality_repair","request_id":"structural-1","structural_quality":\(qualityJSON)}
+
+                event: delta
+                data: {"delta":\(repairedReplyJSON)}
+
+                event: done
+                data: {"ok":true,"action":"studio_render_stream","kind":"done","request_id":"structural-1","reply":\(repairedReplyJSON),"structural_quality":\(qualityJSON)}
+
+                """)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.streamRealtimeStudioResult(
+            transcript: "Plan the feature through Act I, Act II, and Act III.",
+            systemPrompt: "Protect canon.",
+            screenplayTarget: "voice_pin",
+            onPartial: { partial in
+                await collector.append(partial)
+            }
+        )
+        let partials = await collector.snapshot()
+
+        XCTAssertEqual(result.reply, repairedReply)
+        XCTAssertEqual(result.structuralQuality?.modelReason, "screenplay_feature_architecture")
+        XCTAssertEqual(result.structuralQuality?.outcome, "repaired_pass")
+        XCTAssertTrue(partials.contains(repairedReply))
+        XCTAssertFalse(partials.contains(where: { $0.contains(weakDraft) }))
+        XCTAssertFalse(result.reply.contains(weakDraft))
     }
 
     func testStudioRenderStreamRejectsProvisionalDeltaWhenQualityFails() async throws {

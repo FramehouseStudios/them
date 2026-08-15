@@ -1646,6 +1646,7 @@ struct BackendRealtimeStudioRenderPayload: Decodable {
     let reply: String?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -1653,6 +1654,7 @@ struct BackendRealtimeStudioRenderPayload: Decodable {
         case reply
         case memoryApplied = "memory_applied"
         case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
     }
 }
 
@@ -1660,11 +1662,68 @@ private struct BackendRealtimeStudioRenderErrorPayload: Decodable {
     let stage: String?
     let error: String?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 
     enum CodingKeys: String, CodingKey {
         case stage
         case error
         case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
+    }
+}
+
+struct BackendRealtimeStudioStructuralQuality: Decodable, Equatable, Sendable {
+    let applicable: Bool
+    let passed: Bool
+    let repaired: Bool
+    let attemptedRepair: Bool
+    let outcome: String
+    let reason: String
+    let initialReason: String?
+    let initialScore: Double
+    let finalScore: Double
+    let passedDimensions: Int
+    let totalDimensions: Int
+    let dimensions: [String: Bool]
+    let repairMs: Int
+    let modelReason: String
+    let taskIntent: String
+
+    enum CodingKeys: String, CodingKey {
+        case applicable
+        case passed
+        case repaired
+        case attemptedRepair = "attempted_repair"
+        case outcome
+        case reason
+        case initialReason = "initial_reason"
+        case initialScore = "initial_score"
+        case finalScore = "final_score"
+        case passedDimensions = "passed_dimensions"
+        case totalDimensions = "total_dimensions"
+        case dimensions
+        case repairMs = "repair_ms"
+        case modelReason = "model_reason"
+        case taskIntent = "task_intent"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        applicable = try container.decodeIfPresent(Bool.self, forKey: .applicable) ?? false
+        passed = try container.decodeIfPresent(Bool.self, forKey: .passed) ?? false
+        repaired = try container.decodeIfPresent(Bool.self, forKey: .repaired) ?? false
+        attemptedRepair = try container.decodeIfPresent(Bool.self, forKey: .attemptedRepair) ?? false
+        outcome = try container.decodeIfPresent(String.self, forKey: .outcome) ?? ""
+        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? ""
+        initialReason = try container.decodeIfPresent(String.self, forKey: .initialReason)
+        initialScore = try container.decodeIfPresent(Double.self, forKey: .initialScore) ?? 0
+        finalScore = try container.decodeIfPresent(Double.self, forKey: .finalScore) ?? 0
+        passedDimensions = try container.decodeIfPresent(Int.self, forKey: .passedDimensions) ?? 0
+        totalDimensions = try container.decodeIfPresent(Int.self, forKey: .totalDimensions) ?? 0
+        dimensions = try container.decodeIfPresent([String: Bool].self, forKey: .dimensions) ?? [:]
+        repairMs = try container.decodeIfPresent(Int.self, forKey: .repairMs) ?? 0
+        modelReason = try container.decodeIfPresent(String.self, forKey: .modelReason) ?? ""
+        taskIntent = try container.decodeIfPresent(String.self, forKey: .taskIntent) ?? ""
     }
 }
 
@@ -1803,6 +1862,7 @@ struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
     let reply: String
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -1819,6 +1879,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
     let deltaChunks: Int?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 
     enum CodingKeys: String, CodingKey {
         case action
@@ -1834,6 +1895,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
         case deltaChunks = "delta_chunks"
         case memoryApplied = "memory_applied"
         case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
     }
 }
 
@@ -1847,6 +1909,7 @@ struct BackendRealtimeStudioRenderStreamTrace: Sendable {
     let deltaChunks: Int?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 }
 
 struct BackendVisualContextEnvelope {
@@ -3349,7 +3412,8 @@ final class BackendClient {
             return BackendRealtimeStudioRenderResult(
                 reply: reply,
                 memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
-                screenplayQuality: payload.screenplayQuality
+                screenplayQuality: payload.screenplayQuality,
+                structuralQuality: payload.structuralQuality
             )
         }
 
@@ -3471,6 +3535,7 @@ final class BackendClient {
             var lastPartialCallbackCharacterCount = 0
             var latestMemoryApplied: BackendRealtimeStudioMemoryApplied?
             var latestScreenplayQuality: BackendRealtimeStudioScreenplayQuality?
+            var latestStructuralQuality: BackendRealtimeStudioStructuralQuality?
 
             func validatedResult(
                 reply rawReply: String,
@@ -3496,7 +3561,8 @@ final class BackendClient {
                 return BackendRealtimeStudioRenderResult(
                     reply: reply,
                     memoryApplied: latestMemoryApplied,
-                    screenplayQuality: quality
+                    screenplayQuality: quality,
+                    structuralQuality: latestStructuralQuality
                 )
             }
 
@@ -3520,6 +3586,9 @@ final class BackendClient {
                 if let screenplayQuality = payload?.screenplayQuality {
                     latestScreenplayQuality = screenplayQuality
                 }
+                if let structuralQuality = payload?.structuralQuality {
+                    latestStructuralQuality = structuralQuality
+                }
                 let hasSignal =
                     !action.isEmpty ||
                     !kind.isEmpty ||
@@ -3529,7 +3598,8 @@ final class BackendClient {
                     payload?.totalMs != nil ||
                     payload?.deltaChunks != nil ||
                     payload?.memoryApplied?.hasSignal == true ||
-                    payload?.screenplayQuality != nil
+                    payload?.screenplayQuality != nil ||
+                    payload?.structuralQuality != nil
                 guard hasSignal else { return nil }
                 return BackendRealtimeStudioRenderStreamTrace(
                     action: action.isEmpty ? "studio_render_stream" : action,
@@ -3540,7 +3610,8 @@ final class BackendClient {
                     totalMs: payload?.totalMs,
                     deltaChunks: payload?.deltaChunks,
                     memoryApplied: payload?.memoryApplied?.hasSignal == true ? payload?.memoryApplied : nil,
-                    screenplayQuality: payload?.screenplayQuality
+                    screenplayQuality: payload?.screenplayQuality,
+                    structuralQuality: payload?.structuralQuality
                 )
             }
 

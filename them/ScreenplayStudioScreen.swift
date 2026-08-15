@@ -9124,7 +9124,7 @@ Replace is best when this file should become the script you edit. Append is safe
                         .foregroundStyle(Color.herText.opacity(0.58))
                         .lineLimit(4)
                         .accessibilityLabel(
-                            fullOutput.isEmpty ? latestTurn.outputExcerpt : fullOutput
+                            "\(latestExchange.source == .voice ? "Voice" : "Typed"). \(fullOutput.isEmpty ? latestTurn.outputExcerpt : fullOutput)"
                         )
                         .accessibilityIdentifier("studio.voice-pin.latest.output")
 
@@ -19093,6 +19093,9 @@ private var projectsSidebarContent: some View {
                         accent: Color.white.opacity(0.56),
                         fill: Color.white.opacity(0.08)
                     )
+                    .accessibilityIdentifier(
+                        "studio.voice-pin.source.\(turn.source == .voice ? "voice" : "typed")"
+                    )
                     voicePinBadge(
                         icon: "doc.text",
                         label: "Page",
@@ -27042,6 +27045,7 @@ Return revised screenplay lines only.
                     token: effectiveDebugSubmitToken,
                     prompt: submittedText,
                     displayText: displayText,
+                    source: source,
                     requestID: requestID,
                     routingMode: routingMode,
                     routesToPage: routesToPage,
@@ -27238,7 +27242,9 @@ Return revised screenplay lines only.
     }
 
     private var shouldUseDebugStudioPromptStubTransportForLocalSubmit: Bool {
-        debugStudioPromptSubmitTransportModeForLocalSubmit == "stub"
+        ["stub", "structural-quality-stub"].contains(
+            debugStudioPromptSubmitTransportModeForLocalSubmit
+        )
     }
 
     private var shouldUseBackendStudioPromptTransportForDebugSubmit: Bool {
@@ -27253,6 +27259,7 @@ Return revised screenplay lines only.
         token: Int,
         prompt: String,
         displayText: String?,
+        source: StudioPromptSource,
         requestID: String,
         routingMode: PromptRoutingMode,
         routesToPage: Bool,
@@ -27315,7 +27322,7 @@ Return revised screenplay lines only.
         }
         lastCommittedStudioPrompt = promptSummary
         lastCommittedStudioPromptTarget = resolvedTarget
-        lastCommittedStudioPromptSource = .typed
+        lastCommittedStudioPromptSource = source
         if routesToPage {
             let committedWrite = liveDraftBridge.lastCommittedWrite
             let anchorSceneLabel = firstFountainSlugline(in: committedWrite?.insertedText ?? noteBody)
@@ -27326,7 +27333,7 @@ Return revised screenplay lines only.
                 requestID: normalizedStudioRequestID(requestID),
                 prompt: promptSummary,
                 target: .page,
-                source: .typed,
+                source: source,
                 noteTitle: noteTitle,
                 noteBody: noteBodyForExchange(noteBody),
                 developmentText: developmentText,
@@ -27356,7 +27363,7 @@ Return revised screenplay lines only.
                 requestID: normalizedStudioRequestID(requestID),
                 prompt: promptSummary,
                 target: .voicePin,
-                source: .typed,
+                source: source,
                 noteTitle: noteTitle,
                 noteBody: noteBodyForExchange(noteBody),
                 developmentText: developmentText,
@@ -27494,6 +27501,19 @@ The door closes softly. That is worse than a slam.
         for prompt: String,
         memoryDomain: StudioMemoryDomain
     ) -> (title: String, body: String) {
+        if debugStudioPromptSubmitTransportModeForLocalSubmit == "structural-quality-stub" {
+            let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedPrompt.contains("scene doctor") {
+                return (
+                    "Scene Doctor",
+                    "REPAIRED SCENE DOCTOR. Canon protected: Mara already burned the ferry ledger. The core problem is that the scene repeats information without changing leverage. Strongest move: let Eli reveal he memorized one page before the fire, forcing Mara to choose between trusting him and losing the only surviving lead. That turns plot, relationship, and Act II pressure in one playable beat."
+                )
+            }
+            return (
+                "Feature Architecture",
+                "REPAIRED FEATURE ARCHITECTURE. Canon protected: Mara already burned the ferry ledger. Act I makes the burned ledger her irreversible break from the safe investigation. Act II weaponizes Eli's memorized page at the midpoint, then makes their alliance cost Mara the case. Act III pays it off when Mara must trust Eli's memory in public, completing her move from private control to exposed faith."
+            )
+        }
         let characterContext = debugMentionedCharacterName(from: prompt)
         switch memoryDomain {
         case .companion:
@@ -28594,6 +28614,18 @@ Look at the city.
                 source: .typed,
                 routingMode: .voicePin,
                 successMessage: "Prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-voice-source-prompt", in: arguments) {
+            studioPromptRoutingMode = .voicePin
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .voice,
+                routingMode: .voicePin,
+                successMessage: "Voice prompt sent to io.them.",
                 clearSeedOnSuccess: true,
                 sendingSuggestionID: nil
             )
