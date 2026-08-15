@@ -36,11 +36,9 @@
 // Response envelopes, body limits, cache controls, and read-state
 // headers remain compatible with the original inline handlers.
 //
-// Access-control posture: PER-USER. Memory record resolved via
-// `selectMemoryRecordForRead` (read) or
-// `resolveWritableMemoryContext` (write) only after trusted auth
-// identity resolves. Caller-supplied X-User-Id is never trusted for
-// ownership.
+// Access-control posture: PER-USER. Memory records resolve through
+// the canonical authenticated-account lane after trusted auth identity
+// resolves. Caller-supplied X-User-Id is never trusted for ownership.
 //
 // Per the #238 invariant inheritance: this lib does NOT mutate
 // module-level state. Authenticated account reads and writer-owned
@@ -75,10 +73,8 @@ function mountMemoriesRoutes(app, deps = {}) {
     resolveUserId = defaultResolveMemoryUserId,
     // ---------- memory context resolution ----------
     selectMemoryRecordForRead,
-    resolveWritableMemoryContext,
     resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
     persistCanonicalWritableMemoryContext,
     // ---------- read-state pipeline ----------
     buildReadStateMeta,
@@ -117,9 +113,9 @@ function mountMemoriesRoutes(app, deps = {}) {
   // time, not on the first request. Matches the 5b precedent.
   const requiredFns = {
     parseQueryLimit, createRequestId, normalizeSnippet, clampUnit,
-    selectMemoryRecordForRead, resolveWritableMemoryContext,
+    selectMemoryRecordForRead,
     resolveCanonicalWritableMemoryContext, sanitizePersistedSessionMemory,
-    persistWritableMemoryContext, persistCanonicalWritableMemoryContext,
+    persistCanonicalWritableMemoryContext,
     buildReadStateMeta, applyReadStateHeaders, ifNoneMatchStateHit,
     buildConversationHistoryThreads, buildMemoryCards,
     buildMemoryQualitySnapshot, maybeBackfillThemesFromHistory,
@@ -1258,6 +1254,14 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
 
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "undo_correction",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
     let mutation;
     try {
       const undoInput = {
@@ -1293,11 +1297,8 @@ function mountMemoriesRoutes(app, deps = {}) {
         : status === "newer_correction_exists"
           ? 409
           : 400;
-    const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
-    const persisted = memory;
-    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     const receipt = mutation?.receipt || null;
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -1361,6 +1362,14 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
 
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "resolve_correction",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
     let mutation;
     try {
       const resolutionInput = {
@@ -1401,11 +1410,8 @@ function mountMemoriesRoutes(app, deps = {}) {
         ].includes(status)
           ? 409
           : 400;
-    const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
     const memory = sanitizePersistedSessionMemory(context.memory);
-    const persisted = memory;
-    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
     applyCreativeMemoryRevisionHeader(res, mutation?.creativeMemoryRevision);

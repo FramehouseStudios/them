@@ -19,9 +19,7 @@ import {
 function defaultDeps(overrides = {}) {
   const calls = {
     selectMemoryRecordForRead: 0,
-    resolveWritableMemoryContext: 0,
     resolveCanonicalWritableMemoryContext: 0,
-    persistWritableMemoryContext: 0,
     persistCanonicalWritableMemoryContext: 0,
     maybeBackfillThemesFromHistory: 0,
     updateMemoryCardInMemory: [],
@@ -68,10 +66,6 @@ function defaultDeps(overrides = {}) {
       calls.selectMemoryRecordForRead += 1;
       return { source: "ip", ip: "10.0.0.1", memory: baseMemory };
     },
-    resolveWritableMemoryContext: () => {
-      calls.resolveWritableMemoryContext += 1;
-      return { memory: baseMemory, requesterIp: "10.0.0.1" };
-    },
     resolveCanonicalWritableMemoryContext: async () => {
       calls.resolveCanonicalWritableMemoryContext += 1;
       return {
@@ -83,10 +77,6 @@ function defaultDeps(overrides = {}) {
       };
     },
     sanitizePersistedSessionMemory: (m) => m || baseMemory,
-    persistWritableMemoryContext: (_ctx, mem, _ts) => {
-      calls.persistWritableMemoryContext += 1;
-      return mem;
-    },
     persistCanonicalWritableMemoryContext: async (_ctx, mem, _ts) => {
       calls.persistCanonicalWritableMemoryContext += 1;
       return { ok: true, status: "committed", memory: mem };
@@ -196,8 +186,8 @@ test("[memories] mount fails without Express app", () => {
 test("[memories] mount fails when a required fn dep is missing", () => {
   // Spot-check a representative subset of the dependency contract.
   const sample = [
-    "parseQueryLimit", "selectMemoryRecordForRead", "resolveWritableMemoryContext",
-    "resolveCanonicalWritableMemoryContext", "persistWritableMemoryContext",
+    "parseQueryLimit", "selectMemoryRecordForRead",
+    "resolveCanonicalWritableMemoryContext",
     "persistCanonicalWritableMemoryContext", "buildReadStateMeta", "buildMemoryCards",
     "updateMemoryCardInMemory", "forgetMemoryCardInMemory",
     "promoteMemoryCardToThemeInMemory", "incrementThemeQualitySignal",
@@ -555,7 +545,6 @@ test("[memories] POST /memories/update requires authenticated user and does not 
     const r = await postJson(baseURL, "/memories/update", { card_id: "card_1" });
     assert.equal(r.status, 401);
     assert.equal(r.body.error, "user_auth_required");
-    assert.equal(deps._calls.resolveWritableMemoryContext, 0);
   }, { authenticated: false });
 });
 
@@ -587,7 +576,6 @@ test("[memories] POST /memories/update preserves a newer cross-device Story Spin
     assert.match(r.body.message, /another device/i);
   });
   assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/update returns the durable winner when adapter CAS loses", async () => {
@@ -626,7 +614,6 @@ test("[memories] POST /memories/update returns the durable winner when adapter C
     assert.equal(r.body.current_state_version, "v10");
     assert.equal(r.headers.get("x-state-version"), "v10");
   });
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/update fails closed when canonical memory cannot be read", async () => {
@@ -645,7 +632,6 @@ test("[memories] POST /memories/update fails closed when canonical memory cannot
     assert.match(r.body.message, /No changes were applied/i);
   });
   assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/update fails closed when canonical memory cannot be committed", async () => {
@@ -663,7 +649,6 @@ test("[memories] POST /memories/update fails closed when canonical memory cannot
     assert.equal(r.body.status, "memory_persistence_unavailable");
   });
   assert.equal(deps._calls.updateMemoryCardInMemory.length, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/character-bible/update: records structured character correction", async () => {
@@ -970,12 +955,100 @@ test("[memories] POST /memories/corrections/undo restores one authenticated corr
       "unresolvedSetups: the affidavit survives",
     ]);
   });
-  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
   assert.deepEqual(calls, [{
     userId: "user_memories_test",
     receiptId: "canon_correction_123",
   }]);
+});
+
+test("[memories] correction responses report canonical account state metadata", async () => {
+  const canonicalMemory = {
+    screenplayProjectMemory: [{ projectId: "split-ferries", currentBeat: "Mara turns back." }],
+    lastUpdatedAt: 1715620999000,
+  };
+  let metadataMemory = null;
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory: canonicalMemory,
+      requesterIp: "authuser:user_memories_test",
+      authenticatedUserId: "user_memories_test",
+      canonical: true,
+      canonicalRecord: { userId: "user_memories_test", memory: canonicalMemory },
+    }),
+    sanitizePersistedSessionMemory: (memory) => memory,
+    buildReadStateMeta: (_req, memory) => {
+      metadataMemory = memory;
+      return {
+        sessionId: "sess_canonical",
+        stateVersion: "state_canonical_42",
+        lastUpdatedAt: memory.lastUpdatedAt,
+        historyUpdatedAt: null,
+        memoryUpdatedAt: memory.lastUpdatedAt,
+        lastTurnId: "turn_canonical",
+        schemaVersion: 1,
+        backendBuild: "test-build",
+        backendBootId: "test-boot",
+      };
+    },
+    creativeMemoryStore: {
+      undoCanonCorrection: async () => ({ ok: true, status: "undone" }),
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/corrections/undo", {
+      receipt_id: "canon_correction_123",
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.state_version, "state_canonical_42");
+    assert.equal(response.body.session_id, "sess_canonical");
+    assert.equal(response.headers.get("x-state-version"), "state_canonical_42");
+  });
+  assert.equal(metadataMemory, canonicalMemory);
+});
+
+test("[memories] correction mutations fail closed when canonical account memory is unavailable", async () => {
+  const cases = [
+    {
+      path: "/memories/corrections/undo",
+      body: { receipt_id: "canon_correction_123" },
+      action: "undo_correction",
+    },
+    {
+      path: "/memories/corrections/resolve",
+      body: {
+        ambiguity_id: "canon_ambiguity_123",
+        selected_fact: "Mara abandons Eli at the east ferry dock.",
+      },
+      action: "resolve_correction",
+    },
+  ];
+  for (const scenario of cases) {
+    let mutationCalls = 0;
+    const deps = defaultDeps({
+      resolveCanonicalWritableMemoryContext: async () => {
+        throw new Error("account memory unavailable");
+      },
+      creativeMemoryStore: {
+        undoCanonCorrection: async () => {
+          mutationCalls += 1;
+          return { ok: true, status: "undone" };
+        },
+        resolveCanonCorrectionAmbiguity: async () => {
+          mutationCalls += 1;
+          return { ok: true, status: "resolved" };
+        },
+      },
+    });
+    await withTestServer(deps, async (baseURL) => {
+      const response = await postJson(baseURL, scenario.path, scenario.body);
+      assert.equal(response.status, 503);
+      assert.equal(response.body.status, "memory_persistence_unavailable");
+      assert.equal(response.body.action, scenario.action);
+      assert.match(response.body.message, /No changes were applied/i);
+    });
+    assert.equal(mutationCalls, 0);
+  }
 });
 
 test("[memories] POST /memories/corrections/undo refuses out-of-order project undo", async () => {
@@ -992,8 +1065,7 @@ test("[memories] POST /memories/corrections/undo refuses out-of-order project un
     assert.equal(r.body.status, "newer_correction_exists");
     assert.match(r.body.message, /newer correction/i);
   });
-  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
 });
 
 test("[memories] POST /memories/corrections/undo rejects a stale device revision", async () => {
@@ -1021,8 +1093,7 @@ test("[memories] POST /memories/corrections/undo rejects a stale device revision
     assert.equal(r.headers.get("x-creative-memory-revision"), "cm_current_undo");
   });
   assert.equal(calls[0].expectedRevision, "cm_stale_undo");
-  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
 });
 
 test("[memories] POST /memories/corrections/undo requires authenticated user", async () => {
@@ -1042,8 +1113,7 @@ test("[memories] POST /memories/corrections/undo requires authenticated user", a
     assert.equal(r.status, 401);
   }, { authenticated: false });
   assert.equal(called, false);
-  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 0);
 });
 
 // ============== POST /memories/corrections/resolve ==============
@@ -1125,8 +1195,7 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
       "Mara abandons June at the east ferry dock.",
     ],
   }]);
-  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
 });
 
 test("[memories] POST /memories/corrections/resolve preserves the legacy singular request", async () => {
@@ -1179,8 +1248,7 @@ test("[memories] POST /memories/corrections/resolve rejects a stale device revis
     assert.equal(r.body.current_creative_memory_revision, "cm_current_resolution");
   });
   assert.equal(calls[0].expectedRevision, "cm_stale_resolution");
-  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
 });
 
 test("[memories] POST /memories/corrections/resolve rejects a stale accepted fact without syncing", async () => {
@@ -1201,8 +1269,7 @@ test("[memories] POST /memories/corrections/resolve rejects a stale accepted fac
     assert.equal(r.body.status, "accepted_canon_fact_not_found");
     assert.match(r.body.message, /stale/i);
   });
-  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 1);
 });
 
 test("[memories] POST /memories/corrections/resolve requires authenticated user", async () => {
@@ -1223,8 +1290,7 @@ test("[memories] POST /memories/corrections/resolve requires authenticated user"
     assert.equal(r.status, 401);
   }, { authenticated: false });
   assert.equal(called, false);
-  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 0);
 });
 
 // ============== POST /memories/forget ==============
@@ -1322,7 +1388,6 @@ test("[memories] POST /memories/forget: rejects stale state before durable delet
   });
   assert.equal(durableForgetCalled, false);
   assert.equal(deps._calls.forgetMemoryCardInMemory.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/forget: returns typed creative conflict without hiding the card", async () => {
@@ -1350,7 +1415,6 @@ test("[memories] POST /memories/forget: returns typed creative conflict without 
     assert.equal(r.body.current_creative_memory_revision, "cm_current_forget");
   });
   assert.equal(deps._calls.forgetMemoryCardInMemory.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/forget: does not hide a durable card when deletion fails", async () => {
@@ -1414,7 +1478,6 @@ test("[memories] POST /memories/forget repairs the visible card after a concurre
   });
   assert.equal(attempts, 2);
   assert.equal(deps._calls.forgetMemoryCardInMemory.length, 2);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 // ============== POST /memories/promote ==============
@@ -1447,7 +1510,6 @@ test("[memories] POST /memories/promote: preserves a newer cross-device theme st
     assert.equal(r.body.status, "stale_memory_state_version");
   });
   assert.equal(deps._calls.promoteMemoryCardToThemeInMemory.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 // ============== POST /memories/feedback ==============
@@ -1479,7 +1541,6 @@ test("[memories] POST /memories/feedback: preserves newer cross-device quality f
     assert.equal(r.body.status, "stale_memory_state_version");
   });
   assert.equal(deps._calls.incrementThemeQualitySignal.length, 0);
-  assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/feedback: 400 when card is not a theme", async () => {
@@ -1519,7 +1580,6 @@ test("[memories] all 4 account card mutation routes persist canonical context ex
     await postJson(baseURL, "/memories/promote", { card_id: "c", key: "k", title: "t", summary: "s" });
     await postJson(baseURL, "/memories/feedback", { card_id: "c", key: "k", signal: "hit" });
     assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 4);
-    assert.equal(deps._calls.persistWritableMemoryContext, 0);
   });
 });
 
