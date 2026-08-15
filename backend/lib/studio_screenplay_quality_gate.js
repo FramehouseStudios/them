@@ -8,6 +8,11 @@ import {
   normalizeAcceptedCausalFacts,
 } from "./screenplay_canon_guard.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
+import {
+  buildStructuralScreenplayRepairMessages,
+  evaluateStructuralScreenplayReply,
+  shouldAcceptStructuralRepair,
+} from "./structural_screenplay_quality.js";
 
 const MAX_REPAIR_SYSTEM_CONTEXT_CHARS = 11_000;
 const MAX_REPAIR_FAILED_DRAFT_CHARS = 4_800;
@@ -437,9 +442,136 @@ async function enforceStudioScreenplayQuality({
   }
 }
 
+function compactStructuralDimensions(dimensions = {}) {
+  return Object.fromEntries(
+    Object.entries(dimensions || {}).map(([key, value]) => [key, Boolean(value)])
+  );
+}
+
+function structuralQualityEnvelope({
+  modelReason = "",
+  taskIntent = "",
+  initialQuality,
+  finalQuality = null,
+  attemptedRepair = false,
+  repaired = false,
+  outcome = "initial_pass",
+  repairMs = 0,
+} = {}) {
+  const resolved = finalQuality || initialQuality || {};
+  return {
+    applicable: true,
+    passed: Boolean(resolved.ok),
+    repaired: Boolean(repaired),
+    attempted_repair: Boolean(attemptedRepair),
+    outcome: cleanInline(outcome, 48) || "not_improved",
+    reason: cleanInline(resolved.reason, 96) || "structural_quality_failed",
+    initial_reason: cleanInline(initialQuality?.reason, 96) || null,
+    initial_score: Math.max(0, Math.min(1, Number(initialQuality?.score || 0))),
+    final_score: Math.max(0, Math.min(1, Number(resolved.score || 0))),
+    passed_dimensions: Math.max(0, Number(resolved.passedDimensions || 0)),
+    total_dimensions: Math.max(0, Number(resolved.totalDimensions || 0)),
+    dimensions: compactStructuralDimensions(resolved.dimensions),
+    repair_ms: Math.max(0, Math.round(Number(repairMs || 0))),
+    model_reason: cleanInline(modelReason, 64),
+    task_intent: cleanInline(taskIntent, 64),
+  };
+}
+
+async function enforceStudioStructuralAnalysisQuality({
+  reply = "",
+  transcript = "",
+  studioMeta = {},
+  modelReason = "",
+  taskIntent = "",
+  maxTokens = 1_000,
+  renderRepair,
+} = {}) {
+  const initialQuality = evaluateStructuralScreenplayReply({ reply, modelReason });
+  const envelope = (options = {}) => structuralQualityEnvelope({
+    modelReason,
+    taskIntent,
+    initialQuality,
+    ...options,
+  });
+  if (!initialQuality.applicable || initialQuality.ok) {
+    return { reply, repaired: false, structuralQuality: envelope() };
+  }
+  if (typeof renderRepair !== "function") {
+    return {
+      reply,
+      repaired: false,
+      structuralQuality: envelope({ outcome: "unavailable" }),
+    };
+  }
+
+  const repairMessages = buildStructuralScreenplayRepairMessages({
+    modelReason,
+    userRequest: transcript,
+    weakDraft: reply,
+    quality: initialQuality,
+    studioMeta,
+  });
+  if (repairMessages.length < 2) {
+    return {
+      reply,
+      repaired: false,
+      structuralQuality: envelope({ outcome: "unavailable" }),
+    };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const candidateReply = String(await renderRepair({
+      systemPrompt: repairMessages[0].content,
+      transcript: repairMessages[1].content,
+      modelTier: "structural_repair",
+      maxTokens: Math.max(700, Math.min(1_400, Number(maxTokens || 1_000))),
+      repairAttempt: true,
+    }) || "").trim();
+    const candidateQuality = evaluateStructuralScreenplayReply({
+      reply: candidateReply,
+      modelReason,
+    });
+    if (!candidateReply || !shouldAcceptStructuralRepair(initialQuality, candidateQuality)) {
+      return {
+        reply,
+        repaired: false,
+        structuralQuality: envelope({
+          attemptedRepair: true,
+          outcome: "not_improved",
+          repairMs: Date.now() - startedAt,
+        }),
+      };
+    }
+    return {
+      reply: candidateReply,
+      repaired: true,
+      structuralQuality: envelope({
+        finalQuality: candidateQuality,
+        attemptedRepair: true,
+        repaired: true,
+        outcome: candidateQuality.ok ? "repaired_pass" : "improved",
+        repairMs: Date.now() - startedAt,
+      }),
+    };
+  } catch (_error) {
+    return {
+      reply,
+      repaired: false,
+      structuralQuality: envelope({
+        attemptedRepair: true,
+        outcome: "supplier_failed",
+        repairMs: Date.now() - startedAt,
+      }),
+    };
+  }
+}
+
 export {
   buildStudioScreenplayRepairRequest,
   enforceStudioScreenplayQuality,
+  enforceStudioStructuralAnalysisQuality,
   evaluateStudioScreenplayReply,
   studioScreenplayFeatureContext,
   studioScreenplayMaxTokens,

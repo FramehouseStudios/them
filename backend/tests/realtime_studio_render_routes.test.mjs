@@ -34,6 +34,24 @@ const VALID_SCREENPLAY_REPLY = [
   "Mara takes the subpoena and steps toward the approaching guard instead of the exit.",
 ].join("\n");
 
+const VALID_SCENE_DOCTOR_REPLY = [
+  "The core problem is that Mara's objective never meets real opposition, so the scene repeats one tactic without a turn.",
+  "The highest-leverage fix is to make Eli withhold the reel until Mara risks their relationship. That creates obstacle, leverage, subtext, and a consequence for the next scene and her Act II arc.",
+  "A playable version on the page:",
+  "INT. EDIT BAY - NIGHT",
+  "Mara reaches for the reel. Eli closes his fist around it.",
+  "ELI",
+  "Tell them what you cut, or this stays with me.",
+  "End when Mara opens the live microphone; the choice makes the public hearing inevitable.",
+].join("\n");
+
+const VALID_FEATURE_ARCHITECTURE_REPLY = [
+  "Act I: Mara wants to expose the forged testimony while her wound and false belief tell her truth destroys anyone who speaks it. The catalyst is the public affidavit. Her commitment puts it on the record, which forces her into the investigation and closes the private escape route.",
+  "Act II: her old tactic is controlling evidence alone. The midpoint reveals Eli carried the missing reel, therefore her proof becomes a relationship betrayal. That reversal drives public pressure. The all is lost crisis comes when Mara broadcasts the wrong memory, which forces changed behavior instead of concealment.",
+  "Act III: Mara needs to surrender control and tell the unedited truth. The planted reel and promise to Eli pay off in the climax when she gives him the final choice. Her changed behavior resolves the central question, and the final image transforms the edit-bay monitor into a public witness.",
+  "Next three scenes: Mara discovers the splice; Eli refuses her old tactic; Mara chooses the live microphone and makes the hearing inevitable.",
+].join("\n\n");
+
 function defaultDeps(overrides = {}) {
   const calls = { renderInvocations: [], streamInvocations: [] };
   return {
@@ -137,6 +155,97 @@ test("[studio-render] sync: 200 with ok envelope on happy path", async () => {
     assert.equal(r.body.reply, "rendered reply");
     assert.equal(deps._calls.renderInvocations.length, 1);
     assert.equal(deps._calls.renderInvocations[0].transcript, "make me a scene");
+  });
+});
+
+test("[studio-render] sync: Scene Doctor uses structural reasoning and repairs once", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return options.repairAttempt
+        ? VALID_SCENE_DOCTOR_REPLY
+        : "The scene needs more emotion.";
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Scene doctor this sequence and tell me the highest-leverage fix.",
+      screenplay_act: "Act II",
+      screenplay_correction_replacements: ["mother -> Eli's sister"],
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCENE_DOCTOR_REPLY);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.structural_quality.repaired, true);
+    assert.equal(r.body.structural_quality.outcome, "repaired_pass");
+    assert.equal(r.body.structural_quality.model_reason, "screenplay_scene_doctor");
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].modelTier, "structural");
+    assert.equal(calls[0].maxTokens, 700);
+    assert.equal(calls[1].modelTier, "structural_repair");
+    assert.match(calls[1].transcript, /CANON_CORRECTION: mother -> Eli's sister/);
+  });
+});
+
+test("[studio-render] sync: explicit structural task hint retrieves identity-bound story memory", async () => {
+  let memoryReads = 0;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-structural-memory",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => {
+        memoryReads += 1;
+        return {
+          characters: [{
+            name: "Mara",
+            bible: { canon: ["Mara is Eli's older sister."] },
+          }],
+        };
+      },
+    },
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return VALID_SCENE_DOCTOR_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Help me with this.",
+      screenplay_target: "voice_pin",
+      screenplay_task_hint: "Scene doctor the current sequence.",
+      screenplay_project_id: "project-memory",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(memoryReads, 1);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.memory_applied.character_bible, true);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /Mara is Eli's older sister/);
+  });
+});
+
+test("[studio-render] sync: feature architecture uses the structural feature budget", async () => {
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return VALID_FEATURE_ARCHITECTURE_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Help me finish this feature from Act I through Act II and Act III.",
+      screenplay_target: "voice_pin",
+      screenplay_act: "Act II",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.structural_quality.repaired, false);
+    assert.equal(r.body.structural_quality.model_reason, "screenplay_feature_architecture");
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_000);
   });
 });
 
@@ -864,6 +973,38 @@ test("[studio-render-stream] sse: emits meta + delta + done events on happy path
     // Verify the deltas are in order.
     const deltaCount = (r.text.match(/event: delta\b/g) || []).length;
     assert.equal(deltaCount, 2, "expected 2 delta events from stub");
+  });
+});
+
+test("[studio-render-stream] sse: buffers weak structural draft and emits only repaired answer", async () => {
+  const weak = "The scene needs more emotion.";
+  const repairCalls = [];
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta, modelTier, maxTokens }) => {
+      assert.equal(modelTier, "structural");
+      assert.equal(maxTokens, 700);
+      await onDelta(weak, weak);
+      return weak;
+    },
+    renderStudioRealtimeText: async (options) => {
+      repairCalls.push(options);
+      return VALID_SCENE_DOCTOR_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "Scene doctor this sequence and give me the strongest fix.",
+    });
+
+    assert.equal(r.status, 200);
+    assert.doesNotMatch(r.text, /The scene needs more emotion/);
+    assert.match(r.text, /The core problem is that Mara/);
+    assert.match(r.text, /"kind":"first_delta_buffered"/);
+    assert.match(r.text, /"kind":"structural_quality_repair"/);
+    assert.match(r.text, /"outcome":"repaired_pass"/);
+    assert.match(r.text, /event: done\b/);
+    assert.equal(repairCalls.length, 1);
+    assert.equal(repairCalls[0].modelTier, "structural_repair");
   });
 });
 

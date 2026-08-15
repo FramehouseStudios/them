@@ -3,6 +3,12 @@ const STRUCTURAL_REASONS = new Set([
   "screenplay_feature_architecture",
 ]);
 
+const STRUCTURAL_REASON_BY_TASK_INTENT = Object.freeze({
+  scene_doctor: "screenplay_scene_doctor",
+  outline_structure: "screenplay_feature_architecture",
+  finish_feature: "screenplay_feature_architecture",
+});
+
 function normalizeText(value) {
   return String(value || "").replace(/\r\n?/g, "\n").trim();
 }
@@ -169,6 +175,11 @@ function evaluateStructuralScreenplayReply({ reply = "", modelReason = "" } = {}
     : evaluateFeatureArchitecture(text);
 }
 
+function structuralScreenplayModelReasonForTask(task = null) {
+  const intent = String(task?.intent || task || "").trim().toLowerCase();
+  return STRUCTURAL_REASON_BY_TASK_INTENT[intent] || "";
+}
+
 function cleanContextValue(value, maxChars = 240) {
   return normalizeText(value).replace(/\s+/g, " ").slice(0, maxChars).trim();
 }
@@ -289,4 +300,5 @@ export {
   featureArchitectureDirectives,
   sceneDoctorDirectives,
   shouldAcceptStructuralRepair,
+  structuralScreenplayModelReasonForTask,
 };

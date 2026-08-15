@@ -50,6 +50,7 @@ import {
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
 import {
   enforceStudioScreenplayQuality,
+  enforceStudioStructuralAnalysisQuality,
   studioScreenplayFeatureContext,
   studioScreenplayMaxTokens,
   studioScreenplayRequestedPages,
@@ -57,6 +58,7 @@ import {
 import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
 import { evaluateMomentumRescueQuality } from "./screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
+import { structuralScreenplayModelReasonForTask } from "./structural_screenplay_quality.js";
 import {
   buildDeliveredStoryRescueInteraction,
   inferStoryMoveActKind,
@@ -308,11 +310,18 @@ async function buildStudioRenderPromptMemoryContext({
   const hasMemoryBlock = promptText.includes(MEMORY_BLOCK_OPEN);
   const hasFeatureMapBlock = promptText.includes(FEATURE_MAP_BLOCK_OPEN);
   const query = buildStudioRenderMemoryQuery({ body, transcript, systemPrompt });
-  const inferredScreenplayTask = inferScreenplayTask(transcript || query);
+  const explicitTaskHint = cleanStudioRenderMemoryText(
+    body?.screenplay_task_hint ?? body?.screenplayTaskHint,
+    3_000
+  );
+  const inferredScreenplayTask = inferScreenplayTask(explicitTaskHint || transcript || query);
   const screenplayTask = hasFeatureMapBlock ? null : inferredScreenplayTask;
   const isMomentumRescue = inferredScreenplayTask?.writerBlocked === true ||
     inferredScreenplayTask?.writer_blocked === true;
-  if (!shouldApplyScreenplayContract && !isMomentumRescue) {
+  const isStructuralAnalysis = Boolean(
+    structuralScreenplayModelReasonForTask(inferredScreenplayTask)
+  );
+  if (!shouldApplyScreenplayContract && !isMomentumRescue && !isStructuralAnalysis) {
     return {
       systemPrompt,
       memoryApplied: null,
@@ -581,6 +590,34 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     screenplayStoryMovePreferenceOverrides: Array.isArray(project.storyMovePreferenceOverrides)
       ? project.storyMovePreferenceOverrides.slice(0, 9)
       : [],
+    screenplayCorrectedTerms: mergeStudioMomentumList(
+      body.screenplayCorrectedTerms ?? body.screenplay_corrected_terms,
+      project.correctedTerms,
+      8,
+      120
+    ),
+    screenplayCorrectionReplacements: mergeStudioMomentumList(
+      body.screenplayCorrectionReplacements ?? body.screenplay_correction_replacements,
+      project.correctionReplacements,
+      8,
+      160
+    ),
+  };
+}
+
+function studioStructuralAnalysisPlan({ body = {}, transcript = "", shouldApplyScreenplayContract = false } = {}) {
+  if (shouldApplyScreenplayContract) return null;
+  const taskHint = cleanStudioRenderMemoryText(
+    body?.screenplay_task_hint ?? body?.screenplayTaskHint ?? transcript,
+    3_000
+  );
+  const task = inferScreenplayTask(taskHint);
+  const modelReason = structuralScreenplayModelReasonForTask(task);
+  if (!modelReason) return null;
+  return {
+    task,
+    modelReason,
+    maxTokens: modelReason === "screenplay_feature_architecture" ? 1_000 : 700,
   };
 }
 
@@ -809,6 +846,11 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     const requestedPages = shouldApplyScreenplayContract
       ? studioScreenplayRequestedPages({ body: req.body, transcript })
       : 0;
+    const structuralPlan = studioStructuralAnalysisPlan({
+      body: req.body,
+      transcript,
+      shouldApplyScreenplayContract,
+    });
 
     try {
       const memoryContext = await buildStudioRenderPromptMemoryContext({
@@ -827,10 +869,16 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
               modelTier: "structural",
               maxTokens: studioScreenplayMaxTokens(requestedPages),
             }
-          : {}),
+          : structuralPlan
+            ? {
+                modelTier: "structural",
+                maxTokens: structuralPlan.maxTokens,
+              }
+            : {}),
       });
       let reply = contractStudioRenderReply(rawReply, shouldApplyScreenplayContract);
       let screenplayQuality = null;
+      let structuralQuality = null;
       if (shouldApplyScreenplayContract) {
         const qualityResult = await enforceStudioScreenplayQuality({
           reply,
@@ -851,6 +899,21 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           });
         }
         reply = qualityResult.reply;
+      } else if (structuralPlan) {
+        const qualityResult = await enforceStudioStructuralAnalysisQuality({
+          reply,
+          transcript,
+          studioMeta: studioMomentumMeta({
+            body: req.body,
+            creativeMemory: memoryContext.creativeMemory,
+          }),
+          modelReason: structuralPlan.modelReason,
+          taskIntent: structuralPlan.task?.intent,
+          maxTokens: structuralPlan.maxTokens,
+          renderRepair: renderStudioRealtimeText,
+        });
+        reply = qualityResult.reply;
+        structuralQuality = qualityResult.structuralQuality;
       } else {
         const momentumResult = enforceStudioMomentumRescue({
           reply,
@@ -871,13 +934,14 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         });
       }
       console.warn(
-        `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length} quality=${screenplayQuality?.repair_outcome || "not_applicable"}`,
+        `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length} quality=${structuralQuality?.outcome || screenplayQuality?.repair_outcome || "not_applicable"}`,
       );
       return res.status(200).json({
         ok: true,
         action: "studio_render",
         reply,
         ...(screenplayQuality ? { screenplay_quality: screenplayQuality } : {}),
+        ...(structuralQuality ? { structural_quality: structuralQuality } : {}),
         ...(memoryContext.memoryApplied ? { memory_applied: memoryContext.memoryApplied } : {}),
       });
     } catch (error) {
@@ -921,6 +985,11 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     const requestedPages = shouldApplyScreenplayContract
       ? studioScreenplayRequestedPages({ body: req.body, transcript })
       : 0;
+    const structuralPlan = studioStructuralAnalysisPlan({
+      body: req.body,
+      transcript,
+      shouldApplyScreenplayContract,
+    });
     const memoryContext = await buildStudioRenderPromptMemoryContext({
       req,
       systemPrompt,
@@ -973,9 +1042,31 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
               modelTier: "structural",
               maxTokens: studioScreenplayMaxTokens(requestedPages),
             }
-          : {}),
+          : structuralPlan
+            ? {
+                modelTier: "structural",
+                maxTokens: structuralPlan.maxTokens,
+              }
+            : {}),
         onDelta: async (delta, fullReply) => {
           const contractedFullReply = contractStudioRenderReply(fullReply, shouldApplyScreenplayContract);
+          if (structuralPlan) {
+            if (firstDeltaMs === null) {
+              firstDeltaMs = Math.max(0, Date.now() - requestStartedAt);
+              pushEvent("trace", {
+                ok: true,
+                action: "studio_render_stream",
+                kind: "first_delta_buffered",
+                request_id: rid,
+                started_at: requestStartedAtISO8601,
+                first_delta_ms: firstDeltaMs,
+                delta_chunks: 0,
+                delta_chars: String(delta || "").length,
+                full_chars: contractedFullReply.length,
+              });
+            }
+            return;
+          }
           const outboundDelta = shouldApplyScreenplayContract
             ? studioRenderDeltaFromContractedReply(lastEmittedReply, contractedFullReply)
             : delta;
@@ -1006,6 +1097,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       });
       let reply = contractStudioRenderReply(rawReply, shouldApplyScreenplayContract);
       let screenplayQuality = null;
+      let structuralQuality = null;
       if (shouldApplyScreenplayContract) {
         const qualityResult = await enforceStudioScreenplayQuality({
           reply,
@@ -1045,6 +1137,35 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
           pushEvent("delta", { delta: finalDelta });
           lastEmittedReply = reply;
         }
+      } else if (structuralPlan) {
+        const qualityResult = await enforceStudioStructuralAnalysisQuality({
+          reply,
+          transcript,
+          studioMeta: studioMomentumMeta({
+            body: req.body,
+            creativeMemory: memoryContext.creativeMemory,
+          }),
+          modelReason: structuralPlan.modelReason,
+          taskIntent: structuralPlan.task?.intent,
+          maxTokens: structuralPlan.maxTokens,
+          renderRepair: renderStudioRealtimeText,
+        });
+        reply = qualityResult.reply;
+        structuralQuality = qualityResult.structuralQuality;
+        if (qualityResult.repaired) {
+          pushEvent("trace", {
+            ok: true,
+            action: "studio_render_stream",
+            kind: "structural_quality_repair",
+            request_id: rid,
+            structural_quality: structuralQuality,
+          });
+        }
+        if (reply) {
+          deltaChunks += 1;
+          pushEvent("delta", { delta: reply });
+          lastEmittedReply = reply;
+        }
       } else {
         const momentumResult = enforceStudioMomentumRescue({
           reply,
@@ -1075,7 +1196,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       }
       const totalMs = Math.max(0, Date.now() - requestStartedAt);
       console.warn(
-        `[${rid}] studio_render_stream chars_u=${transcript.length} chars_a=${reply.length} delta_chunks=${deltaChunks} first_delta_ms=${firstDeltaMs ?? -1} total_ms=${totalMs} quality=${screenplayQuality?.repair_outcome || "not_applicable"}`,
+        `[${rid}] studio_render_stream chars_u=${transcript.length} chars_a=${reply.length} delta_chunks=${deltaChunks} first_delta_ms=${firstDeltaMs ?? -1} total_ms=${totalMs} quality=${structuralQuality?.outcome || screenplayQuality?.repair_outcome || "not_applicable"}`,
       );
       pushEvent("done", {
         ok: true,
@@ -1088,6 +1209,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         delta_chunks: deltaChunks,
         reply,
         ...(screenplayQuality ? { screenplay_quality: screenplayQuality } : {}),
+        ...(structuralQuality ? { structural_quality: structuralQuality } : {}),
         ...(memoryContext.memoryApplied ? { memory_applied: memoryContext.memoryApplied } : {}),
       });
     } catch (error) {

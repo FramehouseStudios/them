@@ -167,6 +167,7 @@ import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_rou
 import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
+import { structuralScreenplayModelReasonForTask } from "./lib/structural_screenplay_quality.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
 import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
 import {
@@ -24811,12 +24812,9 @@ function selectChatModelForTurn({
     /\b(screenplay|script|scene|feature(?:[- ]film)?|movie|film|act\s*(?:i{1,3}|[123]|one|two|three)|beat sheet|fountain|dialogue|character arc|story structure|writer'?s block|writers block|creative block)\b/.test(t)
   );
   const structuralTaskReason = explicitScreenplayContext
-    ? ({
-        scene_doctor: "screenplay_scene_doctor",
-        outline_structure: "screenplay_feature_architecture",
-        finish_feature: "screenplay_feature_architecture",
-        momentum_rescue: "screenplay_momentum_rescue",
-      }[screenplayTaskIntent] || "")
+    ? structuralScreenplayModelReasonForTask(screenplayTask) || (
+        screenplayTaskIntent === "momentum_rescue" ? "screenplay_momentum_rescue" : ""
+      )
     : "";
   const structuralScreenplayTask = Boolean(structuralTaskReason);
   const intent = String(turnPlanner?.intent || "reflective_checkin");

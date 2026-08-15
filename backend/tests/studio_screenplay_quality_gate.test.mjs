@@ -4,11 +4,23 @@ import { test } from "node:test";
 import {
   buildStudioScreenplayRepairRequest,
   enforceStudioScreenplayQuality,
+  enforceStudioStructuralAnalysisQuality,
   evaluateStudioScreenplayReply,
   studioScreenplayFeatureContext,
   studioScreenplayMaxTokens,
   studioScreenplayRequestedPages,
 } from "../lib/studio_screenplay_quality_gate.js";
+
+const VALID_SCENE_DOCTOR = [
+  "The core problem is that Mara's objective never meets real opposition, so the scene repeats one tactic without a turn.",
+  "The highest-leverage fix is to make Eli withhold the reel until Mara risks their relationship. That creates obstacle, leverage, subtext, and a consequence for the next scene and her Act II arc.",
+  "A playable version on the page:",
+  "INT. EDIT BAY - NIGHT",
+  "Mara reaches for the reel. Eli closes his fist around it.",
+  "ELI",
+  "Tell them what you cut, or this stays with me.",
+  "End when Mara opens the live microphone; the choice makes the public hearing inevitable.",
+].join("\n");
 
 const VALID_PAGE = [
   "INT. ARCHIVE - NIGHT",
@@ -53,6 +65,72 @@ test("[studio-quality] valid Fountain passes without spending the repair", async
   assert.equal(result.reply, VALID_PAGE);
   assert.equal(result.quality.repair_outcome, "not_needed");
   assert.equal(repairCalls, 0);
+});
+
+test("[studio-quality] structural analysis passes without spending repair", async () => {
+  let repairCalls = 0;
+  const result = await enforceStudioStructuralAnalysisQuality({
+    reply: VALID_SCENE_DOCTOR,
+    transcript: "Scene doctor this sequence.",
+    modelReason: "screenplay_scene_doctor",
+    taskIntent: "scene_doctor",
+    renderRepair: async () => {
+      repairCalls += 1;
+      return VALID_SCENE_DOCTOR;
+    },
+  });
+
+  assert.equal(result.reply, VALID_SCENE_DOCTOR);
+  assert.equal(result.repaired, false);
+  assert.equal(result.structuralQuality.passed, true);
+  assert.equal(result.structuralQuality.outcome, "initial_pass");
+  assert.equal(result.structuralQuality.model_reason, "screenplay_scene_doctor");
+  assert.equal(repairCalls, 0);
+});
+
+test("[studio-quality] weak structural analysis gets one canon-aware repair", async () => {
+  const calls = [];
+  const result = await enforceStudioStructuralAnalysisQuality({
+    reply: "The scene needs more emotion.",
+    transcript: "Scene doctor this sequence.",
+    studioMeta: {
+      screenplayAct: "Act II",
+      screenplayCorrectionReplacements: ["mother -> Eli's sister"],
+    },
+    modelReason: "screenplay_scene_doctor",
+    taskIntent: "scene_doctor",
+    maxTokens: 700,
+    renderRepair: async (request) => {
+      calls.push(request);
+      return VALID_SCENE_DOCTOR;
+    },
+  });
+
+  assert.equal(result.reply, VALID_SCENE_DOCTOR);
+  assert.equal(result.repaired, true);
+  assert.equal(result.structuralQuality.passed, true);
+  assert.equal(result.structuralQuality.outcome, "repaired_pass");
+  assert.equal(result.structuralQuality.initial_reason, "underdeveloped_scene_doctor");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].modelTier, "structural_repair");
+  assert.equal(calls[0].maxTokens, 700);
+  assert.match(calls[0].transcript, /CANON_CORRECTION: mother -> Eli's sister/);
+});
+
+test("[studio-quality] weaker structural repair cannot replace the initial answer", async () => {
+  const initial = "The scene needs more emotion and a clearer objective before the next scene.";
+  const result = await enforceStudioStructuralAnalysisQuality({
+    reply: initial,
+    transcript: "Scene doctor this sequence.",
+    modelReason: "screenplay_scene_doctor",
+    taskIntent: "scene_doctor",
+    renderRepair: async () => "Make it better.",
+  });
+
+  assert.equal(result.reply, initial);
+  assert.equal(result.repaired, false);
+  assert.equal(result.structuralQuality.outcome, "not_improved");
+  assert.equal(result.structuralQuality.final_score, result.structuralQuality.initial_score);
 });
 
 test("[studio-quality] recap instead of pages gets exactly one bounded repair", async () => {

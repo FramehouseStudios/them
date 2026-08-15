@@ -5,7 +5,24 @@ import {
   buildStructuralScreenplayRepairMessages,
   evaluateStructuralScreenplayReply,
   shouldAcceptStructuralRepair,
+  structuralScreenplayModelReasonForTask,
 } from "../lib/structural_screenplay_quality.js";
+
+test("[structural-quality] shares one task-to-reason contract across generation paths", () => {
+  assert.equal(
+    structuralScreenplayModelReasonForTask({ intent: "scene_doctor" }),
+    "screenplay_scene_doctor",
+  );
+  assert.equal(
+    structuralScreenplayModelReasonForTask({ intent: "outline_structure" }),
+    "screenplay_feature_architecture",
+  );
+  assert.equal(
+    structuralScreenplayModelReasonForTask("finish_feature"),
+    "screenplay_feature_architecture",
+  );
+  assert.equal(structuralScreenplayModelReasonForTask({ intent: "write_scene" }), "");
+});
 
 test("[structural-quality] rejects generic Scene Doctor notes", () => {
   const quality = evaluateStructuralScreenplayReply({
