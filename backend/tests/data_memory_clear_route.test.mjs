@@ -37,8 +37,11 @@ async function withServer({ clearCreativeMemory }, run) {
         return clearCreativeMemory({ userId });
       },
     },
-    persistWritableMemoryContext: (_context, memory) => memory,
-    resolveWritableMemoryContext: () => ({
+    persistCanonicalWritableMemoryContext: async (_context, memory) => ({
+      ok: true,
+      memory,
+    }),
+    resolveCanonicalWritableMemoryContext: async () => ({
       memory: { memories: ["old"] },
       requesterIp: "127.0.0.1",
       clientToken: "client-a",

@@ -31783,8 +31783,8 @@ mountDataRoutes(app, {
   clearConversationHistoryMemory,
   createRequestId,
   creativeMemoryStore,
-  persistWritableMemoryContext,
-  resolveWritableMemoryContext,
+  persistCanonicalWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
 });
 
 // GET /history + POST /history/annotate_turn extracted to lib/history_routes.js.

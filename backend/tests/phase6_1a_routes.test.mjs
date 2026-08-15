@@ -49,9 +49,10 @@ const stateDeps = {
 const dataDeps = {
   applyReadStateHeaders: () => {}, buildReadStateMeta: () => ({}),
   clearAllMemoriesMemory: () => ({}), clearConversationHistoryMemory: () => ({}),
-  createRequestId: () => "rid", persistWritableMemoryContext: () => {},
+  createRequestId: () => "rid",
+  persistCanonicalWritableMemoryContext: async (_context, memory) => ({ ok: true, memory }),
   creativeMemoryStore: { clearUserMemory: async () => ({ ok: true }) },
-  resolveWritableMemoryContext: () => ({}),
+  resolveCanonicalWritableMemoryContext: async () => ({}),
 };
 
 test("[6.1a] required-deps guards throw on missing deps", () => {
