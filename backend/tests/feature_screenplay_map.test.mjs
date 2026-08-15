@@ -68,6 +68,51 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("feature_completion_protocol:"));
 });
 
+test("[feature-screenplay-map] compact live page prompt keeps the pre-draft execution brief", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    compact: true,
+    sessionContext: {
+      pageCount: 62,
+      targetPages: 110,
+      act: "Act II",
+      lastSceneOutcome: "Eli refuses to repeat the memorized names.",
+      nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+      unresolvedStoryThreads: ["The ferry token may expose June's route."],
+      characterArcState: "Mara must trust June instead of controlling the escape.",
+      actThreePayoffPath: ["June returns the token when Mara gives her the wheel."],
+      imageMotifs: ["red ferry light"],
+      nextThreeTurns: [
+        "June takes the service tunnel.",
+        "Eli speaks the first memorized name.",
+      ],
+    },
+    screenplayTask: { intent: "continue_script", requestedPages: 2 },
+  });
+
+  assert.match(block, /next_scene_execution_brief:/);
+  assert.match(block, /scene_assignment: June takes the service tunnel/);
+  assert.match(block, /obstacle_to_pressurize: The ferry token may expose June's route/);
+  assert.match(block, /changed_behavior_due: Mara must trust June/);
+  assert.match(block, /payoff_or_setup_to_spend: June returns the token/);
+  assert.match(block, /exit_handoff: Eli speaks the first memorized name/);
+  assert.doesNotMatch(block, /active_sequence_lane:/);
+  assert.doesNotMatch(block, /image_to_stage:/);
+  assert.doesNotMatch(block, /execution_steps:/);
+});
+
+test("[feature-screenplay-map] compact analysis prompt does not spend page-only brief budget", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    compact: true,
+    sessionContext: {
+      act: "Act II",
+      nextScenePlan: "June takes the service tunnel.",
+    },
+    screenplayTask: { intent: "scene_doctor" },
+  });
+
+  assert.doesNotMatch(block, /next_scene_execution_brief:/);
+});
+
 test("[feature-screenplay-map] carries feature spine, promises, and Act III payoff path", () => {
   const block = buildFeatureScreenplayMapBlock({
     sessionContext: {

@@ -284,6 +284,76 @@ test("[studio-render] sync: account story graph rejects project-generic Scene Do
   });
 });
 
+test("[studio-render] sync: account story graph becomes a first-pass page execution brief", async () => {
+  const calls = [];
+  const graphPage = [
+    "INT. FERRY TERMINAL - NIGHT",
+    "",
+    "June takes the cracked ferry token and slips toward the service tunnel. Red warning light washes the burned ferry ledger ash from Mara's coat.",
+    "",
+    "Mara catches June at the gate, one hand on the wheel release. Control hardens her grip. Trust makes her let go.",
+    "",
+    "MARA",
+    "Choose the route. I follow.",
+    "",
+    "Eli watches Mara give June the wheel. He finally repeats the first memorized name.",
+    "",
+    "ELI",
+    "Anya Voss.",
+    "",
+    "June returns the token to Mara, then pushes it back into her open palm.",
+    "",
+    "JUNE",
+    "You said my choice.",
+    "",
+    "Mara leaves the token with June. The service door unlocks, forcing all three of them into the tunnel before the patrol rounds the glass booth.",
+  ].join("\n");
+  const deps = defaultDeps({
+    resolveUserId: () => "user-page-graph",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        featureStoryGraph: {
+          currentState: {
+            act: "Act II",
+            lastAcceptedOutcome: "Eli refuses to repeat the memorized names until Mara trusts him.",
+            nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+            characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+          },
+          bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+          openThreads: [{
+            due: true,
+            setup: "The cracked ferry token Mara gave June.",
+            promisedPayoff: "June returns it when Mara gives her the wheel.",
+          }],
+        },
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return graphPage;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue the next page from the ferry terminal.",
+      screenplay_target: "page",
+      screenplay_requested_pages: 1,
+      screenplay_project_id: "split-ferries",
+      screenplay_anchor_scene_label: "INT. FERRY TERMINAL - NIGHT",
+    });
+
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.reply, graphPage);
+    assert.equal(r.body.screenplay_quality?.ok, true);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].systemPrompt, /next_scene_execution_brief:/);
+    assert.match(calls[0].systemPrompt, /scene_assignment: June takes the cracked ferry token through the service tunnel/);
+    assert.match(calls[0].systemPrompt, /changed_behavior_due: Mara treats dependence as danger/);
+    assert.match(calls[0].systemPrompt, /payoff_or_setup_to_spend: June returns it when Mara gives her the wheel/);
+  });
+});
+
 test("[studio-render] sync: feature architecture uses the structural feature budget", async () => {
   const deps = defaultDeps({
     renderStudioRealtimeText: async (options) => {

@@ -1423,7 +1423,10 @@ function buildNextSceneExecutionBriefLines({
   const openingHandoff = lastSceneOutcome || emotionalHandoff || currentBeat;
   const obstacle = unresolvedStoryThreads[0] || unresolvedSetups[0] || activeSequence?.obligation || "";
   const arcBehavior = characterArcTurns[0] || characterArcState;
-  const payoffOrSetup = actThreePayoffPath[0] || unresolvedSetups[0] || "";
+  const payoffCandidate = actThreePayoffPath[0] || unresolvedSetups[0] || "";
+  const payoffOrSetup = payoffCandidate && payoffCandidate.toLowerCase() !== obstacle.toLowerCase()
+    ? payoffCandidate
+    : "";
   const imageToStage = imageMotifs[0] || endingImage || "";
   const exitHandoff = nextThreeTurns[1] || nextSequence?.obligation || "";
   const hasBriefContext = Boolean(
@@ -1530,6 +1533,12 @@ function compactFeatureMapLines(lines, { sessionContext = null, screenplayTask =
   const writerBlockText = `${screenplayTask?.label || ""} ${screenplayTask?.output || ""}`.toLowerCase();
   const writerBlocked = screenplayTask?.writerBlocked === true || screenplayTask?.writer_blocked === true ||
     intent === "momentum_rescue" || /\b(?:stuck|blocked|writer'?s block)\b/.test(writerBlockText);
+  const writesPages = requestedPages > 0 || new Set([
+    "write_scene",
+    "rewrite_scene",
+    "continue_script",
+    "finish_feature",
+  ]).has(intent);
   const compact = [];
 
   for (const group of groupFeatureMapLines(lines)) {
@@ -1637,6 +1646,15 @@ function compactFeatureMapLines(lines, { sessionContext = null, screenplayTask =
         if (writerBlocked) compact.push(...group.lines);
         break;
       case "next_scene_execution_brief":
+        if (writesPages || writerBlocked) {
+          compact.push(...keepFeatureMapLines(group, [
+            "scene_assignment:",
+            "obstacle_to_pressurize:",
+            "changed_behavior_due:",
+            "payoff_or_setup_to_spend:",
+            "exit_handoff:",
+          ]));
+        }
         break;
       case "feature_completion_protocol":
         compact.push(...keepFeatureMapLines(group, [

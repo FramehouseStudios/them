@@ -330,8 +330,6 @@ async function buildStudioRenderPromptMemoryContext({
       screenplayTask: null,
     };
   }
-  const sessionContext = hasFeatureMapBlock ? null : studioScreenplayFeatureContext(body);
-
   let userId = "";
   let creativeMemory = null;
   if (creativeMemoryStore?.getCreativeMemoryForPrompt) {
@@ -361,6 +359,12 @@ async function buildStudioRenderPromptMemoryContext({
   const promptMemory = creativeMemory
     ? prioritizeStudioRenderCreativeMemory(creativeMemory, query)
     : null;
+  const sessionContext = hasFeatureMapBlock
+    ? null
+    : studioScreenplayFeatureContext(studioMomentumMeta({
+        body,
+        creativeMemory: promptMemory,
+      }));
   const memoryForPrompt = hasMemoryBlock ? null : promptMemory;
   const memoryApplied = memoryForPrompt
     ? buildStudioRenderMemoryAppliedMeta(promptMemory, query)
@@ -413,10 +417,45 @@ function mergeStudioMomentumList(primary, secondary, maxItems = 6, maxChars = 18
 }
 
 function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
+  const featureGraph = creativeMemory?.featureStoryGraph &&
+    typeof creativeMemory.featureStoryGraph === "object"
+    ? creativeMemory.featureStoryGraph
+    : {};
+  const graphState = featureGraph.currentState && typeof featureGraph.currentState === "object"
+    ? featureGraph.currentState
+    : {};
+  const graphThreads = Array.isArray(featureGraph.openThreads)
+    ? featureGraph.openThreads
+    : [];
+  const dueGraphThread = graphThreads.find((thread) => thread?.due) || graphThreads[0] || {};
+  const graphSetups = graphThreads.map((thread) => thread?.setup).filter(Boolean);
+  const graphPayoffs = graphThreads.map((thread) => (
+    thread?.promisedPayoff ?? thread?.promised_payoff
+  )).filter(Boolean);
   const project = creativeMemory?.projectContinuity &&
     typeof creativeMemory.projectContinuity === "object"
     ? creativeMemory.projectContinuity
     : {};
+  const projectNextTurns = cleanStudioRenderMemoryList(project.nextThreeTurns, 3, 180);
+  const projectThreads = cleanStudioRenderMemoryList(project.unresolvedStoryThreads, 4, 220);
+  const projectSetups = cleanStudioRenderMemoryList(project.unresolvedSetups, 4, 200);
+  const projectPayoffs = cleanStudioRenderMemoryList(project.actThreePayoffPath, 4, 200);
+  const projectImages = cleanStudioRenderMemoryList(project.imageMotifs, 4, 140);
+  const directExecutionBrief = body.screenplayNextSceneExecutionBrief ??
+    body.screenplay_next_scene_execution_brief;
+  const inferredExecutionBrief = {
+    assignment: graphState.nextScenePlan || project.nextScenePlan || projectNextTurns[0] || "",
+    obstacle: dueGraphThread.setup || projectThreads[0] || projectSetups[0] || "",
+    arc: graphState.characterArcState || project.characterArcState || "",
+    payoff: dueGraphThread.promisedPayoff || dueGraphThread.promised_payoff || projectPayoffs[0] || "",
+    image: graphState.endingImage || project.endingImage || projectImages[0] || "",
+    exit: projectNextTurns[1] || "",
+  };
+  const executionBrief = directExecutionBrief && typeof directExecutionBrief === "object"
+    ? directExecutionBrief
+    : Object.values(inferredExecutionBrief).filter(Boolean).length >= 3
+      ? inferredExecutionBrief
+      : null;
   const pick = (bodyKeys, projectValue, maxChars = 220) => {
     for (const key of bodyKeys) {
       const clean = cleanStudioRenderMemoryText(body?.[key], maxChars);
@@ -451,7 +490,7 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
       project.sceneLabel,
       120
     ),
-    screenplayAct: pick(["screenplayAct", "screenplay_act"], project.act, 120),
+    screenplayAct: pick(["screenplayAct", "screenplay_act"], project.act || graphState.act, 120),
     screenplaySceneObjective: pick(
       ["screenplaySceneObjective", "screenplay_scene_objective"],
       project.sceneObjective,
@@ -464,17 +503,17 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     ),
     screenplayCurrentBeat: pick(
       ["screenplayCurrentBeat", "screenplay_current_beat"],
-      project.currentBeat,
+      project.currentBeat || graphState.currentBeat,
       220
     ),
     screenplayProtagonistWant: pick(
       ["screenplayProtagonistWant", "screenplay_protagonist_want"],
-      project.protagonistWant,
+      project.protagonistWant || graphState.protagonistWant,
       240
     ),
     screenplayProtagonistNeed: pick(
       ["screenplayProtagonistNeed", "screenplay_protagonist_need"],
-      project.protagonistNeed,
+      project.protagonistNeed || graphState.protagonistNeed,
       240
     ),
     screenplayAntagonisticForce: pick(
@@ -484,12 +523,12 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     ),
     screenplayEndingImage: pick(
       ["screenplayEndingImage", "screenplay_ending_image"],
-      project.endingImage,
+      project.endingImage || graphState.endingImage,
       240
     ),
     screenplayFeatureSequence: pick(
       ["screenplayFeatureSequence", "screenplay_feature_sequence"],
-      project.featureSequence,
+      project.featureSequence || graphState.sequence,
       220
     ),
     screenplayFeatureObligation: pick(
@@ -504,17 +543,17 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     ),
     screenplayCharacterArcState: pick(
       ["screenplayCharacterArcState", "screenplay_character_arc_state"],
-      project.characterArcState,
+      project.characterArcState || graphState.characterArcState,
       280
     ),
     screenplayLastSceneOutcome: pick(
       ["screenplayLastSceneOutcome", "screenplay_last_scene_outcome"],
-      project.lastSceneOutcome,
+      project.lastSceneOutcome || graphState.lastAcceptedOutcome,
       240
     ),
     screenplayNextScenePlan: pick(
       ["screenplayNextScenePlan", "screenplay_next_scene_plan"],
-      project.nextScenePlan,
+      project.nextScenePlan || graphState.nextScenePlan,
       340
     ),
     screenplayNextSceneMoves: mergeStudioMomentumList(
@@ -529,9 +568,10 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
       3,
       180
     ),
+    screenplayNextSceneExecutionBrief: executionBrief,
     screenplayActThreePayoffPath: mergeStudioMomentumList(
       body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path,
-      project.actThreePayoffPath,
+      mergeStudioMomentumList(project.actThreePayoffPath, graphPayoffs, 5, 200),
       5,
       200
     ),
@@ -543,13 +583,13 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     ),
     screenplayUnresolvedSetups: mergeStudioMomentumList(
       body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups,
-      project.unresolvedSetups,
+      mergeStudioMomentumList(project.unresolvedSetups, graphSetups, 8, 220),
       8,
       220
     ),
     screenplayUnresolvedStoryThreads: mergeStudioMomentumList(
       body.screenplayUnresolvedStoryThreads ?? body.screenplay_unresolved_story_threads,
-      project.unresolvedStoryThreads,
+      mergeStudioMomentumList(project.unresolvedStoryThreads, graphSetups, 8, 220),
       8,
       220
     ),
@@ -742,10 +782,14 @@ function studioRenderQualityBody(body = {}, memoryContext = null) {
   const acceptedCausalFacts = Array.isArray(memoryContext?.acceptedCausalFacts)
     ? memoryContext.acceptedCausalFacts
     : [];
-  if (!acceptedCausalFacts.length) return body;
   return {
-    ...(body && typeof body === "object" ? body : {}),
-    screenplay_accepted_causal_facts: acceptedCausalFacts,
+    ...studioMomentumMeta({
+      body,
+      creativeMemory: memoryContext?.creativeMemory,
+    }),
+    ...(acceptedCausalFacts.length
+      ? { screenplay_accepted_causal_facts: acceptedCausalFacts }
+      : {}),
   };
 }
 

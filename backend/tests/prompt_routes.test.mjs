@@ -474,7 +474,11 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
       assert.ok(body.prompt.includes("continuation_memory_contract:"));
       assert.ok(body.prompt.includes("first_turn_to_spend: The reel plays the wrong memory."));
       assert.ok(body.prompt.includes("Spend first_turn_to_spend and its concrete nouns before inventing a lane"));
-      assert.ok(!body.prompt.includes("next_scene_execution_brief:"));
+      assert.ok(body.prompt.includes("next_scene_execution_brief:"));
+      assert.ok(body.prompt.includes("scene_assignment: The reel plays the wrong memory."));
+      assert.ok(body.prompt.includes("obstacle_to_pressurize: Who replaced the reel?"));
+      assert.ok(body.prompt.includes("changed_behavior_due: Mara stops cutting around her own guilt."));
+      assert.ok(body.prompt.includes("payoff_or_setup_to_spend: The reel exposes the fixer"));
     },
     {
       memory: {
