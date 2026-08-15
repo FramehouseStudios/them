@@ -17,6 +17,7 @@
 // (Postgres in production; single-process discipline in JSON mode).
 
 import { createHash, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { createPersistence } from "./persistence_adapter.js";
 import {
@@ -407,6 +408,28 @@ function makeEmptyMemory(userId) {
     tone: {},
     habits: {},
   };
+}
+
+function hasCreativeMemoryContent(memory) {
+  if (!memory || typeof memory !== "object") return false;
+  if (
+    (Array.isArray(memory.projects) && memory.projects.length) ||
+    (Array.isArray(memory.characters) && memory.characters.length) ||
+    (Array.isArray(memory.episodicMemories) && memory.episodicMemories.length) ||
+    (Array.isArray(memory.canonCorrectionReceipts) && memory.canonCorrectionReceipts.length) ||
+    (Array.isArray(memory.canonCorrectionAmbiguities) && memory.canonCorrectionAmbiguities.length)
+  ) {
+    return true;
+  }
+  const style = memory.style && typeof memory.style === "object" ? memory.style : {};
+  if (Object.entries(style).some(([, value]) => (
+    Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== ""
+  ))) {
+    return true;
+  }
+  return [memory.tone, memory.habits].some((value) => (
+    value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
+  ));
 }
 
 function clone(v) {
@@ -4270,6 +4293,7 @@ function createCreativeMemoryStore({
   const store = persistence || createPersistence();
   const writeChain = new Map(); // userId -> Promise
   const embeddingBackfillByUser = new Map();
+  const triggerWriteContext = new AsyncLocalStorage();
   const resolvedEmbeddingModel = cleanText(embeddingModel, 96);
   let embeddingBackoffUntil = 0;
 
@@ -4343,6 +4367,13 @@ function createCreativeMemoryStore({
     expectedValue,
     expectedRevision = "",
   } = {}) {
+    const triggerContext = triggerWriteContext.getStore();
+    const mutationStartedAt = Math.max(0, Number(triggerContext?.mutationStartedAt || 0));
+    const clearedAt = Math.max(0, Number(expectedValue?.clearedAt || 0));
+    if (mutationStartedAt && clearedAt >= mutationStartedAt) {
+      triggerContext.blockedByClear = true;
+      return false;
+    }
     if (expectedValue !== undefined && typeof store.compareAndSwap === "function") {
       const swapped = await store.compareAndSwap({
         domain: DOMAIN,
@@ -4357,18 +4388,26 @@ function createCreativeMemoryStore({
           buildCreativeMemoryRevision(latest),
         );
       }
-      return;
+      return true;
     }
     await store.put({ domain: DOMAIN, key: userId, value });
+    return true;
   }
 
   async function updateUser(userId, mutator, { expectedRevision = "" } = {}) {
     if (!userId) return;
-    await withUserLock(userId, async () => {
+    return withUserLock(userId, async () => {
       const maxAttempts = expectedRevision ? 1 : 3;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         const persisted = await readUser(userId);
         const current = persisted || makeEmptyMemory(userId);
+        const triggerContext = triggerWriteContext.getStore();
+        const mutationStartedAt = Math.max(0, Number(triggerContext?.mutationStartedAt || 0));
+        const clearedAt = Math.max(0, Number(current.clearedAt || 0));
+        if (mutationStartedAt && clearedAt >= mutationStartedAt) {
+          triggerContext.blockedByClear = true;
+          return false;
+        }
         assertCreativeMemoryRevision(current, expectedRevision);
         const next = mutator(clone(current)) || current;
         next.userId = userId;
@@ -4379,13 +4418,14 @@ function createCreativeMemoryStore({
             expectedValue: persisted,
             expectedRevision,
           });
-          return;
+          return true;
         } catch (error) {
           if (expectedRevision || !isCreativeMemoryRevisionConflict(error) || attempt >= maxAttempts) {
             throw error;
           }
         }
       }
+      return false;
     });
   }
 
@@ -5007,7 +5047,7 @@ function createCreativeMemoryStore({
     recordEpisodicRecall = false,
   } = {}) {
     const rec = await readUser(userId);
-    if (!rec) return null;
+    if (!rec || !hasCreativeMemoryContent(rec)) return null;
     const coverage = episodicEmbeddingCoverage(rec.episodicMemories, {
       projectId,
       projectTitle,
@@ -5111,6 +5151,7 @@ function createCreativeMemoryStore({
     maxEpisodicMemories = EPISODIC_MEMORIES_MAX,
   } = {}) {
     const rec = await readUser(userId);
+    if (!hasCreativeMemoryContent(rec)) return null;
     return sanitizeCreativeMemoryLedgerRecord(rec, {
       includeSuperseded,
       maxEpisodicMemories,
@@ -5118,7 +5159,7 @@ function createCreativeMemoryStore({
   }
 
   async function hasMemoryForUser(userId) {
-    return (await readUser(userId)) !== null;
+    return hasCreativeMemoryContent(await readUser(userId));
   }
 
   // ---------- write triggers ----------
@@ -5726,7 +5767,7 @@ function createCreativeMemoryStore({
   } = {}) {
     if (!userId) return null;
     const rec = await readUser(userId);
-    if (!rec || !Array.isArray(rec.characters)) return null;
+    if (!hasCreativeMemoryContent(rec) || !Array.isArray(rec.characters)) return null;
     const characters = scopeRecordsToProject(rec.characters, {
       projectId,
       projectTitle,
@@ -5950,13 +5991,26 @@ function createCreativeMemoryStore({
     if (!cleanUserId) {
       return { ok: false, cleared: false, reason: "user_id_required" };
     }
-    if (typeof store.delete !== "function") {
-      throw new Error("creative memory persistence must support per-user deletion");
-    }
     return withUserLock(cleanUserId, async () => {
-      const existed = (await readUser(cleanUserId)) !== null;
-      await store.delete({ domain: DOMAIN, key: cleanUserId });
-      return { ok: true, cleared: existed, userId: cleanUserId };
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const current = await readUser(cleanUserId);
+        const cleared = hasCreativeMemoryContent(current);
+        const clearedAt = Math.max(
+          nowMs(),
+          Number(current?.updatedAt || 0) + 1,
+          Number(current?.clearedAt || 0) + 1,
+        );
+        const tombstone = makeEmptyMemory(cleanUserId);
+        tombstone.clearedAt = clearedAt;
+        tombstone.updatedAt = clearedAt;
+        try {
+          await writeUser(cleanUserId, tombstone, { expectedValue: current });
+          return { ok: true, cleared, userId: cleanUserId };
+        } catch (error) {
+          if (!isCreativeMemoryRevisionConflict(error) || attempt === 3) throw error;
+        }
+      }
+      throw new Error("creative memory changed too often during clear");
     });
   }
 
@@ -6166,7 +6220,7 @@ function createCreativeMemoryStore({
   // appropriate write triggers. Pure-ish: deterministic given inputs;
   // only side effect is the writes through the existing trigger
   // functions above. Safe to call when userId is null (becomes a no-op).
-  async function recordTriggersFromTalkTurn({
+  async function recordTriggersFromTalkTurnWithinContext({
     userId,
     transcript = "",
     reply = "",
@@ -6857,6 +6911,21 @@ function createCreativeMemoryStore({
     }
 
     return summary;
+  }
+
+  async function recordTriggersFromTalkTurn(input = {}) {
+    const mutationStartedAt = Math.max(1, Number(input?.turnStartedAt || nowMs()));
+    const context = { mutationStartedAt, blockedByClear: false };
+    const summary = await triggerWriteContext.run(
+      context,
+      () => recordTriggersFromTalkTurnWithinContext(input),
+    );
+    if (!context.blockedByClear) return summary;
+    return {
+      ...summary,
+      skipped: true,
+      reason: "cleared_during_turn",
+    };
   }
 
   // T-block-detector: expose the raw habits object so the route layer

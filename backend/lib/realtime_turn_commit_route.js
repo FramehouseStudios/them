@@ -291,6 +291,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       .then(() => recordCreativeMemoryTriggersForRequest(req, {
         transcript,
         reply: acceptedPageText || reply,
+        turnStartedAt: nowTs,
         acceptedPageText,
         studioMeta,
         source: acceptedPageText ? "talk_screenplay_output" : "realtime_turn_commit",

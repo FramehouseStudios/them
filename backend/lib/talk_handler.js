@@ -1432,6 +1432,7 @@ function createTalkHandler(deps) {
       .then(() => recordCreativeMemoryTriggersForRequest(req, {
         transcript,
         reply: memoryReply,
+        turnStartedAt: t0,
         studioMeta,
         screenplayOutput,
         sessionStartedAt,

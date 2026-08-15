@@ -153,6 +153,7 @@ function mountScreenplayQuestionRoutes(app, deps = {}) {
         creativeMemorySummary = await recordCreativeMemoryTriggersForRequest(req, {
           transcript: resolution.status === "answered" ? answer : "skip",
           reply: "",
+          turnStartedAt: now,
           projectId: pending.projectId || projectId,
           projectTitle: pending.projectTitle || projectTitle,
           source: "screenplay_question_resolution",

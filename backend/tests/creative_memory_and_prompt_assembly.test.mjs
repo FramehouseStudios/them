@@ -83,6 +83,7 @@ test("clearUserMemory erases only the requested account", async () => {
   assert.deepEqual(receipt, { ok: true, cleared: true, userId: "writer-a" });
   assert.equal(await store.hasMemoryForUser("writer-a"), false);
   assert.equal(await store.getCreativeMemoryForPrompt({ userId: "writer-a" }), null);
+  assert.equal(await store.getCreativeMemoryLedger({ userId: "writer-a" }), null);
   assert.equal(await store.getCharacterTraits({ userId: "writer-a" }), null);
   assert.equal(await store.hasMemoryForUser("writer-b"), true);
   assert.equal(

@@ -2990,6 +2990,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     Number(body.session_started_at) ||
     Number(body.sessionStartedAt) ||
     null;
+  const turnStartedAt = Number(turn?.turnStartedAt) || Date.now();
   const durationMs = Number(turn?.sessionDurationMs) ||
     Number(body.session_duration_ms) ||
     Number(body.sessionDurationMs) ||
@@ -3083,6 +3084,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     transcript,
     reply,
     sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+    turnStartedAt,
     sessionDurationMs: Number.isFinite(durationMs) ? durationMs : null,
     projectId,
     projectTitle,
