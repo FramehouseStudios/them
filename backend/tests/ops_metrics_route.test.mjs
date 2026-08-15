@@ -197,6 +197,13 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     talkStatus: "ok",
     lane: "live",
     model: "model-a",
+    modelTier: "structural",
+    modelReason: "screenplay_scene_doctor",
+    reasoningEffort: "medium",
+    modelFallback: true,
+    inputTokens: 900,
+    outputTokens: 300,
+    reasoningTokens: 120,
     screenplayMode: true,
     screenplayRequestedTarget: "page",
     screenplayFinalTarget: "page",
@@ -211,6 +218,13 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     const r = await get(baseURL, "/ops/metrics");
     assert.equal(r.body.recent[0].stream_audio, 1);
     assert.equal(r.body.recent[0].chat_stream_used, 0);
+    assert.equal(r.body.recent[0].model_tier, "structural");
+    assert.equal(r.body.recent[0].model_reason, "screenplay_scene_doctor");
+    assert.equal(r.body.recent[0].reasoning_effort, "medium");
+    assert.equal(r.body.recent[0].model_fallback, 1);
+    assert.equal(r.body.recent[0].input_tokens, 900);
+    assert.equal(r.body.recent[0].output_tokens, 300);
+    assert.equal(r.body.recent[0].reasoning_tokens, 120);
     assert.equal(r.body.recent[0].screenplay_mode, 1);
     assert.equal(r.body.recent[0].screenplay_requested_target, "page");
     assert.equal(r.body.recent[0].screenplay_final_target, "page");

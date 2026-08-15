@@ -6,6 +6,7 @@
 
 import { File } from "node:buffer";
 import {
+  normalizeOpenAIUsage,
   normalizeOpenAITextResponseRaw,
   requestOpenAIText,
 } from "./openai_text_generation.js";
@@ -130,6 +131,12 @@ function createChatSupplier({
       }
 
       const rawText = await requestResult.response.text();
+      let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+      try {
+        usage = normalizeOpenAIUsage(JSON.parse(rawText || "{}"));
+      } catch {
+        // Malformed provider JSON is handled by the caller's existing response guard.
+      }
       return {
         response: requestResult.response,
         rawText: normalizeOpenAITextResponseRaw(rawText, requestResult.apiMode, {
@@ -139,6 +146,7 @@ function createChatSupplier({
         apiMode: requestResult.apiMode,
         reasoningEffort: requestResult.reasoningEffort,
         fallbackUsed: requestResult.fallbackUsed,
+        usage,
       };
     },
   });

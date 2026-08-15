@@ -2488,6 +2488,11 @@ function createTalkHandler(deps) {
       routingLane,
       runtimeStatus: runtimeStatusSnapshot,
       screenplayPageWrite: isScreenplayPageWriteTurn,
+      screenplayContextActive: Boolean(
+        studioMeta?.screenplayProjectId ||
+        studioMeta?.screenplayTarget ||
+        studioMeta?.screenplayPromptSource
+      ),
     });
     const boundaryEdgeSignal = deriveBoundaryEdgeSignal({
       transcript,
@@ -3701,6 +3706,12 @@ ${directorOutputRule}
     let effectiveChatApiMode = String(chatModelPlan.apiMode || "chat_completions");
     let effectiveChatReasoningEffort = String(chatModelPlan.reasoningEffort || "");
     let chatModelFallbackUsed = false;
+    let effectiveChatUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 0,
+    };
     let earlyTtsPromise = null;
     let earlyTtsSeedSpeech = "";
     let earlyTtsLeadIn = "";
@@ -3765,6 +3776,7 @@ ${directorOutputRule}
             streamResult.reasoningEffort ?? effectiveChatReasoningEffort
           );
           chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
+          effectiveChatUsage = streamResult.usage || effectiveChatUsage;
           chatMs = Date.now() - streamStart;
           if (streamFirstSentence && !earlyTtsPromise) {
             maybeStartEarlyTts(streamFirstSentence);
@@ -3809,6 +3821,7 @@ ${directorOutputRule}
           chatResult.reasoningEffort ?? effectiveChatReasoningEffort
         );
         chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
+        effectiveChatUsage = chatResult.usage || effectiveChatUsage;
         chatMs = Date.now() - chatStart;
 
         if (!chatResp.ok) {
@@ -4618,6 +4631,10 @@ ${directorOutputRule}
     res.setHeader("x-chat-api-mode", effectiveChatApiMode);
     res.setHeader("x-chat-reasoning-effort", effectiveChatReasoningEffort || "none");
     res.setHeader("x-chat-model-fallback", chatModelFallbackUsed ? "1" : "0");
+    res.setHeader("x-chat-input-tokens", String(Math.max(0, Number(effectiveChatUsage.inputTokens || 0))));
+    res.setHeader("x-chat-output-tokens", String(Math.max(0, Number(effectiveChatUsage.outputTokens || 0))));
+    res.setHeader("x-chat-reasoning-tokens", String(Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0))));
+    res.setHeader("x-chat-total-tokens", String(Math.max(0, Number(effectiveChatUsage.totalTokens || 0))));
     res.setHeader("x-chat-load-shed", chatModelPlan.loadShed ? "1" : "0");
     res.setHeader("x-chat-load-shed-cause", encodeURIComponent(String(chatModelPlan.loadShedCause || "none")));
     res.setHeader("x-chat-temperature", chatTemperature.toFixed(2));
@@ -4853,6 +4870,13 @@ ${directorOutputRule}
         talkStatus,
         lane: actionLaneMeta?.lane || "chat",
         model: effectiveChatModel,
+        modelTier: chatModelPlan.tier,
+        modelReason: chatModelPlan.reason,
+        reasoningEffort: effectiveChatReasoningEffort || "none",
+        modelFallback: chatModelFallbackUsed,
+        inputTokens: effectiveChatUsage.inputTokens,
+        outputTokens: effectiveChatUsage.outputTokens,
+        reasoningTokens: effectiveChatUsage.reasoningTokens,
         ...buildScreenplayMetricFields({
           talkScreenplayModeEnabled,
           studioMeta,
@@ -4881,6 +4905,9 @@ ${directorOutputRule}
           modelTier: String(chatModelPlan.tier || "unknown"),
           reasoningEffort: effectiveChatReasoningEffort || "none",
           modelFallback: Boolean(chatModelFallbackUsed),
+          inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
+          outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
+          reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
           speculativeReuse: Boolean(speculativeReuseApplied),
         },
       });
@@ -4968,6 +4995,13 @@ ${directorOutputRule}
       talkStatus,
       lane: actionLaneMeta?.lane || "chat",
       model: effectiveChatModel,
+      modelTier: chatModelPlan.tier,
+      modelReason: chatModelPlan.reason,
+      reasoningEffort: effectiveChatReasoningEffort || "none",
+      modelFallback: chatModelFallbackUsed,
+      inputTokens: effectiveChatUsage.inputTokens,
+      outputTokens: effectiveChatUsage.outputTokens,
+      reasoningTokens: effectiveChatUsage.reasoningTokens,
       ...buildScreenplayMetricFields({
         talkScreenplayModeEnabled,
         studioMeta,
@@ -4996,6 +5030,9 @@ ${directorOutputRule}
         modelTier: String(chatModelPlan.tier || "unknown"),
         reasoningEffort: effectiveChatReasoningEffort || "none",
         modelFallback: Boolean(chatModelFallbackUsed),
+        inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
+        outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
+        reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
         speculativeReuse: Boolean(speculativeReuseApplied),
       },
     });

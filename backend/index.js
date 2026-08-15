@@ -5201,6 +5201,13 @@ function recordTalkMetric(sample) {
     talkStatus: String(sample?.talkStatus || "").trim() || "unknown",
     lane: normalizeSnippet(sample?.lane, 48) || "unknown",
     model: normalizeSnippet(sample?.model, 80) || "unknown",
+    modelTier: normalizeSnippet(sample?.modelTier, 32) || "unknown",
+    modelReason: normalizeSnippet(sample?.modelReason, 80) || "unknown",
+    reasoningEffort: normalizeSnippet(sample?.reasoningEffort, 16) || "none",
+    modelFallback: Boolean(sample?.modelFallback),
+    inputTokens: Math.max(0, Number(sample?.inputTokens || 0)),
+    outputTokens: Math.max(0, Number(sample?.outputTokens || 0)),
+    reasoningTokens: Math.max(0, Number(sample?.reasoningTokens || 0)),
     ...screenplayMetric,
   };
   talkMetricsSamples.push(normalized);
@@ -5222,6 +5229,18 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
   const ttsMsSorted = success.map((s) => Number(s.ttsMs || 0)).sort((a, b) => a - b);
   const streamAudioCount = success.filter((s) => s.streamAudio).length;
   const chatStreamCount = success.filter((s) => s.chatStreamUsed).length;
+  const structuralSuccess = success.filter((sample) => sample.modelTier === "structural");
+  const structuralChatMsSorted = structuralSuccess
+    .map((sample) => Number(sample.chatMs || 0))
+    .sort((a, b) => a - b);
+  const structuralFallbackCount = structuralSuccess
+    .filter((sample) => sample.modelFallback).length;
+  const structuralInputTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.inputTokens || 0), 0);
+  const structuralOutputTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.outputTokens || 0), 0);
+  const structuralReasoningTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.reasoningTokens || 0), 0);
   const screenplay = summarizeTalkScreenplayMetrics(recent);
   return {
     windowMs: Math.max(1_000, Number(windowMs || TALK_METRICS_WINDOW_MS)),
@@ -5239,6 +5258,19 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
     p95TtsMs: percentileFromSorted(ttsMsSorted, 0.95),
     streamAudioRate: success.length > 0 ? streamAudioCount / success.length : 0,
     chatStreamRate: success.length > 0 ? chatStreamCount / success.length : 0,
+    modelRouting: {
+      structuralCount: structuralSuccess.length,
+      structuralRate: success.length > 0 ? structuralSuccess.length / success.length : 0,
+      fallbackCount: structuralFallbackCount,
+      fallbackRate: structuralSuccess.length > 0
+        ? structuralFallbackCount / structuralSuccess.length
+        : 0,
+      p50StructuralChatMs: percentileFromSorted(structuralChatMsSorted, 0.50),
+      p95StructuralChatMs: percentileFromSorted(structuralChatMsSorted, 0.95),
+      inputTokens: structuralInputTokens,
+      outputTokens: structuralOutputTokens,
+      reasoningTokens: structuralReasoningTokens,
+    },
     screenplay,
   };
 }
@@ -20679,6 +20711,7 @@ async function streamChatReplyWithFirstSentence({
   let fullReply = "";
   let firstSentence = "";
   let sawDoneToken = false;
+  let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
 
   const processDataLine = (line) => {
     const trimmed = String(line || "").trim();
@@ -20707,6 +20740,7 @@ async function streamChatReplyWithFirstSentence({
         }
       }
     }
+    if (event.usage) usage = event.usage;
     if (event.done) sawDoneToken = true;
     return event.done;
   };
@@ -20750,6 +20784,7 @@ async function streamChatReplyWithFirstSentence({
     apiMode: requestResult.apiMode,
     reasoningEffort: requestResult.reasoningEffort,
     fallbackUsed: requestResult.fallbackUsed,
+    usage,
   };
 }
 
@@ -24696,6 +24731,7 @@ function buildChatModelPlan({
   model,
   tier,
   reason,
+  screenplayTaskIntent = "",
   loadShed = false,
   loadShedCause = "",
 } = {}) {
@@ -24705,6 +24741,7 @@ function buildChatModelPlan({
     model: String(model || CHAT_MODEL_FAST),
     tier,
     reason,
+    screenplayTaskIntent: String(screenplayTaskIntent || ""),
     apiMode: structural ? "responses" : "chat_completions",
     reasoningEffort: structural ? CHAT_STRUCTURAL_REASONING_EFFORT : "",
     fallbackModel: structural ? CHAT_MODEL_STRUCTURAL_FALLBACK : "",
@@ -24724,9 +24761,26 @@ function selectChatModelForTurn({
   routingLane,
   runtimeStatus = null,
   screenplayPageWrite = false,
+  screenplayContextActive = false,
 }) {
   const t = String(transcript || "").toLowerCase();
   const words = countWords(t);
+  const screenplayTask = inferScreenplayTask(transcript);
+  const screenplayTaskIntent = String(screenplayTask?.intent || "").trim();
+  const explicitScreenplayContext = Boolean(
+    screenplayPageWrite ||
+    screenplayContextActive ||
+    /\b(screenplay|script|scene|feature(?:[- ]film)?|movie|film|act\s*(?:i{1,3}|[123]|one|two|three)|beat sheet|fountain|dialogue|character arc|story structure|writer'?s block|writers block|creative block)\b/.test(t)
+  );
+  const structuralTaskReason = explicitScreenplayContext
+    ? ({
+        scene_doctor: "screenplay_scene_doctor",
+        outline_structure: "screenplay_feature_architecture",
+        finish_feature: "screenplay_feature_architecture",
+        momentum_rescue: "screenplay_momentum_rescue",
+      }[screenplayTaskIntent] || "")
+    : "";
+  const structuralScreenplayTask = Boolean(structuralTaskReason);
   const intent = String(turnPlanner?.intent || "reflective_checkin");
   const lane = String(routingLane || "normal_rotation");
   const explicitKnowledgeAsk = textContainsAny(t, [
@@ -24908,6 +24962,10 @@ function selectChatModelForTurn({
     model = CHAT_MODEL_STRUCTURAL;
     tier = "structural";
     reason = "screenplay_page_write";
+  } else if (structuralScreenplayTask && CHAT_STRUCTURAL_REASONING_ENABLED && CHAT_MODEL_STRUCTURAL) {
+    model = CHAT_MODEL_STRUCTURAL;
+    tier = "structural";
+    reason = structuralTaskReason;
   }
 
   const runtime = runtimeStatus && typeof runtimeStatus === "object"
@@ -24925,6 +24983,7 @@ function selectChatModelForTurn({
     String(runtime?.status || "up") === "degraded";
   const criticalTurn =
     screenplayPageWrite ||
+    structuralScreenplayTask ||
     distress ||
     therapeutic ||
     motivationMode ||
@@ -24934,6 +24993,7 @@ function selectChatModelForTurn({
   const shouldShed =
     loadPressure &&
     !screenplayPageWrite &&
+    !structuralScreenplayTask &&
     (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
 
   if (shouldShed) {
@@ -24947,6 +25007,7 @@ function selectChatModelForTurn({
       model,
       tier,
       reason,
+      screenplayTaskIntent,
       loadShed: true,
       loadShedCause: shedCause,
     });
@@ -24956,6 +25017,7 @@ function selectChatModelForTurn({
     model,
     tier,
     reason,
+    screenplayTaskIntent,
     loadShed: false,
     loadShedCause: "",
   });
@@ -25067,6 +25129,7 @@ function computeChatMaxTokensForTurn({
   const substantial = Boolean(turnPlanner?.requiresSubstantiveAnswer);
   const minAnswerWords = Math.max(16, Number(turnPlanner?.minAnswerWords || 28));
   const tier = String(chatModelPlan?.tier || "fast");
+  const modelReason = String(chatModelPlan?.reason || "");
   const loadShedActive = Boolean(chatModelPlan?.loadShed);
   const relationalKnowledge = intent === "knowledge_answer" && textContainsAny(t, [
     "compatibility",
@@ -25134,6 +25197,18 @@ function computeChatMaxTokensForTurn({
   if (tier === "rich") {
     maxTokens = Math.max(maxTokens, substantial ? 340 : 270);
   }
+  const structuralVisibleTokenFloor = tier === "structural"
+    ? modelReason === "screenplay_feature_architecture"
+      ? 1_000
+      : modelReason === "screenplay_scene_doctor"
+        ? 700
+        : modelReason === "screenplay_momentum_rescue"
+          ? 720
+          : 0
+    : 0;
+  if (structuralVisibleTokenFloor > 0) {
+    maxTokens = Math.max(maxTokens, structuralVisibleTokenFloor);
+  }
 
   if (screenplayPageWrite) {
     maxTokens = Math.max(maxTokens, screenplayFloor);
@@ -25167,14 +25242,22 @@ function computeChatMaxTokensForTurn({
 
   const brevityScale = screenplayPageWrite
     ? 1
+    : tier === "structural"
+      ? 1
     : intent === "idea_development"
       ? 0.94
       : (substantial ? 0.90 : 0.82);
   maxTokens = maxTokens * brevityScale;
   const hardCap = screenplayPageWrite
     ? Math.max(1200, Math.min(3600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
-    : 420;
-  const minimum = screenplayPageWrite ? Math.min(900, screenplayFloor || 900) : 88;
+    : tier === "structural"
+      ? 1_200
+      : 420;
+  const minimum = screenplayPageWrite
+    ? Math.min(900, screenplayFloor || 900)
+    : tier === "structural"
+      ? Math.min(1_200, structuralVisibleTokenFloor || 320)
+      : 88;
   return Math.max(minimum, Math.min(hardCap, Math.round(maxTokens)));
 }
 

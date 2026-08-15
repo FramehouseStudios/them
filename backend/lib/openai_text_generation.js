@@ -77,6 +77,7 @@ function buildOpenAITextRequest({
       temperature: Number(temperature),
       max_tokens: normalizedMaxTokens,
       ...(stream ? { stream: true } : {}),
+      ...(stream ? { stream_options: { include_usage: true } } : {}),
       messages: normalizedMessages,
     },
   };
@@ -95,6 +96,26 @@ function extractOpenAIResponseText(payload) {
     }
   }
   return parts.join("\n").trim();
+}
+
+function normalizeOpenAIUsage(payload) {
+  const usage = payload?.usage && typeof payload.usage === "object" ? payload.usage : {};
+  const inputTokens = Math.max(0, Math.round(Number(
+    usage.input_tokens ?? usage.prompt_tokens ?? 0
+  ) || 0));
+  const outputTokens = Math.max(0, Math.round(Number(
+    usage.output_tokens ?? usage.completion_tokens ?? 0
+  ) || 0));
+  const reasoningTokens = Math.max(0, Math.round(Number(
+    usage.output_tokens_details?.reasoning_tokens ??
+    usage.completion_tokens_details?.reasoning_tokens ??
+    0
+  ) || 0));
+  const totalTokens = Math.max(
+    inputTokens + outputTokens,
+    Math.round(Number(usage.total_tokens || 0) || 0)
+  );
+  return { inputTokens, outputTokens, reasoningTokens, totalTokens };
 }
 
 function normalizeOpenAITextResponseRaw(rawText, apiMode, { model = "" } = {}) {
@@ -122,19 +143,19 @@ function normalizeOpenAITextResponseRaw(rawText, apiMode, { model = "" } = {}) {
 function parseOpenAITextStreamLine(line, apiMode) {
   const trimmed = String(line || "").trim();
   if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) {
-    return { handled: false, done: false, delta: "", error: "" };
+    return { handled: false, done: false, delta: "", error: "", usage: null };
   }
   const data = trimmed.slice(5).trim();
-  if (!data) return { handled: false, done: false, delta: "", error: "" };
+  if (!data) return { handled: false, done: false, delta: "", error: "", usage: null };
   if (data === "[DONE]") {
-    return { handled: true, done: true, delta: "", error: "" };
+    return { handled: true, done: true, delta: "", error: "", usage: null };
   }
 
   let payload;
   try {
     payload = JSON.parse(data);
   } catch {
-    return { handled: false, done: false, delta: "", error: "" };
+    return { handled: false, done: false, delta: "", error: "", usage: null };
   }
   if (normalizeOpenAIApiMode(apiMode) === RESPONSES_MODE) {
     if (payload?.type === "response.output_text.delta") {
@@ -143,18 +164,25 @@ function parseOpenAITextStreamLine(line, apiMode) {
         done: false,
         delta: typeof payload?.delta === "string" ? payload.delta : "",
         error: "",
+        usage: null,
       };
     }
     if (payload?.type === "response.completed") {
-      return { handled: true, done: true, delta: "", error: "" };
+      return {
+        handled: true,
+        done: true,
+        delta: "",
+        error: "",
+        usage: normalizeOpenAIUsage(payload?.response),
+      };
     }
     if (payload?.type === "response.failed" || payload?.type === "error") {
       const error = String(
         payload?.response?.error?.message || payload?.error?.message || "Responses stream failed."
       ).trim();
-      return { handled: true, done: true, delta: "", error };
+      return { handled: true, done: true, delta: "", error, usage: null };
     }
-    return { handled: true, done: false, delta: "", error: "" };
+    return { handled: true, done: false, delta: "", error: "", usage: null };
   }
 
   return {
@@ -164,6 +192,7 @@ function parseOpenAITextStreamLine(line, apiMode) {
       ? payload.choices[0].delta.content
       : "",
     error: "",
+    usage: payload?.usage ? normalizeOpenAIUsage(payload) : null,
   };
 }
 
@@ -252,6 +281,7 @@ export {
   extractOpenAIResponseText,
   normalizeOpenAIApiMode,
   normalizeOpenAITextResponseRaw,
+  normalizeOpenAIUsage,
   normalizeReasoningEffort,
   parseOpenAITextStreamLine,
   requestOpenAIText,

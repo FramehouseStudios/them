@@ -37,14 +37,14 @@ const {
   resolveTalkScreenplayRequestedPageBatch,
 } = await import("../index.js");
 
-function plan(transcript) {
+function plan(transcript, modelOptions = {}) {
   const flags = directorFlagsFromTranscript(transcript);
   const routingPlan = inferRoutingPriorityLane(transcript, flags);
   const turnPlanner = buildTurnPlanner({
     transcript, flags, routingPlan, behaviorMode: "growth", memory: {},
   });
   const modelPlan = selectChatModelForTurn({
-    transcript, turnPlanner, flags, routingLane: routingPlan?.lane,
+    transcript, turnPlanner, flags, routingLane: routingPlan?.lane, ...modelOptions,
   });
   return { flags, routingPlan, turnPlanner, modelPlan };
 }
@@ -228,4 +228,80 @@ test("[screenplay-model] short Studio commands keep the structural screenplay mo
   assert.equal(modelPlan.reasoningEffort, "medium");
   assert.equal(modelPlan.fallbackModel, "gpt-4o");
   assert.equal(modelPlan.repairReasoningEffort, "high");
+});
+
+const STRUCTURAL_ANALYSIS_CASES = [
+  {
+    name: "Scene Doctor",
+    transcript: "Scene doctor this courtroom scene: the reversal is not landing and Mara feels passive.",
+    reason: "screenplay_scene_doctor",
+    intent: "scene_doctor",
+    minTokens: 700,
+  },
+  {
+    name: "feature architecture",
+    transcript: "Outline the feature film from Act I through Act III and make the midpoint cause the final choice.",
+    reason: "screenplay_feature_architecture",
+    intent: "finish_feature",
+    minTokens: 1_000,
+  },
+  {
+    name: "writer-block rescue",
+    transcript: "I'm stuck. I don't know what the next beat should be.",
+    reason: "screenplay_momentum_rescue",
+    intent: "momentum_rescue",
+    minTokens: 720,
+    modelOptions: { screenplayContextActive: true },
+  },
+];
+
+for (const item of STRUCTURAL_ANALYSIS_CASES) {
+  test(`[screenplay-model] ${item.name} uses bounded structural reasoning`, () => {
+    const { flags, routingPlan, turnPlanner, modelPlan } = plan(
+      item.transcript,
+      item.modelOptions
+    );
+    const maxTokens = computeChatMaxTokensForTurn({
+      transcript: item.transcript,
+      turnPlanner,
+      flags,
+      routingLane: routingPlan?.lane,
+      chatModelPlan: modelPlan,
+    });
+
+    assert.equal(modelPlan.tier, "structural");
+    assert.equal(modelPlan.reason, item.reason);
+    assert.equal(modelPlan.screenplayTaskIntent, item.intent);
+    assert.equal(modelPlan.apiMode, "responses");
+    assert.equal(modelPlan.reasoningEffort, "medium");
+    assert.equal(modelPlan.loadShed, false);
+    assert.ok(maxTokens >= item.minTokens, `${item.name} budget was ${maxTokens}`);
+    assert.ok(maxTokens <= 1_200, `${item.name} budget exceeded the bounded cap`);
+  });
+}
+
+test("[screenplay-model] ordinary stuckness never wakes the structural screenplay tier", () => {
+  const { modelPlan } = plan("I'm stuck in traffic and running late for dinner.");
+  assert.notEqual(modelPlan.tier, "structural");
+  assert.notEqual(modelPlan.reason, "screenplay_momentum_rescue");
+});
+
+test("[screenplay-model] structural analysis is protected from latency load shedding", () => {
+  const transcript = "Scene doctor this screenplay scene and fix the weak Act II reversal.";
+  const { flags, routingPlan, turnPlanner } = plan(transcript);
+  const modelPlan = selectChatModelForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    runtimeStatus: {
+      status: "degraded",
+      metrics: { sampleCount: 20, p95TotalMs: 12_000 },
+    },
+    screenplayContextActive: true,
+  });
+
+  assert.equal(modelPlan.tier, "structural");
+  assert.equal(modelPlan.reason, "screenplay_scene_doctor");
+  assert.equal(modelPlan.loadShed, false);
 });

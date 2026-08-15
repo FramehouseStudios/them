@@ -5,6 +5,7 @@ import {
   buildOpenAITextRequest,
   extractOpenAIResponseText,
   normalizeOpenAITextResponseRaw,
+  normalizeOpenAIUsage,
   parseOpenAITextStreamLine,
   requestOpenAIText,
 } from "../lib/openai_text_generation.js";
@@ -58,12 +59,55 @@ test("[structural-model] Responses SSE exposes deltas and completion", () => {
       'data: {"type":"response.output_text.delta","delta":"MARA"}',
       "responses"
     ),
-    { handled: true, done: false, delta: "MARA", error: "" }
+    { handled: true, done: false, delta: "MARA", error: "", usage: null }
   );
   assert.equal(
     parseOpenAITextStreamLine('data: {"type":"response.completed"}', "responses").done,
     true
   );
+});
+
+test("[structural-model] provider usage normalizes across Responses and Chat Completions", () => {
+  assert.deepEqual(normalizeOpenAIUsage({
+    usage: {
+      input_tokens: 700,
+      output_tokens: 240,
+      output_tokens_details: { reasoning_tokens: 90 },
+      total_tokens: 940,
+    },
+  }), {
+    inputTokens: 700,
+    outputTokens: 240,
+    reasoningTokens: 90,
+    totalTokens: 940,
+  });
+  assert.deepEqual(normalizeOpenAIUsage({
+    usage: {
+      prompt_tokens: 400,
+      completion_tokens: 120,
+      completion_tokens_details: { reasoning_tokens: 30 },
+      total_tokens: 520,
+    },
+  }), {
+    inputTokens: 400,
+    outputTokens: 120,
+    reasoningTokens: 30,
+    totalTokens: 520,
+  });
+});
+
+test("[structural-model] completed Responses stream emits normalized usage", () => {
+  const event = parseOpenAITextStreamLine(
+    'data: {"type":"response.completed","response":{"usage":{"input_tokens":800,"output_tokens":300,"output_tokens_details":{"reasoning_tokens":110}}}}',
+    "responses"
+  );
+  assert.equal(event.done, true);
+  assert.deepEqual(event.usage, {
+    inputTokens: 800,
+    outputTokens: 300,
+    reasoningTokens: 110,
+    totalTokens: 1100,
+  });
 });
 
 test("[structural-model] unavailable structural model falls back exactly once before streaming", async () => {
@@ -92,6 +136,7 @@ test("[structural-model] unavailable structural model falls back exactly once be
   assert.equal(calls[1].url, "https://api.openai.com/v1/chat/completions");
   assert.equal(calls[1].body.model, "gpt-rich");
   assert.equal(calls[1].body.stream, true);
+  assert.deepEqual(calls[1].body.stream_options, { include_usage: true });
   assert.equal(result.fallbackUsed, true);
   assert.equal(result.apiMode, "chat_completions");
   assert.equal(result.model, "gpt-rich");

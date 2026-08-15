@@ -82,7 +82,7 @@ test("[phase7c] chat supplier delegates streaming and non-streaming calls", asyn
     CHAT_TIMEOUT_MS: 456,
     fetchWithTimeout: async (url, init, timeoutMs) => {
       calls.push({ url, init, timeoutMs });
-      return okResponse('{"choices":[{"message":{"content":"hi"}}]}');
+      return okResponse('{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}}');
     },
     isAbortError: () => false,
     streamChatReplyWithFirstSentence: async (args) => ({
@@ -109,7 +109,13 @@ test("[phase7c] chat supplier delegates streaming and non-streaming calls", asyn
     messages: [{ role: "user", content: "hello" }],
   });
 
-  assert.equal(result.rawText, '{"choices":[{"message":{"content":"hi"}}]}');
+  assert.equal(result.rawText, '{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}}');
+  assert.deepEqual(result.usage, {
+    inputTokens: 20,
+    outputTokens: 5,
+    reasoningTokens: 0,
+    totalTokens: 25,
+  });
   assert.equal(calls[0].url, "https://api.openai.com/v1/chat/completions");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.Authorization, "Bearer chat-key");
@@ -164,6 +170,11 @@ test("[structural-model] chat supplier uses Responses and preserves its effectiv
           type: "message",
           content: [{ type: "output_text", text: "INT. ARCHIVE - NIGHT" }],
         }],
+        usage: {
+          input_tokens: 640,
+          output_tokens: 220,
+          output_tokens_details: { reasoning_tokens: 80 },
+        },
       }));
     },
     isAbortError: () => false,
@@ -188,6 +199,12 @@ test("[structural-model] chat supplier uses Responses and preserves its effectiv
   assert.equal(result.apiMode, "responses");
   assert.equal(result.reasoningEffort, "high");
   assert.equal(result.fallbackUsed, false);
+  assert.deepEqual(result.usage, {
+    inputTokens: 640,
+    outputTokens: 220,
+    reasoningTokens: 80,
+    totalTokens: 860,
+  });
 });
 
 test("[phase7c] TTS supplier delegates all three synthesis seams", async () => {
