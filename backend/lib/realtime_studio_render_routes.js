@@ -580,6 +580,10 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     screenplayAcceptedCausalFacts: Array.isArray(creativeMemory?.acceptedCausalFacts)
       ? creativeMemory.acceptedCausalFacts.slice(0, 8)
       : [],
+    screenplayFeatureStoryGraph: creativeMemory?.featureStoryGraph &&
+      typeof creativeMemory.featureStoryGraph === "object"
+      ? creativeMemory.featureStoryGraph
+      : null,
     screenplayDueStoryThread: creativeMemory?.dueStoryThread &&
       typeof creativeMemory.dueStoryThread === "object"
       ? creativeMemory.dueStoryThread

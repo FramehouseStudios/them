@@ -117,6 +117,47 @@ test("[studio-quality] weak structural analysis gets one canon-aware repair", as
   assert.match(calls[0].transcript, /CANON_CORRECTION: mother -> Eli's sister/);
 });
 
+test("[studio-quality] structurally fluent but project-generic analysis gets one graph-grounded repair", async () => {
+  const calls = [];
+  const grounded = [
+    "The core problem is that Mara keeps searching for the burned ferry ledger instead of confronting Eli's refusal, so the scene repeats her control tactic without a turn.",
+    "The highest-leverage fix is to make Eli withhold the memorized names until Mara gives June the cracked token and lets her choose the route. That adds obstacle, leverage, subtext, and a relationship consequence for the next scene and Mara's Act II arc.",
+    "A playable version on the page:",
+    "INT. FERRY TERMINAL - NIGHT",
+    "Mara slides the cracked token to June. Eli finally says the first name.",
+    "The choice makes the service-tunnel escape inevitable.",
+  ].join("\n");
+  const result = await enforceStudioStructuralAnalysisQuality({
+    reply: VALID_SCENE_DOCTOR,
+    transcript: "Scene doctor the ferry-terminal confrontation.",
+    studioMeta: {
+      screenplayFeatureStoryGraph: {
+        currentState: {
+          lastAcceptedOutcome: "Eli refuses to repeat the memorized names until Mara trusts him.",
+          nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+          characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+        },
+        bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+        openThreads: [{ due: true, setup: "The cracked ferry token Mara gave June." }],
+      },
+    },
+    modelReason: "screenplay_scene_doctor",
+    taskIntent: "scene_doctor",
+    renderRepair: async (request) => {
+      calls.push(request);
+      return grounded;
+    },
+  });
+
+  assert.equal(result.repaired, true);
+  assert.equal(result.structuralQuality.initial_reason, "missing_specific_story_grounding");
+  assert.equal(result.structuralQuality.passed, true);
+  assert.equal(result.structuralQuality.dimensions.storySpecificGrounding, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].transcript, /GRAPH_CHANGED_STATE: Eli refuses/);
+  assert.match(calls[0].transcript, /GRAPH_DUE_PROMISE: The cracked ferry token/);
+});
+
 test("[studio-quality] weaker structural repair cannot replace the initial answer", async () => {
   const initial = "The scene needs more emotion and a clearer objective before the next scene.";
   const result = await enforceStudioStructuralAnalysisQuality({

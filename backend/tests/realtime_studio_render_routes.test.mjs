@@ -225,6 +225,65 @@ test("[studio-render] sync: explicit structural task hint retrieves identity-bou
   });
 });
 
+test("[studio-render] sync: account story graph rejects project-generic Scene Doctor advice", async () => {
+  const calls = [];
+  const groundedReply = [
+    "The core problem is that Mara keeps searching for the burned ferry ledger instead of confronting Eli's refusal, so her control tactic repeats without a turn.",
+    "The highest-leverage fix is to make Eli withhold the memorized names until Mara gives June the cracked token and lets her choose the route. That creates obstacle, leverage, subtext, and a next-scene consequence for Mara's Act II arc.",
+    "A playable version on the page:",
+    "INT. FERRY TERMINAL - NIGHT",
+    "Mara slides the cracked token to June. Eli finally says the first name.",
+    "The choice makes the service-tunnel escape inevitable.",
+  ].join("\n");
+  const deps = defaultDeps({
+    resolveUserId: () => "user-story-graph",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        featureStoryGraph: {
+          currentState: {
+            lastAcceptedOutcome: "Eli refuses to repeat the memorized names until Mara trusts him.",
+            nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+            characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+          },
+          bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+          openThreads: [{
+            due: true,
+            setup: "The cracked ferry token Mara gave June.",
+            promisedPayoff: "June returns it when Mara gives her the wheel.",
+          }],
+        },
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return options.repairAttempt ? groundedReply : VALID_SCENE_DOCTOR_REPLY;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Scene doctor the current ferry-terminal sequence.",
+      screenplay_target: "voice_pin",
+      screenplay_task_hint: "Scene doctor the current ferry-terminal sequence.",
+      screenplay_project_id: "split-ferries",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.memory_applied?.creative_memory, true, JSON.stringify(r.body));
+    assert.equal(
+      r.body.structural_quality.initial_reason,
+      "missing_specific_story_grounding",
+      JSON.stringify(r.body.structural_quality),
+    );
+    assert.equal(r.body.reply, groundedReply);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.structural_quality.repaired, true);
+    assert.equal(calls.length, 2);
+    assert.match(calls[1].transcript, /GRAPH_CHANGED_STATE: Eli refuses/);
+    assert.match(calls[1].transcript, /GRAPH_DUE_PROMISE: The cracked ferry token/);
+  });
+});
+
 test("[studio-render] sync: feature architecture uses the structural feature budget", async () => {
   const deps = defaultDeps({
     renderStudioRealtimeText: async (options) => {

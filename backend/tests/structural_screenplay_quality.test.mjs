@@ -78,6 +78,68 @@ test("[structural-quality] accepts causal feature architecture with a scene-forw
   assert.equal(quality.score, 1);
 });
 
+test("[structural-quality] rejects structurally fluent advice that ignores the active movie", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_feature_architecture",
+    reply: [
+      "Act I: the protagonist wants freedom because an old wound has made control their false belief. The catalyst exposes a public threat, and the commitment closes the road home while planting a promise between the protagonist and the ally.",
+      "Act II: the protagonist's old tactic is secrecy. At the midpoint, the ally reverses the goal, therefore that tactic creates public pressure and an all is lost crisis. The failure forces the protagonist toward changed behavior instead of another private escape.",
+      "Act III: the protagonist needs trust. The planted promise pays off in the climax when changed behavior resolves the central question, and the final image transforms the opening image into proof of that change.",
+      "Next three scenes: the protagonist commits to the dangerous route; the ally refuses the old tactic; the antagonist makes the final confrontation inevitable.",
+    ].join("\n"),
+    storyContext: {
+      screenplayFeatureStoryGraph: {
+        currentState: {
+          lastAcceptedOutcome: "Eli refuses to repeat the memorized names until Mara trusts him.",
+          nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+          characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+        },
+        bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+        openThreads: [{
+          due: true,
+          setup: "The cracked ferry token Mara gave June.",
+          promisedPayoff: "June returns it when Mara gives her the wheel.",
+        }],
+      },
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_specific_story_grounding");
+  assert.equal(quality.dimensions.storySpecificGrounding, false);
+});
+
+test("[structural-quality] accepts architecture grounded across state, character, and payoff lanes", () => {
+  const storyContext = {
+    screenplayFeatureStoryGraph: {
+      currentState: {
+        lastAcceptedOutcome: "Eli refuses to repeat the memorized names until Mara trusts him.",
+        nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
+        characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+      },
+      bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+      openThreads: [{
+        due: true,
+        setup: "The cracked ferry token Mara gave June.",
+        promisedPayoff: "June returns it when Mara gives her the wheel.",
+      }],
+    },
+  };
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_feature_architecture",
+    storyContext,
+    reply: [
+      "Act I: Mara wants to expose the ferry conspiracy, but her false belief says control feels safer than trust. Mara burns the ferry ledger beyond recovery because she expects dependence to destroy her. The commitment leaves Eli's memorized names as the only path forward and plants June's cracked ferry token.",
+      "Act II: Eli refuses to repeat the names until Mara trusts him. At the midpoint, June takes the token through the service tunnel, which forces Mara to choose dependence over command. Her old tactic creates the all is lost crisis when both allies leave.",
+      "Act III: Mara needs to surrender control. The final plan therefore gives Eli the public choice and June the wheel. In the climax, June returns the cracked token as the setup payoff and proof of Mara's changed behavior. The final image is Mara in the passenger seat.",
+      "Next three scenes: June enters the tunnel; Mara follows without issuing orders; Eli decides to speak the names publicly.",
+    ].join("\n\n"),
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.dimensions.storySpecificGrounding, true);
+});
+
 test("[structural-quality] leaves page writes and ordinary talk alone", () => {
   for (const modelReason of ["screenplay_page_write", "knowledge_answer", ""]) {
     const quality = evaluateStructuralScreenplayReply({ modelReason, reply: "Anything." });
@@ -101,6 +163,14 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
       screenplayProtagonistWant: "Mara wants to expose the forged testimony.",
       screenplayCorrectionReplacements: ["sealed affidavit -> public affidavit"],
       screenplayUnresolvedSetups: ["the missing reel"],
+      screenplayFeatureStoryGraph: {
+        currentState: {
+          lastAcceptedOutcome: "Eli takes the archive key.",
+          nextScenePlan: "Mara must follow him into the hearing.",
+        },
+        bindingFacts: [{ fact: "Mara burned the sealed affidavit." }],
+        openThreads: [{ due: true, setup: "the missing reel", promisedPayoff: "Eli plays it publicly" }],
+      },
     },
   });
   assert.equal(messages.length, 2);
@@ -110,6 +180,9 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
   assert.match(messages[1].content, /CANON_CORRECTION: sealed affidavit -> public affidavit/);
   assert.match(messages[1].content, /OPEN_SETUP: the missing reel/);
   assert.match(messages[1].content, /Mara wants to expose/);
+  assert.match(messages[1].content, /GRAPH_CHANGED_STATE: Eli takes the archive key/);
+  assert.match(messages[1].content, /GRAPH_HANDOFF: Mara must follow him into the hearing/);
+  assert.match(messages[1].content, /GRAPH_DUE_PROMISE: the missing reel -> Eli plays it publicly/);
 });
 
 test("[structural-quality] accepts only a meaningfully stronger repair candidate", () => {

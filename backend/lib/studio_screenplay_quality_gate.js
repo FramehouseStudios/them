@@ -487,7 +487,11 @@ async function enforceStudioStructuralAnalysisQuality({
   maxTokens = 1_000,
   renderRepair,
 } = {}) {
-  const initialQuality = evaluateStructuralScreenplayReply({ reply, modelReason });
+  const initialQuality = evaluateStructuralScreenplayReply({
+    reply,
+    modelReason,
+    storyContext: studioMeta,
+  });
   const envelope = (options = {}) => structuralQualityEnvelope({
     modelReason,
     taskIntent,
@@ -532,6 +536,7 @@ async function enforceStudioStructuralAnalysisQuality({
     const candidateQuality = evaluateStructuralScreenplayReply({
       reply: candidateReply,
       modelReason,
+      storyContext: studioMeta,
     });
     if (!candidateReply || !shouldAcceptStructuralRepair(initialQuality, candidateQuality)) {
       return {
