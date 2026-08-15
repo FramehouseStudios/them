@@ -43,6 +43,8 @@ const stateDeps = {
   buildMemoryCards: () => [], buildReadStateMeta: () => ({}),
   maybeBackfillThemesFromHistory: () => {}, normalizeClientToken: (t) => t,
   parseQueryLimit: () => 50, parseTurnIdToNumber: () => 0,
+  persistCanonicalWritableMemoryContext: async (_context, memory) => ({ ok: true, memory }),
+  resolveCanonicalWritableMemoryContext: async () => ({ canonical: false }),
   sanitizePersistedSessionMemory: (m) => m, selectMemoryRecordForRead: () => ({}),
   setPersistedUserMemoryForIp: () => {},
 };

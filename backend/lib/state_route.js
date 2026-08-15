@@ -115,13 +115,21 @@ function mountStateRoute(app, deps = {}) {
     normalizeClientToken,
     parseQueryLimit,
     parseTurnIdToNumber,
+    persistCanonicalWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
     selectMemoryRecordForRead,
     setPersistedUserMemoryForIp,
     creativeMemoryStore = null,
     buildSessionContinuitySnapshot = null,
   } = deps;
-  for (const k of ["selectMemoryRecordForRead","buildReadStateMeta","applyReadStateHeaders"]) {
+  for (const k of [
+    "selectMemoryRecordForRead",
+    "resolveCanonicalWritableMemoryContext",
+    "persistCanonicalWritableMemoryContext",
+    "buildReadStateMeta",
+    "applyReadStateHeaders",
+  ]) {
     if (deps[k] === undefined) throw new Error("mountStateRoute requires dep: " + k);
   }
 
@@ -144,22 +152,72 @@ function mountStateRoute(app, deps = {}) {
       120
     );
 
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
+    const nowTs = Date.now();
+    const localSelected = selectMemoryRecordForRead(req, nowTs);
+    let selected = localSelected;
+    let canonicalContext = null;
+    try {
+      canonicalContext = await resolveCanonicalWritableMemoryContext(req, nowTs);
+      if (canonicalContext?.canonical) {
+        selected = {
+          source: "auth_user",
+          ip: String(canonicalContext.requesterIp || localSelected.ip || ""),
+          memory: canonicalContext.memory,
+        };
+      }
+    } catch (error) {
+      const rid = String(req.requestId || "state_read");
+      logger.error?.(`[${rid}] state memory_read_failed error=${String(error?.message || error)}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "state",
+        error: "memory_read_failed",
+      });
+    }
+    const originalMemory = sanitizePersistedSessionMemory(selected.memory);
+    let memory = sanitizePersistedSessionMemory(originalMemory);
+    let fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
     const backfillResult = maybeBackfillThemesFromHistory(
       memory,
       fullThreads,
-      Date.now(),
+      nowTs,
       { trigger: "state_read" }
     );
-    if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-      setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-        clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-      });
-      logger.log(
-        `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
-      );
+    if (backfillResult.applied) {
+      if (canonicalContext?.canonical) {
+        try {
+          const commit = await persistCanonicalWritableMemoryContext(
+            canonicalContext,
+            memory,
+            nowTs,
+          );
+          memory = sanitizePersistedSessionMemory(
+            commit?.memory || originalMemory,
+          );
+          fullThreads = buildConversationHistoryThreads(
+            memory,
+            Math.max(historyLimit, 260),
+          );
+          logger.log(
+            `[state_backfill] status=${commit?.status || "unknown"} source=${selected.source} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
+          );
+        } catch (error) {
+          memory = originalMemory;
+          fullThreads = buildConversationHistoryThreads(
+            memory,
+            Math.max(historyLimit, 260),
+          );
+          const rid = String(req.requestId || "state_read");
+          logger.error?.(`[${rid}] state backfill_write_failed error=${String(error?.message || error)}`);
+        }
+      } else if (selected.ip && selected.ip !== "unknown") {
+        setPersistedUserMemoryForIp(selected.ip, memory, nowTs, {
+          clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
+        });
+        logger.log(
+          `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
+        );
+      }
     }
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const historyDelta = sinceTurnNumber > 0

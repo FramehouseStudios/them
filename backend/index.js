@@ -31766,9 +31766,9 @@ mountOutboxRoutes(app, {
   scaleBackplane,
 });
 
-// GET /state extracted to lib/state_route.js (Phase 6.1a module, now wired).
-// Mounted in place to preserve Express registration order; handler body is
-// byte-identical (deps injected; logger defaults to console).
+// GET /state extracted to lib/state_route.js. Authenticated restore reads and
+// read-side theme backfills use canonical account persistence so relaunches stay
+// current across backend instances, iPhone, and macOS.
 mountStateRoute(app, {
   applyReadStateHeaders,
   buildConversationHistoryThreads,
@@ -31778,11 +31778,14 @@ mountStateRoute(app, {
   normalizeClientToken,
   parseQueryLimit,
   parseTurnIdToNumber,
+  persistCanonicalWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
   selectMemoryRecordForRead,
   setPersistedUserMemoryForIp,
   creativeMemoryStore,
   buildSessionContinuitySnapshot,
+  logger: console,
 });
 
 // POST /data/history/clear + /data/memories/clear extracted to
