@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import express from "express";
+import { createAccountMemoryCAS } from "../lib/account_memory_cas.js";
+import { createAccountMemoryMutationCommitter } from "../lib/account_memory_turn_commit.js";
 import { mountHistoryRoutes } from "../lib/history_routes.js";
+import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountRecapRoutes } from "../lib/recap_routes.js";
 
 function parseQueryLimit(value, fallback = 24, max = 200) {
@@ -90,7 +96,7 @@ function defaultReadMeta() {
 
 function defaultDeps(overrides = {}) {
   const calls = {
-    persistWritableMemoryContext: [],
+    memoryCommits: [],
     upsertScreenplayProjectMemory: [],
   };
   const memory = overrides.memory || defaultMemory();
@@ -126,16 +132,18 @@ function defaultDeps(overrides = {}) {
     normalizeUserPersonName: normalizeSnippet,
     parseQueryLimit,
     parseTurnIdToNumber,
-    persistWritableMemoryContext: (context, nextMemory, nowTs) => {
-      calls.persistWritableMemoryContext.push({ context, nextMemory, nowTs });
-      return nextMemory;
+    createCanonicalMemoryMutationCommitter: (context) => async (mutator, nowTs) => {
+      const nextMemory = mutator(structuredClone(context.memory || {}));
+      calls.memoryCommits.push({ context, nextMemory, nowTs });
+      context.memory = structuredClone(nextMemory);
+      return context.memory;
     },
-    resolveWritableMemoryContext: () => ({
+    resolveCanonicalWritableMemoryContext: async () => ({
       requesterIp: "127.0.0.1",
       clientToken: "",
-      memory,
+      memory: structuredClone(memory),
     }),
-    sanitizePersistedSessionMemory: (value) => value || {},
+    sanitizePersistedSessionMemory: (value) => structuredClone(value || {}),
     sanitizeRememberedPeople: (people) => Array.isArray(people) ? people : [],
     sanitizeStudioTurnMetadata: (input) => input && typeof input === "object" ? {
       screenplayProjectId: normalizeSnippet(input.screenplayProjectId, 96),
@@ -200,6 +208,12 @@ test("[history-routes] mount guards required deps", () => {
   const deps = defaultDeps();
   delete deps.buildReadStateMeta;
   assert.throws(() => mountHistoryRoutes(express(), deps), /buildReadStateMeta/);
+  const mutationDeps = defaultDeps();
+  delete mutationDeps.createCanonicalMemoryMutationCommitter;
+  assert.throws(
+    () => mountHistoryRoutes(express(), mutationDeps),
+    /createCanonicalMemoryMutationCommitter/,
+  );
 });
 
 test("[history-routes] GET /history returns the canonical envelope", async () => {
@@ -241,11 +255,153 @@ test("[history-routes] POST /history/annotate_turn annotates and persists", asyn
     assert.equal(r.status, 200);
     assert.equal(r.headers.get("x-turn-id"), "turn-1");
     assert.equal(r.body.status, "updated");
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
+    assert.equal(deps._calls.memoryCommits.length, 1);
     assert.equal(deps._calls.upsertScreenplayProjectMemory.length, 1);
     assert.equal(deps._calls.upsertScreenplayProjectMemory[0].context.transcript, "Write Mara entering the archive.");
     assert.equal(deps._calls.upsertScreenplayProjectMemory[0].context.reply, "INT. ARCHIVE - NIGHT");
   });
+});
+
+test("[history-routes] POST /history/annotate_turn returns 404 for a missing turn", async () => {
+  await withServer(defaultDeps(), async (baseURL) => {
+    const r = await postJson(baseURL, "/history/annotate_turn", {
+      turn_id: "turn-99",
+      studio: { screenplayProjectId: "feature-1" },
+    });
+    assert.equal(r.status, 404);
+    assert.equal(r.body.error, "turn_not_found");
+  });
+});
+
+test("[history-routes] POST /history/annotate_turn fails closed on canonical read errors", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/history/annotate_turn", {
+      turn_id: "turn-1",
+      studio: { screenplayProjectId: "feature-1" },
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "memory_read_failed");
+  });
+});
+
+test("[history-routes] POST /history/annotate_turn fails closed on commit errors", async () => {
+  const deps = defaultDeps({
+    createCanonicalMemoryMutationCommitter: () => async () => {
+      const error = new Error("contention");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/history/annotate_turn", {
+      turn_id: "turn-1",
+      studio: { screenplayProjectId: "feature-1" },
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "memory_write_failed");
+  });
+});
+
+test("[history-routes] stale Studio annotation preserves a concurrent voice turn", async () => {
+  const jsonRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-history-voice-race-"));
+  const userId = "writer-history-voice-race";
+  const studioStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const voiceStore = createAccountMemoryCAS({
+    persistence: createJsonPersistence({ jsonRoot }),
+    sanitizeMemory: (value) => structuredClone(value || {}),
+  });
+  const initial = await studioStore.read({ userId, fallbackMemory: {
+    ...defaultMemory(),
+    screenplayProjectMemory: [{
+      projectId: "feature-1",
+      currentBeat: "Mara enters the archive.",
+      updatedAt: 100,
+    }],
+    lastUpdatedAt: 100,
+  } });
+  await studioStore.commit({
+    userId,
+    expectedRecord: initial.record,
+    memory: initial.memory,
+    now: 100,
+  });
+  const staleStudioRead = await studioStore.read({ userId });
+  const voiceRead = await voiceStore.read({ userId });
+  const voiceWinner = structuredClone(voiceRead.memory);
+  voiceWinner.turnHistory.push({
+    turn: 2,
+    role: "user",
+    content: "Mara hears the projector start.",
+    ts: 1700000000200,
+  });
+  voiceWinner.screenplayProjectMemory[0].currentBeat = "The projector starts behind Mara.";
+  voiceWinner.screenplayProjectMemory[0].updatedAt = 120;
+  await voiceStore.commit({
+    userId,
+    expectedRecord: voiceRead.record,
+    memory: voiceWinner,
+    now: 120,
+  });
+
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => ({
+      authenticatedUserId: userId,
+      canonical: true,
+      canonicalRecord: staleStudioRead.record,
+      requesterIp: `auth:${userId}`,
+      memory: staleStudioRead.memory,
+    }),
+    createCanonicalMemoryMutationCommitter: (context) =>
+      createAccountMemoryMutationCommitter({
+        context,
+        sanitizeMemory: (value) => structuredClone(value || {}),
+        persistMemory: (activeContext, memory, now) => studioStore.commit({
+          userId: activeContext.authenticatedUserId,
+          expectedRecord: activeContext.canonicalRecord,
+          memory,
+          now,
+        }),
+      }),
+  });
+  await withServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/history/annotate_turn", {
+      turn_id: "turn-1",
+      studio: {
+        screenplayProjectId: "feature-1",
+        screenplayTarget: "scene",
+        screenplayWriteId: "write-race",
+      },
+    });
+    assert.equal(r.status, 200);
+  });
+
+  assert.equal(deps._calls.upsertScreenplayProjectMemory.length, 2);
+  const repairedUpsert = deps._calls.upsertScreenplayProjectMemory.at(-1);
+  assert.equal(
+    repairedUpsert.nextMemory.screenplayProjectMemory[0].currentBeat,
+    "The projector starts behind Mara.",
+  );
+  assert.equal(repairedUpsert.context.transcript, "Write Mara entering the archive.");
+  assert.equal(repairedUpsert.context.reply, "INT. ARCHIVE - NIGHT");
+
+  const relaunched = await voiceStore.read({ userId });
+  assert.equal(relaunched.memory.turnHistory.length, 3);
+  assert.equal(relaunched.memory.turnHistory.at(-1).content, "Mara hears the projector start.");
+  assert.equal(
+    relaunched.memory.screenplayProjectMemory[0].currentBeat,
+    "The projector starts behind Mara.",
+  );
+  const annotated = relaunched.memory.turnHistory.filter((item) => item.turn === 1);
+  assert.equal(annotated.length, 2);
+  assert.ok(annotated.every((item) => item.studio?.screenplayProjectId === "feature-1"));
 });
 
 test("[recap-routes] mount guards required deps", () => {

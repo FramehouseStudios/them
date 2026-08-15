@@ -31802,6 +31802,7 @@ mountDataRoutes(app, {
 
 // GET /history + POST /history/annotate_turn extracted to lib/history_routes.js.
 // Mounted in place to preserve Express registration order and response contracts.
+// Annotation writes use canonical account CAS so concurrent voice turns survive.
 mountHistoryRoutes(app, {
   applyReadStateHeaders,
   buildConversationHistoryThreads,
@@ -31813,14 +31814,15 @@ mountHistoryRoutes(app, {
   normalizeUserPersonName,
   parseQueryLimit,
   parseTurnIdToNumber,
-  persistWritableMemoryContext,
-  resolveWritableMemoryContext,
+  createCanonicalMemoryMutationCommitter,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
   sanitizeRememberedPeople,
   sanitizeStudioTurnMetadata,
   sanitizeTurnHistoryItems,
   selectMemoryRecordForRead,
   upsertScreenplayProjectMemory,
+  logger: console,
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
