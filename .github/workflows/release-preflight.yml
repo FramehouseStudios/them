@@ -20,6 +20,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  live-structural-canary:
+    name: Live Scene Doctor And Feature Architecture
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require OpenAI Provider Secret
+        run: |
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "::error::OPENAI_API_KEY is required for the live structural release canary."
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Score Live Structural Story Quality
+        working-directory: backend
+        run: npm run eval:live-studio-structural
+
   release-preflight:
     name: Release Preflight
     runs-on: macos-latest
@@ -80,10 +111,6 @@ jobs:
       - name: Verify Clementine Writer Block Quality Contract
         working-directory: backend
         run: npm run eval:writer-block-rescue
-
-      - name: Verify Live Scene Doctor And Feature Architecture
-        working-directory: backend
-        run: npm run eval:live-studio-structural
 
       - name: Verify Clementine Studio Writer Block Rescue
         working-directory: backend
