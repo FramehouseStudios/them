@@ -1000,6 +1000,7 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     let unresolvedStoryThreads: [String]?
     let characterArcTurns: [String]?
     let imageMotifs: [String]?
+    let storyObligationChanges: [BackendStoryObligationChange]?
     let characters: [String]
     let correctedTerms: [String]
     let correctionReplacements: [String]
@@ -1023,6 +1024,7 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         unresolvedStoryThreads: [String]? = nil,
         characterArcTurns: [String]? = nil,
         imageMotifs: [String]? = nil,
+        storyObligationChanges: [BackendStoryObligationChange]? = nil,
         characters: [String],
         correctedTerms: [String],
         correctionReplacements: [String],
@@ -1045,6 +1047,8 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         self.unresolvedStoryThreads = Self.cleanOptionalList(unresolvedStoryThreads, limit: 5)
         self.characterArcTurns = Self.cleanOptionalList(characterArcTurns, limit: 5)
         self.imageMotifs = Self.cleanOptionalList(imageMotifs, limit: 5)
+        let cleanedChanges = Self.cleanStoryObligationChanges(storyObligationChanges)
+        self.storyObligationChanges = cleanedChanges.isEmpty ? nil : cleanedChanges
         self.characters = Self.cleanList(characters)
         self.correctedTerms = Self.cleanList(correctedTerms)
         self.correctionReplacements = Self.cleanList(correctionReplacements)
@@ -1076,7 +1080,8 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             !Self.cleanList(unresolvedSetups ?? []).isEmpty ||
             !Self.cleanList(unresolvedStoryThreads ?? []).isEmpty ||
             !Self.cleanList(characterArcTurns ?? []).isEmpty ||
-            !Self.cleanList(imageMotifs ?? []).isEmpty
+            !Self.cleanList(imageMotifs ?? []).isEmpty ||
+            currentStoryObligationChange?.isMeaningful == true
     }
 
     var primaryCharacter: String {
@@ -1107,6 +1112,9 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
 
     var storyRunwayLines: [String] {
         var lines: [String] = []
+        if let change = currentStoryObligationChange {
+            lines.append("\(change.statusLabel): \(change.result)")
+        }
         let nextTurn = Self.cleanList(nextThreeTurns ?? [], limit: 3).first
             ?? (nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !nextTurn.isEmpty {
@@ -1128,6 +1136,10 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         return Array(lines.prefix(4))
     }
 
+    var currentStoryObligationChange: BackendStoryObligationChange? {
+        Self.cleanStoryObligationChanges(storyObligationChanges).first
+    }
+
     var featureMemoryBrief: String {
         guard hasContent else { return "" }
         var parts: [String] = []
@@ -1146,6 +1158,12 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         let cleanPayoffs = Self.cleanList(actThreePayoffPath ?? [], limit: 3)
         let cleanThreads = Self.cleanList(unresolvedStoryThreads ?? [], limit: 3)
         let cleanArcTurns = Self.cleanList(characterArcTurns ?? [], limit: 3)
+        if let change = currentStoryObligationChange {
+            parts.append(
+                "Accepted-page \(change.kindLabel.lowercased()) \(change.statusLabel.lowercased()): " +
+                    "\(change.result) Evidence: \(change.evidence)"
+            )
+        }
         if !cleanNextTurns.isEmpty {
             parts.append("Next turns: \(cleanNextTurns.joined(separator: " -> "))")
         }
@@ -1260,12 +1278,48 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             unresolvedStoryThreads: projectMemory?.unresolvedStoryThreads,
             characterArcTurns: projectMemory?.characterArcTurns,
             imageMotifs: projectMemory?.imageMotifs,
+            storyObligationChanges: trace.storyObligationChange.map { [$0] },
             characters: characterNames,
             correctedTerms: correctedTerms,
             correctionReplacements: replacements,
             characterBibleApplied: !characterNames.isEmpty,
             correctionAppliedToPrompt: trace.correctionCount > 0 || !correctedTerms.isEmpty || !replacements.isEmpty,
             lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
+            updatedAt: Date()
+        )
+    }
+
+    static func from(
+        _ snapshot: BackendSessionContinuitySnapshot,
+        source: String,
+        previous: ScreenplayStudioAppliedMemoryState
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard snapshot.isMeaningful else { return previous }
+        let changes = snapshot.storyObligationLedger.isEmpty
+            ? snapshot.currentStoryObligationChange.map { [$0] }
+            : snapshot.storyObligationLedger
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source,
+            projectId: snapshot.projectId,
+            projectTitle: snapshot.projectTitle,
+            act: snapshot.act,
+            featureSequence: snapshot.featureSequence,
+            currentBeat: snapshot.currentBeat,
+            nextScenePlan: snapshot.nextScenePlan,
+            nextThreeTurns: snapshot.nextThreeTurns,
+            actThreePayoffPath: snapshot.actThreePayoffPath,
+            unresolvedSetups: snapshot.unresolvedSetups,
+            unresolvedStoryThreads: snapshot.unresolvedStoryThreads,
+            characterArcTurns: snapshot.characterArcTurns,
+            imageMotifs: snapshot.imageMotifs,
+            storyObligationChanges: changes,
+            characters: snapshot.characterFocus,
+            correctedTerms: previous.correctedTerms,
+            correctionReplacements: previous.correctionReplacements,
+            characterBibleApplied: previous.characterBibleApplied || !snapshot.characterFocus.isEmpty,
+            correctionAppliedToPrompt: previous.correctionAppliedToPrompt || snapshot.isCorrection,
+            lastSavedCorrection: previous.lastSavedCorrection,
             updatedAt: Date()
         )
     }
@@ -1360,6 +1414,7 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             unresolvedStoryThreads: unresolvedStoryThreads,
             characterArcTurns: characterArcTurns,
             imageMotifs: imageMotifs,
+            storyObligationChanges: storyObligationChanges,
             characters: characters,
             correctedTerms: Self.cleanList(retiredFacts + correctedTerms),
             correctionReplacements: correctionReplacements,
@@ -1528,6 +1583,22 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     private static func cleanOptionalList(_ values: [String]?, limit: Int) -> [String]? {
         let clean = cleanList(values, limit: limit)
         return clean.isEmpty ? nil : clean
+    }
+
+    private static func cleanStoryObligationChanges(
+        _ values: [BackendStoryObligationChange]?
+    ) -> [BackendStoryObligationChange] {
+        var seen = Set<String>()
+        var out: [BackendStoryObligationChange] = []
+        for value in values ?? [] where value.isMeaningful {
+            let key = value.obligation
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            out.append(value)
+            if out.count >= 6 { break }
+        }
+        return out
     }
 
     private static func cleanList(_ values: [String]?, limit: Int = 12) -> [String] {
@@ -4076,6 +4147,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         persist: Bool = true
     ) {
         guard snapshot.isMeaningful else { return }
+        latestAppliedMemory = ScreenplayStudioAppliedMemoryState.from(
+            snapshot,
+            source: "session_continuity_restore",
+            previous: latestAppliedMemory
+        )
         let now = Date()
         let projectLabel = Self.firstRestoredContinuityValue(
             [
@@ -8291,6 +8367,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             unresolvedStoryThreads: latestAppliedMemory.unresolvedStoryThreads,
             characterArcTurns: latestAppliedMemory.characterArcTurns,
             imageMotifs: latestAppliedMemory.imageMotifs,
+            storyObligationChanges: latestAppliedMemory.storyObligationChanges,
             characters: latestAppliedMemory.characters,
             correctedTerms: nextCorrectedTerms,
             correctionReplacements: nextCorrectionReplacements,

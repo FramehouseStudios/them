@@ -908,6 +908,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
     let toneApplied: Bool
     let habitsApplied: Bool
     let canonClarification: BackendCanonCorrectionAmbiguity?
+    let storyObligationChange: BackendStoryObligationChange?
 
     enum CodingKeys: String, CodingKey {
         case applied
@@ -926,6 +927,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         case toneApplied = "tone_applied"
         case habitsApplied = "habits_applied"
         case canonClarification = "canon_clarification"
+        case storyObligationChange = "story_obligation_change"
     }
 
     init(
@@ -944,7 +946,8 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         styleApplied: Bool = false,
         toneApplied: Bool = false,
         habitsApplied: Bool = false,
-        canonClarification: BackendCanonCorrectionAmbiguity? = nil
+        canonClarification: BackendCanonCorrectionAmbiguity? = nil,
+        storyObligationChange: BackendStoryObligationChange? = nil
     ) {
         self.applied = applied
         let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -970,6 +973,9 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         self.canonClarification = canonClarification?.isPending == true && (canonClarification?.candidateFacts.count ?? 0) >= 2
             ? canonClarification
             : nil
+        self.storyObligationChange = storyObligationChange?.isMeaningful == true
+            ? storyObligationChange
+            : nil
     }
 
     init(from decoder: Decoder) throws {
@@ -990,7 +996,11 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
             styleApplied: try container.decodeIfPresent(Bool.self, forKey: .styleApplied) ?? false,
             toneApplied: try container.decodeIfPresent(Bool.self, forKey: .toneApplied) ?? false,
             habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false,
-            canonClarification: try container.decodeIfPresent(BackendCanonCorrectionAmbiguity.self, forKey: .canonClarification)
+            canonClarification: try container.decodeIfPresent(BackendCanonCorrectionAmbiguity.self, forKey: .canonClarification),
+            storyObligationChange: try container.decodeIfPresent(
+                BackendStoryObligationChange.self,
+                forKey: .storyObligationChange
+            )
         )
     }
 
@@ -1011,7 +1021,8 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
             styleApplied: styleApplied,
             toneApplied: toneApplied,
             habitsApplied: habitsApplied,
-            canonClarification: clarification
+            canonClarification: clarification,
+            storyObligationChange: storyObligationChange
         )
     }
 

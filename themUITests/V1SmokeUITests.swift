@@ -1462,6 +1462,96 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_story_obligation_evidence_survives_studio_relaunch() throws {
+        let acceptedAt = Date()
+        let formatter = ISO8601DateFormatter()
+        let payload = try jsonString([
+            "id": "11111111-2222-3333-4444-555555555555",
+            "source": "session_continuity_restore",
+            "projectId": "split-ferries",
+            "projectTitle": "Split Ferries",
+            "act": "Act III",
+            "characters": ["Mara", "June"],
+            "correctedTerms": [],
+            "correctionReplacements": [],
+            "characterBibleApplied": true,
+            "correctionAppliedToPrompt": false,
+            "lastSavedCorrection": "",
+            "updatedAt": formatter.string(from: acceptedAt),
+            "storyObligationChanges": [[
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel.",
+                "sourceSceneHeading": "INT. PILOT HOUSE - DAWN",
+                "sourceAct": "Act III",
+                "sourcePosition": 12,
+                "acceptedAt": acceptedAt.timeIntervalSince1970 * 1_000,
+            ]],
+        ])
+        let resultText = "June returns the token after Mara gives her the wheel."
+        let evidenceText = "June sets the token in Mara's palm, then takes the wheel."
+
+        var app = launchApp(
+            openStudio: true,
+            launchEnvironment: ["THEM_UITEST_STUDIO_APPLIED_MEMORY_JSON": payload]
+        )
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12))
+        var restoredSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 8) { snapshot in
+                restoredSnapshot = snapshot
+                return self.stringValue(snapshot["story_obligation_result"]).contains(resultText)
+            },
+            "The accepted-page obligation fixture did not restore into Studio state. Snapshot: \(restoredSnapshot)"
+        )
+        revealStudioAppliedMemory(in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.story-obligation.current.result",
+                containing: resultText,
+                in: app,
+                timeout: 10
+            ),
+            "Studio did not show the restored accepted-page payoff result."
+        )
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.story-obligation.current.evidence",
+                containing: evidenceText,
+                in: app,
+                timeout: 5
+            ),
+            "Studio did not show the accepted-page evidence."
+        )
+        app.terminate()
+
+        app = launchApp(openStudio: true, resetState: false)
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 12))
+        restoredSnapshot = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 8) { snapshot in
+                restoredSnapshot = snapshot
+                return self.stringValue(snapshot["story_obligation_result"]).contains(resultText)
+            },
+            "The accepted-page obligation state disappeared after relaunch. Snapshot: \(restoredSnapshot)"
+        )
+        revealStudioAppliedMemory(in: app)
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.story-obligation.current.result",
+                containing: resultText,
+                in: app,
+                timeout: 10
+            ),
+            "The accepted-page payoff result disappeared after relaunch."
+        )
+    }
+
+    @MainActor
     private func assertBackendProjectRestoreLoads(_ fixture: RestoreContractFixture) async throws {
         let app = launchApp(
             openStudio: true,
@@ -1760,6 +1850,24 @@ final class V1SmokeUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(8)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
         while Date() < deadline, !card.exists {
+            if rightToggle.waitForExistence(timeout: 0.5),
+               rightToggle.isHittable,
+               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+                rightToggle.tap()
+            }
+            let themTab = app.buttons["io.them"]
+            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+                themTab.tap()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+    }
+
+    private func revealStudioAppliedMemory(in app: XCUIApplication) {
+        let memory = element(identifier: "studio.story-obligation.current", in: app)
+        let deadline = Date().addingTimeInterval(8)
+        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+        while Date() < deadline, !memory.exists {
             if rightToggle.waitForExistence(timeout: 0.5),
                rightToggle.isHittable,
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
@@ -3315,14 +3423,14 @@ final class V1SmokeUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if snapshot.waitForExistence(timeout: 0.5),
-               let decoded = decodeJSONObject(snapshot.label),
+               let decoded = decodeJSONObject(accessibilityText(of: snapshot)),
                predicate(decoded) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         if snapshot.exists,
-           let decoded = decodeJSONObject(snapshot.label) {
+           let decoded = decodeJSONObject(accessibilityText(of: snapshot)) {
             return predicate(decoded)
         }
         return false

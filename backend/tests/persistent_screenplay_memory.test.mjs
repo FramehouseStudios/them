@@ -348,6 +348,48 @@ test("[persistent-screenplay-memory] Story Spine cards expose durable learned-fi
   );
 });
 
+test("[persistent-screenplay-memory] Story Spine cards expose grounded setup and payoff movement", () => {
+  const cards = buildMemoryCards(createEmptyEmotionMemory(), [], 4, {
+    updatedAt: 1_800_000_020_000,
+    projects: [{
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act III",
+      currentBeat: "Mara finally gives June the wheel.",
+      acceptedScenes: [{
+        sceneHeading: "INT. PILOT HOUSE - DAWN",
+        act: "Act III",
+        summary: "Mara trusts June with the crossing.",
+        storyObligationChanges: [{
+          kind: "promised_payoff",
+          obligation: "June returns the token when Mara gives her the wheel.",
+          status: "paid_off",
+          result: "June returns the token after Mara gives her the wheel.",
+          evidence: "June sets the token in Mara's palm, then takes the wheel.",
+        }],
+        acceptedAt: 1_800_000_020_000,
+      }],
+      updatedAt: 1_800_000_020_000,
+    }],
+  });
+
+  const card = cards.find((item) => item.source === "screenplay_project");
+  assert.ok(card);
+  assert.equal(card.storySpine.story_obligation_ledger.length, 1);
+  assert.deepEqual(card.storySpine.current_story_obligation_change, {
+    id: "obligation_1_1",
+    kind: "promised_payoff",
+    obligation: "June returns the token when Mara gives her the wheel.",
+    status: "paid_off",
+    result: "June returns the token after Mara gives her the wheel.",
+    evidence: "June sets the token in Mara's palm, then takes the wheel.",
+    source_scene_heading: "INT. PILOT HOUSE - DAWN",
+    source_act: "Act III",
+    source_position: 1,
+    accepted_at: 1_800_000_020_000,
+  });
+});
+
 test("[persistent-screenplay-memory] buildMemoryCards exposes structured character bible cards", () => {
   const cards = buildMemoryCards(
     createEmptyEmotionMemory(),
@@ -2102,6 +2144,38 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
   assert.ok(snapshot.opening_line.includes("One accepted consequence stays binding: Mara burns the only copy of the sealed affidavit."));
   assert.ok(snapshot.opening_line.indexOf("Next move:") < snapshot.opening_line.indexOf("One accepted consequence stays binding:"));
   assert.doesNotMatch(JSON.stringify(snapshot), /Night Train|uncouples/);
+});
+
+test("[persistent-screenplay-memory] cold session restores accepted setup and payoff evidence", () => {
+  const snapshot = buildSessionContinuitySnapshot(createEmptyEmotionMemory(), {
+    projectContinuity: {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      act: "Act III",
+      updatedAt: 1_800_000_020_000,
+    },
+    featureStoryGraph: {
+      storyObligationLedger: [{
+        id: "obligation_12_1",
+        kind: "promised_payoff",
+        obligation: "June returns the token when Mara gives her the wheel.",
+        status: "paid_off",
+        result: "June returns the token after Mara gives her the wheel.",
+        evidence: "June sets the token in Mara's palm, then takes the wheel.",
+        sourceSceneHeading: "INT. PILOT HOUSE - DAWN",
+        sourceAct: "Act III",
+        sourcePosition: 12,
+        acceptedAt: 1_800_000_020_000,
+      }],
+    },
+  });
+
+  assert.equal(snapshot.story_obligation_ledger.length, 1);
+  assert.equal(snapshot.current_story_obligation_change.status, "paid_off");
+  assert.equal(
+    snapshot.current_story_obligation_change.evidence,
+    "June sets the token in Mara's palm, then takes the wheel."
+  );
 });
 
 test("[persistent-screenplay-memory] session continuity honors correction-only creative memory", () => {

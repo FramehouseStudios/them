@@ -1580,6 +1580,21 @@ private struct StorySpineSnapshot: Hashable {
         cleanList(spine.characterFocus).prefix(4).joined(separator: ", ")
     }
 
+    var obligationChanges: [BackendStoryObligationChange] {
+        var seen = Set<String>()
+        let source = spine.storyObligationLedger ?? []
+        var values = source.filter(\.isMeaningful)
+        if values.isEmpty, let current = spine.currentStoryObligationChange, current.isMeaningful {
+            values = [current]
+        }
+        return values.filter { change in
+            let key = change.obligation
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
     private func first(_ values: [String?]) -> String {
         for value in values {
             if let clean = clean(value) { return clean }
@@ -1712,6 +1727,21 @@ private struct StorySpineOverview: View {
                 StorySpineInlineNote(label: "Arc", value: snapshot.characterArcText)
             }
 
+            if !snapshot.obligationChanges.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Setup & Payoff Movement")
+                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.78))
+
+                    ForEach(Array(snapshot.obligationChanges.prefix(3))) { change in
+                        StoryObligationChangeCard(change: change) {
+                            onTap(snapshot.projectItem)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("memories.story-obligations")
+            }
+
             if !snapshot.characterItems.isEmpty || !snapshot.correctionItems.isEmpty {
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 180), spacing: 10, alignment: .topLeading)],
@@ -1735,6 +1765,88 @@ private struct StorySpineOverview: View {
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct StoryObligationChangeCard: View {
+    let change: BackendStoryObligationChange
+    let onCorrect: () -> Void
+
+    private var statusColor: Color {
+        switch change.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "paid_off", "paid off": return Color.green.opacity(0.86)
+        case "transformed": return Color.blue.opacity(0.86)
+        case "complicated": return Color.red.opacity(0.80)
+        default: return Color.yellow.opacity(0.84)
+        }
+    }
+
+    private var sourceLine: String {
+        [change.sourceAct, change.sourceSceneHeading]
+            .compactMap { value in
+                let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return clean.isEmpty ? nil : clean
+            }
+            .joined(separator: " / ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(change.statusLabel, systemImage: change.statusLabel == "Paid off" ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(statusColor)
+                    .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).status")
+                Text(change.kindLabel)
+                    .font(.system(size: 10, weight: .medium, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.58))
+                Spacer(minLength: 8)
+                Button {
+                    onCorrect()
+                } label: {
+                    Label("Correct Story Spine", systemImage: "pencil")
+                        .font(.system(size: 11, weight: .medium, design: .default))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).correct")
+            }
+
+            Text(change.obligation)
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(change.result)
+                .font(.system(size: 13, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).result")
+
+            Text(change.evidence)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.66))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).evidence")
+
+            if !sourceLine.isEmpty {
+                Text(sourceLine)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.50))
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.09))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(statusColor.opacity(0.30), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey)")
     }
 }
 
@@ -2958,6 +3070,26 @@ private struct MemoryEditSheet: View {
                         TextEditor(text: $storyActThreePayoffText)
                             .frame(minHeight: 90)
                     }
+                    if let changes = original.storySpine?.storyObligationLedger,
+                       !changes.filter(\.isMeaningful).isEmpty {
+                        Section("Accepted Page Movement") {
+                            ForEach(Array(changes.filter(\.isMeaningful).prefix(6))) { change in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("\(change.statusLabel) / \(change.kindLabel)")
+                                        .font(.system(size: 11, weight: .semibold, design: .default))
+                                        .foregroundStyle(.secondary)
+                                    Text(change.result)
+                                        .font(.system(size: 13, weight: .regular, design: .default))
+                                    Text(change.evidence)
+                                        .font(.system(size: 11, weight: .regular, design: .default))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityIdentifier(
+                                    "memories.editor.story-obligation.\(change.accessibilityKey)"
+                                )
+                            }
+                        }
+                    }
                     Section("Continuity") {
                         TextEditor(text: $storyCharacterFocusText)
                             .frame(minHeight: 80)
@@ -3100,7 +3232,10 @@ private struct MemoryEditSheet: View {
             emotionalContinuity: base.emotionalContinuity,
             pageCount: base.pageCount,
             targetPages: base.targetPages,
-            updatedAt: Date().timeIntervalSince1970
+            updatedAt: Date().timeIntervalSince1970,
+            fieldProvenance: base.fieldProvenance,
+            storyObligationLedger: base.storyObligationLedger,
+            currentStoryObligationChange: base.currentStoryObligationChange
         )
     }
 

@@ -87,6 +87,7 @@ import {
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
 } from "./lib/screenplay_page_quality.js";
+import { buildFeatureStoryGraph } from "./lib/feature_story_graph.js";
 import {
   evaluateScreenplayCanonContinuity,
   normalizeAcceptedCausalFacts,
@@ -4245,6 +4246,15 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
         : Boolean(value))))
       .filter((item) => item.kind && item.fact)
     : [];
+  const featureStoryGraph = creativeMemory?.featureStoryGraph ?? creativeMemory?.feature_story_graph;
+  const storyObligationLedger = normalizeStoryObligationLedgerForApi(
+    featureStoryGraph?.storyObligationLedger ?? featureStoryGraph?.story_obligation_ledger
+  );
+  const currentStoryObligationChange = normalizeStoryObligationChangeForApi(
+    featureStoryGraph?.currentStoryObligationChange ??
+      featureStoryGraph?.current_story_obligation_change ??
+      storyObligationLedger[0]
+  );
   const project = legacyProject || durableProject;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
@@ -4261,7 +4271,14 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
         );
       }) || null
     : episodes[0] || null;
-  if (!project && !episode && !acceptedScene && !dueStoryThread && !acceptedCausalFacts.length) {
+  if (
+    !project &&
+    !episode &&
+    !acceptedScene &&
+    !dueStoryThread &&
+    !acceptedCausalFacts.length &&
+    !storyObligationLedger.length
+  ) {
     return {
       has_continuity: false,
       source: "none",
@@ -4306,6 +4323,8 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       updated_at: 0,
       accepted_causal_facts: [],
       due_story_thread: null,
+      story_obligation_ledger: [],
+      current_story_obligation_change: null,
     };
   }
 
@@ -4412,6 +4431,8 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ),
     accepted_causal_facts: acceptedCausalFacts,
     due_story_thread: dueStoryThread,
+    story_obligation_ledger: storyObligationLedger,
+    current_story_obligation_change: currentStoryObligationChange,
   };
   return {
     ...snapshot,
@@ -30494,6 +30515,76 @@ function buildScreenplayProjectMemoryCardId(item = {}, fallback = "") {
   return normalizeMemoryCardId(key);
 }
 
+function normalizeStoryObligationChangeForApi(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const status = normalizeSnippet(value.status, 32)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const kind = normalizeSnippet(value.kind, 48)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const obligation = normalizeSnippet(value.obligation, 220);
+  const result = normalizeSnippet(value.result ?? value.fact, 240);
+  const evidence = normalizeSnippet(value.evidence, 320);
+  if (
+    !obligation ||
+    !result ||
+    !evidence ||
+    !["advanced", "complicated", "transformed", "paid_off"].includes(status)
+  ) return null;
+  return Object.fromEntries(Object.entries({
+    id: normalizeSnippet(value.id, 96),
+    kind: ["setup", "promised_payoff", "accepted_consequence"].includes(kind)
+      ? kind
+      : "setup",
+    obligation,
+    status,
+    result,
+    evidence,
+    source_scene_heading: normalizeSnippet(
+      value.sourceSceneHeading ?? value.source_scene_heading,
+      140
+    ),
+    source_act: normalizeSnippet(value.sourceAct ?? value.source_act, 80),
+    source_position: Math.max(0, Math.round(Number(
+      value.sourcePosition ?? value.source_position ?? 0
+    ))),
+    accepted_at: Math.max(0, Number(value.acceptedAt ?? value.accepted_at ?? 0)),
+  }).filter(([, item]) => typeof item === "number" ? item > 0 : Boolean(item)));
+}
+
+function normalizeStoryObligationLedgerForApi(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const normalized = normalizeStoryObligationChangeForApi(item);
+    const key = normalizeSnippet(normalized?.obligation, 220).toLowerCase();
+    if (!normalized || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function storyObligationStateForCreativeProject(project = null) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) {
+    return { ledger: [], current: null };
+  }
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: project,
+    acceptedScenes: Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [],
+  });
+  const ledger = normalizeStoryObligationLedgerForApi(graph?.storyObligationLedger);
+  return {
+    ledger,
+    current: normalizeStoryObligationChangeForApi(
+      graph?.currentStoryObligationChange ?? ledger[0]
+    ),
+  };
+}
+
 function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemory = null) {
   const nowTs = Date.now();
   const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
@@ -30561,7 +30652,13 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     matchedCreativeProjects.add(creativeIndex);
     const project = creativeProjects[creativeIndex];
     const fieldProvenance = buildProjectFieldProvenance(project);
-    const merged = { ...item, _fieldProvenance: fieldProvenance };
+    const obligationState = storyObligationStateForCreativeProject(project);
+    const merged = {
+      ...item,
+      _fieldProvenance: fieldProvenance,
+      _storyObligationLedger: obligationState.ledger,
+      _currentStoryObligationChange: obligationState.current,
+    };
     for (const row of fieldProvenance) {
       const projectValue = project?.[row.field];
       merged[row.field] = Array.isArray(projectValue) ? projectValue : row.value;
@@ -30576,9 +30673,12 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     if (matchedCreativeProjects.has(index)) continue;
     const projected = sanitizeScreenplayProjectMemoryItems([project], 1)[0];
     if (!projected) continue;
+    const obligationState = storyObligationStateForCreativeProject(project);
     screenplayProjectMemory.push({
       ...projected,
       _fieldProvenance: buildProjectFieldProvenance(project),
+      _storyObligationLedger: obligationState.ledger,
+      _currentStoryObligationChange: obligationState.current,
     });
   }
   screenplayProjectMemory = screenplayProjectMemory
@@ -30687,6 +30787,12 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         targetPages: normalizeScreenplayMemoryInteger(item.targetPages),
         updatedAt: Math.max(0, Number(item.updatedAt || 0)),
         field_provenance: learnedFieldProvenanceToApi(item._fieldProvenance),
+        story_obligation_ledger: normalizeStoryObligationLedgerForApi(
+          item._storyObligationLedger
+        ),
+        current_story_obligation_change: normalizeStoryObligationChangeForApi(
+          item._currentStoryObligationChange
+        ),
       },
     });
   }

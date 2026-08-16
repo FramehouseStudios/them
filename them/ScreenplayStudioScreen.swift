@@ -6660,7 +6660,12 @@ struct ScreenplayStudioScreen: View {
             "character_memory_error": vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines),
             "character_memory_source": vm.characterTraitsInfoText.trimmingCharacters(in: .whitespacesAndNewlines),
             "pending_screenplay_question_id": vm.pendingScreenplayQuestion?.id ?? "",
-            "pending_screenplay_question_project_id": vm.pendingScreenplayQuestion?.projectId ?? ""
+            "pending_screenplay_question_project_id": vm.pendingScreenplayQuestion?.projectId ?? "",
+            "applied_memory_has_content": liveDraftBridge.latestAppliedMemory.hasContent,
+            "story_obligation_count": liveDraftBridge.latestAppliedMemory.storyObligationChanges?.count ?? 0,
+            "story_obligation_status": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.status ?? "",
+            "story_obligation_result": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.result ?? "",
+            "story_obligation_evidence": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.evidence ?? ""
         ])
     }
     #endif
@@ -11844,6 +11849,10 @@ private var directionOneThemPanel: some View {
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
+        if liveDraftBridge.latestAppliedMemory.hasContent {
+            studioAppliedMemoryBanner
+        }
+
         pendingScreenplayQuestionPrompt
         directionOneCompactComposerSection
         directionOneCreativeInstinctsCard
@@ -14161,6 +14170,44 @@ private var projectsSidebarContent: some View {
                             }
                         }
                         .padding(.top, 2)
+                    }
+
+                    if let change = memory.currentStoryObligationChange {
+                        Divider()
+                            .overlay(Color.herText.opacity(0.12))
+                            .padding(.vertical, 2)
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Image(systemName: change.statusLabel == "Paid off" ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                                    .accessibilityHidden(true)
+                                Text(change.statusLabel)
+                                    .accessibilityIdentifier("studio.story-obligation.current.status")
+                                Text(change.kindLabel)
+                                    .foregroundStyle(Color.herText.opacity(0.48))
+                            }
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herStudioAccent.opacity(0.90))
+
+                            Text(change.obligation)
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Text(change.result)
+                                .font(.system(size: 12, weight: .regular, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.88))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("studio.story-obligation.current.result")
+
+                            Text(change.evidence)
+                                .font(.system(size: 10, weight: .regular, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.58))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("studio.story-obligation.current.evidence")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("studio.story-obligation.current")
                     }
 
                     if !memory.lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

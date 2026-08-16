@@ -949,6 +949,14 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
                 "next_three_turns": ["Mara pockets the affidavit."],
                 "act_three_payoff_path": ["The affidavit becomes courtroom testimony."],
                 "character_arc_turns": ["Mara chooses exposure over control."]
+              },
+              "story_obligation_change": {
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel."
               }
             }
             """#.utf8
@@ -963,6 +971,70 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(trace.screenplayProjectMemory?.nextThreeTurns, ["Mara pockets the affidavit."])
         XCTAssertEqual(trace.screenplayProjectMemory?.actThreePayoffPath, ["The affidavit becomes courtroom testimony."])
         XCTAssertEqual(trace.screenplayProjectMemory?.characterArcTurns, ["Mara chooses exposure over control."])
+        XCTAssertEqual(trace.storyObligationChange?.statusLabel, "Paid off")
+
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
+            source: "talk_response"
+        )
+        XCTAssertEqual(state.currentStoryObligationChange?.result, "June returns the token after Mara gives her the wheel.")
+        XCTAssertEqual(state.storyRunwayLines.first, "Paid off: June returns the token after Mara gives her the wheel.")
+    }
+
+    func testSessionRestorePersistsAcceptedSetupAndPayoffEvidence() throws {
+        let data = Data(
+            #"""
+            {
+              "has_continuity": true,
+              "source": "creative_project_continuity",
+              "project_id": "split-ferries",
+              "project_title": "Split Ferries",
+              "act": "Act III",
+              "character_focus": ["Mara", "June"],
+              "story_obligation_ledger": [{
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel.",
+                "source_scene_heading": "INT. PILOT HOUSE - DAWN",
+                "source_act": "Act III"
+              }],
+              "current_story_obligation_change": {
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel."
+              }
+            }
+            """#.utf8
+        )
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let snapshot = try decoder.decode(BackendSessionContinuitySnapshot.self, from: data)
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            snapshot,
+            source: "session_continuity_restore",
+            previous: .empty
+        )
+
+        XCTAssertTrue(snapshot.isMeaningful)
+        XCTAssertEqual(state.storyObligationChanges?.count, 1)
+        XCTAssertEqual(state.currentStoryObligationChange?.statusLabel, "Paid off")
+        XCTAssertTrue(state.featureMemoryBrief.contains("Accepted-page promised payoff paid off"))
+
+        let payload = try XCTUnwrap(
+            ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(state)
+        )
+        let restored = ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: payload,
+            now: state.updatedAt.addingTimeInterval(60)
+        )
+        XCTAssertEqual(restored.currentStoryObligationChange, state.currentStoryObligationChange)
+        XCTAssertEqual(restored.storyRunwayLines.first, state.storyRunwayLines.first)
     }
 
     func testAppliedMemoryPersistenceRestoresFreshCharacterCorrections() throws {

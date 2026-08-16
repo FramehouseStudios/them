@@ -65,6 +65,7 @@ nonisolated enum UITestLaunchConfiguration {
         copyEnvironmentValue("THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON", from: environment, to: "studio.ask.note.history.v2", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON", from: environment, to: "studio.diff.keep-current.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON", from: environment, to: "studio.diff.keep-current.writeids.v1", defaults: defaults)
+        copyEnvironmentValue("THEM_UITEST_STUDIO_APPLIED_MEMORY_JSON", from: environment, to: "studio_latest_applied_memory_v1", defaults: defaults)
         defaults.synchronize()
     }
 

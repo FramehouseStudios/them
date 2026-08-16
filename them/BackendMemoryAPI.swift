@@ -335,6 +335,53 @@ nonisolated struct BackendLearnedFieldProvenance: Codable, Hashable {
     }
 }
 
+nonisolated struct BackendStoryObligationChange: Codable, Hashable, Identifiable {
+    let id: String
+    let kind: String
+    let obligation: String
+    let status: String
+    let result: String
+    let evidence: String
+    let sourceSceneHeading: String?
+    let sourceAct: String?
+    let sourcePosition: Int?
+    let acceptedAt: TimeInterval?
+
+    var isMeaningful: Bool {
+        !obligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var statusLabel: String {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "advanced": return "Advanced"
+        case "complicated": return "Complicated"
+        case "transformed": return "Transformed"
+        case "paid_off", "paid off": return "Paid off"
+        default: return "Changed"
+        }
+    }
+
+    var kindLabel: String {
+        switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "promised_payoff": return "Promised payoff"
+        case "accepted_consequence": return "Accepted consequence"
+        default: return "Setup"
+        }
+    }
+
+    var accessibilityKey: String {
+        let source = id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? obligation
+            : id
+        let clean = source
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
 nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     var character: String
     var canon: [String]
@@ -513,6 +560,8 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
     let targetPages: Int?
     let updatedAt: TimeInterval?
     var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
+    var storyObligationLedger: [BackendStoryObligationChange]? = nil
+    var currentStoryObligationChange: BackendStoryObligationChange? = nil
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]
@@ -1388,6 +1437,8 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let updatedAt: TimeInterval
     let acceptedCausalFacts: [BackendAcceptedCausalFact]
     let dueStoryThread: BackendDueStoryThread?
+    let storyObligationLedger: [BackendStoryObligationChange]
+    let currentStoryObligationChange: BackendStoryObligationChange?
 
     var isMeaningful: Bool {
         hasContinuity && ([
@@ -1426,6 +1477,8 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
             !continuityNotes.isEmpty ||
             acceptedCausalFacts.contains(where: \.isMeaningful) ||
             dueStoryThread?.isMeaningful == true ||
+            storyObligationLedger.contains(where: \.isMeaningful) ||
+            currentStoryObligationChange?.isMeaningful == true ||
             pageCount > 0 ||
             targetPages > 0)
     }
@@ -1470,6 +1523,8 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         case updatedAt
         case acceptedCausalFacts
         case dueStoryThread
+        case storyObligationLedger
+        case currentStoryObligationChange
     }
 
     init(from decoder: Decoder) throws {
@@ -1513,6 +1568,14 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
         acceptedCausalFacts = try container.decodeIfPresent([BackendAcceptedCausalFact].self, forKey: .acceptedCausalFacts) ?? []
         dueStoryThread = try container.decodeIfPresent(BackendDueStoryThread.self, forKey: .dueStoryThread)
+        storyObligationLedger = try container.decodeIfPresent(
+            [BackendStoryObligationChange].self,
+            forKey: .storyObligationLedger
+        ) ?? []
+        currentStoryObligationChange = try container.decodeIfPresent(
+            BackendStoryObligationChange.self,
+            forKey: .currentStoryObligationChange
+        )
     }
 }
 

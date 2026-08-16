@@ -636,6 +636,51 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         )
     }
 
+    func testStorySpineDecodesAcceptedSetupAndPayoffEvidence() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let spine = try decoder.decode(
+            BackendStorySpineMemory.self,
+            from: Data(
+                #"""
+                {
+                  "project_id": "split-ferries",
+                  "project_title": "Split Ferries",
+                  "story_obligation_ledger": [{
+                    "id": "obligation_12_1",
+                    "kind": "promised_payoff",
+                    "obligation": "June returns the token when Mara gives her the wheel.",
+                    "status": "paid_off",
+                    "result": "June returns the token after Mara gives her the wheel.",
+                    "evidence": "June sets the token in Mara's palm, then takes the wheel.",
+                    "source_scene_heading": "INT. PILOT HOUSE - DAWN",
+                    "source_act": "Act III",
+                    "source_position": 12,
+                    "accepted_at": 1800000020000
+                  }],
+                  "current_story_obligation_change": {
+                    "id": "obligation_12_1",
+                    "kind": "promised_payoff",
+                    "obligation": "June returns the token when Mara gives her the wheel.",
+                    "status": "paid_off",
+                    "result": "June returns the token after Mara gives her the wheel.",
+                    "evidence": "June sets the token in Mara's palm, then takes the wheel."
+                  }
+                }
+                """#.utf8
+            )
+        )
+
+        XCTAssertEqual(spine.storyObligationLedger?.count, 1)
+        XCTAssertEqual(spine.currentStoryObligationChange?.statusLabel, "Paid off")
+        XCTAssertEqual(spine.currentStoryObligationChange?.kindLabel, "Promised payoff")
+        XCTAssertEqual(
+            spine.currentStoryObligationChange?.evidence,
+            "June sets the token in Mara's palm, then takes the wheel."
+        )
+        XCTAssertNil(spine.payload["story_obligation_ledger"])
+    }
+
     func testStoryMovePreferenceCorrectionPostsProjectScopeAndDecodesRefreshedProfile() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in
