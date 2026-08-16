@@ -81,6 +81,41 @@ test("[feature-story-graph] derives chronological accepted state without inventi
   assert.equal(graph.currentState.lastAcceptedOutcome, "Eli refuses to repeat the names until Mara trusts him.");
   assert.equal(graph.currentState.nextScenePlan, "June takes the cracked ferry token and leaves through the service tunnel.");
   assert.equal(graph.edges.some((edge) => edge.kind === "causes"), false);
+  assert.equal(graph.currentDueConsequence.kind, "irreversible_consequence");
+  assert.match(graph.currentDueConsequence.fact, /burns the ferry ledger beyond recovery/i);
+  assert.equal(graph.currentDueConsequence.status, "due");
+  assert.equal(graph.consequenceSummary.total, 4);
+});
+
+test("[feature-story-graph] marks accepted changes as carried forward without claiming they are resolved", () => {
+  const graph = buildFeatureStoryGraph({
+    acceptedScenes: [
+      {
+        acceptedAt: 100,
+        act: "Act I",
+        sceneHeading: "EXT. EAST FERRY DOCK - NIGHT",
+        characterNames: ["Mara", "June"],
+        decisions: ["Mara gives June the cracked ferry token."],
+        irreversibleConsequences: ["Mara burns the ferry ledger beyond recovery."],
+      },
+      {
+        acceptedAt: 200,
+        act: "Act II",
+        sceneHeading: "INT. SERVICE TUNNEL - NIGHT",
+        characterNames: ["Mara", "June"],
+        summary: "June pockets Mara's cracked ferry token while burned ledger ash stains Mara's coat.",
+        relationshipChanges: ["June no longer waits for Mara's permission."],
+      },
+    ],
+  });
+
+  const token = graph.consequenceLedger.find((item) => /cracked ferry token/i.test(item.fact));
+  const ledger = graph.consequenceLedger.find((item) => /ferry ledger beyond recovery/i.test(item.fact));
+  assert.equal(token.status, "carried_forward");
+  assert.equal(token.referencedBySceneHeading, "INT. SERVICE TUNNEL - NIGHT");
+  assert.equal(ledger.status, "carried_forward");
+  assert.equal(graph.currentDueConsequence.fact, "June no longer waits for Mara's permission.");
+  assert.equal(graph.edges.some((edge) => edge.kind === "causes"), false);
 });
 
 test("[feature-story-graph] carries a grounded causal handoff when no future scene plan exists", () => {
@@ -172,6 +207,9 @@ test("[feature-story-graph] centralized prompt exposes current state, accepted c
   assert.match(prompt, /current_state:.*changed_state=Eli refuses/i);
   assert.match(prompt, /accepted_changes=.*Mara burns the ferry ledger beyond recovery/i);
   assert.match(prompt, /status=DUE; setup=The cracked ferry token Mara gave June/i);
+  assert.match(prompt, /accepted_consequence_ledger:/);
+  assert.match(prompt, /status=DUE_NOW; kind=irreversible_consequence; fact=Mara burns the ferry ledger beyond recovery/i);
+  assert.match(prompt, /due_consequence_contract: the next scene must visibly inherit Mara burns the ferry ledger beyond recovery/i);
   assert.match(prompt, /begin from current_state/i);
 });
 
@@ -189,5 +227,21 @@ test("[feature-story-graph] bounds prompt nodes while retaining the full accepte
   assert.equal(graph.acceptedSceneCount, 12);
   assert.equal(graph.nodes.length, 8);
   assert.equal(graph.nodes[0].heading, "INT. LOCATION 5 - NIGHT");
+  assert.equal(graph.nodes[0].id, "scene_5");
   assert.equal(graph.nodes[7].heading, "INT. LOCATION 12 - NIGHT");
+  assert.equal(graph.nodes[7].id, "scene_12");
+});
+
+test("[feature-story-graph] scans feature-length accepted history while bounding the prompt ledger", () => {
+  const acceptedScenes = Array.from({ length: 30 }, (_, index) => ({
+    acceptedAt: index + 1,
+    sceneHeading: `INT. LOCATION ${index + 1} - NIGHT`,
+    decisions: [`Codeword${index + 1}`],
+  }));
+  const graph = buildFeatureStoryGraph({ acceptedScenes });
+
+  assert.equal(graph.consequenceSummary.total, 30);
+  assert.equal(graph.consequenceSummary.due, 30);
+  assert.equal(graph.consequenceLedger.length, 24);
+  assert.equal(graph.currentDueConsequence.sourceSceneId, "scene_1");
 });

@@ -1790,6 +1790,36 @@ test("[persistent-screenplay-memory] exposes question outcomes to planner trace 
   );
 });
 
+test("[persistent-screenplay-memory] prompt trace exposes the highest-priority due accepted consequence", () => {
+  const trace = buildCreativeMemoryPromptTrace({
+    featureStoryGraph: {
+      currentDueConsequence: {
+        id: "consequence_11_irreversible_consequence_1",
+        kind: "irreversible_consequence",
+        fact: "Mara burned the ferry ledger beyond recovery.",
+        status: "due",
+        sourceSceneHeading: "EXT. EAST FERRY DOCK - NIGHT",
+        sourceAct: "Act II",
+        ageInScenes: 4,
+      },
+    },
+  }, {
+    projectId: "split-ferries",
+    query: "I am stuck. What happens next?",
+  });
+
+  assert.equal(trace.applied, true);
+  assert.deepEqual(trace.due_consequence, {
+    id: "consequence_11_irreversible_consequence_1",
+    kind: "irreversible_consequence",
+    fact: "Mara burned the ferry ledger beyond recovery.",
+    status: "due",
+    source_scene_heading: "EXT. EAST FERRY DOCK - NIGHT",
+    source_act: "Act II",
+    age_in_scenes: 4,
+  });
+});
+
 test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {
   const memory = {
     ...createEmptyEmotionMemory(),

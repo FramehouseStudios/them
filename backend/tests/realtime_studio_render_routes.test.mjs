@@ -319,6 +319,12 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
             nextScenePlan: "June takes the cracked ferry token through the service tunnel.",
             characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
           },
+          currentDueConsequence: {
+            id: "consequence_1_irreversible_consequence_1",
+            kind: "irreversible_consequence",
+            fact: "Mara burned the ferry ledger beyond recovery.",
+            status: "due",
+          },
           bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
           openThreads: [{
             due: true,
@@ -349,6 +355,7 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
     assert.equal(calls.length, 1);
     assert.match(calls[0].systemPrompt, /next_scene_execution_brief:/);
     assert.match(calls[0].systemPrompt, /scene_assignment: June takes the cracked ferry token through the service tunnel/);
+    assert.match(calls[0].systemPrompt, /accepted_consequence_due: Mara burned the ferry ledger beyond recovery/i);
     assert.match(calls[0].systemPrompt, /changed_behavior_due: Mara treats dependence as danger/);
     assert.match(calls[0].systemPrompt, /payoff_or_setup_to_spend: June returns it when Mara gives her the wheel/);
   });
@@ -479,6 +486,14 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
         return {
           userId: "user-1",
           version: 3,
+          featureStoryGraph: {
+            currentDueConsequence: {
+              id: "consequence_8_relationship_change_1",
+              kind: "relationship_change",
+              fact: "Eli stops cooperating with Mara until she gives up control.",
+              status: "due",
+            },
+          },
           projectContinuity: {
             projectId: "split-ferries",
             projectTitle: "Split Ferries",
@@ -513,6 +528,8 @@ test("[studio-render] sync: writer-block voice pin applies corrected instincts t
     assert.equal(memoryCalls.length, 1);
     assert.equal(memoryCalls[0].projectId, "split-ferries");
     assert.match(r.body.reply, /^Ranked strongest move - relationship pressure:/);
+    assert.match(r.body.reply, /Eli stops cooperating with Mara until she gives up control/i);
+    assert.match(r.body.reply, /Highest-priority accepted consequence:/i);
     assert.match(r.body.reply, /Mara/);
     assert.match(r.body.reply, /Causal turn:/);
     assert.match(r.body.reply, /Character cost:/);

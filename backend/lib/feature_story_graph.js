@@ -1,7 +1,15 @@
-const FEATURE_STORY_GRAPH_VERSION = 1;
+const FEATURE_STORY_GRAPH_VERSION = 2;
 const FEATURE_STORY_GRAPH_SCENE_MAX = 8;
 const FEATURE_STORY_GRAPH_FACT_MAX = 8;
 const FEATURE_STORY_GRAPH_THREAD_MAX = 6;
+const FEATURE_STORY_GRAPH_CONSEQUENCE_MAX = 24;
+
+const CONSEQUENCE_STOPWORDS = new Set([
+  "about", "after", "again", "against", "and", "before", "being", "both", "could", "from",
+  "have", "into", "just", "more", "must", "only", "other", "over", "scene", "should", "the",
+  "that", "their", "them", "then", "there", "these", "they", "this", "through", "under",
+  "until", "very", "what", "when", "where", "which", "while", "with", "would",
+]);
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -25,6 +33,123 @@ function cleanList(value, maxItems = 6, maxChars = 180) {
 function acceptedAt(scene = {}) {
   const value = Number(scene.acceptedAt ?? scene.accepted_at ?? scene.updatedAt ?? scene.updated_at ?? 0);
   return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function consequenceTokens(value = "", ignoredTokens = new Set()) {
+  return [...new Set(
+    clean(value, 1_200)
+      .toLowerCase()
+      .match(/[a-z0-9']+/g)
+      ?.map((token) => token.replace(/'s$/, ""))
+      .filter((token) => (
+        token.length >= 3 &&
+        !CONSEQUENCE_STOPWORDS.has(token) &&
+        !ignoredTokens.has(token)
+      )) || []
+  )];
+}
+
+function acceptedSceneReferenceText(scene = {}) {
+  return [
+    scene.sceneHeading ?? scene.scene_heading ?? scene.sceneLabel ?? scene.scene_label,
+    scene.summary ?? scene.scene_summary,
+    scene.outcome ?? scene.scene_outcome,
+    scene.nextScenePlan ?? scene.next_scene_plan,
+    scene.causalHandoff ?? scene.causal_handoff,
+    scene.excerpt ?? scene.page_excerpt,
+    ...(Array.isArray(scene.decisions) ? scene.decisions : []),
+    ...(Array.isArray(scene.revelations) ? scene.revelations : []),
+    ...(Array.isArray(scene.relationshipChanges ?? scene.relationship_changes)
+      ? (scene.relationshipChanges ?? scene.relationship_changes)
+      : []),
+    ...(Array.isArray(scene.irreversibleConsequences ?? scene.irreversible_consequences)
+      ? (scene.irreversibleConsequences ?? scene.irreversible_consequences)
+      : []),
+  ].filter(Boolean).join(" ");
+}
+
+function laterSceneCarriesConsequence(fact = "", scene = {}, sourceScene = {}) {
+  const characterTokens = new Set(consequenceTokens(
+    cleanList(sourceScene.characterNames ?? sourceScene.character_names, 12, 80).join(" ")
+  ));
+  const factTokens = consequenceTokens(fact, characterTokens);
+  if (!factTokens.length) return false;
+  const laterTokens = new Set(consequenceTokens(acceptedSceneReferenceText(scene), characterTokens));
+  const matches = factTokens.filter((token) => laterTokens.has(token)).length;
+  const required = factTokens.length === 1 ? 1 : factTokens.length <= 5 ? 2 : 3;
+  return matches >= Math.min(required, factTokens.length);
+}
+
+function buildConsequenceLedger(acceptedScenes = []) {
+  const scenes = Array.isArray(acceptedScenes) ? acceptedScenes : [];
+  const candidates = [];
+  const seenFacts = new Set();
+  const lanes = [
+    ["decision", "decisions"],
+    ["revelation", "revelations"],
+    ["relationship_change", "relationshipChanges", "relationship_changes"],
+    ["irreversible_consequence", "irreversibleConsequences", "irreversible_consequences"],
+  ];
+  const kindWeight = {
+    irreversible_consequence: 400,
+    relationship_change: 300,
+    revelation: 200,
+    decision: 100,
+  };
+
+  scenes.forEach((scene, sceneIndex) => {
+    for (const [kind, camelKey, snakeKey] of lanes) {
+      const facts = cleanList(scene?.[camelKey] ?? scene?.[snakeKey], 8, 220);
+      facts.forEach((fact, factIndex) => {
+        const factKey = fact.toLowerCase();
+        if (seenFacts.has(factKey)) return;
+        seenFacts.add(factKey);
+        const laterOffset = scenes.slice(sceneIndex + 1)
+          .findIndex((laterScene) => laterSceneCarriesConsequence(fact, laterScene, scene));
+        const carriedIndex = laterOffset >= 0 ? sceneIndex + laterOffset + 1 : -1;
+        const carriedScene = carriedIndex >= 0 ? scenes[carriedIndex] : null;
+        const ageInScenes = Math.max(0, scenes.length - sceneIndex - 1);
+        candidates.push(Object.fromEntries(Object.entries({
+          id: `consequence_${sceneIndex + 1}_${kind}_${factIndex + 1}`,
+          kind,
+          fact,
+          status: carriedScene ? "carried_forward" : "due",
+          sourceSceneId: `scene_${sceneIndex + 1}`,
+          sourceSceneHeading: clean(
+            scene.sceneHeading ?? scene.scene_heading ?? scene.sceneLabel ?? scene.scene_label,
+            140
+          ),
+          sourceAct: clean(scene.act ?? scene.currentAct ?? scene.current_act, 80),
+          sourcePosition: sceneIndex + 1,
+          ageInScenes,
+          referencedBySceneId: carriedScene ? `scene_${carriedIndex + 1}` : "",
+          referencedBySceneHeading: carriedScene
+            ? clean(
+              carriedScene.sceneHeading ?? carriedScene.scene_heading ?? carriedScene.sceneLabel ?? carriedScene.scene_label,
+              140
+            )
+            : "",
+          priority: (kindWeight[kind] || 0) + Math.min(99, ageInScenes),
+        }).filter(([, value]) => typeof value === "number" ? true : Boolean(value))));
+      });
+    }
+  });
+
+  const due = candidates
+    .filter((item) => item.status === "due")
+    .sort((left, right) => right.priority - left.priority || left.sourcePosition - right.sourcePosition);
+  const carried = candidates
+    .filter((item) => item.status === "carried_forward")
+    .sort((left, right) => right.sourcePosition - left.sourcePosition);
+  return {
+    items: [...due, ...carried].slice(0, FEATURE_STORY_GRAPH_CONSEQUENCE_MAX),
+    currentDueConsequence: due[0] || null,
+    summary: {
+      total: candidates.length,
+      due: due.length,
+      carriedForward: carried.length,
+    },
+  };
 }
 
 function sceneGraphNode(scene = {}, index = 0) {
@@ -125,12 +250,14 @@ function buildFeatureStoryGraph({
     .sort((left, right) => acceptedAt(left) - acceptedAt(right));
   const chronologicalScenes = acceptedSceneRecords
     .slice(-FEATURE_STORY_GRAPH_SCENE_MAX);
-  const nodes = chronologicalScenes.map(sceneGraphNode);
+  const nodeOffset = Math.max(0, acceptedSceneRecords.length - chronologicalScenes.length);
+  const nodes = chronologicalScenes.map((scene, index) => sceneGraphNode(scene, nodeOffset + index));
   const facts = (Array.isArray(acceptedCausalFacts) ? acceptedCausalFacts : [])
     .map(normalizedFact)
     .filter(Boolean)
     .slice(0, FEATURE_STORY_GRAPH_FACT_MAX);
   const openThreads = buildOpenThreads({ project, nodes, dueStoryThread });
+  const consequenceState = buildConsequenceLedger(acceptedSceneRecords);
   const latest = nodes[nodes.length - 1] || null;
   const currentState = Object.fromEntries(Object.entries({
     act: clean(project.act, 80) || latest?.act || "",
@@ -145,7 +272,13 @@ function buildFeatureStoryGraph({
     characterArcState: clean(project.characterArcState ?? project.character_arc_state, 240),
     endingImage: clean(project.endingImage ?? project.ending_image, 200),
   }).filter(([, value]) => Boolean(value)));
-  if (!nodes.length && !facts.length && !openThreads.length && !Object.keys(currentState).length) return null;
+  if (
+    !nodes.length &&
+    !facts.length &&
+    !openThreads.length &&
+    !consequenceState.items.length &&
+    !Object.keys(currentState).length
+  ) return null;
 
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index += 1) {
@@ -174,6 +307,9 @@ function buildFeatureStoryGraph({
     edges,
     bindingFacts: facts,
     openThreads,
+    consequenceLedger: consequenceState.items,
+    consequenceSummary: consequenceState.summary,
+    currentDueConsequence: consequenceState.currentDueConsequence,
     currentState,
   };
 }

@@ -3869,6 +3869,25 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
     }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
     : null;
+  const rawDueConsequence = memory?.featureStoryGraph?.currentDueConsequence ??
+    memory?.feature_story_graph?.current_due_consequence;
+  const dueConsequence = rawDueConsequence && typeof rawDueConsequence === "object" &&
+    !Array.isArray(rawDueConsequence)
+    ? Object.fromEntries(Object.entries({
+      id: normalizeSnippet(rawDueConsequence.id, 96),
+      kind: normalizeSnippet(rawDueConsequence.kind, 48),
+      fact: normalizeSnippet(rawDueConsequence.fact, 220),
+      status: normalizeSnippet(rawDueConsequence.status, 32),
+      source_scene_heading: normalizeSnippet(
+        rawDueConsequence.sourceSceneHeading ?? rawDueConsequence.source_scene_heading,
+        140
+      ),
+      source_act: normalizeSnippet(rawDueConsequence.sourceAct ?? rawDueConsequence.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(
+        rawDueConsequence.ageInScenes ?? rawDueConsequence.age_in_scenes ?? 0
+      ))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+    : null;
   const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
     ? memory.episodicSelection
     : null;
@@ -3898,6 +3917,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     acceptedScenes.length ||
     acceptedCausalFacts.length ||
     dueStoryThread ||
+    dueConsequence?.fact ||
     screenplayProjectTrace ||
     (memory?.style && Object.keys(memory.style).length) ||
     (memory?.tone && Object.keys(memory.tone).length) ||
@@ -3916,6 +3936,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     accepted_scenes: acceptedScenes,
     accepted_causal_facts: acceptedCausalFacts,
     due_story_thread: dueStoryThread,
+    due_consequence: dueConsequence,
     episodic_retrieval: episodicSelection ? {
       strategy: normalizeSnippet(episodicSelection.strategy, 48),
       semantic_used: Boolean(episodicSelection.semanticUsed),

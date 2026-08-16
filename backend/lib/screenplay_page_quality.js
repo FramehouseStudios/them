@@ -1380,6 +1380,13 @@ function nextSceneExecutionBriefValues(featureContext = null) {
       featureContext?.currentBeat,
       featureContext?.current_beat,
     ], 240),
+    consequence: firstBriefValue([
+      brief.consequence,
+      brief.acceptedConsequenceDue,
+      brief.accepted_consequence_due,
+      featureContext?.acceptedConsequenceDue,
+      featureContext?.accepted_consequence_due,
+    ], 220),
     obstacle: firstBriefValue([
       brief.obstacle,
       brief.obstacleToPressurize,
@@ -1442,6 +1449,8 @@ function hasExplicitNextSceneExecutionBrief(featureContext = null) {
     "scene_assignment",
     "nextSceneAssignment",
     "next_scene_assignment",
+    "acceptedConsequenceDue",
+    "accepted_consequence_due",
     "obstacleToPressurize",
     "obstacle_to_pressurize",
     "changedBehaviorDue",
@@ -1487,6 +1496,7 @@ function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = n
     minimumMatches: 2,
   });
   const supportFields = [
+    executionBriefFieldCoverage({ name: "consequence", phrase: values.consequence, textTokens, minimumMatches: executionBriefSupportMinimum(values.consequence) }),
     executionBriefFieldCoverage({ name: "obstacle", phrase: values.obstacle, textTokens, minimumMatches: executionBriefSupportMinimum(values.obstacle) }),
     executionBriefFieldCoverage({ name: "arc", phrase: values.arc, textTokens, minimumMatches: executionBriefSupportMinimum(values.arc) }),
     executionBriefFieldCoverage({ name: "payoff", phrase: values.payoff, textTokens, minimumMatches: executionBriefSupportMinimum(values.payoff) }),

@@ -83,7 +83,13 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
       ? storyContext.screenplay_accepted_causal_facts
       : [];
   const graphThreads = Array.isArray(graph?.openThreads) ? graph.openThreads : [];
+  const graphDueConsequence = graph?.currentDueConsequence &&
+    typeof graph.currentDueConsequence === "object"
+    ? graph.currentDueConsequence
+    : {};
   const dueThread = storyContext.screenplayDueStoryThread ?? storyContext.screenplay_due_story_thread ?? {};
+  const directDueConsequence = storyContext.screenplayDueConsequence ??
+    storyContext.screenplay_due_consequence ?? {};
   const lanes = {
     acceptedState: [
       contextValue(state, "lastAcceptedOutcome", "last_accepted_outcome"),
@@ -96,6 +102,11 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
       ...graphFacts.map((item) => cleanContextValue(item?.fact, 220)),
       ...directFacts.map((item) => cleanContextValue(item?.fact, 220)),
       ...contextValues(storyContext, "screenplayCorrectionReplacements", "screenplay_correction_replacements"),
+    ],
+    consequencePressure: [
+      cleanContextValue(graphDueConsequence?.fact, 220),
+      cleanContextValue(directDueConsequence?.fact, 220),
+      contextValue(storyContext, "screenplayAcceptedConsequenceDue", "screenplay_accepted_consequence_due"),
     ],
     characterPressure: [
       contextValue(state, "protagonistWant", "protagonist_want"),
@@ -359,9 +370,22 @@ function buildStructuralScreenplayRepairMessages({
   const graphThreads = Array.isArray(featureGraph?.openThreads)
     ? featureGraph.openThreads.slice(0, 3)
     : [];
+  const graphDueConsequence = featureGraph?.currentDueConsequence &&
+    typeof featureGraph.currentDueConsequence === "object"
+    ? featureGraph.currentDueConsequence
+    : {};
+  const directDueConsequence = meta.screenplayDueConsequence ??
+    meta.screenplay_due_consequence ?? {};
   const context = [
     ["GRAPH_CHANGED_STATE", cleanContextValue(graphState.lastAcceptedOutcome ?? graphState.last_accepted_outcome, 220)],
     ["GRAPH_HANDOFF", cleanContextValue(graphState.nextScenePlan ?? graphState.next_scene_plan, 220)],
+    ["GRAPH_DUE_CONSEQUENCE", cleanContextValue(
+      graphDueConsequence.fact ??
+        directDueConsequence.fact ??
+        meta.screenplayAcceptedConsequenceDue ??
+        meta.screenplay_accepted_consequence_due,
+      220
+    )],
     ...graphFacts.map((item) => ["GRAPH_BINDING_FACT", cleanContextValue(item?.fact, 220)]),
     ...graphThreads.map((item) => [
       item?.due ? "GRAPH_DUE_PROMISE" : "GRAPH_OPEN_THREAD",

@@ -999,10 +999,23 @@ function serializeFeatureStoryGraph(value) {
   const nodes = Array.isArray(value.nodes) ? value.nodes.slice(-8) : [];
   const facts = Array.isArray(value.bindingFacts) ? value.bindingFacts.slice(0, 8) : [];
   const threads = Array.isArray(value.openThreads) ? value.openThreads.slice(0, 6) : [];
+  const consequences = Array.isArray(value.consequenceLedger)
+    ? value.consequenceLedger.slice(0, 8)
+    : [];
+  const dueConsequence = value.currentDueConsequence &&
+    typeof value.currentDueConsequence === "object"
+    ? value.currentDueConsequence
+    : null;
   const state = value.currentState && typeof value.currentState === "object"
     ? value.currentState
     : {};
-  if (!nodes.length && !facts.length && !threads.length && !Object.keys(state).length) return "";
+  if (
+    !nodes.length &&
+    !facts.length &&
+    !threads.length &&
+    !consequences.length &&
+    !Object.keys(state).length
+  ) return "";
   const lines = [
     "  authority: causal working state derived from accepted Studio pages and explicit writer corrections; it is project truth, not a generic beat sheet.",
     "  rule: inherit every accepted state change. Chronology is not automatically causation; only an accepted handoff or binding fact may be treated as causal evidence.",
@@ -1060,7 +1073,33 @@ function serializeFeatureStoryGraph(value) {
     ].filter(Boolean);
     lines.push(`    - ${parts.join("; ")}`);
   }
-  lines.push("  next_move_contract: begin from current_state, spend a due thread before inventing unrelated mythology, and make the next scene produce a visible state change plus a causal handoff.");
+  if (consequences.length) lines.push("  accepted_consequence_ledger:");
+  for (const consequence of consequences) {
+    const isPriority = dueConsequence?.id && consequence?.id === dueConsequence.id;
+    const source = [
+      trimContextLine(consequence.sourceAct ?? consequence.source_act, 60),
+      trimContextLine(consequence.sourceSceneHeading ?? consequence.source_scene_heading, 120),
+    ].filter(Boolean).join(" / ");
+    const referencedBy = trimContextLine(
+      consequence.referencedBySceneHeading ?? consequence.referenced_by_scene_heading,
+      120
+    );
+    const parts = [
+      `status=${isPriority ? "DUE_NOW" : trimContextLine(consequence.status, 32) || "due"}`,
+      `kind=${trimContextLine(consequence.kind, 48) || "accepted_change"}`,
+      `fact=${trimContextLine(consequence.fact, 220)}`,
+      source ? `source=${source}` : "",
+      Number(consequence.ageInScenes ?? consequence.age_in_scenes ?? 0) > 0
+        ? `age=${Math.round(Number(consequence.ageInScenes ?? consequence.age_in_scenes))}_accepted_scenes`
+        : "",
+      referencedBy ? `later_reference=${referencedBy}` : "",
+    ].filter(Boolean);
+    lines.push(`    - ${parts.join("; ")}`);
+  }
+  if (dueConsequence?.fact) {
+    lines.push(`  due_consequence_contract: the next scene must visibly inherit ${trimContextLine(dueConsequence.fact, 220)}; do not replay, erase, or merely explain it.`);
+  }
+  lines.push("  next_move_contract: begin from current_state, spend a due thread or accepted consequence before inventing unrelated mythology, and make the next scene produce a visible state change plus a causal handoff.");
   return `feature-story-graph:\n${lines.join("\n")}`;
 }
 

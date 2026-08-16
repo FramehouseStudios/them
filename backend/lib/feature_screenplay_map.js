@@ -1419,6 +1419,20 @@ function buildNextSceneExecutionBriefLines({
     sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image,
     220
   );
+  const directExecutionBrief = sessionContext.nextSceneExecutionBrief ??
+    sessionContext.next_scene_execution_brief;
+  const briefSource = directExecutionBrief && typeof directExecutionBrief === "object" &&
+    !Array.isArray(directExecutionBrief)
+    ? directExecutionBrief
+    : {};
+  const acceptedConsequenceDue = trimContextLine(
+    briefSource.consequence ??
+      briefSource.acceptedConsequenceDue ??
+      briefSource.accepted_consequence_due ??
+      sessionContext.acceptedConsequenceDue ??
+      sessionContext.accepted_consequence_due,
+    220
+  );
   const sceneAssignment = nextThreeTurns[0] || nextScenePlan || sceneObjective || currentBeat || activeSequence?.nextMoves?.[0] || "";
   const openingHandoff = lastSceneOutcome || emotionalHandoff || currentBeat;
   const obstacle = unresolvedStoryThreads[0] || unresolvedSetups[0] || activeSequence?.obligation || "";
@@ -1435,6 +1449,7 @@ function buildNextSceneExecutionBriefLines({
     activeSequence ||
     sceneAssignment ||
     openingHandoff ||
+    acceptedConsequenceDue ||
     obstacle ||
     arcBehavior ||
     payoffOrSetup ||
@@ -1457,6 +1472,7 @@ function buildNextSceneExecutionBriefLines({
   if (characterFocus.length) lines.push(`    character_focus: ${characterFocus.join(", ")}`);
   if (openingHandoff) lines.push(`    opening_handoff: ${openingHandoff}`);
   if (sceneAssignment) lines.push(`    scene_assignment: ${sceneAssignment}`);
+  if (acceptedConsequenceDue) lines.push(`    accepted_consequence_due: ${acceptedConsequenceDue}`);
   if (obstacle) lines.push(`    obstacle_to_pressurize: ${obstacle}`);
   if (arcBehavior) lines.push(`    changed_behavior_due: ${arcBehavior}`);
   if (payoffOrSetup) lines.push(`    payoff_or_setup_to_spend: ${payoffOrSetup}`);
@@ -1464,6 +1480,7 @@ function buildNextSceneExecutionBriefLines({
   if (exitHandoff) lines.push(`    exit_handoff: ${exitHandoff}`);
   lines.push("    execution_steps:");
   lines.push("      - Open on inherited emotional residue as visible behavior or image.");
+  lines.push("      - Make the accepted_consequence_due alter behavior, leverage, relationship, information, or cost; do not reset or merely recap it.");
   lines.push("      - Give the protagonist a concrete objective that can fail before the scene ends.");
   lines.push("      - Pressurize that objective with the obstacle, setup, thread, or relationship cost above.");
   lines.push("      - Force a tactic shift, reveal, cost, or changed behavior before the exit.");
@@ -1649,6 +1666,7 @@ function compactFeatureMapLines(lines, { sessionContext = null, screenplayTask =
         if (writesPages || writerBlocked) {
           compact.push(...keepFeatureMapLines(group, [
             "scene_assignment:",
+            "accepted_consequence_due:",
             "obstacle_to_pressurize:",
             "changed_behavior_due:",
             "payoff_or_setup_to_spend:",

@@ -93,6 +93,7 @@ function studioScreenplayFeatureContext(body = {}) {
     : {};
   const nextSceneExecutionBrief = {
     assignment: briefSource.assignment ?? read("screenplay_scene_assignment", "screenplaySceneAssignment", "screenplay_next_scene_assignment", "screenplayNextSceneAssignment"),
+    consequence: briefSource.consequence ?? briefSource.acceptedConsequenceDue ?? briefSource.accepted_consequence_due ?? read("screenplay_accepted_consequence_due", "screenplayAcceptedConsequenceDue"),
     obstacle: briefSource.obstacle ?? briefSource.obstacleToPressurize ?? briefSource.obstacle_to_pressurize ?? read("screenplay_obstacle_to_pressurize", "screenplayObstacleToPressurize"),
     arc: briefSource.arc ?? briefSource.changedBehaviorDue ?? briefSource.changed_behavior_due ?? read("screenplay_changed_behavior_due", "screenplayChangedBehaviorDue"),
     payoff: briefSource.payoff ?? briefSource.payoffOrSetupToSpend ?? briefSource.payoff_or_setup_to_spend ?? read("screenplay_payoff_or_setup_to_spend", "screenplayPayoffOrSetupToSpend"),
@@ -251,6 +252,7 @@ function repairContextLines(body = {}, quality = {}) {
     ["LAST_SCENE_OUTCOME", feature.lastSceneOutcome],
     ["ENDING_IMAGE", feature.endingImage],
     ["NEXT_SCENE_PLAN", feature.nextScenePlan],
+    ["ACCEPTED_CONSEQUENCE_DUE", feature.nextSceneExecutionBrief?.consequence],
   ];
   const lines = entries
     .map(([label, value]) => {

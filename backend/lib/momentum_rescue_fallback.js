@@ -265,6 +265,31 @@ function buildMomentumRescueFallbackReply({
   );
   const dueStoryThread = dueStoryThreadMetaValue(meta);
   const causalFacts = acceptedCausalFactsMetaValue(meta);
+  const directExecutionBrief = meta.screenplayNextSceneExecutionBrief ??
+    meta.screenplay_next_scene_execution_brief;
+  const executionBrief = directExecutionBrief && typeof directExecutionBrief === "object" &&
+    !Array.isArray(directExecutionBrief)
+    ? directExecutionBrief
+    : {};
+  const acceptedConsequenceDue = normalizeSnippet(
+    meta.screenplayAcceptedConsequenceDue ??
+      meta.screenplay_accepted_consequence_due ??
+      executionBrief.consequence ??
+      executionBrief.acceptedConsequenceDue ??
+      executionBrief.accepted_consequence_due,
+    220
+  );
+  const dueConsequenceRecord = meta.screenplayDueConsequence ??
+    meta.screenplay_due_consequence ?? {};
+  const dueConsequenceKind = normalizeSnippet(dueConsequenceRecord?.kind, 48)
+    .toLowerCase()
+    .replace(/\s+/g, "_") || "irreversible_consequence";
+  const rescueCausalFacts = acceptedConsequenceDue
+    ? [
+      { kind: dueConsequenceKind, fact: acceptedConsequenceDue },
+      ...causalFacts.filter((item) => item.fact.toLowerCase() !== acceptedConsequenceDue.toLowerCase()),
+    ].slice(0, 8)
+    : causalFacts;
   const questionEffectiveness = Array.isArray(
     meta.screenplayQuestionEffectiveness ?? meta.screenplay_question_effectiveness
   )
@@ -282,9 +307,9 @@ function buildMomentumRescueFallbackReply({
       meta.screenplay_story_move_preference_overrides
     ).slice(0, 9)
     : [];
-  const primaryCausalFact = causalFacts[0] || null;
-  const relationshipCausalFact = causalFacts.find((item) => item.kind === "relationship_change") || null;
-  const irreversibleCausalFact = causalFacts.find((item) => item.kind === "irreversible_consequence") || null;
+  const primaryCausalFact = rescueCausalFacts[0] || null;
+  const relationshipCausalFact = rescueCausalFacts.find((item) => item.kind === "relationship_change") || null;
+  const irreversibleCausalFact = rescueCausalFacts.find((item) => item.kind === "irreversible_consequence") || null;
   const correctedTerms = listMetaValue(meta, ["screenplayCorrectedTerms", "screenplay_corrected_terms", "correctedTerms", "corrected_terms"], 4, 120);
   const correctionReplacements = listMetaValue(meta, ["screenplayCorrectionReplacements", "screenplay_correction_replacements", "correctionReplacements", "correction_replacements"], 4, 160);
   const correctionSummary = correctionReplacements.length || correctedTerms.length
@@ -302,10 +327,10 @@ function buildMomentumRescueFallbackReply({
     motifs[0] || dueStoryThread?.setup || actThreePayoffPath[0] || setups[0],
     "the room going still"
   );
-  const strongestTurn = dueStoryThread?.promisedPayoff || dueStoryThread?.setup ||
+  const strongestTurn = acceptedConsequenceDue || dueStoryThread?.promisedPayoff || dueStoryThread?.setup ||
     primaryCausalFact?.fact || nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
     "the protagonist chooses between the thing they want and the truth they are avoiding";
-  const cost = irreversibleCausalFact?.fact || relationshipCausalFact?.fact ||
+  const cost = acceptedConsequenceDue || irreversibleCausalFact?.fact || relationshipCausalFact?.fact ||
     characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
     "the choice changes the relationship and makes the next scene unavoidable";
   const problemSource = currentBeat || lastOutcome || sceneObjective || normalizeSnippet(transcript, 180) ||
@@ -337,7 +362,7 @@ function buildMomentumRescueFallbackReply({
     imageMotifs: motifs,
     acceptedPages,
     storyMoments,
-    causalFacts,
+    causalFacts: rescueCausalFacts,
     dueStoryThread,
     questionEffectiveness,
     storyMovePreferenceOverrides,
@@ -386,7 +411,7 @@ function buildMomentumRescueFallbackReply({
     unresolvedStoryThreads: threads,
     actThreePayoffPath,
     imageMotifs: motifs,
-    causalFacts,
+    causalFacts: rescueCausalFacts,
     dueStoryThread,
   });
   const storyMoveLine = storyMoveLines.length
@@ -405,6 +430,9 @@ function buildMomentumRescueFallbackReply({
     ...causalFacts.slice(0, 3).map((item) => (
       `Binding accepted ${item.kind.replace(/_/g, " ")}: ${sentenceFragment(item.fact, 220)}. Continue its consequence; do not reset it.`
     )),
+    acceptedConsequenceDue
+      ? `Highest-priority accepted consequence: ${sentenceFragment(acceptedConsequenceDue, 220)}. Make it alter behavior, leverage, relationship, information, or cost now.`
+      : "",
     dueStoryThread?.setup
       ? `Oldest due story thread: ${sentenceFragment(dueStoryThread.setup, 220)}${dueStoryThread.ageInScenes ? `, still open after ${dueStoryThread.ageInScenes} accepted scenes` : ""}.`
       : "",

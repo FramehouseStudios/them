@@ -609,6 +609,24 @@ function createTalkHandler(deps) {
         ageInScenes: Math.max(0, Math.round(Number(item?.age_in_scenes ?? item?.ageInScenes ?? 0))),
       })).filter((item) => item.kind && item.fact)
       : [];
+    const tracedDueConsequence = creativeMemoryTrace?.due_consequence &&
+      typeof creativeMemoryTrace.due_consequence === "object" &&
+      !Array.isArray(creativeMemoryTrace.due_consequence)
+      ? {
+        id: normalizeSnippet(creativeMemoryTrace.due_consequence.id, 96),
+        kind: normalizeSnippet(creativeMemoryTrace.due_consequence.kind, 48),
+        fact: normalizeSnippet(creativeMemoryTrace.due_consequence.fact, 220),
+        status: normalizeSnippet(creativeMemoryTrace.due_consequence.status, 32),
+        sourceSceneHeading: normalizeSnippet(
+          creativeMemoryTrace.due_consequence.source_scene_heading,
+          140
+        ),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.due_consequence.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(
+          creativeMemoryTrace.due_consequence.age_in_scenes || 0
+        ))),
+      }
+      : null;
     const tracedQuestionEffectiveness = Array.isArray(
       creativeMemoryTrace?.screenplay_project_memory?.question_effectiveness
     )
@@ -651,7 +669,8 @@ function createTalkHandler(deps) {
       140
     );
     const tracedExecutionBrief = {
-      assignment: tracedNextScenePlan || tracedNextTurns[0] || "",
+      assignment: tracedNextScenePlan || tracedNextTurns[0] || tracedDueConsequence?.fact || "",
+      consequence: tracedDueConsequence?.fact || "",
       obstacle: tracedDueStoryThread?.setup ||
         normalizeTalkRepairList(tracedProjectMemory.unresolved_story_threads, 4, 220)[0] ||
         normalizeTalkRepairList(tracedProjectMemory.unresolved_setups, 4, 200)[0] ||
@@ -669,18 +688,26 @@ function createTalkHandler(deps) {
         .filter((value) => normalizeSnippet(value, 240))
         .length >= 3
     );
+    const baseExecutionBrief = base.screenplayNextSceneExecutionBrief &&
+      typeof base.screenplayNextSceneExecutionBrief === "object" &&
+      !Array.isArray(base.screenplayNextSceneExecutionBrief)
+      ? base.screenplayNextSceneExecutionBrief
+      : null;
     const baseWithCreativeRecall = {
       ...base,
       screenplayLastSceneOutcome: normalizeSnippet(base.screenplayLastSceneOutcome, 240) ||
         tracedLastSceneOutcome,
       screenplayNextScenePlan: normalizeSnippet(base.screenplayNextScenePlan, 340) ||
         tracedNextScenePlan,
-      screenplayNextSceneExecutionBrief: base.screenplayNextSceneExecutionBrief &&
-        typeof base.screenplayNextSceneExecutionBrief === "object"
-        ? base.screenplayNextSceneExecutionBrief
+      screenplayNextSceneExecutionBrief: baseExecutionBrief
+        ? { ...tracedExecutionBrief, ...baseExecutionBrief }
         : hasTracedExecutionBrief
           ? tracedExecutionBrief
           : null,
+      screenplayAcceptedConsequenceDue: normalizeSnippet(
+        base.screenplayAcceptedConsequenceDue,
+        220
+      ) || tracedDueConsequence?.fact || "",
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
         base.screenplayAcceptedPageContinuity,
         acceptedPageContinuity,
@@ -699,6 +726,9 @@ function createTalkHandler(deps) {
       ...(tracedAcceptedCausalFacts.length
         ? { screenplayAcceptedCausalFacts: tracedAcceptedCausalFacts }
         : {}),
+      ...(tracedDueConsequence?.fact
+        ? { screenplayDueConsequence: tracedDueConsequence }
+        : {}),
       ...(tracedQuestionEffectiveness.length
         ? { screenplayQuestionEffectiveness: tracedQuestionEffectiveness }
         : {}),
@@ -711,6 +741,7 @@ function createTalkHandler(deps) {
       return acceptedPageContinuity.length ||
         retrievedStoryMoments.length ||
         tracedAcceptedCausalFacts.length ||
+        tracedDueConsequence?.fact ||
         tracedDueStoryThread?.setup ||
         tracedDueStoryThread?.promisedPayoff
         ? baseWithCreativeRecall

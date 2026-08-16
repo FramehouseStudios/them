@@ -168,6 +168,11 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
           lastAcceptedOutcome: "Eli takes the archive key.",
           nextScenePlan: "Mara must follow him into the hearing.",
         },
+        currentDueConsequence: {
+          kind: "irreversible_consequence",
+          fact: "Mara burned the sealed affidavit beyond recovery.",
+          status: "due",
+        },
         bindingFacts: [{ fact: "Mara burned the sealed affidavit." }],
         openThreads: [{ due: true, setup: "the missing reel", promisedPayoff: "Eli plays it publicly" }],
       },
@@ -182,6 +187,7 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
   assert.match(messages[1].content, /Mara wants to expose/);
   assert.match(messages[1].content, /GRAPH_CHANGED_STATE: Eli takes the archive key/);
   assert.match(messages[1].content, /GRAPH_HANDOFF: Mara must follow him into the hearing/);
+  assert.match(messages[1].content, /GRAPH_DUE_CONSEQUENCE: Mara burned the sealed affidavit beyond recovery/);
   assert.match(messages[1].content, /GRAPH_DUE_PROMISE: the missing reel -> Eli plays it publicly/);
 });
 

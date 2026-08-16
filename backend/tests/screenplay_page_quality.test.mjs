@@ -1618,6 +1618,54 @@ test("[screenplay-page-quality] allows anchored action-only continuations with e
   assert.equal(quality.ok, true);
 });
 
+test("[screenplay-page-quality] rejects an anchored continuation that forgets the due accepted consequence", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "June folds the receipt into a white square.",
+      "The motel sign flickers out behind her.",
+    ].join("\n"),
+    lines: [
+      { text: "June folds the receipt into a white square.", element: "action" },
+      { text: "The motel sign flickers out behind her.", element: "action" },
+    ],
+    hasSceneAnchor: true,
+    featureContext: {
+      nextSceneExecutionBrief: {
+        consequence: "Mara burned the ferry ledger beyond recovery.",
+      },
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_next_scene_execution_brief");
+  assert.equal(quality.featureObligation.executionBriefCoverage.supportFields[0].name, "consequence");
+});
+
+test("[screenplay-page-quality] accepts an anchored continuation that dramatizes the due consequence", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "Burned ferry-ledger ash streaks Mara's sleeve as June folds the receipt.",
+      "Mara reaches for a record that no longer exists, then asks Eli to repeat the names.",
+    ].join("\n"),
+    lines: [
+      { text: "Burned ferry-ledger ash streaks Mara's sleeve as June folds the receipt.", element: "action" },
+      { text: "Mara reaches for a record that no longer exists, then asks Eli to repeat the names.", element: "action" },
+    ],
+    hasSceneAnchor: true,
+    featureContext: {
+      nextSceneExecutionBrief: {
+        consequence: "Mara burned the ferry ledger beyond recovery.",
+      },
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.deepEqual(
+    quality.featureObligation.executionBriefCoverage.matchedSupportFieldNames,
+    ["consequence"]
+  );
+});
+
 test("[screenplay-page-quality] protects dialogue lines from prose artifact heuristics", () => {
   assert.equal(
     isLikelyOutlineOrCraftArtifactLine("I would burn the whole town down first.", "dialogue"),

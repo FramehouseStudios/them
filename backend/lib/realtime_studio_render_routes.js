@@ -424,6 +424,10 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
   const graphState = featureGraph.currentState && typeof featureGraph.currentState === "object"
     ? featureGraph.currentState
     : {};
+  const dueGraphConsequence = featureGraph.currentDueConsequence &&
+    typeof featureGraph.currentDueConsequence === "object"
+    ? featureGraph.currentDueConsequence
+    : {};
   const graphThreads = Array.isArray(featureGraph.openThreads)
     ? featureGraph.openThreads
     : [];
@@ -444,7 +448,8 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
   const directExecutionBrief = body.screenplayNextSceneExecutionBrief ??
     body.screenplay_next_scene_execution_brief;
   const inferredExecutionBrief = {
-    assignment: graphState.nextScenePlan || graphState.causalHandoff || project.nextScenePlan || projectNextTurns[0] || "",
+    assignment: graphState.nextScenePlan || graphState.causalHandoff || project.nextScenePlan || projectNextTurns[0] || dueGraphConsequence.fact || "",
+    consequence: dueGraphConsequence.fact || "",
     obstacle: dueGraphThread.setup || projectThreads[0] || projectSetups[0] || "",
     arc: graphState.characterArcState || project.characterArcState || "",
     payoff: dueGraphThread.promisedPayoff || dueGraphThread.promised_payoff || projectPayoffs[0] || "",
@@ -452,7 +457,7 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     exit: projectNextTurns[1] || "",
   };
   const executionBrief = directExecutionBrief && typeof directExecutionBrief === "object"
-    ? directExecutionBrief
+    ? { ...inferredExecutionBrief, ...directExecutionBrief }
     : inferredExecutionBrief.assignment || Object.values(inferredExecutionBrief).filter(Boolean).length >= 3
       ? inferredExecutionBrief
       : null;
@@ -569,6 +574,10 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
       180
     ),
     screenplayNextSceneExecutionBrief: executionBrief,
+    screenplayAcceptedConsequenceDue: cleanStudioRenderMemoryText(dueGraphConsequence.fact, 220),
+    screenplayDueConsequence: Object.keys(dueGraphConsequence).length
+      ? dueGraphConsequence
+      : null,
     screenplayActThreePayoffPath: mergeStudioMomentumList(
       body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path,
       mergeStudioMomentumList(project.actThreePayoffPath, graphPayoffs, 5, 200),
@@ -679,10 +688,14 @@ function enforceStudioMomentumRescue({
   body = {},
   memoryContext = null,
 } = {}) {
+  const momentumMeta = studioMomentumMeta({
+    body,
+    creativeMemory: memoryContext?.creativeMemory,
+  });
   const initial = evaluateMomentumRescueQuality({
     reply,
     transcript,
-    studioMeta: body,
+    studioMeta: momentumMeta,
   });
   if (!initial?.applicable || initial.ok) {
     return { reply, screenplayQuality: null, repaired: false };
@@ -690,15 +703,12 @@ function enforceStudioMomentumRescue({
 
   const fallback = buildMomentumRescueFallbackReply({
     transcript,
-    studioMeta: studioMomentumMeta({
-      body,
-      creativeMemory: memoryContext?.creativeMemory,
-    }),
+    studioMeta: momentumMeta,
   });
   const repaired = evaluateMomentumRescueQuality({
     reply: fallback,
     transcript,
-    studioMeta: body,
+    studioMeta: momentumMeta,
   });
   if (!repaired.ok) {
     return { reply, screenplayQuality: null, repaired: false };
