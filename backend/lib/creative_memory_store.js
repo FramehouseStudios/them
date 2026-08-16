@@ -35,6 +35,11 @@ import {
   normalizeStoryMovePreferenceOverrides,
 } from "./story_rescue_move_library.js";
 import { buildFeatureStoryGraph } from "./feature_story_graph.js";
+import {
+  ACCEPTED_SCENE_STATE_VERSION,
+  buildDeterministicAcceptedSceneState,
+  distillAcceptedSceneState,
+} from "./accepted_scene_state_distiller.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -216,12 +221,16 @@ const ACCEPTED_SCENE_SCALAR_FIELDS = Object.freeze([
   ["writeId", "write_id", 80],
   ["anchorSceneId", "anchor_scene_id", 120],
   ["documentRevisionId", "document_revision_id", 120],
+  ["pageHash", "page_hash", 80],
   ["sceneLabel", "scene_label", 140],
   ["sceneHeading", "scene_heading", 140],
   ["featureSequence", "feature_sequence", 180],
   ["summary", "scene_summary", 240],
   ["outcome", "scene_outcome", 220],
   ["nextScenePlan", "next_scene_plan", 240],
+  ["causalHandoff", "causal_handoff", 240],
+  ["stateDistillationSource", "state_distillation_source", 40],
+  ["stateDistillationVersion", "state_distillation_version", 24],
   ["excerpt", "page_excerpt", 420],
 ]);
 const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
@@ -234,6 +243,7 @@ const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
   ["revelations", "revelations", 4, 220],
   ["relationshipChanges", "relationship_changes", 4, 220],
   ["irreversibleConsequences", "irreversible_consequences", 4, 220],
+  ["stateEvidence", "state_evidence", 12, 520],
 ]);
 
 function isCorrectionTurnText(value = "") {
@@ -549,16 +559,47 @@ function repairAcceptedSceneForCorrection(scene = null, correction = null) {
   );
   const replacements = correction.correctionReplacements || [];
   const out = { ...current };
+  const blockedDistilledFacts = new Map();
+  for (const record of Array.isArray(current.stateEvidence) ? current.stateEvidence : []) {
+    if (!textContainsCharacterCorrectionTerm(record, terms)) continue;
+    const [field, fact] = String(record || "").split("|");
+    const cleanField = cleanText(field, 64);
+    const cleanFact = cleanText(fact, 240).toLowerCase();
+    if (!cleanField || !cleanFact) continue;
+    const facts = blockedDistilledFacts.get(cleanField) || new Set();
+    facts.add(cleanFact);
+    blockedDistilledFacts.set(cleanField, facts);
+  }
   for (const [field, _alias, maxChars] of ACCEPTED_SCENE_SCALAR_FIELDS) {
-    if (field === "writeId" || field === "anchorSceneId" || field === "documentRevisionId") continue;
+    if (
+      field === "writeId" ||
+      field === "anchorSceneId" ||
+      field === "documentRevisionId" ||
+      field === "pageHash"
+    ) continue;
     if (!current[field]) continue;
+    if (
+      blockedDistilledFacts.has(field) ||
+      (
+        field === "nextScenePlan" &&
+        blockedDistilledFacts.has("causalHandoff") &&
+        cleanText(current.nextScenePlan, maxChars).toLowerCase() ===
+          cleanText(current.causalHandoff, maxChars).toLowerCase()
+      )
+    ) {
+      delete out[field];
+      continue;
+    }
     const repaired = applyCharacterBibleReplacements(current[field], replacements, maxChars);
     if (!repaired || textContainsCharacterCorrectionTerm(repaired, terms)) delete out[field];
     else out[field] = repaired;
   }
   for (const [field, _alias, maxItems, maxChars] of ACCEPTED_SCENE_LIST_FIELDS) {
     if (!Array.isArray(current[field])) continue;
+    const blockedFacts = blockedDistilledFacts.get(field) || new Set();
     out[field] = current[field]
+      .filter((item) => !blockedFacts.has(cleanText(item, maxChars).toLowerCase()))
+      .filter((item) => field !== "stateEvidence" || !textContainsCharacterCorrectionTerm(item, terms))
       .map((item) => applyCharacterBibleReplacements(item, replacements, maxChars))
       .filter((item) => item && !textContainsCharacterCorrectionTerm(item, terms))
       .slice(0, maxItems);
@@ -2373,74 +2414,6 @@ function acceptedPageExcerpt(text = "") {
   return cleanText(lines.slice(0, 4).join(" "), 420);
 }
 
-const ACCEPTED_PAGE_CAUSAL_PATTERNS = Object.freeze({
-  decisions: Object.freeze([
-    /\b(?:chooses?|decides?|refuses?|commits?|agrees?|accepts?|rejects?|quits?|surrenders?|votes?|confesses?|admits?)\b/i,
-    /\b(?:hands? (?:over|back)|turns? (?:himself|herself|themself|themselves) in|walks? away for good)\b/i,
-    /\bI\s+(?:choose|decide|refuse|will|won't|accept|reject|quit|confess|admit)\b/i,
-  ]),
-  revelations: Object.freeze([
-    /\b(?:reveals?|confesses?|admits?|the truth is|turns out|comes clean|was behind it)\b/i,
-    /\bI\s+(?:lied|stole|forged|betrayed|killed|hid|covered it up)\b/i,
-  ]),
-  relationshipChanges: Object.freeze([
-    /\b(?:forgives?|betrays?|abandons?|disowns?|embraces?|kisses?|breaks? up|ends? (?:the relationship|the marriage|the engagement))\b/i,
-    /\b(?:chooses?|picks?)\s+.{2,80}\s+over\s+.{2,80}\b/i,
-    /\b(?:trusts?|protects?)\s+.{2,80}\s+(?:instead of|over)\s+.{2,80}\b/i,
-  ]),
-  irreversibleConsequences: Object.freeze([
-    /\b(?:dies?|died|is dead|was killed|is killed|was arrested|is arrested|burn(?:s|ed)?|destroy(?:s|ed)?|shred(?:s|ded)?|broadcasts?|broadcast|publish(?:es|ed)?|shoots?|shot|stabs?|stabbed)\b/i,
-    /\b(?:sets?|set) .{0,60} on fire|\bhand(?:s|ed)? (?:the )?(?:evidence|proof|recording|weapon) over|\bturn(?:s|ed)? (?:himself|herself|themself|themselves) in\b/i,
-    /\bsign(?:s|ed)? (?:the )?(?:divorce|confession|deed|contract|plea)|\bwalk(?:s|ed)? away for good|\b(?:leave(?:s|d)?|left) forever\b/i,
-  ]),
-});
-
-function acceptedPageCausalEvidenceLines(text = "") {
-  const out = [];
-  let speaker = "";
-  for (const rawLine of String(text || "").split(/\r?\n/)) {
-    const raw = String(rawLine || "").trim();
-    if (!raw) {
-      speaker = "";
-      continue;
-    }
-    if (/^(?:INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.|CUT TO:|FADE (?:IN|OUT)|SMASH CUT:|DISSOLVE TO:)/i.test(raw)) {
-      speaker = "";
-      continue;
-    }
-    if (/^[A-Z][A-Z0-9 .'-]{1,48}(?:\s*\([^\n]{1,24}\))?$/.test(raw) && !/[.!?]$/.test(raw)) {
-      speaker = cleanText(raw.replace(/\s*\([^\n]{1,24}\)$/, ""), 72);
-      continue;
-    }
-    if (/^\([^\n]{1,80}\)$/.test(raw)) continue;
-    const line = cleanText(raw, 220);
-    if (!line || line.length < 4) continue;
-    out.push({
-      text: line,
-      evidence: cleanText(speaker ? `${speaker}: ${line}` : line, 220),
-    });
-  }
-  return out;
-}
-
-function extractAcceptedPageCausalFacts(text = "") {
-  const out = {
-    decisions: [],
-    revelations: [],
-    relationshipChanges: [],
-    irreversibleConsequences: [],
-  };
-  for (const line of acceptedPageCausalEvidenceLines(text)) {
-    for (const [field, patterns] of Object.entries(ACCEPTED_PAGE_CAUSAL_PATTERNS)) {
-      if (!patterns.some((pattern) => pattern.test(line.text))) continue;
-      if (out[field].some((item) => item.toLowerCase() === line.evidence.toLowerCase())) continue;
-      out[field].push(line.evidence);
-      if (out[field].length > 4) out[field].length = 4;
-    }
-  }
-  return out;
-}
-
 function buildAcceptedSceneContinuity({
   pageText = "",
   projectId = "",
@@ -2448,6 +2421,8 @@ function buildAcceptedSceneContinuity({
   projectContinuity = null,
   characterNames = [],
   context = null,
+  distilledState = null,
+  acceptedAt = null,
 } = {}) {
   const rawPage = String(pageText || "").trim().slice(0, 20_000);
   if (!rawPage) return null;
@@ -2463,20 +2438,38 @@ function buildAcceptedSceneContinuity({
   const writeId = cleanText(sceneContext.writeId ?? sceneContext.write_id, 80);
   const sceneHeading = firstScreenplaySceneHeading(rawPage);
   const excerpt = acceptedPageExcerpt(rawPage);
-  const causalFacts = extractAcceptedPageCausalFacts(rawPage);
+  const state = distilledState && typeof distilledState === "object" && !Array.isArray(distilledState)
+    ? distilledState
+    : buildDeterministicAcceptedSceneState(rawPage);
   const identity = anchorSceneId || writeId || pageHash;
+  const acceptedTimestamp = acceptedAt !== null && acceptedAt !== undefined && Number.isFinite(Number(acceptedAt))
+    ? Math.max(0, Number(acceptedAt))
+    : nowMs();
+  const hasExplicitSummary = Boolean(cleanText(continuity.sceneSummary || continuity.currentBeat, 240));
+  const hasExplicitOutcome = Boolean(cleanText(continuity.lastSceneOutcome, 220));
+  const appliedStateEvidence = normalizeStringList(state.stateEvidence, 12, 520)
+    .filter((record) => {
+      const field = cleanText(String(record || "").split("|")[0], 64);
+      if (field === "summary" && hasExplicitSummary) return false;
+      if (field === "outcome" && hasExplicitOutcome) return false;
+      return true;
+    });
   return sanitizeAcceptedSceneContinuity({
     id: `accepted_scene_${stableHash(`${cleanText(projectId, 96)}|${identity}`)}`,
     writeId,
     anchorSceneId,
     documentRevisionId: sceneContext.documentRevisionId ?? sceneContext.document_revision_id,
+    pageHash,
     sceneLabel: sceneContext.sceneLabel ?? sceneContext.scene_label,
     sceneHeading,
     act: continuity.act,
     featureSequence: continuity.featureSequence,
-    summary: continuity.sceneSummary || continuity.currentBeat || excerpt,
-    outcome: continuity.lastSceneOutcome,
-    nextScenePlan: continuity.nextScenePlan,
+    summary: continuity.sceneSummary || continuity.currentBeat || state.summary || excerpt,
+    outcome: continuity.lastSceneOutcome || state.outcome,
+    nextScenePlan: continuity.nextScenePlan || state.causalHandoff,
+    causalHandoff: state.causalHandoff || continuity.nextScenePlan,
+    stateDistillationSource: state.source || "deterministic",
+    stateDistillationVersion: String(state.version || ACCEPTED_SCENE_STATE_VERSION),
     characterNames: normalizeStringList(
       [...normalizeStringList(continuity.characterFocus, 8, 72), ...normalizeStringList(characterNames, 8, 72)],
       8,
@@ -2487,19 +2480,19 @@ function buildAcceptedSceneContinuity({
     actThreePayoffPath: continuity.actThreePayoffPath,
     continuityNotes: continuity.continuityNotes,
     decisions: normalizeStringList(
-      [...normalizeStringList(continuity.decisions, 4, 220), ...causalFacts.decisions],
+      [...normalizeStringList(continuity.decisions, 4, 220), ...normalizeStringList(state.decisions, 4, 220)],
       4,
       220
     ),
     revelations: normalizeStringList(
-      [...normalizeStringList(continuity.revelations, 4, 220), ...causalFacts.revelations],
+      [...normalizeStringList(continuity.revelations, 4, 220), ...normalizeStringList(state.revelations, 4, 220)],
       4,
       220
     ),
     relationshipChanges: normalizeStringList(
       [
         ...normalizeStringList(continuity.relationshipChanges ?? continuity.relationship_changes, 4, 220),
-        ...causalFacts.relationshipChanges,
+        ...normalizeStringList(state.relationshipChanges, 4, 220),
       ],
       4,
       220
@@ -2511,14 +2504,15 @@ function buildAcceptedSceneContinuity({
           4,
           220
         ),
-        ...causalFacts.irreversibleConsequences,
+        ...normalizeStringList(state.irreversibleConsequences, 4, 220),
       ],
       4,
       220
     ),
+    stateEvidence: appliedStateEvidence,
     excerpt,
     pageCount: continuity.pageCount,
-    acceptedAt: nowMs(),
+    acceptedAt: acceptedTimestamp,
     updatedAt: nowMs(),
     projectId,
     projectTitle,
@@ -4290,10 +4284,13 @@ function createCreativeMemoryStore({
   embedTexts = null,
   embedQuery = null,
   embeddingModel = "",
+  renderAcceptedSceneState = null,
 } = {}) {
   const store = persistence || createPersistence();
   const writeChain = new Map(); // userId -> Promise
   const embeddingBackfillByUser = new Map();
+  const acceptedSceneDistillations = new Set();
+  const acceptedSceneDistillationKeys = new Set();
   const triggerWriteContext = new AsyncLocalStorage();
   const resolvedEmbeddingModel = cleanText(embeddingModel, 96);
   let embeddingBackoffUntil = 0;
@@ -6224,6 +6221,89 @@ function createCreativeMemoryStore({
     return { ok: Boolean(receipt?.ok), applied, protectedByCorrection };
   }
 
+  function scheduleAcceptedSceneStateDistillation({
+    userId,
+    pageText,
+    projectId,
+    projectTitle,
+    projectContinuity,
+    characterNames,
+    context,
+    acceptedScene,
+  } = {}) {
+    if (typeof renderAcceptedSceneState !== "function" || !acceptedScene || !String(pageText || "").trim()) {
+      return false;
+    }
+    const key = [
+      cleanText(userId, 128),
+      cleanText(projectId, 96).toLowerCase(),
+      cleanText(projectTitle, 160).toLowerCase(),
+      acceptedSceneIdentity(acceptedScene),
+      screenplayPageMemoryHash(pageText),
+    ].join("|");
+    if (acceptedSceneDistillationKeys.has(key)) return false;
+    acceptedSceneDistillationKeys.add(key);
+
+    let task;
+    task = Promise.resolve()
+      .then(() => distillAcceptedSceneState({
+        pageText,
+        projectContext: projectContinuity,
+        renderText: renderAcceptedSceneState,
+      }))
+      .then(async (state) => {
+        if (!state || state.source !== "model_grounded") return null;
+        const currentRecord = await readUser(userId);
+        const currentProject = selectProjectContinuity(currentRecord?.projects, {
+          projectId,
+          projectTitle,
+        });
+        const currentScene = (Array.isArray(currentProject?.acceptedScenes)
+          ? currentProject.acceptedScenes
+          : [])
+          .find((scene) => acceptedSceneIdentity(scene) === acceptedSceneIdentity(acceptedScene));
+        if (
+          !currentScene ||
+          Number(currentScene.acceptedAt || 0) !== Number(acceptedScene.acceptedAt || 0) ||
+          cleanText(currentScene.pageHash, 80) !== cleanText(acceptedScene.pageHash, 80)
+        ) {
+          return null;
+        }
+        const enrichedScene = buildAcceptedSceneContinuity({
+          pageText,
+          projectId,
+          projectTitle,
+          projectContinuity,
+          characterNames,
+          context,
+          distilledState: state,
+          acceptedAt: acceptedScene.acceptedAt,
+        });
+        if (!enrichedScene) return null;
+        return recordProjectContinuity({
+          userId,
+          continuity: {
+            projectId,
+            projectTitle,
+            acceptedScenes: [enrichedScene],
+          },
+        });
+      })
+      .catch(() => null)
+      .finally(() => {
+        acceptedSceneDistillationKeys.delete(key);
+        acceptedSceneDistillations.delete(task);
+      });
+    acceptedSceneDistillations.add(task);
+    return true;
+  }
+
+  async function drainAcceptedSceneDistillations() {
+    while (acceptedSceneDistillations.size) {
+      await Promise.allSettled([...acceptedSceneDistillations]);
+    }
+  }
+
   // T08w-triggers: extract signals from a /talk turn and fire the
   // appropriate write triggers. Pure-ish: deterministic given inputs;
   // only side effect is the writes through the existing trigger
@@ -6268,6 +6348,7 @@ function createCreativeMemoryStore({
       corrections: 0,
       structuredCharacterBibles: 0,
       acceptedScenesRecorded: 0,
+      acceptedSceneDistillationsQueued: 0,
       acceptedCanonFactsRetired: 0,
       acceptedCanonFactsAmbiguous: 0,
       writerCanonFactsRecorded: 0,
@@ -6502,6 +6583,18 @@ function createCreativeMemoryStore({
         summary.acceptedScenesRecorded = receipt?.ok && acceptedScene ? 1 : 0;
         summary.acceptedCanonFactsRetired = receipt?.ok ? matchedAcceptedCanonFacts.length : 0;
         summary.writerCanonFactsRecorded = receipt?.ok && pendingWriterCanonFact ? 1 : 0;
+        if (receipt?.ok && acceptedScene && scheduleAcceptedSceneStateDistillation({
+          userId,
+          pageText: cleanAcceptedPageText,
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+          projectContinuity: continuityForWrite,
+          characterNames: structuredArcs.map((item) => item.character),
+          context: acceptedSceneContext,
+          acceptedScene,
+        })) {
+          summary.acceptedSceneDistillationsQueued = 1;
+        }
       } catch (_e) { /* never block the response on memory writes */ }
     }
 
@@ -6970,6 +7063,7 @@ function createCreativeMemoryStore({
     recordTalkTurnForBlockSignal,
     recordBlockSignalSample,
     recordTriggersFromTalkTurn,
+    drainAcceptedSceneDistillations,
     _clearAll,
   };
 }

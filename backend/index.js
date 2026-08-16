@@ -2966,6 +2966,14 @@ const creativeMemoryStore = createCreativeMemoryStore({
       return embedding ? { ...embedding, model: KNOWLEDGE_RAG_EMBEDDING_MODEL } : null;
     }
     : null,
+  renderAcceptedSceneState: NODE_ENV === "test" || !OPENAI_API_KEY
+    ? null
+    : ({ systemPrompt, userPrompt, modelTier, maxTokens }) => renderStudioRealtimeText({
+      systemPrompt,
+      transcript: userPrompt,
+      modelTier,
+      maxTokens,
+    }),
 });
 
 // T08: wraps a final system prompt with the user's creative-companion

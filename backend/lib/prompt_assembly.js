@@ -1013,7 +1013,9 @@ function serializeFeatureStoryGraph(value) {
     trimContextLine(state.currentBeat, 180) ? `beat=${trimContextLine(state.currentBeat, 180)}` : "",
     trimContextLine(state.lastAcceptedScene, 120) ? `latest=${trimContextLine(state.lastAcceptedScene, 120)}` : "",
     trimContextLine(state.lastAcceptedOutcome, 180) ? `changed_state=${trimContextLine(state.lastAcceptedOutcome, 180)}` : "",
-    trimContextLine(state.nextScenePlan, 200) ? `handoff=${trimContextLine(state.nextScenePlan, 200)}` : "",
+    trimContextLine(state.nextScenePlan || state.causalHandoff, 200)
+      ? `handoff=${trimContextLine(state.nextScenePlan || state.causalHandoff, 200)}`
+      : "",
     trimContextLine(state.characterArcState, 180) ? `arc_pressure=${trimContextLine(state.characterArcState, 180)}` : "",
     trimContextLine(state.endingImage, 160) ? `ending_image=${trimContextLine(state.endingImage, 160)}` : "",
   ].filter(Boolean);
@@ -1032,7 +1034,9 @@ function serializeFeatureStoryGraph(value) {
       trimContextLine(node.summary, 160) ? `scene=${trimContextLine(node.summary, 160)}` : "",
       changes.length ? `accepted_changes=${changes.join(" / ")}` : "",
       trimContextLine(node.outcome, 160) ? `outcome=${trimContextLine(node.outcome, 160)}` : "",
-      trimContextLine(node.nextScenePlan, 180) ? `handoff=${trimContextLine(node.nextScenePlan, 180)}` : "",
+      trimContextLine(node.nextScenePlan || node.causalHandoff, 180)
+        ? `handoff=${trimContextLine(node.nextScenePlan || node.causalHandoff, 180)}`
+        : "",
     ].filter(Boolean);
     if (parts.length) lines.push(`    - ${parts.join("; ")}`);
   }

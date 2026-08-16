@@ -83,6 +83,34 @@ test("[feature-story-graph] derives chronological accepted state without inventi
   assert.equal(graph.edges.some((edge) => edge.kind === "causes"), false);
 });
 
+test("[feature-story-graph] carries a grounded causal handoff when no future scene plan exists", () => {
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: projectFixture(),
+    acceptedScenes: [
+      {
+        acceptedAt: 100,
+        sceneHeading: "EXT. EAST FERRY DOCK - NIGHT",
+        outcome: "Mara burns the ferry ledger beyond recovery.",
+        causalHandoff: "Eli's memory is now the only surviving record.",
+      },
+      {
+        acceptedAt: 200,
+        sceneHeading: "INT. FERRY TERMINAL - NIGHT",
+        outcome: "Eli refuses to repeat the names.",
+      },
+    ],
+  });
+  const prompt = buildModelPrompt({
+    persona: "Clementine",
+    creativeMemory: { featureStoryGraph: graph },
+    userInput: "Continue the screenplay.",
+  });
+
+  assert.equal(graph.edges[0].kind, "accepted_handoff");
+  assert.equal(graph.edges[0].pressure, "Eli's memory is now the only surviving record.");
+  assert.match(prompt, /handoff=Eli's memory is now the only surviving record/i);
+});
+
 test("[feature-story-graph] survives account restore and applies canon correction before graph derivation", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-feature-story-graph-"));
   const first = createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });

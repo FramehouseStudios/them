@@ -32,6 +32,7 @@ function sceneGraphNode(scene = {}, index = 0) {
   const summary = clean(scene.summary ?? scene.scene_summary ?? scene.excerpt ?? scene.page_excerpt, 240);
   const outcome = clean(scene.outcome ?? scene.scene_outcome, 220);
   const nextScenePlan = clean(scene.nextScenePlan ?? scene.next_scene_plan, 240);
+  const causalHandoff = clean(scene.causalHandoff ?? scene.causal_handoff, 240);
   const decisions = cleanList(scene.decisions, 4, 220);
   const revelations = cleanList(scene.revelations, 4, 220);
   const relationshipChanges = cleanList(scene.relationshipChanges ?? scene.relationship_changes, 4, 220);
@@ -49,6 +50,7 @@ function sceneGraphNode(scene = {}, index = 0) {
     summary,
     outcome,
     nextScenePlan,
+    causalHandoff,
     characterNames: cleanList(scene.characterNames ?? scene.character_names, 8, 72),
     decisions,
     revelations,
@@ -137,6 +139,7 @@ function buildFeatureStoryGraph({
     lastAcceptedScene: latest?.heading || "",
     lastAcceptedOutcome: latest?.outcome || clean(project.lastSceneOutcome ?? project.last_scene_outcome, 220),
     nextScenePlan: latest?.nextScenePlan || clean(project.nextScenePlan ?? project.next_scene_plan, 240),
+    causalHandoff: latest?.causalHandoff || "",
     protagonistWant: clean(project.protagonistWant ?? project.protagonist_want, 180),
     protagonistNeed: clean(project.protagonistNeed ?? project.protagonist_need, 180),
     characterArcState: clean(project.characterArcState ?? project.character_arc_state, 240),
@@ -148,11 +151,12 @@ function buildFeatureStoryGraph({
   for (let index = 0; index < nodes.length - 1; index += 1) {
     const source = nodes[index];
     const target = nodes[index + 1];
+    const pressure = source.nextScenePlan || source.causalHandoff || "";
     edges.push({
       from: source.id,
       to: target.id,
-      kind: source.nextScenePlan ? "accepted_handoff" : "accepted_order",
-      ...(source.nextScenePlan ? { pressure: source.nextScenePlan } : {}),
+      kind: pressure ? "accepted_handoff" : "accepted_order",
+      ...(pressure ? { pressure } : {}),
     });
   }
   for (const thread of openThreads) {
