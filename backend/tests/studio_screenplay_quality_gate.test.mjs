@@ -314,6 +314,32 @@ test("[studio-quality] absent execution brief does not create a false continuity
   assert.equal(populated.nextSceneExecutionBrief.image, "red seal reflected in the locker");
 });
 
+test("[studio-quality] a lone accepted causal handoff still binds the next page", () => {
+  const body = {
+    screenplay_target: "page",
+    screenplay_next_scene_execution_brief: {
+      assignment: "Mara opens the east gate for June.",
+    },
+  };
+  const disconnected = evaluateStudioScreenplayReply({
+    reply: VALID_PAGE,
+    transcript: "Continue from the accepted page.",
+    body,
+  });
+  const connected = evaluateStudioScreenplayReply({
+    reply: VALID_PAGE.replace(
+      "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+      "Mara opens the east gate for June as footsteps close behind them."
+    ),
+    transcript: "Continue from the accepted page.",
+    body,
+  });
+
+  assert.equal(disconnected.ok, false);
+  assert.equal(disconnected.reason, "missing_next_scene_assignment");
+  assert.equal(connected.ok, true);
+});
+
 test("[studio-quality] direct evaluator catches malformed output before persistence", () => {
   const malformed = evaluateStudioScreenplayReply({
     reply: "Beat one: Mara should discover the clue. Beat two: raise the stakes.",

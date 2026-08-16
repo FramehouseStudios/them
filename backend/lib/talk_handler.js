@@ -619,8 +619,68 @@ function createTalkHandler(deps) {
     )
       ? creativeMemoryTrace.screenplay_project_memory.story_move_preference_overrides.slice(0, 9)
       : [];
+    const tracedProjectMemory = creativeMemoryTrace?.screenplay_project_memory &&
+      typeof creativeMemoryTrace.screenplay_project_memory === "object" &&
+      !Array.isArray(creativeMemoryTrace.screenplay_project_memory)
+      ? creativeMemoryTrace.screenplay_project_memory
+      : {};
+    const latestAcceptedScene = tracedAcceptedScenes[0] || {};
+    const tracedLastSceneOutcome = normalizeSnippet(
+      latestAcceptedScene.outcome || tracedProjectMemory.last_scene_outcome,
+      240
+    );
+    const tracedNextScenePlan = normalizeSnippet(
+      latestAcceptedScene.next_scene_plan ||
+        latestAcceptedScene.causal_handoff ||
+        tracedProjectMemory.next_scene_plan,
+      340
+    );
+    const tracedNextTurns = normalizeTalkRepairList(
+      tracedProjectMemory.next_three_turns,
+      3,
+      180
+    );
+    const tracedPayoffs = normalizeTalkRepairList(
+      tracedProjectMemory.act_three_payoff_path,
+      4,
+      200
+    );
+    const tracedImages = normalizeTalkRepairList(
+      tracedProjectMemory.image_motifs,
+      4,
+      140
+    );
+    const tracedExecutionBrief = {
+      assignment: tracedNextScenePlan || tracedNextTurns[0] || "",
+      obstacle: tracedDueStoryThread?.setup ||
+        normalizeTalkRepairList(tracedProjectMemory.unresolved_story_threads, 4, 220)[0] ||
+        normalizeTalkRepairList(tracedProjectMemory.unresolved_setups, 4, 200)[0] ||
+        "",
+      arc: normalizeSnippet(tracedProjectMemory.character_arc_state, 220) ||
+        normalizeTalkRepairList(tracedProjectMemory.character_arc_turns, 4, 180)[0] ||
+        "",
+      payoff: tracedDueStoryThread?.promisedPayoff || tracedPayoffs[0] || "",
+      image: normalizeSnippet(tracedProjectMemory.ending_image, 180) || tracedImages[0] || "",
+      exit: tracedNextTurns[1] || "",
+    };
+    const hasTracedExecutionBrief = Boolean(
+      normalizeSnippet(tracedExecutionBrief.assignment, 240) ||
+      Object.values(tracedExecutionBrief)
+        .filter((value) => normalizeSnippet(value, 240))
+        .length >= 3
+    );
     const baseWithCreativeRecall = {
       ...base,
+      screenplayLastSceneOutcome: normalizeSnippet(base.screenplayLastSceneOutcome, 240) ||
+        tracedLastSceneOutcome,
+      screenplayNextScenePlan: normalizeSnippet(base.screenplayNextScenePlan, 340) ||
+        tracedNextScenePlan,
+      screenplayNextSceneExecutionBrief: base.screenplayNextSceneExecutionBrief &&
+        typeof base.screenplayNextSceneExecutionBrief === "object"
+        ? base.screenplayNextSceneExecutionBrief
+        : hasTracedExecutionBrief
+          ? tracedExecutionBrief
+          : null,
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
         base.screenplayAcceptedPageContinuity,
         acceptedPageContinuity,
