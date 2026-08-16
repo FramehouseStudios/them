@@ -87,6 +87,10 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
     typeof graph.currentDueConsequence === "object"
     ? graph.currentDueConsequence
     : {};
+  const graphObligationChange = graph?.currentStoryObligationChange &&
+    typeof graph.currentStoryObligationChange === "object"
+    ? graph.currentStoryObligationChange
+    : {};
   const dueThread = storyContext.screenplayDueStoryThread ?? storyContext.screenplay_due_story_thread ?? {};
   const directDueConsequence = storyContext.screenplayDueConsequence ??
     storyContext.screenplay_due_consequence ?? {};
@@ -105,6 +109,7 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
     ],
     consequencePressure: [
       cleanContextValue(graphDueConsequence?.fact, 220),
+      cleanContextValue(graphObligationChange?.result, 220),
       cleanContextValue(directDueConsequence?.fact, 220),
       contextValue(storyContext, "screenplayAcceptedConsequenceDue", "screenplay_accepted_consequence_due"),
     ],
@@ -374,6 +379,10 @@ function buildStructuralScreenplayRepairMessages({
     typeof featureGraph.currentDueConsequence === "object"
     ? featureGraph.currentDueConsequence
     : {};
+  const graphObligationChange = featureGraph?.currentStoryObligationChange &&
+    typeof featureGraph.currentStoryObligationChange === "object"
+    ? featureGraph.currentStoryObligationChange
+    : {};
   const directDueConsequence = meta.screenplayDueConsequence ??
     meta.screenplay_due_consequence ?? {};
   const context = [
@@ -386,6 +395,11 @@ function buildStructuralScreenplayRepairMessages({
         meta.screenplay_accepted_consequence_due,
       220
     )],
+    ["GRAPH_STORY_OBLIGATION_CHANGE", [
+      cleanContextValue(graphObligationChange.status, 32),
+      cleanContextValue(graphObligationChange.obligation, 220),
+      cleanContextValue(graphObligationChange.result, 220),
+    ].filter(Boolean).join(" | ")],
     ...graphFacts.map((item) => ["GRAPH_BINDING_FACT", cleanContextValue(item?.fact, 220)]),
     ...graphThreads.map((item) => [
       item?.due ? "GRAPH_DUE_PROMISE" : "GRAPH_OPEN_THREAD",

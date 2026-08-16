@@ -173,6 +173,12 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
           fact: "Mara burned the sealed affidavit beyond recovery.",
           status: "due",
         },
+        currentStoryObligationChange: {
+          kind: "setup",
+          obligation: "The missing reel proves who altered the testimony.",
+          status: "advanced",
+          result: "Eli now controls the missing reel and Mara must earn access.",
+        },
         bindingFacts: [{ fact: "Mara burned the sealed affidavit." }],
         openThreads: [{ due: true, setup: "the missing reel", promisedPayoff: "Eli plays it publicly" }],
       },
@@ -188,6 +194,7 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
   assert.match(messages[1].content, /GRAPH_CHANGED_STATE: Eli takes the archive key/);
   assert.match(messages[1].content, /GRAPH_HANDOFF: Mara must follow him into the hearing/);
   assert.match(messages[1].content, /GRAPH_DUE_CONSEQUENCE: Mara burned the sealed affidavit beyond recovery/);
+  assert.match(messages[1].content, /GRAPH_STORY_OBLIGATION_CHANGE: advanced \| The missing reel proves who altered the testimony\. \| Eli now controls/);
   assert.match(messages[1].content, /GRAPH_DUE_PROMISE: the missing reel -> Eli plays it publicly/);
 });
 

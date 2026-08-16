@@ -1,8 +1,15 @@
-const FEATURE_STORY_GRAPH_VERSION = 2;
+const FEATURE_STORY_GRAPH_VERSION = 3;
 const FEATURE_STORY_GRAPH_SCENE_MAX = 8;
 const FEATURE_STORY_GRAPH_FACT_MAX = 8;
 const FEATURE_STORY_GRAPH_THREAD_MAX = 6;
 const FEATURE_STORY_GRAPH_CONSEQUENCE_MAX = 24;
+const FEATURE_STORY_GRAPH_OBLIGATION_MAX = 24;
+const STORY_OBLIGATION_STATUSES = new Set([
+  "advanced",
+  "complicated",
+  "transformed",
+  "paid_off",
+]);
 
 const CONSEQUENCE_STOPWORDS = new Set([
   "about", "after", "again", "against", "and", "before", "being", "both", "could", "from",
@@ -80,8 +87,78 @@ function laterSceneCarriesConsequence(fact = "", scene = {}, sourceScene = {}) {
   return matches >= Math.min(required, factTokens.length);
 }
 
-function buildConsequenceLedger(acceptedScenes = []) {
+function sanitizeStoryObligationChanges(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obligation = clean(item.obligation ?? item.source, 220);
+    const status = clean(item.status, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const result = clean(item.result ?? item.fact, 240);
+    const evidence = clean(item.evidence, 320);
+    const kind = clean(item.kind, 48).toLowerCase().replace(/[\s-]+/g, "_");
+    const key = obligation.toLowerCase();
+    if (
+      !obligation ||
+      !result ||
+      !evidence ||
+      !STORY_OBLIGATION_STATUSES.has(status) ||
+      seen.has(key)
+    ) continue;
+    seen.add(key);
+    out.push({
+      kind: ["setup", "promised_payoff", "accepted_consequence"].includes(kind)
+        ? kind
+        : "setup",
+      obligation,
+      status,
+      result,
+      evidence,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+function buildStoryObligationLedger(acceptedScenes = []) {
   const scenes = Array.isArray(acceptedScenes) ? acceptedScenes : [];
+  const latestByObligation = new Map();
+  scenes.forEach((scene, sceneIndex) => {
+    const changes = sanitizeStoryObligationChanges(
+      scene?.storyObligationChanges ?? scene?.story_obligation_changes
+    );
+    changes.forEach((change, changeIndex) => {
+      latestByObligation.set(change.obligation.toLowerCase(), Object.fromEntries(Object.entries({
+        id: `obligation_${sceneIndex + 1}_${changeIndex + 1}`,
+        ...change,
+        sourceSceneId: `scene_${sceneIndex + 1}`,
+        sourceSceneHeading: clean(
+          scene.sceneHeading ?? scene.scene_heading ?? scene.sceneLabel ?? scene.scene_label,
+          140
+        ),
+        sourceAct: clean(scene.act ?? scene.currentAct ?? scene.current_act, 80),
+        sourcePosition: sceneIndex + 1,
+        acceptedAt: acceptedAt(scene),
+      }).filter(([, item]) => typeof item === "number" ? true : Boolean(item))));
+    });
+  });
+  const items = [...latestByObligation.values()]
+    .sort((left, right) => right.sourcePosition - left.sourcePosition)
+    .slice(0, FEATURE_STORY_GRAPH_OBLIGATION_MAX);
+  return {
+    items,
+    currentStoryObligationChange: items[0] || null,
+  };
+}
+
+function buildConsequenceLedger(acceptedScenes = [], storyObligationLedger = []) {
+  const scenes = Array.isArray(acceptedScenes) ? acceptedScenes : [];
+  const explicitChanges = new Map(
+    (Array.isArray(storyObligationLedger) ? storyObligationLedger : [])
+      .filter((item) => item?.obligation)
+      .map((item) => [item.obligation.toLowerCase(), item])
+  );
   const candidates = [];
   const seenFacts = new Set();
   const lanes = [
@@ -108,12 +185,13 @@ function buildConsequenceLedger(acceptedScenes = []) {
           .findIndex((laterScene) => laterSceneCarriesConsequence(fact, laterScene, scene));
         const carriedIndex = laterOffset >= 0 ? sceneIndex + laterOffset + 1 : -1;
         const carriedScene = carriedIndex >= 0 ? scenes[carriedIndex] : null;
+        const explicitChange = explicitChanges.get(factKey) || null;
         const ageInScenes = Math.max(0, scenes.length - sceneIndex - 1);
         candidates.push(Object.fromEntries(Object.entries({
           id: `consequence_${sceneIndex + 1}_${kind}_${factIndex + 1}`,
           kind,
           fact,
-          status: carriedScene ? "carried_forward" : "due",
+          status: explicitChange?.status || (carriedScene ? "carried_forward" : "due"),
           sourceSceneId: `scene_${sceneIndex + 1}`,
           sourceSceneHeading: clean(
             scene.sceneHeading ?? scene.scene_heading ?? scene.sceneLabel ?? scene.scene_label,
@@ -122,13 +200,15 @@ function buildConsequenceLedger(acceptedScenes = []) {
           sourceAct: clean(scene.act ?? scene.currentAct ?? scene.current_act, 80),
           sourcePosition: sceneIndex + 1,
           ageInScenes,
-          referencedBySceneId: carriedScene ? `scene_${carriedIndex + 1}` : "",
-          referencedBySceneHeading: carriedScene
+          referencedBySceneId: explicitChange?.sourceSceneId || (carriedScene ? `scene_${carriedIndex + 1}` : ""),
+          referencedBySceneHeading: explicitChange?.sourceSceneHeading || (carriedScene
             ? clean(
               carriedScene.sceneHeading ?? carriedScene.scene_heading ?? carriedScene.sceneLabel ?? carriedScene.scene_label,
               140
             )
-            : "",
+            : ""),
+          result: explicitChange?.result || "",
+          evidence: explicitChange?.evidence || "",
           priority: (kindWeight[kind] || 0) + Math.min(99, ageInScenes),
         }).filter(([, value]) => typeof value === "number" ? true : Boolean(value))));
       });
@@ -141,13 +221,17 @@ function buildConsequenceLedger(acceptedScenes = []) {
   const carried = candidates
     .filter((item) => item.status === "carried_forward")
     .sort((left, right) => right.sourcePosition - left.sourcePosition);
+  const explicitlyChanged = candidates
+    .filter((item) => STORY_OBLIGATION_STATUSES.has(item.status))
+    .sort((left, right) => right.sourcePosition - left.sourcePosition);
   return {
-    items: [...due, ...carried].slice(0, FEATURE_STORY_GRAPH_CONSEQUENCE_MAX),
+    items: [...due, ...explicitlyChanged, ...carried].slice(0, FEATURE_STORY_GRAPH_CONSEQUENCE_MAX),
     currentDueConsequence: due[0] || null,
     summary: {
       total: candidates.length,
       due: due.length,
       carriedForward: carried.length,
+      explicitlyChanged: explicitlyChanged.length,
     },
   };
 }
@@ -181,6 +265,9 @@ function sceneGraphNode(scene = {}, index = 0) {
     revelations,
     relationshipChanges,
     irreversibleConsequences,
+    storyObligationChanges: sanitizeStoryObligationChanges(
+      scene.storyObligationChanges ?? scene.story_obligation_changes
+    ),
     characterArcTurns: cleanList(scene.characterArcTurns ?? scene.character_arc_turns, 5, 180),
     unresolvedSetups: cleanList(scene.unresolvedSetups ?? scene.unresolved_setups, 6, 200),
     actThreePayoffPath: cleanList(scene.actThreePayoffPath ?? scene.act_three_payoff_path, 4, 200),
@@ -214,26 +301,44 @@ function matchingSourceNode(nodes, setup) {
   )) || null;
 }
 
-function buildOpenThreads({ project = {}, nodes = [], dueStoryThread = null } = {}) {
+function buildOpenThreads({
+  project = {},
+  nodes = [],
+  dueStoryThread = null,
+  storyObligationLedger = [],
+} = {}) {
   const setups = cleanList(project.unresolvedSetups ?? project.unresolved_setups, FEATURE_STORY_GRAPH_THREAD_MAX, 220);
   const payoffs = cleanList(project.actThreePayoffPath ?? project.act_three_payoff_path, 5, 220);
   const dueSetup = clean(dueStoryThread?.setup, 220);
   const duePayoff = clean(dueStoryThread?.promisedPayoff ?? dueStoryThread?.promised_payoff, 220);
   const ordered = cleanList([dueSetup, ...setups].filter(Boolean), FEATURE_STORY_GRAPH_THREAD_MAX, 220);
+  const explicitChanges = new Map(
+    (Array.isArray(storyObligationLedger) ? storyObligationLedger : [])
+      .filter((item) => item?.obligation)
+      .map((item) => [item.obligation.toLowerCase(), item])
+  );
   return ordered.map((setup, index) => {
     const source = matchingSourceNode(nodes, setup);
     const isDue = Boolean(dueSetup && setup.toLowerCase() === dueSetup.toLowerCase());
+    const promisedPayoff = isDue
+      ? duePayoff
+      : (payoffs[index] || (ordered.length === 1 && payoffs.length === 1 ? payoffs[0] : ""));
+    const change = explicitChanges.get(setup.toLowerCase()) ||
+      (promisedPayoff ? explicitChanges.get(promisedPayoff.toLowerCase()) : null);
+    if (change?.status === "paid_off") return null;
     return Object.fromEntries(Object.entries({
       id: `thread_${index + 1}`,
       setup,
       sourceSceneId: source?.id || "",
       sourceSceneHeading: source?.heading || clean(dueStoryThread?.sourceSceneHeading ?? dueStoryThread?.source_scene_heading, 140),
-      promisedPayoff: isDue ? duePayoff : (ordered.length === 1 && payoffs.length === 1 ? payoffs[0] : ""),
-      due: isDue,
+      promisedPayoff,
+      due: isDue && !change,
       ageInScenes: isDue ? Math.max(0, Math.round(Number(dueStoryThread?.ageInScenes ?? dueStoryThread?.age_in_scenes ?? 0))) : 0,
-      status: isDue ? "due" : "open",
+      status: change?.status || (isDue ? "due" : "open"),
+      latestResult: change?.result || "",
+      evidence: change?.evidence || "",
     }).filter(([, item]) => typeof item === "boolean" || typeof item === "number" || Boolean(item)));
-  });
+  }).filter(Boolean);
 }
 
 function buildFeatureStoryGraph({
@@ -256,8 +361,14 @@ function buildFeatureStoryGraph({
     .map(normalizedFact)
     .filter(Boolean)
     .slice(0, FEATURE_STORY_GRAPH_FACT_MAX);
-  const openThreads = buildOpenThreads({ project, nodes, dueStoryThread });
-  const consequenceState = buildConsequenceLedger(acceptedSceneRecords);
+  const obligationState = buildStoryObligationLedger(acceptedSceneRecords);
+  const openThreads = buildOpenThreads({
+    project,
+    nodes,
+    dueStoryThread,
+    storyObligationLedger: obligationState.items,
+  });
+  const consequenceState = buildConsequenceLedger(acceptedSceneRecords, obligationState.items);
   const latest = nodes[nodes.length - 1] || null;
   const currentState = Object.fromEntries(Object.entries({
     act: clean(project.act, 80) || latest?.act || "",
@@ -276,6 +387,7 @@ function buildFeatureStoryGraph({
     !nodes.length &&
     !facts.length &&
     !openThreads.length &&
+    !obligationState.items.length &&
     !consequenceState.items.length &&
     !Object.keys(currentState).length
   ) return null;
@@ -307,6 +419,8 @@ function buildFeatureStoryGraph({
     edges,
     bindingFacts: facts,
     openThreads,
+    storyObligationLedger: obligationState.items,
+    currentStoryObligationChange: obligationState.currentStoryObligationChange,
     consequenceLedger: consequenceState.items,
     consequenceSummary: consequenceState.summary,
     currentDueConsequence: consequenceState.currentDueConsequence,

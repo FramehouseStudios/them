@@ -1,4 +1,4 @@
-const ACCEPTED_SCENE_STATE_VERSION = 1;
+const ACCEPTED_SCENE_STATE_VERSION = 2;
 const ACCEPTED_SCENE_FACT_FIELDS = Object.freeze([
   "decisions",
   "revelations",
@@ -11,6 +11,14 @@ const ACCEPTED_SCENE_SCALAR_FIELDS = Object.freeze([
   "causalHandoff",
 ]);
 const FACTS_PER_FIELD_MAX = 4;
+const STORY_OBLIGATION_CHANGES_MAX = 6;
+const STORY_OBLIGATION_STATUSES = new Set([
+  "advanced",
+  "complicated",
+  "transformed",
+  "paid_off",
+]);
+const VISIBLE_PAYOFF_CHANGE_PATTERN = /\b(?:accepts?|admits?|abandons?|betrays?|breaks?|burns?|chooses?|closes?|confesses?|destroys?|dies?|exposes?|forgives?|gives?|hands?|leaves?|locks?|opens?|publishes?|refuses?|releases?|returns?|reveals?|saves?|shoots?|signs?|surrenders?|takes?|tears?|tells?|unlocks?)\b/i;
 
 const CAUSAL_PATTERNS = Object.freeze({
   decisions: Object.freeze([
@@ -136,6 +144,79 @@ function sanitizeGroundedFact(value, lines) {
   };
 }
 
+function sourceHasEvidenceSupport(source = "", evidenceLine = null, { status = "" } = {}) {
+  if (!evidenceLine) return false;
+  const sourceTerms = [...new Set(supportTokens(source))];
+  const evidenceTerms = new Set(supportTokens(`${evidenceLine.display} ${evidenceLine.text}`));
+  if (!sourceTerms.length || !evidenceTerms.size) return false;
+  const overlap = sourceTerms.filter((term) => evidenceTerms.has(term));
+  const requiredOverlap = status === "paid_off"
+    ? Math.max(2, Math.ceil(sourceTerms.length * 0.5))
+    : sourceTerms.length === 1 ? 1 : sourceTerms.length <= 5 ? 2 : 3;
+  return overlap.length >= Math.min(requiredOverlap, sourceTerms.length);
+}
+
+function knownStoryObligations(projectContext = null) {
+  const context = projectContext && typeof projectContext === "object" && !Array.isArray(projectContext)
+    ? projectContext
+    : {};
+  const out = [];
+  const seen = new Set();
+  const push = (kind, value) => {
+    const obligation = clean(value, 220);
+    const key = obligation.toLowerCase();
+    if (!obligation || seen.has(key)) return;
+    seen.add(key);
+    out.push({ kind, obligation });
+  };
+  const asList = (value) => Array.isArray(value) ? value : value ? [value] : [];
+  for (const value of asList(context.unresolvedSetups ?? context.unresolved_setups)) {
+    push("setup", value);
+  }
+  for (const value of asList(context.actThreePayoffPath ?? context.act_three_payoff_path)) {
+    push("promised_payoff", value);
+  }
+  const scenes = Array.isArray(context.acceptedScenes ?? context.accepted_scenes)
+    ? (context.acceptedScenes ?? context.accepted_scenes)
+    : [];
+  for (const scene of scenes.slice(0, 12)) {
+    for (const value of scene?.decisions ?? []) push("accepted_consequence", value);
+    for (const value of scene?.revelations ?? []) push("accepted_consequence", value);
+    for (const value of scene?.relationshipChanges ?? scene?.relationship_changes ?? []) {
+      push("accepted_consequence", value);
+    }
+    for (const value of scene?.irreversibleConsequences ?? scene?.irreversible_consequences ?? []) {
+      push("accepted_consequence", value);
+    }
+  }
+  return out.slice(0, 20);
+}
+
+function sanitizeStoryObligationChange(value, lines, obligations) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = clean(value.obligation ?? value.source ?? value.setup, 220);
+  const known = obligations.find((item) => item.obligation.toLowerCase() === source.toLowerCase());
+  const status = clean(value.status, 32).toLowerCase().replace(/[\s-]+/g, "_");
+  const result = sanitizeGroundedFact({
+    fact: value.result ?? value.fact,
+    evidence: value.evidence ?? value.quote,
+  }, lines);
+  if (!known || !STORY_OBLIGATION_STATUSES.has(status) || !result) return null;
+  const evidenceLine = exactPageEvidence(value.evidence ?? value.quote, lines);
+  if (!sourceHasEvidenceSupport(known.obligation, evidenceLine, { status })) return null;
+  if (status === "paid_off" && !VISIBLE_PAYOFF_CHANGE_PATTERN.test(evidenceLine?.display || "")) {
+    return null;
+  }
+  if (status === "paid_off" && known.kind === "accepted_consequence") return null;
+  return {
+    kind: known.kind,
+    obligation: known.obligation,
+    status,
+    result: result.fact,
+    evidence: result.evidence,
+  };
+}
+
 function pushUniqueFact(target, value) {
   if (!value?.fact) return;
   if (target.some((item) => item.fact.toLowerCase() === value.fact.toLowerCase())) return;
@@ -176,6 +257,16 @@ function compactState({ source = "deterministic", fields = {}, rejectedFacts = 0
     if (!items.length) continue;
     out[field] = items.map((item) => item.fact);
     evidence.push(...items.map((item) => evidenceRecord(field, item)));
+  }
+  const storyObligationChanges = Array.isArray(fields.storyObligationChanges)
+    ? fields.storyObligationChanges.slice(0, STORY_OBLIGATION_CHANGES_MAX)
+    : [];
+  if (storyObligationChanges.length) {
+    out.storyObligationChanges = storyObligationChanges;
+    evidence.push(...storyObligationChanges.map((item) => evidenceRecord(
+      "storyObligationChanges",
+      { fact: item.result, evidence: item.evidence }
+    )));
   }
   if (evidence.length) out.stateEvidence = evidence.slice(0, 12);
   return out;
@@ -232,7 +323,7 @@ function parseAcceptedSceneStateResponse(value) {
   }
 }
 
-function validateAcceptedSceneStatePayload(payload, pageText = "") {
+function validateAcceptedSceneStatePayload(payload, pageText = "", projectContext = null) {
   const source = payload?.sceneState && typeof payload.sceneState === "object"
     ? payload.sceneState
     : payload;
@@ -269,6 +360,24 @@ function validateAcceptedSceneStatePayload(payload, pageText = "") {
     }
     if (items.length) fields[field] = items;
   }
+  const obligations = knownStoryObligations(projectContext);
+  const rawChanges = Array.isArray(source.storyObligationChanges)
+    ? source.storyObligationChanges
+    : [];
+  const storyObligationChanges = [];
+  for (const raw of rawChanges.slice(0, STORY_OBLIGATION_CHANGES_MAX * 2)) {
+    const item = sanitizeStoryObligationChange(raw, lines, obligations);
+    if (item && !storyObligationChanges.some((existing) => (
+      existing.obligation.toLowerCase() === item.obligation.toLowerCase()
+    ))) {
+      storyObligationChanges.push(item);
+      acceptedFacts += 1;
+    } else {
+      rejectedFacts += 1;
+    }
+    if (storyObligationChanges.length >= STORY_OBLIGATION_CHANGES_MAX) break;
+  }
+  if (storyObligationChanges.length) fields.storyObligationChanges = storyObligationChanges;
   return { fields, acceptedFacts, rejectedFacts };
 }
 
@@ -298,6 +407,14 @@ function mergeAcceptedSceneState(modelResult, fallback) {
     if (facts.length) merged[field] = facts;
     evidence.push(...modelItems.map((item) => evidenceRecord(field, item)));
   }
+  if (Array.isArray(modelResult.fields.storyObligationChanges)) {
+    merged.storyObligationChanges = modelResult.fields.storyObligationChanges
+      .slice(0, STORY_OBLIGATION_CHANGES_MAX);
+    evidence.push(...merged.storyObligationChanges.map((item) => evidenceRecord(
+      "storyObligationChanges",
+      { fact: item.result, evidence: item.evidence }
+    )));
+  }
   const fallbackEvidence = Array.isArray(fallback.stateEvidence) ? fallback.stateEvidence : [];
   merged.stateEvidence = [...evidence, ...fallbackEvidence]
     .filter((value, index, values) => values.indexOf(value) === index)
@@ -315,14 +432,21 @@ function acceptedSceneDistillationPrompts({ pageText = "", projectContext = null
     context.currentBeat ? `Prior beat: ${clean(context.currentBeat, 220)}` : "",
     context.lastSceneOutcome ? `Prior outcome: ${clean(context.lastSceneOutcome, 220)}` : "",
   ].filter(Boolean);
+  const obligations = knownStoryObligations(context);
+  if (obligations.length) {
+    contextLines.push("Known obligations (obligation must match one of these exactly):");
+    for (const item of obligations) contextLines.push(`- [${item.kind}] ${item.obligation}`);
+  }
   const systemPrompt = [
     "You distill an explicitly accepted screenplay page into durable scene state.",
     "Return JSON only. Never invent an event, motive, relationship change, or future beat.",
     "Every non-empty fact must include one exact evidence line copied from the accepted page.",
     "Phrase each fact using the page's own concrete nouns and verbs so it can be verified against that evidence.",
     "A causalHandoff states only the changed pressure the next scene inherits; it must not invent what happens next.",
+    "storyObligationChanges may reference only a supplied known obligation. Use advanced when it gains motion, complicated when its cost or obstacle deepens, transformed when its dramatic meaning changes, and paid_off only when a setup or promised payoff is visibly fulfilled on this page.",
+    "Every storyObligationChanges result must describe the visible change on this page and include one exact page evidence line that materially supports both the known obligation and the result. A repeated prop name alone is not a payoff.",
     "Use empty objects or arrays when the page does not establish a field.",
-    "Schema: {\"sceneState\":{\"summary\":{\"fact\":\"\",\"evidence\":\"\"},\"outcome\":{\"fact\":\"\",\"evidence\":\"\"},\"causalHandoff\":{\"fact\":\"\",\"evidence\":\"\"},\"decisions\":[{\"fact\":\"\",\"evidence\":\"\"}],\"revelations\":[],\"relationshipChanges\":[],\"irreversibleConsequences\":[]}}",
+    "Schema: {\"sceneState\":{\"summary\":{\"fact\":\"\",\"evidence\":\"\"},\"outcome\":{\"fact\":\"\",\"evidence\":\"\"},\"causalHandoff\":{\"fact\":\"\",\"evidence\":\"\"},\"decisions\":[{\"fact\":\"\",\"evidence\":\"\"}],\"revelations\":[],\"relationshipChanges\":[],\"irreversibleConsequences\":[],\"storyObligationChanges\":[{\"obligation\":\"exact known obligation\",\"status\":\"advanced|complicated|transformed|paid_off\",\"result\":\"\",\"evidence\":\"\"}]}}",
   ].join("\n");
   const userPrompt = [
     contextLines.length ? `PROJECT POSITION\n${contextLines.join("\n")}` : "",
@@ -346,7 +470,7 @@ async function distillAcceptedSceneState({
       maxTokens: 900,
     });
     const payload = parseAcceptedSceneStateResponse(raw);
-    const modelResult = validateAcceptedSceneStatePayload(payload, pageText);
+    const modelResult = validateAcceptedSceneStatePayload(payload, pageText, projectContext);
     return mergeAcceptedSceneState(modelResult, fallback);
   } catch {
     return fallback;

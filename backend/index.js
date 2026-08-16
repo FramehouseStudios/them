@@ -3888,6 +3888,28 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       ))),
     }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
     : null;
+  const rawStoryObligationChange = memory?.featureStoryGraph?.currentStoryObligationChange ??
+    memory?.feature_story_graph?.current_story_obligation_change;
+  const storyObligationChange = rawStoryObligationChange &&
+    typeof rawStoryObligationChange === "object" &&
+    !Array.isArray(rawStoryObligationChange)
+    ? Object.fromEntries(Object.entries({
+      id: normalizeSnippet(rawStoryObligationChange.id, 96),
+      kind: normalizeSnippet(rawStoryObligationChange.kind, 48),
+      obligation: normalizeSnippet(rawStoryObligationChange.obligation, 220),
+      status: normalizeSnippet(rawStoryObligationChange.status, 32),
+      result: normalizeSnippet(rawStoryObligationChange.result, 240),
+      evidence: normalizeSnippet(rawStoryObligationChange.evidence, 320),
+      source_scene_heading: normalizeSnippet(
+        rawStoryObligationChange.sourceSceneHeading ?? rawStoryObligationChange.source_scene_heading,
+        140
+      ),
+      source_act: normalizeSnippet(
+        rawStoryObligationChange.sourceAct ?? rawStoryObligationChange.source_act,
+        80
+      ),
+    }).filter(([, value]) => Boolean(value)))
+    : null;
   const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
     ? memory.episodicSelection
     : null;
@@ -3918,6 +3940,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     acceptedCausalFacts.length ||
     dueStoryThread ||
     dueConsequence?.fact ||
+    storyObligationChange?.result ||
     screenplayProjectTrace ||
     (memory?.style && Object.keys(memory.style).length) ||
     (memory?.tone && Object.keys(memory.tone).length) ||
@@ -3937,6 +3960,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     accepted_causal_facts: acceptedCausalFacts,
     due_story_thread: dueStoryThread,
     due_consequence: dueConsequence,
+    story_obligation_change: storyObligationChange,
     episodic_retrieval: episodicSelection ? {
       strategy: normalizeSnippet(episodicSelection.strategy, 48),
       semantic_used: Boolean(episodicSelection.semanticUsed),

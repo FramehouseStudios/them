@@ -1002,6 +1002,13 @@ function serializeFeatureStoryGraph(value) {
   const consequences = Array.isArray(value.consequenceLedger)
     ? value.consequenceLedger.slice(0, 8)
     : [];
+  const obligationChanges = Array.isArray(value.storyObligationLedger)
+    ? value.storyObligationLedger.slice(0, 6)
+    : [];
+  const currentObligationChange = value.currentStoryObligationChange &&
+    typeof value.currentStoryObligationChange === "object"
+    ? value.currentStoryObligationChange
+    : null;
   const dueConsequence = value.currentDueConsequence &&
     typeof value.currentDueConsequence === "object"
     ? value.currentDueConsequence
@@ -1014,6 +1021,7 @@ function serializeFeatureStoryGraph(value) {
     !facts.length &&
     !threads.length &&
     !consequences.length &&
+    !obligationChanges.length &&
     !Object.keys(state).length
   ) return "";
   const lines = [
@@ -1065,13 +1073,30 @@ function serializeFeatureStoryGraph(value) {
   if (threads.length) lines.push("  open_story_threads:");
   for (const thread of threads) {
     const parts = [
-      `status=${thread.due ? "DUE" : "open"}`,
+      `status=${thread.due ? "DUE" : trimContextLine(thread.status, 32) || "open"}`,
       `setup=${trimContextLine(thread.setup, 200)}`,
       trimContextLine(thread.sourceSceneHeading, 120) ? `source=${trimContextLine(thread.sourceSceneHeading, 120)}` : "",
       trimContextLine(thread.promisedPayoff, 180) ? `promised_payoff=${trimContextLine(thread.promisedPayoff, 180)}` : "",
       Number(thread.ageInScenes || 0) > 0 ? `age=${Math.round(Number(thread.ageInScenes))}_accepted_scenes` : "",
+      trimContextLine(thread.latestResult, 200) ? `changed_state=${trimContextLine(thread.latestResult, 200)}` : "",
     ].filter(Boolean);
     lines.push(`    - ${parts.join("; ")}`);
+  }
+  if (obligationChanges.length) lines.push("  evidence_grounded_obligation_ledger:");
+  for (const change of obligationChanges) {
+    const source = [
+      trimContextLine(change.sourceAct ?? change.source_act, 60),
+      trimContextLine(change.sourceSceneHeading ?? change.source_scene_heading, 120),
+    ].filter(Boolean).join(" / ");
+    const parts = [
+      `status=${trimContextLine(change.status, 32)}`,
+      `kind=${trimContextLine(change.kind, 48)}`,
+      `obligation=${trimContextLine(change.obligation, 220)}`,
+      `changed_state=${trimContextLine(change.result, 220)}`,
+      `accepted_evidence=${trimContextLine(change.evidence, 240)}`,
+      source ? `source=${source}` : "",
+    ].filter(Boolean);
+    if (parts.length) lines.push(`    - ${parts.join("; ")}`);
   }
   if (consequences.length) lines.push("  accepted_consequence_ledger:");
   for (const consequence of consequences) {
@@ -1098,6 +1123,15 @@ function serializeFeatureStoryGraph(value) {
   }
   if (dueConsequence?.fact) {
     lines.push(`  due_consequence_contract: the next scene must visibly inherit ${trimContextLine(dueConsequence.fact, 220)}; do not replay, erase, or merely explain it.`);
+  }
+  if (currentObligationChange?.result) {
+    const status = trimContextLine(currentObligationChange.status, 32);
+    const obligation = trimContextLine(currentObligationChange.obligation, 220)
+      .replace(/[.!?]+$/, "");
+    const changedState = trimContextLine(currentObligationChange.result, 220);
+    lines.push(status === "paid_off"
+      ? `  obligation_transition_contract: ${obligation} is PAID_OFF by accepted evidence; inherit ${changedState} as current state and never reopen or repay the original obligation.`
+      : `  obligation_transition_contract: ${obligation} is ${status || "changed"}; continue from ${changedState} and never restart the original obligation as if untouched.`);
   }
   lines.push("  next_move_contract: begin from current_state, spend a due thread or accepted consequence before inventing unrelated mythology, and make the next scene produce a visible state change plus a causal handoff.");
   return `feature-story-graph:\n${lines.join("\n")}`;

@@ -1433,16 +1433,37 @@ function buildNextSceneExecutionBriefLines({
       sessionContext.accepted_consequence_due,
     220
   );
-  const sceneAssignment = nextThreeTurns[0] || nextScenePlan || sceneObjective || currentBeat || activeSequence?.nextMoves?.[0] || "";
-  const openingHandoff = lastSceneOutcome || emotionalHandoff || currentBeat;
-  const obstacle = unresolvedStoryThreads[0] || unresolvedSetups[0] || activeSequence?.obligation || "";
-  const arcBehavior = characterArcTurns[0] || characterArcState;
-  const payoffCandidate = actThreePayoffPath[0] || unresolvedSetups[0] || "";
+  const sceneAssignment = trimContextLine(
+    briefSource.assignment ?? briefSource.sceneAssignment ?? briefSource.scene_assignment,
+    240
+  ) || nextThreeTurns[0] || nextScenePlan || sceneObjective || currentBeat || activeSequence?.nextMoves?.[0] || "";
+  const openingHandoff = trimContextLine(
+    briefSource.openingHandoff ?? briefSource.opening_handoff,
+    220
+  ) || lastSceneOutcome || emotionalHandoff || currentBeat;
+  const obstacle = trimContextLine(
+    briefSource.obstacle ?? briefSource.obstacleToPressurize ?? briefSource.obstacle_to_pressurize,
+    220
+  ) || unresolvedStoryThreads[0] || unresolvedSetups[0] || activeSequence?.obligation || "";
+  const arcBehavior = trimContextLine(
+    briefSource.arc ?? briefSource.changedBehaviorDue ?? briefSource.changed_behavior_due,
+    220
+  ) || characterArcTurns[0] || characterArcState;
+  const payoffCandidate = trimContextLine(
+    briefSource.payoff ?? briefSource.payoffOrSetupToSpend ?? briefSource.payoff_or_setup_to_spend,
+    220
+  ) || actThreePayoffPath[0] || unresolvedSetups[0] || "";
   const payoffOrSetup = payoffCandidate && payoffCandidate.toLowerCase() !== obstacle.toLowerCase()
     ? payoffCandidate
     : "";
-  const imageToStage = imageMotifs[0] || endingImage || "";
-  const exitHandoff = nextThreeTurns[1] || nextSequence?.obligation || "";
+  const imageToStage = trimContextLine(
+    briefSource.image ?? briefSource.imageToStage ?? briefSource.image_to_stage,
+    180
+  ) || imageMotifs[0] || endingImage || "";
+  const exitHandoff = trimContextLine(
+    briefSource.exit ?? briefSource.exitHandoff ?? briefSource.exit_handoff,
+    220
+  ) || nextThreeTurns[1] || nextSequence?.obligation || "";
   const hasBriefContext = Boolean(
     requestedPages > 0 ||
     activeAct ||
@@ -1480,7 +1501,9 @@ function buildNextSceneExecutionBriefLines({
   if (exitHandoff) lines.push(`    exit_handoff: ${exitHandoff}`);
   lines.push("    execution_steps:");
   lines.push("      - Open on inherited emotional residue as visible behavior or image.");
-  lines.push("      - Make the accepted_consequence_due alter behavior, leverage, relationship, information, or cost; do not reset or merely recap it.");
+  lines.push(acceptedConsequenceDue
+    ? "      - Make the accepted_consequence_due alter behavior, leverage, relationship, information, or cost; do not reset or merely recap it."
+    : "      - Begin from the inherited changed state in scene_assignment; do not replay the previous beat as if it were still unresolved.");
   lines.push("      - Give the protagonist a concrete objective that can fail before the scene ends.");
   lines.push("      - Pressurize that objective with the obstacle, setup, thread, or relationship cost above.");
   lines.push("      - Force a tactic shift, reveal, cost, or changed behavior before the exit.");

@@ -245,6 +245,12 @@ const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
   ["irreversibleConsequences", "irreversible_consequences", 4, 220],
   ["stateEvidence", "state_evidence", 12, 520],
 ]);
+const ACCEPTED_STORY_OBLIGATION_CHANGE_STATUSES = new Set([
+  "advanced",
+  "complicated",
+  "transformed",
+  "paid_off",
+]);
 
 function isCorrectionTurnText(value = "") {
   const text = String(value || "");
@@ -509,8 +515,43 @@ function acceptedSceneHasCausalSignal(scene = {}) {
     cleanText(scene.outcome, 220) ||
     cleanText(scene.nextScenePlan, 240) ||
     cleanText(scene.excerpt, 420) ||
-    ACCEPTED_SCENE_LIST_FIELDS.some(([field]) => Array.isArray(scene[field]) && scene[field].length)
+    ACCEPTED_SCENE_LIST_FIELDS.some(([field]) => Array.isArray(scene[field]) && scene[field].length) ||
+    (Array.isArray(scene.storyObligationChanges) && scene.storyObligationChanges.length)
   );
+}
+
+function sanitizeAcceptedStoryObligationChanges(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obligation = cleanText(item.obligation ?? item.source, 220);
+    const status = cleanText(item.status, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const result = cleanText(item.result ?? item.fact, 240);
+    const evidence = cleanText(item.evidence, 320);
+    const kind = cleanText(item.kind, 48).toLowerCase().replace(/[\s-]+/g, "_");
+    const key = obligation.toLowerCase();
+    if (
+      !obligation ||
+      !result ||
+      !evidence ||
+      !ACCEPTED_STORY_OBLIGATION_CHANGE_STATUSES.has(status) ||
+      seen.has(key)
+    ) continue;
+    seen.add(key);
+    out.push({
+      kind: ["setup", "promised_payoff", "accepted_consequence"].includes(kind)
+        ? kind
+        : "setup",
+      obligation,
+      status,
+      result,
+      evidence,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 function sanitizeAcceptedSceneContinuity(value = {}) {
@@ -527,6 +568,10 @@ function sanitizeAcceptedSceneContinuity(value = {}) {
     const items = normalizeStringList(value[field] ?? value[alias], maxItems, maxChars);
     if (items.length) out[field] = items;
   }
+  const storyObligationChanges = sanitizeAcceptedStoryObligationChanges(
+    value.storyObligationChanges ?? value.story_obligation_changes
+  );
+  if (storyObligationChanges.length) out.storyObligationChanges = storyObligationChanges;
   const pageCount = Math.max(0, Math.round(Number(value.pageCount ?? value.page_count ?? 0)));
   if (pageCount > 0) out.pageCount = Math.min(1_000, pageCount);
   const rawAcceptedAt = Number(value.acceptedAt ?? value.accepted_at ?? nowMs());
@@ -604,6 +649,28 @@ function repairAcceptedSceneForCorrection(scene = null, correction = null) {
       .filter((item) => item && !textContainsCharacterCorrectionTerm(item, terms))
       .slice(0, maxItems);
     if (!out[field].length) delete out[field];
+  }
+  if (Array.isArray(current.storyObligationChanges)) {
+    const blockedFacts = blockedDistilledFacts.get("storyObligationChanges") || new Set();
+    out.storyObligationChanges = current.storyObligationChanges
+      .filter((item) => !blockedFacts.has(cleanText(item?.result, 240).toLowerCase()))
+      .map((item) => ({
+        ...item,
+        obligation: applyCharacterBibleReplacements(item.obligation, replacements, 220),
+        result: applyCharacterBibleReplacements(item.result, replacements, 240),
+        evidence: applyCharacterBibleReplacements(item.evidence, replacements, 320),
+      }))
+      .filter((item) => (
+        item.obligation &&
+        item.result &&
+        item.evidence &&
+        !textContainsCharacterCorrectionTerm(
+          `${item.obligation} ${item.result} ${item.evidence}`,
+          terms
+        )
+      ))
+      .slice(0, 6);
+    if (!out.storyObligationChanges.length) delete out.storyObligationChanges;
   }
   return acceptedSceneHasCausalSignal(out) ? out : null;
 }
@@ -2509,6 +2576,7 @@ function buildAcceptedSceneContinuity({
       4,
       220
     ),
+    storyObligationChanges: state.storyObligationChanges,
     stateEvidence: appliedStateEvidence,
     excerpt,
     pageCount: continuity.pageCount,
@@ -6246,11 +6314,27 @@ function createCreativeMemoryStore({
 
     let task;
     task = Promise.resolve()
-      .then(() => distillAcceptedSceneState({
-        pageText,
-        projectContext: projectContinuity,
-        renderText: renderAcceptedSceneState,
-      }))
+      .then(async () => {
+        const currentRecord = await readUser(userId);
+        const currentProject = selectProjectContinuity(currentRecord?.projects, {
+          projectId,
+          projectTitle,
+        });
+        const contextProject = currentProject && typeof currentProject === "object"
+          ? {
+            ...currentProject,
+            acceptedScenes: (Array.isArray(currentProject.acceptedScenes)
+              ? currentProject.acceptedScenes
+              : [])
+              .filter((scene) => acceptedSceneIdentity(scene) !== acceptedSceneIdentity(acceptedScene)),
+          }
+          : projectContinuity;
+        return distillAcceptedSceneState({
+          pageText,
+          projectContext: contextProject,
+          renderText: renderAcceptedSceneState,
+        });
+      })
       .then(async (state) => {
         if (!state || state.source !== "model_grounded") return null;
         const currentRecord = await readUser(userId);

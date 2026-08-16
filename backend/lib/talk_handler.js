@@ -627,6 +627,23 @@ function createTalkHandler(deps) {
         ))),
       }
       : null;
+    const tracedStoryObligationChange = creativeMemoryTrace?.story_obligation_change &&
+      typeof creativeMemoryTrace.story_obligation_change === "object" &&
+      !Array.isArray(creativeMemoryTrace.story_obligation_change)
+      ? {
+        id: normalizeSnippet(creativeMemoryTrace.story_obligation_change.id, 96),
+        kind: normalizeSnippet(creativeMemoryTrace.story_obligation_change.kind, 48),
+        obligation: normalizeSnippet(creativeMemoryTrace.story_obligation_change.obligation, 220),
+        status: normalizeSnippet(creativeMemoryTrace.story_obligation_change.status, 32),
+        result: normalizeSnippet(creativeMemoryTrace.story_obligation_change.result, 240),
+        evidence: normalizeSnippet(creativeMemoryTrace.story_obligation_change.evidence, 320),
+        sourceSceneHeading: normalizeSnippet(
+          creativeMemoryTrace.story_obligation_change.source_scene_heading,
+          140
+        ),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.story_obligation_change.source_act, 80),
+      }
+      : null;
     const tracedQuestionEffectiveness = Array.isArray(
       creativeMemoryTrace?.screenplay_project_memory?.question_effectiveness
     )
@@ -669,7 +686,7 @@ function createTalkHandler(deps) {
       140
     );
     const tracedExecutionBrief = {
-      assignment: tracedNextScenePlan || tracedNextTurns[0] || tracedDueConsequence?.fact || "",
+      assignment: tracedNextScenePlan || tracedNextTurns[0] || tracedDueConsequence?.fact || tracedStoryObligationChange?.result || "",
       consequence: tracedDueConsequence?.fact || "",
       obstacle: tracedDueStoryThread?.setup ||
         normalizeTalkRepairList(tracedProjectMemory.unresolved_story_threads, 4, 220)[0] ||
@@ -729,6 +746,9 @@ function createTalkHandler(deps) {
       ...(tracedDueConsequence?.fact
         ? { screenplayDueConsequence: tracedDueConsequence }
         : {}),
+      ...(tracedStoryObligationChange?.result
+        ? { screenplayStoryObligationChange: tracedStoryObligationChange }
+        : {}),
       ...(tracedQuestionEffectiveness.length
         ? { screenplayQuestionEffectiveness: tracedQuestionEffectiveness }
         : {}),
@@ -742,6 +762,7 @@ function createTalkHandler(deps) {
         retrievedStoryMoments.length ||
         tracedAcceptedCausalFacts.length ||
         tracedDueConsequence?.fact ||
+        tracedStoryObligationChange?.result ||
         tracedDueStoryThread?.setup ||
         tracedDueStoryThread?.promisedPayoff
         ? baseWithCreativeRecall

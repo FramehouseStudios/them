@@ -118,6 +118,74 @@ test("[feature-story-graph] marks accepted changes as carried forward without cl
   assert.equal(graph.edges.some((edge) => edge.kind === "causes"), false);
 });
 
+test("[feature-story-graph] removes a paid-off setup from the open queue using accepted evidence", () => {
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: projectFixture(),
+    dueStoryThread: {
+      setup: "The cracked ferry token Mara gave June",
+      promisedPayoff: "June returns the token when Mara gives her the wheel",
+      ageInScenes: 4,
+    },
+    acceptedScenes: [{
+      acceptedAt: 100,
+      act: "Act III",
+      sceneHeading: "INT. PILOT HOUSE - DAWN",
+      storyObligationChanges: [{
+        kind: "setup",
+        obligation: "The cracked ferry token Mara gave June",
+        status: "paid_off",
+        result: "June returns the cracked token after Mara gives her the wheel.",
+        evidence: "June sets the cracked token in Mara's open palm, then takes the wheel.",
+      }],
+    }],
+  });
+
+  assert.equal(graph.version, 3);
+  assert.equal(graph.openThreads.length, 0);
+  assert.equal(graph.storyObligationLedger[0].status, "paid_off");
+  assert.match(graph.currentStoryObligationChange.result, /June returns the cracked token/i);
+  assert.equal(graph.edges.some((edge) => edge.kind === "causes"), false);
+
+  const prompt = buildModelPrompt({
+    persona: "Clementine",
+    creativeMemory: { featureStoryGraph: graph },
+    userInput: "Continue the screenplay.",
+  });
+  assert.match(prompt, /evidence_grounded_obligation_ledger:/);
+  assert.match(prompt, /status=paid_off; kind=setup/);
+  assert.match(prompt, /accepted_evidence=June sets the cracked token/i);
+  assert.match(prompt, /is PAID_OFF by accepted evidence/i);
+  assert.match(prompt, /never reopen or repay the original obligation/i);
+});
+
+test("[feature-story-graph] turns a transformed accepted consequence into current state instead of a due replay", () => {
+  const obligation = "Mara burns the ferry ledger beyond recovery.";
+  const graph = buildFeatureStoryGraph({
+    acceptedScenes: [{
+      acceptedAt: 100,
+      act: "Act I",
+      sceneHeading: "EXT. EAST FERRY DOCK - NIGHT",
+      irreversibleConsequences: [obligation],
+    }, {
+      acceptedAt: 200,
+      act: "Act II",
+      sceneHeading: "INT. HARBOR ARCHIVE - NIGHT",
+      storyObligationChanges: [{
+        kind: "accepted_consequence",
+        obligation,
+        status: "transformed",
+        result: "The burned ledger makes Eli's memorized names the only admissible record.",
+        evidence: "Eli recites the names while Mara holds up the ledger's burned binding.",
+      }],
+    }],
+  });
+
+  assert.equal(graph.currentDueConsequence, null);
+  assert.equal(graph.consequenceLedger[0].status, "transformed");
+  assert.match(graph.consequenceLedger[0].result, /only admissible record/i);
+  assert.match(graph.currentStoryObligationChange.result, /only admissible record/i);
+});
+
 test("[feature-story-graph] carries a grounded causal handoff when no future scene plan exists", () => {
   const graph = buildFeatureStoryGraph({
     projectContinuity: projectFixture(),

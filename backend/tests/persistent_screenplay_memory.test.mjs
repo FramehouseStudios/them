@@ -1820,6 +1820,38 @@ test("[persistent-screenplay-memory] prompt trace exposes the highest-priority d
   });
 });
 
+test("[persistent-screenplay-memory] prompt trace exposes the latest grounded story-obligation change", () => {
+  const trace = buildCreativeMemoryPromptTrace({
+    featureStoryGraph: {
+      currentStoryObligationChange: {
+        id: "obligation_12_1",
+        kind: "promised_payoff",
+        obligation: "June returns the token when Mara gives her the wheel.",
+        status: "paid_off",
+        result: "June returns the token after Mara gives her the wheel.",
+        evidence: "June sets the token in Mara's palm, then takes the wheel.",
+        sourceSceneHeading: "INT. PILOT HOUSE - DAWN",
+        sourceAct: "Act III",
+      },
+    },
+  }, {
+    projectId: "split-ferries",
+    query: "Continue from the accepted page.",
+  });
+
+  assert.equal(trace.applied, true);
+  assert.deepEqual(trace.story_obligation_change, {
+    id: "obligation_12_1",
+    kind: "promised_payoff",
+    obligation: "June returns the token when Mara gives her the wheel.",
+    status: "paid_off",
+    result: "June returns the token after Mara gives her the wheel.",
+    evidence: "June sets the token in Mara's palm, then takes the wheel.",
+    source_scene_heading: "INT. PILOT HOUSE - DAWN",
+    source_act: "Act III",
+  });
+});
+
 test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {
   const memory = {
     ...createEmptyEmotionMemory(),

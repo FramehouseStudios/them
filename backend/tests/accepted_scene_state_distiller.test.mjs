@@ -76,6 +76,80 @@ test("accepted scene state rejects fabricated evidence even when the fact sounds
   assert.deepEqual(result.fields, {});
 });
 
+test("accepted scene state accepts only evidence-grounded changes to known story obligations", () => {
+  const result = validateAcceptedSceneStatePayload({
+    storyObligationChanges: [{
+      obligation: "Mara will destroy both tickets.",
+      status: "paid_off",
+      result: "Mara tears up both tickets.",
+      evidence: "Mara tears up both tickets.",
+    }, {
+      obligation: "Eli will steal the ferry.",
+      status: "paid_off",
+      result: "Eli steals the ferry.",
+      evidence: "Mara tears up both tickets.",
+    }],
+  }, PAGE, {
+    unresolvedSetups: ["Mara will destroy both tickets."],
+  });
+
+  assert.equal(result.acceptedFacts, 1);
+  assert.equal(result.rejectedFacts, 1);
+  assert.deepEqual(result.fields.storyObligationChanges[0], {
+    kind: "setup",
+    obligation: "Mara will destroy both tickets.",
+    status: "paid_off",
+    result: "Mara tears up both tickets.",
+    evidence: "Mara tears up both tickets.",
+  });
+});
+
+test("accepted scene state does not mistake a repeated prop name for a payoff", () => {
+  const page = `INT. PILOT HOUSE - DAWN
+
+The cracked ferry token glints beside the wheel.`;
+  const result = validateAcceptedSceneStatePayload({
+    storyObligationChanges: [{
+      obligation: "June returns the cracked ferry token when Mara gives her the wheel.",
+      status: "paid_off",
+      result: "The cracked ferry token glints beside the wheel.",
+      evidence: "The cracked ferry token glints beside the wheel.",
+    }],
+  }, page, {
+    actThreePayoffPath: ["June returns the cracked ferry token when Mara gives her the wheel."],
+  });
+
+  assert.equal(result.acceptedFacts, 0);
+  assert.equal(result.rejectedFacts, 1);
+  assert.equal(result.fields.storyObligationChanges, undefined);
+});
+
+test("accepted consequences may transform but cannot be mislabeled as paid off", () => {
+  const projectContext = {
+    acceptedScenes: [{ decisions: ["Mara tears up both tickets."] }],
+  };
+  const paid = validateAcceptedSceneStatePayload({
+    storyObligationChanges: [{
+      obligation: "Mara tears up both tickets.",
+      status: "paid_off",
+      result: "Mara tears up both tickets.",
+      evidence: "Mara tears up both tickets.",
+    }],
+  }, PAGE, projectContext);
+  const transformed = validateAcceptedSceneStatePayload({
+    storyObligationChanges: [{
+      obligation: "Mara tears up both tickets.",
+      status: "transformed",
+      result: "Mara tears up both tickets.",
+      evidence: "Mara tears up both tickets.",
+    }],
+  }, PAGE, projectContext);
+
+  assert.equal(paid.acceptedFacts, 0);
+  assert.equal(transformed.acceptedFacts, 1);
+  assert.equal(transformed.fields.storyObligationChanges[0].kind, "accepted_consequence");
+});
+
 test("malformed model output falls back to deterministic accepted-page state", async () => {
   const fallback = buildDeterministicAcceptedSceneState(PAGE);
   const state = await distillAcceptedSceneState({
@@ -112,6 +186,12 @@ test("model output may enrich accepted state without displacing deterministic fa
         revelations: [],
         relationshipChanges: [],
         irreversibleConsequences: [],
+        storyObligationChanges: [{
+          obligation: "Mara will destroy both tickets.",
+          status: "paid_off",
+          result: "Mara tears up both tickets.",
+          evidence: "Mara tears up both tickets.",
+        }],
       },
     }),
   });
@@ -132,8 +212,9 @@ test("fenced JSON responses parse without relaxing schema validation", () => {
 });
 
 test("accepted pages persist immediately and receive non-blocking grounded enrichment", async () => {
+  const persistence = freshPersistence();
   const store = createCreativeMemoryStore({
-    persistence: freshPersistence(),
+    persistence,
     renderAcceptedSceneState: async () => JSON.stringify({
       sceneState: {
         summary: {
@@ -155,6 +236,12 @@ test("accepted pages persist immediately and receive non-blocking grounded enric
         revelations: [],
         relationshipChanges: [],
         irreversibleConsequences: [],
+        storyObligationChanges: [{
+          obligation: "Mara will destroy both tickets.",
+          status: "paid_off",
+          result: "Mara tears up both tickets.",
+          evidence: "Mara tears up both tickets.",
+        }],
       },
     }),
   });
@@ -173,6 +260,7 @@ test("accepted pages persist immediately and receive non-blocking grounded enric
     projectContinuity: {
       act: "Act II",
       featureSequence: "Midpoint choice",
+      unresolvedSetups: ["Mara will destroy both tickets."],
     },
     source: "talk_screenplay_output",
   });
@@ -185,11 +273,22 @@ test("accepted pages persist immediately and receive non-blocking grounded enric
   const project = ledger.projects.find((item) => item.projectId === "split-ferries");
   const scene = project.acceptedScenes[0];
   assert.equal(scene.stateDistillationSource, "model_grounded");
-  assert.equal(scene.stateDistillationVersion, "1");
+  assert.equal(scene.stateDistillationVersion, "2");
   assert.equal(scene.outcome, "Mara locks the gate as Eli runs toward them.");
   assert.equal(scene.nextScenePlan, "Eli remains outside the locked gate.");
   assert.equal(scene.decisions.includes("Mara chooses June."), true);
   assert.equal(scene.stateEvidence.some((item) => item.includes("I choose June.")), true);
+  assert.equal(scene.storyObligationChanges[0].status, "paid_off");
+  assert.match(scene.storyObligationChanges[0].result, /tears up both tickets/i);
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "writer-accepted-state",
+    projectId: "split-ferries",
+    query: "Continue from the accepted ticket scene.",
+  });
+  assert.equal(memory.featureStoryGraph.currentStoryObligationChange.status, "paid_off");
+  assert.equal(memory.featureStoryGraph.openThreads.length, 0);
 });
 
 test("generated draft pages never invoke accepted-state distillation", async () => {

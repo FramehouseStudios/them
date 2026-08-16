@@ -428,9 +428,19 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     typeof featureGraph.currentDueConsequence === "object"
     ? featureGraph.currentDueConsequence
     : {};
+  const graphObligationChange = featureGraph.currentStoryObligationChange &&
+    typeof featureGraph.currentStoryObligationChange === "object"
+    ? featureGraph.currentStoryObligationChange
+    : {};
   const graphThreads = Array.isArray(featureGraph.openThreads)
     ? featureGraph.openThreads
     : [];
+  const paidObligations = new Set(
+    (Array.isArray(featureGraph.storyObligationLedger) ? featureGraph.storyObligationLedger : [])
+      .filter((item) => item?.status === "paid_off")
+      .map((item) => cleanStudioRenderMemoryText(item?.obligation, 220).toLowerCase())
+      .filter(Boolean)
+  );
   const dueGraphThread = graphThreads.find((thread) => thread?.due) || graphThreads[0] || {};
   const graphSetups = graphThreads.map((thread) => thread?.setup).filter(Boolean);
   const graphPayoffs = graphThreads.map((thread) => (
@@ -442,13 +452,15 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     : {};
   const projectNextTurns = cleanStudioRenderMemoryList(project.nextThreeTurns, 3, 180);
   const projectThreads = cleanStudioRenderMemoryList(project.unresolvedStoryThreads, 4, 220);
-  const projectSetups = cleanStudioRenderMemoryList(project.unresolvedSetups, 4, 200);
-  const projectPayoffs = cleanStudioRenderMemoryList(project.actThreePayoffPath, 4, 200);
+  const projectSetups = cleanStudioRenderMemoryList(project.unresolvedSetups, 4, 200)
+    .filter((item) => !paidObligations.has(item.toLowerCase()));
+  const projectPayoffs = cleanStudioRenderMemoryList(project.actThreePayoffPath, 4, 200)
+    .filter((item) => !paidObligations.has(item.toLowerCase()));
   const projectImages = cleanStudioRenderMemoryList(project.imageMotifs, 4, 140);
   const directExecutionBrief = body.screenplayNextSceneExecutionBrief ??
     body.screenplay_next_scene_execution_brief;
   const inferredExecutionBrief = {
-    assignment: graphState.nextScenePlan || graphState.causalHandoff || project.nextScenePlan || projectNextTurns[0] || dueGraphConsequence.fact || "",
+    assignment: graphState.nextScenePlan || graphState.causalHandoff || project.nextScenePlan || projectNextTurns[0] || dueGraphConsequence.fact || graphObligationChange.result || "",
     consequence: dueGraphConsequence.fact || "",
     obstacle: dueGraphThread.setup || projectThreads[0] || projectSetups[0] || "",
     arc: graphState.characterArcState || project.characterArcState || "",
@@ -577,6 +589,9 @@ function studioMomentumMeta({ body = {}, creativeMemory = null } = {}) {
     screenplayAcceptedConsequenceDue: cleanStudioRenderMemoryText(dueGraphConsequence.fact, 220),
     screenplayDueConsequence: Object.keys(dueGraphConsequence).length
       ? dueGraphConsequence
+      : null,
+    screenplayStoryObligationChange: Object.keys(graphObligationChange).length
+      ? graphObligationChange
       : null,
     screenplayActThreePayoffPath: mergeStudioMomentumList(
       body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path,

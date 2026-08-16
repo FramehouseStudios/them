@@ -361,6 +361,65 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
   });
 });
 
+test("[studio-render] sync: latest obligation result becomes first-pass scene state when no consequence is due", async () => {
+  const calls = [];
+  const graphPage = [
+    "INT. FERRY TERMINAL - NIGHT",
+    "",
+    "June takes the cracked ferry token and slips toward the service tunnel.",
+    "",
+    "Mara lets June keep the route card. Eli follows before the patrol reaches the gate.",
+    "",
+    "MARA",
+    "Your route. I'm done choosing for you.",
+    "",
+    "The tunnel door seals behind them, leaving Mara's old control on the other side.",
+  ].join("\n");
+  const result = "June takes the cracked ferry token and slips toward the service tunnel.";
+  const deps = defaultDeps({
+    resolveUserId: () => "user-obligation-graph",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        featureStoryGraph: {
+          storyObligationLedger: [{
+            kind: "accepted_consequence",
+            obligation: "June took the cracked ferry token.",
+            status: "transformed",
+            result,
+            evidence: result,
+          }],
+          currentStoryObligationChange: {
+            kind: "accepted_consequence",
+            obligation: "June took the cracked ferry token.",
+            status: "transformed",
+            result,
+            evidence: result,
+          },
+        },
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return graphPage;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue from the accepted token scene.",
+      screenplay_target: "page",
+      screenplay_requested_pages: 1,
+      screenplay_project_id: "split-ferries",
+    });
+
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].systemPrompt, /scene_assignment: June takes the cracked ferry token and slips toward the service tunnel/i);
+    assert.match(calls[0].systemPrompt, /obligation_transition_contract: June took the cracked ferry token is transformed/i);
+    assert.match(calls[0].systemPrompt, /continue from June takes the cracked ferry token/i);
+  });
+});
+
 test("[studio-render] sync: feature architecture uses the structural feature budget", async () => {
   const deps = defaultDeps({
     renderStudioRealtimeText: async (options) => {
