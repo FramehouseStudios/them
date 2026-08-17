@@ -111,6 +111,19 @@ test("[obligation-correction-guard] consuming another prop does not close the co
   assert.equal(result.ok, true);
 });
 
+test("[obligation-correction-guard] dialogue warning about use is not mistaken for stage action", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: [
+      "Her hand finds the RED FLARE inside her coat.",
+      "ELI",
+      "Light that, everyone on the harbor sees us.",
+      "Mara reseals the flare and pockets it.",
+    ].join("\n"),
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
 test("[obligation-correction-guard] anchor matching tolerates screenplay phrasing", () => {
   assert.equal(
     supportsObligation(

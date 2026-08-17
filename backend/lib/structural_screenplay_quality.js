@@ -480,7 +480,7 @@ function buildStructuralScreenplayRepairMessages({
         "The previous answer failed a deterministic delivery gate. Silently fix only the failed dimensions and return the final answer only.",
         ...taskContract,
         ...(reason === "screenplay_feature_architecture"
-          ? ["Start with the compact complete three-act causal spine. State every required feature turn before adding explanation so the answer remains complete if the token budget ends."]
+          ? ["Start with the compact complete three-act causal spine, then immediately state a literal 'Next three scenes' heading with three playable turns. Put both before any expansion so the answer remains complete if the token budget ends."]
           : []),
         "Preserve accepted canon and explicit corrections. KEEP_OPEN obligations remain unresolved; RETIRE obligations cannot return as props, beats, reveals, setups, or payoffs.",
         "Never invent missing project facts; label any creative assumption as a proposed story move.",

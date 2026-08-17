@@ -82,6 +82,13 @@ const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
   "currentTactic",
   "nextEmotionalTurn",
 ]);
+const TRUST_CONTROL_ARC_PATTERN = /\b(?:trust|control|depend|dependence|dependent|surrender|relinquish|share(?:d)? responsibility)\b/i;
+const VISIBLE_SHARED_CONTROL_PATTERNS = Object.freeze([
+  /\b(?:gives?|hands?|slides?|sets?|passes?)\b.{0,70}\b(?:radio|key|wheel|choice|control|evidence|record|phone|map|weapon|file|letter|token)\b/i,
+  /\b(?:lets? go|releases?|lowers? (?:her|his|their) hand|steps? back)\b/i,
+  /\b(?:could|can)\b.{0,35}\b(?:stop|take|grab|refuse|order)\b.{0,20}\b(?:doesn't|does not|won't|will not)\b/i,
+  /\b(?:follows?|allows?|accepts?|entrusts?|waits?|listens?)\b/i,
+]);
 const MOMENTUM_RESCUE_TRIGGER_PATTERNS = Object.freeze([
   /\b(stuck|blocked|writer'?s block|writers block|creative block|out of ideas|need ideas|lost)\b/i,
   /\b(what happens next|what should happen next|next beat|next scene|where do i go|where to go)\b/i,
@@ -1220,10 +1227,16 @@ function evaluateFeatureActObligationCoverage({
     featureContext?.characterArcState ?? featureContext?.character_arc_state
   );
   const characterArcTokens = qualityTokenSet(characterArcPressure);
+  let matchedCharacterArcTokens = [];
+  let visibleSharedControlSignals = 0;
   if (characterArcTokens.size > 0) {
-    const matchedCharacterArcTokens = [...characterArcTokens].filter((token) => textTokens.has(token));
+    matchedCharacterArcTokens = [...characterArcTokens].filter((token) => textTokens.has(token));
     const minimumCharacterArcMatches = Math.min(2, characterArcTokens.size);
-    if (matchedCharacterArcTokens.length < minimumCharacterArcMatches) {
+    visibleSharedControlSignals = TRUST_CONTROL_ARC_PATTERN.test(characterArcPressure)
+      ? VISIBLE_SHARED_CONTROL_PATTERNS.filter((pattern) => pattern.test(text)).length
+      : 0;
+    const dramatizesArcPressure = visibleSharedControlSignals >= 2 && Number(counts.specificAction || 0) >= 2;
+    if (matchedCharacterArcTokens.length < minimumCharacterArcMatches && !dramatizesArcPressure) {
       return {
         ok: false,
         reason: "missing_character_arc_pressure",
@@ -1232,6 +1245,7 @@ function evaluateFeatureActObligationCoverage({
         matchedCharacterArcTokens,
         characterArcTokenCount: characterArcTokens.size,
         minimumCharacterArcMatches,
+        visibleSharedControlSignals,
         obligationTokenCount: obligationTokens.size,
         minimumMatches,
       };
@@ -1257,6 +1271,8 @@ function evaluateFeatureActObligationCoverage({
     reason: "ok",
     featureActKind,
     matchedTokens,
+    matchedCharacterArcTokens,
+    visibleSharedControlSignals,
     obligationTokenCount: obligationTokens.size,
   };
 }

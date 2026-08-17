@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  classifyScreenplayLines,
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
   isLikelyOutlineOrCraftArtifactLine,
@@ -987,6 +988,37 @@ test("[screenplay-page-quality] rejects feature pages that hit plot pressure but
   assert.equal(quality.ok, false);
   assert.equal(quality.reason, "missing_character_arc_pressure");
   assert.equal(quality.featureObligation.characterArcTokenCount > 0, true);
+});
+
+test("[screenplay-page-quality] accepts trust arc pressure dramatized without explanatory dialogue", () => {
+  const text = [
+    "INT. EMPTY FERRY TERMINAL - NIGHT",
+    "",
+    "Mara sets her radio between herself and Eli.",
+    "",
+    "ELI",
+    "You want the names, give me the route.",
+    "",
+    "Mara catches his wrist when he reaches for the radio.",
+    "",
+    "Then Mara lets go.",
+    "",
+    "Eli takes the radio and heads for the harbor doors.",
+    "",
+    "Mara follows him into the blackout.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text,
+    lines: classifyScreenplayLines(text),
+    featureContext: {
+      act: "Act II",
+      featureObligation: "Mara gives Eli the radio and follows him toward the harbor blackout.",
+      characterArcState: "Mara controls every move and treats dependence as danger.",
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.featureObligation.visibleSharedControlSignals >= 2, true);
 });
 
 test("[screenplay-page-quality] rejects pages that ignore character bible arc memory", () => {

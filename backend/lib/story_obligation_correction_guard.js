@@ -13,6 +13,7 @@ const SAFE_RETIREMENT_FRAME = /\b(?:retired|removed|discarded|off limits|out of 
 const CLOSED_OBLIGATION_FRAME = /\b(?:already\s+)?(?:pays?\s+off|paid\s+off|resolves?|resolved|closes?|closed|completes?|completed|fulfills?|fulfilled|settles?|settled|finishes?|finished|discharges?|discharged|wraps?\s+up|wrapped\s+up|no\s+longer\s+open|ends?\s+the\s+(?:setup|thread|promise))\b/i;
 const CONSUMED_OPEN_OBLIGATION_ACTION = "use|uses|used|spend|spends|spent|ignite|ignites|ignited|light|lights|lit|fire|fires|fired|burn|burns|burned|launch|launches|launched|detonate|detonates|detonated|destroy|destroys|destroyed";
 const SAFE_OPEN_FRAME = /\b(?:keep|keeps|kept|leave|leaves|left|remain|remains|still)\b.{0,50}\b(?:open|unresolved|unpaid|unspent|unused|active|alive)\b|\b(?:not|isn't|is not|hasn't|has not|never|without|do not|don't|must not)\b.{0,35}\b(?:use|used|spend|spent|ignite|ignited|light|lit|fire|fired|burn|burned|launch|launched|detonate|detonated|destroy|destroyed|pay\s+off|paid\s+off|resolve|resolved|close|closed|complete|completed|fulfill|fulfilled|settle|settled|finish|finished)\b/i;
+const NON_CONSUMPTION_SPEECH_FRAME = /\b(?:if|unless|should|could|would|might|can|cannot|can't|don't|do not|never)\b.{0,45}\b(?:use|spend|ignite|light|fire|burn|launch|detonate|destroy)\b|\b(?:use|spend|ignite|light|fire|burn|launch|detonate|destroy)\s+(?:that|it)\s*[,?]/i;
 
 function clean(value = "", maxChars = 240) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -160,7 +161,8 @@ function evaluateStoryObligationCorrectionAdherence({
     } else {
       const closed = matching.find((window) => (
         (CLOSED_OBLIGATION_FRAME.test(window) || consumesOpenObligation(window, correction.obligation)) &&
-        !SAFE_OPEN_FRAME.test(window)
+        !SAFE_OPEN_FRAME.test(window) &&
+        !NON_CONSUMPTION_SPEECH_FRAME.test(window)
       ));
       if (closed) {
         violations.push({

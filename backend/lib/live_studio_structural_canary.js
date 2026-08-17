@@ -126,7 +126,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "Obey writer obligation corrections exactly: keep corrected-open setups unresolved and omit retired obligations entirely.",
       "Make Act I force Act II, make the midpoint and crisis force Act III, and make the climax prove character change through behavior.",
       "Track the named setup into a specific earned payoff and end with the next three playable scenes.",
-      "Delivery order is strict: first state a compact complete Act I / Act II / Act III causal spine with every required turn; only then add useful detail.",
+      "Delivery order is strict: first state a compact complete Act I / Act II / Act III causal spine, then a literal 'Next three scenes' list, and only then any useful expansion.",
     ].join("\n"),
     transcript: [
       "PROJECT: Split Ferries",

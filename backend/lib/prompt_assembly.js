@@ -788,7 +788,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
     lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
     lines.push("  - Connect each major turn with because/therefore causality and show how the protagonist's old tactic fails until changed behavior wins the climax.");
-    lines.push("  - After the complete spine, end with the next three playable scenes from the current story state. Add detail only when every required turn is already present.");
+    lines.push("  - Immediately after the complete spine, add a literal 'Next three scenes' heading and list three playable scene turns from the current story state. Only then add optional detail.");
   }
   if (intent === "momentum_rescue") {
     lines.push("story_momentum_playbook:");

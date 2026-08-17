@@ -1337,7 +1337,7 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("feature_architecture_delivery_order:"));
   assert.ok(out.includes("First deliver a compact complete causal spine covering Act I, Act II, and Act III"));
   assert.ok(out.includes("catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image"));
-  assert.ok(out.includes("After the complete spine, end with the next three playable scenes"));
+  assert.ok(out.includes("Immediately after the complete spine, add a literal 'Next three scenes' heading"));
   assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });
 
