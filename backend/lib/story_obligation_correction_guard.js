@@ -10,8 +10,9 @@ const ANCHOR_STOP_WORDS = new Set([
 ]);
 
 const SAFE_RETIREMENT_FRAME = /\b(?:retired|removed|discarded|off limits|out of canon)\b|\b(?:do not|don't|never|must not|cannot|can't|avoid|omit|without)\b.{0,80}\b(?:use|return|restore|resurrect|reintroduce|recover|find|open|include|mention)\b/i;
-const CLOSED_OBLIGATION_FRAME = /\b(?:already\s+)?(?:paid\s+off|resolved|closed|completed|fulfilled|settled|finished|discharged|wrapped\s+up|no\s+longer\s+open|ends?\s+the\s+(?:setup|thread|promise))\b/i;
-const SAFE_OPEN_FRAME = /\b(?:keep|keeps|kept|leave|leaves|left|remain|remains|still)\b.{0,50}\b(?:open|unresolved|unpaid|unspent|active|alive)\b|\b(?:not|isn't|is not|hasn't|has not)\b.{0,35}\b(?:paid\s+off|resolved|closed|completed|fulfilled|settled|finished)\b/i;
+const CLOSED_OBLIGATION_FRAME = /\b(?:already\s+)?(?:pays?\s+off|paid\s+off|resolves?|resolved|closes?|closed|completes?|completed|fulfills?|fulfilled|settles?|settled|finishes?|finished|discharges?|discharged|wraps?\s+up|wrapped\s+up|no\s+longer\s+open|ends?\s+the\s+(?:setup|thread|promise))\b/i;
+const CONSUMED_OPEN_OBLIGATION_ACTION = "use|uses|used|spend|spends|spent|ignite|ignites|ignited|light|lights|lit|fire|fires|fired|burn|burns|burned|launch|launches|launched|detonate|detonates|detonated|destroy|destroys|destroyed";
+const SAFE_OPEN_FRAME = /\b(?:keep|keeps|kept|leave|leaves|left|remain|remains|still)\b.{0,50}\b(?:open|unresolved|unpaid|unspent|unused|active|alive)\b|\b(?:not|isn't|is not|hasn't|has not|never|without|do not|don't|must not)\b.{0,35}\b(?:use|used|spend|spent|ignite|ignited|light|lit|fire|fired|burn|burned|launch|launched|detonate|detonated|destroy|destroyed|pay\s+off|paid\s+off|resolve|resolved|close|closed|complete|completed|fulfill|fulfilled|settle|settled|finish|finished)\b/i;
 
 function clean(value = "", maxChars = 240) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -76,6 +77,27 @@ function anchorTokens(value = "", maxTokens = 10) {
   )].slice(0, Math.max(1, Number(maxTokens || 10)));
 }
 
+function actionAnchorTokens(value = "") {
+  return [...new Set(
+    (String(value || "").match(/[A-Za-z0-9']+/g) || [])
+      .filter((raw) => !/^[A-Z][a-z]+(?:'s)?$/.test(raw))
+      .map((token) => token.toLowerCase().replace(/'s$/, ""))
+      .filter((token) => token.length >= 4 && !ANCHOR_STOP_WORDS.has(token))
+  )].slice(0, 8);
+}
+
+function consumesOpenObligation(windowText = "", obligation = "") {
+  const anchors = actionAnchorTokens(obligation);
+  if (!anchors.length) return false;
+  const anchorPattern = anchors.join("|");
+  const directFrame = new RegExp(
+    `\\b(?:${CONSUMED_OPEN_OBLIGATION_ACTION})\\b(?:\\s+[^\\s.!?]+){0,4}\\s+\\b(?:${anchorPattern})\\b|` +
+    `\\b(?:${anchorPattern})\\b(?:\\s+[^\\s.!?]+){0,8}\\s+\\b(?:${CONSUMED_OPEN_OBLIGATION_ACTION})\\b`,
+    "i"
+  );
+  return directFrame.test(String(windowText || ""));
+}
+
 function supportsObligation(windowText = "", obligation = "") {
   const anchors = anchorTokens(obligation);
   if (!anchors.length) return false;
@@ -137,7 +159,8 @@ function evaluateStoryObligationCorrectionAdherence({
       }
     } else {
       const closed = matching.find((window) => (
-        CLOSED_OBLIGATION_FRAME.test(window) && !SAFE_OPEN_FRAME.test(window)
+        (CLOSED_OBLIGATION_FRAME.test(window) || consumesOpenObligation(window, correction.obligation)) &&
+        !SAFE_OPEN_FRAME.test(window)
       ));
       if (closed) {
         violations.push({

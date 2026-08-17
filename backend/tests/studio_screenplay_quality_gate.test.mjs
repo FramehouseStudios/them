@@ -160,6 +160,33 @@ test("[studio-quality] weak structural analysis gets one canon-aware repair", as
   assert.match(calls[0].transcript, /CANON_CORRECTION: mother -> Eli's sister/);
 });
 
+test("[studio-quality] feature architecture repair keeps the full bounded feature budget", async () => {
+  const calls = [];
+  const validFeature = [
+    "Act I: Mara wants the ferry ledger, but her false belief makes control her only tactic. The catalyst exposes the erased names, and her commitment burns the ledger because she thinks destruction protects Eli. Therefore his memorized page becomes the only path and the cracked token is planted with June.",
+    "Act II: Mara controls Eli until the midpoint reversal makes him withhold the names, which forces her to depend on him. Her old tactic drives June away and creates the all is lost crisis, so Mara cannot enter Act III without changing behavior.",
+    "Act III: Mara needs trust. She gives Eli the public choice and June the wheel. In the climax, June returns the token as the setup payoff and proof of changed behavior. The final image puts Mara in the passenger seat at dawn.",
+    "Next three scenes: Eli refuses the demand. June leaves with the token. Mara follows their plan instead of issuing orders.",
+  ].join("\n\n");
+  const result = await enforceStudioStructuralAnalysisQuality({
+    reply: "Act I has setup. Act II has conflict.",
+    transcript: "Architect the complete feature from Act I through Act III.",
+    modelReason: "screenplay_feature_architecture",
+    taskIntent: "finish_feature",
+    maxTokens: 2_600,
+    renderRepair: async (request) => {
+      calls.push(request);
+      return validFeature;
+    },
+  });
+
+  assert.equal(result.repaired, true);
+  assert.equal(result.structuralQuality.passed, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].maxTokens, 2_600);
+  assert.match(calls[0].systemPrompt, /compact complete three-act causal spine/i);
+});
+
 test("[studio-quality] structurally fluent but project-generic analysis gets one graph-grounded repair", async () => {
   const calls = [];
   const grounded = [

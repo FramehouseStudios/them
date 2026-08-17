@@ -528,7 +528,7 @@ test("[studio-render] sync: feature architecture uses the structural feature bud
     assert.equal(r.body.structural_quality.model_reason, "screenplay_feature_architecture");
     assert.equal(deps._calls.renderInvocations.length, 1);
     assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
-    assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_000);
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 2_600);
   });
 });
 

@@ -79,6 +79,19 @@ test("[live-studio-canary] correction score requires the open setup and omits re
   );
   assert.equal(prematurelyClosed.passed, false);
   assert.equal(prematurelyClosed.checks.deterministicGuard, false);
+
+  const playablePressure = scoreWriterCorrectionAdherence(
+    "Mara finds the red emergency flare in her coat. She pushes it back beneath the lining and gives Eli the coat.",
+    STORY_OBLIGATION_CORRECTIONS,
+  );
+  assert.equal(playablePressure.passed, true);
+
+  const consumed = scoreWriterCorrectionAdherence(
+    "Mara pulls the red emergency flare from her coat and ignites it in the terminal.",
+    STORY_OBLIGATION_CORRECTIONS,
+  );
+  assert.equal(consumed.passed, false);
+  assert.equal(consumed.checks.deterministicGuard, false);
 });
 
 test("[live-studio-canary] continuation release score requires playable pages and correction adherence", () => {

@@ -75,6 +75,42 @@ test("[obligation-correction-guard] keep-open obligation may be pressured withou
   assert.equal(result.correctionsChecked, 2);
 });
 
+test("[obligation-correction-guard] screenplay action may pressure a setup without explanatory prose", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: [
+      "Mara finds the red emergency flare in her coat.",
+      "She pushes it back beneath the lining and gives Eli the coat.",
+    ].join("\n"),
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[obligation-correction-guard] using a corrected-open setup fails even without closure language", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: "Mara pulls the red emergency flare from her coat and ignites it in the terminal.",
+    corrections,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.violations[0].type, "open_obligation_closed");
+});
+
+test("[obligation-correction-guard] explicit non-use remains correction-safe", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: "Mara grips the red emergency flare without igniting it, then returns it to her coat.",
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[obligation-correction-guard] consuming another prop does not close the corrected setup", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: "Mara burns the ferry ledger while the red emergency flare presses against her coat.",
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
 test("[obligation-correction-guard] anchor matching tolerates screenplay phrasing", () => {
   assert.equal(
     supportsObligation(

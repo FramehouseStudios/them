@@ -685,7 +685,7 @@ function studioStructuralAnalysisPlan({ body = {}, transcript = "", shouldApplyS
   return {
     task,
     modelReason,
-    maxTokens: modelReason === "screenplay_feature_architecture" ? 1_000 : 700,
+    maxTokens: modelReason === "screenplay_feature_architecture" ? 2_600 : 700,
   };
 }
 

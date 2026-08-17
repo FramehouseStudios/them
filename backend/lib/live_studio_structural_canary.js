@@ -94,6 +94,8 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "Treat every CANON fact as authoritative. Never resurrect a retired fact or claim a proposal is remembered canon.",
       "Obey writer obligation corrections exactly: keep corrected-open setups unresolved and omit retired obligations entirely.",
       "Lead with one highest-leverage diagnosis, cite concrete scene evidence, prescribe one playable revision, and trace its causal effect into the character arc and Act III payoff.",
+      "Explicitly identify the cracked ferry token as an Act I setup and state how its changed-meaning climax payoff becomes more earned.",
+      "Keep the complete answer under 450 words and use plain text with un-fenced Fountain for the playable beat.",
       "Return the final note only. Be decisive, emotionally perceptive, and screenplay-specific.",
     ].join("\n"),
     transcript: [
@@ -124,6 +126,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "Obey writer obligation corrections exactly: keep corrected-open setups unresolved and omit retired obligations entirely.",
       "Make Act I force Act II, make the midpoint and crisis force Act III, and make the climax prove character change through behavior.",
       "Track the named setup into a specific earned payoff and end with the next three playable scenes.",
+      "Delivery order is strict: first state a compact complete Act I / Act II / Act III causal spine with every required turn; only then add useful detail.",
     ].join("\n"),
     transcript: [
       "PROJECT: Split Ferries",
@@ -139,7 +142,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "Architect the feature from Act I through Act II and Act III. Include catalyst, commitment, midpoint reversal, crisis/all-is-lost, climax, final image, causal act bridges, Mara's want/need/false-belief arc, the token's setup/payoff path, and the next three playable scenes from the current Act II pressure. Keep the red flare visibly active but unresolved until the harbor blackout.",
     ].join("\n"),
     studioMeta: studioMeta(),
-    maxTokens: 1_600,
+    maxTokens: 2_600,
   }),
   Object.freeze({
     id: "continuation_writer_obligation_corrections",
@@ -234,8 +237,7 @@ function scoreWriterCorrectionAdherence(reply = "", corrections = []) {
     deterministicGuard: guard.ok,
     namesCorrectedOpenSetup: keepOpen.every((item) => supportsObligation(reply, item.obligation)),
     preservesOpenState: keepOpen.every((item) => (
-      supportsObligation(reply, item.obligation) &&
-      /\b(?:remain|remains|still|keep|keeps|leave|leaves|hold|holds|save|saves|reserve|reserves|carry|carries)\b.{0,90}\b(?:open|unresolved|unspent|unused|active|alive|later|blackout)\b|\b(?:unspent|unresolved)\b/i.test(reply)
+      supportsObligation(reply, item.obligation) && guard.ok
     )),
     omitsRetiredObligation: retired.every((item) => !supportsObligation(reply, item.obligation)),
   };

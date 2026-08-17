@@ -599,11 +599,12 @@ async function enforceStudioStructuralAnalysisQuality({
 
   const startedAt = Date.now();
   try {
+    const repairTokenCap = modelReason === "screenplay_feature_architecture" ? 2_600 : 1_400;
     const candidateReply = String(await renderRepair({
       systemPrompt: repairMessages[0].content,
       transcript: repairMessages[1].content,
       modelTier: "structural_repair",
-      maxTokens: Math.max(700, Math.min(1_400, Number(maxTokens || 1_000))),
+      maxTokens: Math.max(700, Math.min(repairTokenCap, Number(maxTokens || 1_000))),
       repairAttempt: true,
     }) || "").trim();
     const candidateQuality = evaluateStructuralScreenplayReply({

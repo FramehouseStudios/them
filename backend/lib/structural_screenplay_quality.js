@@ -192,6 +192,7 @@ function sceneDoctorDirectives(reason) {
 
 function featureArchitectureDirectives(reason) {
   const common = [
+    "Lead with one compact complete Act I / Act II / Act III causal spine before expanding any act; do not let Act I detail consume the answer.",
     "Build one causal feature plan, not a menu of unrelated frameworks or optional ideas.",
     "Use the supplied characters, canon, setups, act state, and ending pressure instead of generic beat-sheet language.",
   ];
@@ -205,7 +206,7 @@ function featureArchitectureDirectives(reason) {
     missing_scene_forward_plan: "End with the next sequence or three playable scene turns so the writer can continue immediately.",
     missing_specific_story_grounding: "Rebuild the architecture from this project's accepted state, character pressure, and due setup/payoff instead of generic beat labels.",
   }[reason];
-  return [specific, ...common].filter(Boolean).slice(0, 3);
+  return [specific, ...common].filter(Boolean).slice(0, 4);
 }
 
 function evaluateSceneDoctor(text, storyContext = null) {
@@ -478,6 +479,9 @@ function buildStructuralScreenplayRepairMessages({
         "You are Clementine's bounded structural screenplay repair pass.",
         "The previous answer failed a deterministic delivery gate. Silently fix only the failed dimensions and return the final answer only.",
         ...taskContract,
+        ...(reason === "screenplay_feature_architecture"
+          ? ["Start with the compact complete three-act causal spine. State every required feature turn before adding explanation so the answer remains complete if the token budget ends."]
+          : []),
         "Preserve accepted canon and explicit corrections. KEEP_OPEN obligations remain unresolved; RETIRE obligations cannot return as props, beats, reveals, setups, or payoffs.",
         "Never invent missing project facts; label any creative assumption as a proposed story move.",
         "Be decisive, emotionally perceptive, screenplay-fluent, and immediately usable. No scoring, internal labels, apology, or process narration.",

@@ -783,6 +783,13 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Act conversion: Act I burns a safe exit; Act II makes the false tactic costlier; Act III pays off setup through changed behavior and final-image pressure.");
     lines.push("  - Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk. Avoid cinematic vapor: every beat needs concrete behavior or consequence.");
   }
+  if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
+    lines.push("feature_architecture_delivery_order:");
+    lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
+    lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
+    lines.push("  - Connect each major turn with because/therefore causality and show how the protagonist's old tactic fails until changed behavior wins the climax.");
+    lines.push("  - After the complete spine, end with the next three playable scenes from the current story state. Add detail only when every required turn is already present.");
+  }
   if (intent === "momentum_rescue") {
     lines.push("story_momentum_playbook:");
     for (const item of STORY_MOMENTUM_PLAYBOOK) {
@@ -836,7 +843,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "scene_doctor":
       return "Diagnose with surgical brevity: what works, what is not landing, the highest-leverage fix, and one concrete page-level move.";
     case "outline_structure":
-      return "Shape beats by cause and effect. Track act pressure, reversals, setups, payoffs, and the emotional consequence of each turn.";
+      return "Shape beats by cause and effect. Lead with a compact complete Act I / Act II / Act III causal spine, then track act pressure, reversals, setups, payoffs, and the emotional consequence of each turn.";
     case "character_development":
       return "Translate psychology into visible behavior: want, need, contradiction, tactics, silence, and the choice the audience can watch.";
     case "emotional_continuity":
@@ -844,7 +851,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence and due obligation; protect unresolved promises, setups/payoffs, character need, next three turns, Act III payoff path, and final image. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note. For planning, give the act engine and immediate page assignment.";
+      return "Operate at feature scale. Locate the current act/sequence and due obligation; protect unresolved promises, setups/payoffs, character need, next three turns, Act III payoff path, and final image. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note. For planning, give the complete compact three-act causal spine before expansion, then the immediate page assignment.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Diagnose the stall using story mechanics: want, obstacle, tactic, consequence, reversal, act pressure, and exit image. Give one decisive next move, optionally two sharp alternate forks, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:

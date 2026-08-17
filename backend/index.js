@@ -82,6 +82,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
+import { normalizeStudioTextOutput } from "./lib/studio_text_output.js";
 import {
   classifyScreenplayLines,
   evaluateMomentumRescueQuality,
@@ -20296,7 +20297,7 @@ async function renderStudioRealtimeText({
     payload = null;
   }
 
-  const reply = normalizeSnippet(
+  const reply = normalizeStudioTextOutput(
     payload?.choices?.[0]?.message?.content ||
     payload?.output_text ||
     "",
@@ -20439,7 +20440,7 @@ async function streamStudioRealtimeText({
     reader.releaseLock();
   }
 
-  const reply = normalizeSnippet(fullReply, 32_000);
+  const reply = normalizeStudioTextOutput(fullReply, 32_000);
   if (!reply) {
     const err = new Error("Studio render stream response was empty.");
     err.stage = "studio_render";
@@ -25390,7 +25391,7 @@ function computeChatMaxTokensForTurn({
   }
   const structuralVisibleTokenFloor = tier === "structural"
     ? modelReason === "screenplay_feature_architecture"
-      ? 1_000
+      ? 2_400
       : modelReason === "screenplay_scene_doctor"
         ? 700
         : modelReason === "screenplay_momentum_rescue"
@@ -25442,7 +25443,7 @@ function computeChatMaxTokensForTurn({
   const hardCap = screenplayPageWrite
     ? Math.max(1200, Math.min(3600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
     : tier === "structural"
-      ? 1_200
+      ? modelReason === "screenplay_feature_architecture" ? 2_600 : 1_200
       : 420;
   const minimum = screenplayPageWrite
     ? Math.min(900, screenplayFloor || 900)

@@ -846,10 +846,11 @@ function createTalkHandler(deps) {
 
     const startedAt = Date.now();
     try {
+      const repairTokenCap = modelReason === "screenplay_feature_architecture" ? 2_600 : 1_400;
       const repairResult = await chatSupplier.chat({
         model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
         temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.3))),
-        maxTokens: Math.max(700, Math.min(1_400, Number(chatMaxTokens || 1_000))),
+        maxTokens: Math.max(700, Math.min(repairTokenCap, Number(chatMaxTokens || 1_000))),
         messages,
         apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "responses"),
         reasoningEffort: String(chatModelPlan?.repairReasoningEffort || chatModelPlan?.reasoningEffort || "medium"),

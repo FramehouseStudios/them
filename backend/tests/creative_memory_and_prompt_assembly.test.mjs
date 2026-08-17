@@ -1334,6 +1334,10 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("feature_completion_protocol:"));
   assert.ok(out.includes("current sequence, next three turns, Act III payoff path"));
   assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
+  assert.ok(out.includes("feature_architecture_delivery_order:"));
+  assert.ok(out.includes("First deliver a compact complete causal spine covering Act I, Act II, and Act III"));
+  assert.ok(out.includes("catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image"));
+  assert.ok(out.includes("After the complete spine, end with the next three playable scenes"));
   assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });
 
@@ -1363,6 +1367,8 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(finishFeature.includes("Act III payoff path"));
   assert.ok(finishFeature.includes("unresolved promises"));
   assert.ok(finishFeature.includes("When memory contains a next-turn runway, turn the first remembered turn into playable behavior"));
+  assert.ok(finishFeature.includes("feature_architecture_delivery_order:"));
+  assert.ok(finishFeature.includes("complete compact three-act causal spine before expansion"));
 
   const sceneDoctor = buildModelPrompt({
     persona: "PERSONA",

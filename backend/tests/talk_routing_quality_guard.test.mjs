@@ -243,7 +243,8 @@ const STRUCTURAL_ANALYSIS_CASES = [
     transcript: "Outline the feature film from Act I through Act III and make the midpoint cause the final choice.",
     reason: "screenplay_feature_architecture",
     intent: "finish_feature",
-    minTokens: 1_000,
+    minTokens: 2_400,
+    maxTokens: 2_600,
   },
   {
     name: "writer-block rescue",
@@ -276,7 +277,7 @@ for (const item of STRUCTURAL_ANALYSIS_CASES) {
     assert.equal(modelPlan.reasoningEffort, "low");
     assert.equal(modelPlan.loadShed, false);
     assert.ok(maxTokens >= item.minTokens, `${item.name} budget was ${maxTokens}`);
-    assert.ok(maxTokens <= 1_200, `${item.name} budget exceeded the bounded cap`);
+    assert.ok(maxTokens <= (item.maxTokens || 1_200), `${item.name} budget exceeded the bounded cap`);
   });
 }
 
