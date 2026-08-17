@@ -54,6 +54,65 @@ test("[structural-quality] accepts prioritized, playable Scene Doctor work", () 
   assert.equal(quality.score, 1);
 });
 
+test("[structural-quality] rejects polished Scene Doctor advice that resurrects a retired obligation", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_scene_doctor",
+    storyContext: {
+      screenplayFeatureStoryGraph: {
+        storyObligationCorrections: [{
+          obligation: "The bronze locker key opens the customs evidence vault.",
+          action: "retire",
+          correctedAt: 200,
+        }],
+      },
+    },
+    reply: [
+      "The core problem is that Mara's objective never meets real opposition, so the scene repeats one tactic without a turn.",
+      "The highest-leverage fix is to make Eli withhold the reel until Mara risks their relationship. That adds obstacle, leverage, subtext, and a consequence that launches the next scene and her Act II arc.",
+      "A playable version on the page:",
+      "INT. EDIT BAY - NIGHT",
+      "Mara takes the bronze locker key and opens the customs evidence vault.",
+      "ELI",
+      "Tell them what you cut, or this stays with me.",
+      "End when Mara opens the live microphone; the choice makes the public hearing inevitable.",
+    ].join("\n"),
+  });
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "writer_story_obligation_violation");
+  assert.equal(quality.dimensions.writerCorrectionAdherence, false);
+  assert.equal(
+    quality.storyObligationCorrectionAdherence.violations[0].type,
+    "retired_obligation_reintroduced",
+  );
+});
+
+test("[structural-quality] keeps corrected-open setups unresolved in Scene Doctor advice", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_scene_doctor",
+    storyContext: {
+      screenplayFeatureStoryGraph: {
+        storyObligationCorrections: [{
+          obligation: "The red emergency flare in Mara's coat remains unspent until the harbor blackout.",
+          action: "keep_open",
+          correctedAt: 200,
+        }],
+      },
+    },
+    reply: [
+      "The core problem is that Mara's objective never meets real opposition, so the scene repeats one tactic without a turn.",
+      "The highest-leverage fix is to make Eli withhold the reel until Mara risks their relationship. That adds obstacle, leverage, subtext, and a consequence that launches the next scene and her Act II arc.",
+      "A playable version on the page:",
+      "INT. EDIT BAY - NIGHT",
+      "Mara feels the red emergency flare in her coat, but it remains unspent and unresolved.",
+      "ELI",
+      "Tell them what you cut, or this stays with me.",
+      "End when Mara opens the live microphone; the choice makes the public hearing inevitable.",
+    ].join("\n"),
+  });
+  assert.equal(quality.ok, true);
+  assert.equal(quality.dimensions.writerCorrectionAdherence, true);
+});
+
 test("[structural-quality] rejects a beat list that does not architect all three acts", () => {
   const quality = evaluateStructuralScreenplayReply({
     modelReason: "screenplay_feature_architecture",
@@ -179,6 +238,11 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
           status: "advanced",
           result: "Eli now controls the missing reel and Mara must earn access.",
         },
+        storyObligationCorrections: [{
+          obligation: "The bronze locker key opens the customs evidence vault.",
+          action: "retire",
+          correctedAt: 200,
+        }],
         bindingFacts: [{ fact: "Mara burned the sealed affidavit." }],
         openThreads: [{ due: true, setup: "the missing reel", promisedPayoff: "Eli plays it publicly" }],
       },
@@ -196,6 +260,7 @@ test("[structural-quality] repair prompt preserves canon and asks only for faile
   assert.match(messages[1].content, /GRAPH_DUE_CONSEQUENCE: Mara burned the sealed affidavit beyond recovery/);
   assert.match(messages[1].content, /GRAPH_STORY_OBLIGATION_CHANGE: advanced \| The missing reel proves who altered the testimony\. \| Eli now controls/);
   assert.match(messages[1].content, /GRAPH_DUE_PROMISE: the missing reel -> Eli plays it publicly/);
+  assert.match(messages[1].content, /WRITER_OBLIGATION_CORRECTION: RETIRE \| The bronze locker key opens the customs evidence vault/);
 });
 
 test("[structural-quality] accepts only a meaningfully stronger repair candidate", () => {

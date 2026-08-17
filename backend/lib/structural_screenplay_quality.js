@@ -1,3 +1,8 @@
+import {
+  evaluateStoryObligationCorrectionAdherence,
+  storyObligationCorrectionsFromContext,
+} from "./story_obligation_correction_guard.js";
+
 const STRUCTURAL_REASONS = new Set([
   "screenplay_scene_doctor",
   "screenplay_feature_architecture",
@@ -311,9 +316,33 @@ function evaluateStructuralScreenplayReply({ reply = "", modelReason = "", story
     return result({ applicable: false, reason: "not_structural_analysis", dimensions: {} });
   }
   const text = normalizeText(reply);
-  return reason === "screenplay_scene_doctor"
+  const structural = reason === "screenplay_scene_doctor"
     ? evaluateSceneDoctor(text, storyContext)
     : evaluateFeatureArchitecture(text, storyContext);
+  const correctionAdherence = evaluateStoryObligationCorrectionAdherence({
+    text,
+    storyContext,
+  });
+  if (!correctionAdherence.applicable) return structural;
+  const merged = result({
+    reason: correctionAdherence.ok
+      ? structural.reason
+      : correctionAdherence.reason,
+    dimensions: {
+      ...structural.dimensions,
+      writerCorrectionAdherence: correctionAdherence.ok,
+    },
+    directives: correctionAdherence.ok
+      ? structural.repairDirectives
+      : [
+          ...correctionAdherence.repairDirectives,
+          ...structural.repairDirectives,
+        ].slice(0, 4),
+  });
+  return {
+    ...merged,
+    storyObligationCorrectionAdherence: correctionAdherence,
+  };
 }
 
 function structuralScreenplayModelReasonForTask(task = null) {
@@ -383,9 +412,14 @@ function buildStructuralScreenplayRepairMessages({
     typeof featureGraph.currentStoryObligationChange === "object"
     ? featureGraph.currentStoryObligationChange
     : {};
+  const obligationCorrections = storyObligationCorrectionsFromContext(meta);
   const directDueConsequence = meta.screenplayDueConsequence ??
     meta.screenplay_due_consequence ?? {};
   const context = [
+    ...obligationCorrections.map((item) => [
+      "WRITER_OBLIGATION_CORRECTION",
+      `${item.action === "retire" ? "RETIRE" : "KEEP_OPEN"} | ${cleanContextValue(item.obligation, 220)}`,
+    ]),
     ["GRAPH_CHANGED_STATE", cleanContextValue(graphState.lastAcceptedOutcome ?? graphState.last_accepted_outcome, 220)],
     ["GRAPH_HANDOFF", cleanContextValue(graphState.nextScenePlan ?? graphState.next_scene_plan, 220)],
     ["GRAPH_DUE_CONSEQUENCE", cleanContextValue(
@@ -444,7 +478,8 @@ function buildStructuralScreenplayRepairMessages({
         "You are Clementine's bounded structural screenplay repair pass.",
         "The previous answer failed a deterministic delivery gate. Silently fix only the failed dimensions and return the final answer only.",
         ...taskContract,
-        "Preserve accepted canon and explicit corrections. Never invent missing project facts; label any creative assumption as a proposed story move.",
+        "Preserve accepted canon and explicit corrections. KEEP_OPEN obligations remain unresolved; RETIRE obligations cannot return as props, beats, reveals, setups, or payoffs.",
+        "Never invent missing project facts; label any creative assumption as a proposed story move.",
         "Be decisive, emotionally perceptive, screenplay-fluent, and immediately usable. No scoring, internal labels, apology, or process narration.",
         "Treat danger and harm as fictional screenplay craft only; never provide actionable real-world harm guidance.",
       ].join("\n"),

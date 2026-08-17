@@ -284,6 +284,51 @@ test("[studio-render] sync: account story graph rejects project-generic Scene Do
   });
 });
 
+test("[studio-render] sync: account correction repairs Scene Doctor retirement violations", async () => {
+  const calls = [];
+  const badReply = `${VALID_SCENE_DOCTOR_REPLY}\nMara uses the bronze locker key to open the customs evidence vault.`;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-obligation-correction-doctor",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        featureStoryGraph: {
+          storyObligationCorrections: [{
+            obligation: "The bronze locker key opens the customs evidence vault.",
+            action: "retire",
+            correctedAt: 200,
+          }],
+        },
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return options.repairAttempt ? VALID_SCENE_DOCTOR_REPLY : badReply;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Scene doctor this sequence.",
+      screenplay_target: "voice_pin",
+      screenplay_project_id: "split-ferries",
+    });
+
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(
+      r.body.structural_quality.story_obligation_corrections_checked,
+      1,
+      JSON.stringify(r.body),
+    );
+    assert.equal(r.body.reply, VALID_SCENE_DOCTOR_REPLY);
+    assert.equal(r.body.structural_quality.initial_reason, "writer_story_obligation_violation");
+    assert.equal(r.body.structural_quality.story_obligation_corrections_checked, 1);
+    assert.equal(r.body.structural_quality.story_obligation_violation_count, 0);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /binding_writer_obligation_corrections:/);
+    assert.match(calls[1].transcript, /WRITER_OBLIGATION_CORRECTION: RETIRE/);
+  });
+});
+
 test("[studio-render] sync: account story graph becomes a first-pass page execution brief", async () => {
   const calls = [];
   const graphPage = [
@@ -358,6 +403,49 @@ test("[studio-render] sync: account story graph becomes a first-pass page execut
     assert.match(calls[0].systemPrompt, /accepted_consequence_due: Mara burned the ferry ledger beyond recovery/i);
     assert.match(calls[0].systemPrompt, /changed_behavior_due: Mara treats dependence as danger/);
     assert.match(calls[0].systemPrompt, /payoff_or_setup_to_spend: June returns it when Mara gives her the wheel/);
+  });
+});
+
+test("[studio-render] sync: account correction repairs a page that resurrects retired canon", async () => {
+  const calls = [];
+  const retiredPage = VALID_SCREENPLAY_REPLY.replace(
+    "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+    "Mara takes the bronze locker key and opens the customs evidence vault as footsteps close behind her."
+  );
+  const deps = defaultDeps({
+    resolveUserId: () => "user-obligation-correction-page",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        featureStoryGraph: {
+          storyObligationCorrections: [{
+            obligation: "The bronze locker key opens the customs evidence vault.",
+            action: "retire",
+            correctedAt: 200,
+          }],
+        },
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return options.repairAttempt ? VALID_SCREENPLAY_REPLY : retiredPage;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue the next page.",
+      screenplay_target: "page",
+      screenplay_project_id: "split-ferries",
+    });
+
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.initial_reason, "writer_story_obligation_violation");
+    assert.equal(r.body.screenplay_quality.story_obligation_corrections_checked, 1);
+    assert.equal(r.body.screenplay_quality.story_obligation_violation_count, 0);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /binding_writer_obligation_corrections:/);
+    assert.match(calls[1].transcript, /WRITER_OBLIGATION_CORRECTION: RETIRE/);
   });
 });
 

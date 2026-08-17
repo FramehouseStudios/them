@@ -85,9 +85,9 @@ fi
 
 RUN_LIVE_STUDIO_STRUCTURAL_CANARY="${RUN_LIVE_STUDIO_STRUCTURAL_CANARY:-1}"
 if [[ "${RUN_LIVE_STUDIO_STRUCTURAL_CANARY}" == "1" ]]; then
-  npm --prefix "${ROOT}/backend" run eval:live-studio-structural
+  npm --prefix "${ROOT}/backend" run eval:live-studio-story-quality
 else
-  echo "[release-preflight] Skipping live Studio structural canary (RUN_LIVE_STUDIO_STRUCTURAL_CANARY=${RUN_LIVE_STUDIO_STRUCTURAL_CANARY})."
+  echo "[release-preflight] Skipping live Studio story-quality canary (RUN_LIVE_STUDIO_STRUCTURAL_CANARY=${RUN_LIVE_STUDIO_STRUCTURAL_CANARY})."
 fi
 
 if [[ "${RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE}" == "1" ]]; then

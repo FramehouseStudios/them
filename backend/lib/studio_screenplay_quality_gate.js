@@ -13,6 +13,10 @@ import {
   evaluateStructuralScreenplayReply,
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
+import {
+  evaluateStoryObligationCorrectionAdherence,
+  storyObligationCorrectionsFromContext,
+} from "./story_obligation_correction_guard.js";
 
 const MAX_REPAIR_SYSTEM_CONTEXT_CHARS = 11_000;
 const MAX_REPAIR_FAILED_DRAFT_CHARS = 4_800;
@@ -147,6 +151,7 @@ function studioScreenplayFeatureContext(body = {}) {
       "accepted_causal_facts",
       "acceptedCausalFacts",
     )),
+    storyObligationCorrections: storyObligationCorrectionsFromContext(body),
   };
   if (Object.values(nextSceneExecutionBrief).some((value) => cleanInline(value, 240))) {
     context.nextSceneExecutionBrief = nextSceneExecutionBrief;
@@ -198,6 +203,10 @@ function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} 
     acceptedCausalFacts: featureContext.acceptedCausalFacts,
     writerRequest: transcript,
   });
+  const storyObligationCorrectionAdherence = evaluateStoryObligationCorrectionAdherence({
+    text,
+    corrections: featureContext.storyObligationCorrections,
+  });
   if (result.ok && !canonContinuity.ok) {
     return {
       ...result,
@@ -205,12 +214,33 @@ function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} 
       reason: canonContinuity.reason,
       repairDirectives: canonContinuity.repairDirectives,
       canonContinuity,
+      storyObligationCorrectionAdherence,
       text,
       lines,
       requestedPages,
     };
   }
-  return { ...result, canonContinuity, text, lines, requestedPages };
+  if (result.ok && !storyObligationCorrectionAdherence.ok) {
+    return {
+      ...result,
+      ok: false,
+      reason: storyObligationCorrectionAdherence.reason,
+      repairDirectives: storyObligationCorrectionAdherence.repairDirectives,
+      canonContinuity,
+      storyObligationCorrectionAdherence,
+      text,
+      lines,
+      requestedPages,
+    };
+  }
+  return {
+    ...result,
+    canonContinuity,
+    storyObligationCorrectionAdherence,
+    text,
+    lines,
+    requestedPages,
+  };
 }
 
 function repairDirectivesForQuality(quality = {}) {
@@ -219,6 +249,12 @@ function repairDirectivesForQuality(quality = {}) {
     "Return only clean playable Fountain screenplay text, with no preamble, diagnosis, outline, markdown, labels, recap, or afterword.",
     "Preserve the writer's canon, supplied corrections, active act/sequence, emotional handoff, and concrete nouns from the live draft.",
   ];
+  const correctionDirectives = Array.isArray(
+    quality?.storyObligationCorrectionAdherence?.repairDirectives
+  )
+    ? quality.storyObligationCorrectionAdherence.repairDirectives
+    : [];
+  directives.push(...correctionDirectives);
   if (reason === "accepted_canon_contradiction") {
     directives.push(...(Array.isArray(quality?.canonContinuity?.repairDirectives)
       ? quality.canonContinuity.repairDirectives
@@ -276,6 +312,11 @@ function repairContextLines(body = {}, quality = {}) {
   for (const violation of violations.slice(0, 3)) {
     lines.push(`CANON_VIOLATION [${cleanInline(violation.type, 48)}]: ${cleanInline(violation.excerpt, 260)}`);
   }
+  for (const correction of feature.storyObligationCorrections.slice(0, 6)) {
+    lines.push(
+      `WRITER_OBLIGATION_CORRECTION: ${correction.action === "retire" ? "RETIRE" : "KEEP_OPEN"} | ${correction.obligation}`
+    );
+  }
   appendList("NEXT_TURN", feature.nextThreeTurns, 3);
   appendList("NEXT_SCENE_MOVE", feature.nextSceneMoves, 3);
   appendList("ACT_THREE_PAYOFF", feature.actThreePayoffPath, 3);
@@ -328,6 +369,13 @@ function qualityEnvelope({
   const canonViolations = Array.isArray(canonContinuity?.violations)
     ? canonContinuity.violations
     : [];
+  const correctionAdherence = result?.storyObligationCorrectionAdherence &&
+    typeof result.storyObligationCorrectionAdherence === "object"
+    ? result.storyObligationCorrectionAdherence
+    : null;
+  const correctionViolations = Array.isArray(correctionAdherence?.violations)
+    ? correctionAdherence.violations
+    : [];
   return {
     ok: Boolean(result?.ok),
     reason: cleanInline(result?.reason || (result?.ok ? "ok" : "low_page_quality"), 96),
@@ -342,6 +390,14 @@ function qualityEnvelope({
     canon_violation_count: canonViolations.length,
     canon_violation_types: [...new Set(canonViolations.map((item) => cleanInline(item?.type, 48)).filter(Boolean))],
     canon_correction_override: Boolean(canonContinuity?.correctionOverride),
+    story_obligation_corrections_checked: Math.max(
+      0,
+      Math.round(Number(correctionAdherence?.correctionsChecked || 0))
+    ),
+    story_obligation_violation_count: correctionViolations.length,
+    story_obligation_violation_types: [...new Set(
+      correctionViolations.map((item) => cleanInline(item?.type, 48)).filter(Boolean)
+    )],
   };
 }
 
@@ -461,6 +517,13 @@ function structuralQualityEnvelope({
   repairMs = 0,
 } = {}) {
   const resolved = finalQuality || initialQuality || {};
+  const correctionAdherence = resolved?.storyObligationCorrectionAdherence &&
+    typeof resolved.storyObligationCorrectionAdherence === "object"
+    ? resolved.storyObligationCorrectionAdherence
+    : null;
+  const correctionViolations = Array.isArray(correctionAdherence?.violations)
+    ? correctionAdherence.violations
+    : [];
   return {
     applicable: true,
     passed: Boolean(resolved.ok),
@@ -477,6 +540,14 @@ function structuralQualityEnvelope({
     repair_ms: Math.max(0, Math.round(Number(repairMs || 0))),
     model_reason: cleanInline(modelReason, 64),
     task_intent: cleanInline(taskIntent, 64),
+    story_obligation_corrections_checked: Math.max(
+      0,
+      Math.round(Number(correctionAdherence?.correctionsChecked || 0))
+    ),
+    story_obligation_violation_count: correctionViolations.length,
+    story_obligation_violation_types: [...new Set(
+      correctionViolations.map((item) => cleanInline(item?.type, 48)).filter(Boolean)
+    )],
   };
 }
 

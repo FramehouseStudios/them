@@ -1,4 +1,23 @@
+import {
+  evaluateStoryObligationCorrectionAdherence,
+  normalizeStoryObligationCorrections,
+  supportsObligation,
+} from "./story_obligation_correction_guard.js";
+
 const LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE = 0.75;
+
+const STORY_OBLIGATION_CORRECTIONS = Object.freeze([
+  Object.freeze({
+    obligation: "The red emergency flare in Mara's coat remains unspent until the harbor blackout.",
+    action: "keep_open",
+    correctedAt: 200,
+  }),
+  Object.freeze({
+    obligation: "The bronze locker key opens the customs evidence vault.",
+    action: "retire",
+    correctedAt: 190,
+  }),
+]);
 
 const AUTHORITATIVE_CANON = Object.freeze({
   projectTitle: "Split Ferries",
@@ -10,6 +29,7 @@ const AUTHORITATIVE_CANON = Object.freeze({
   lastSceneOutcome: "Mara cornered Eli in the empty terminal, but he refused to repeat the memorized names until she trusted him.",
   unresolvedSetups: [
     "The cracked ferry token Mara gave June in Act I must return with changed meaning in the climax.",
+    "The red emergency flare in Mara's coat remains unspent until the harbor blackout.",
   ],
   correctedTerms: [
     "The ferry ledger was burned at the Act I commitment and cannot be recovered intact.",
@@ -18,9 +38,35 @@ const AUTHORITATIVE_CANON = Object.freeze({
     "Eli memorized the ledger's final page before it burned; his memory is the only surviving record.",
   ],
   endingImage: "Mara gives June the wheel and takes the passenger seat as dawn reaches the mainland.",
+  storyObligationCorrections: STORY_OBLIGATION_CORRECTIONS,
 });
 
 function studioMeta() {
+  const featureStoryGraph = {
+    currentState: {
+      act: AUTHORITATIVE_CANON.act,
+      lastAcceptedOutcome: AUTHORITATIVE_CANON.lastSceneOutcome,
+      characterArcState: AUTHORITATIVE_CANON.characterArcState,
+      endingImage: AUTHORITATIVE_CANON.endingImage,
+    },
+    bindingFacts: [{
+      kind: "irreversible_consequence",
+      fact: AUTHORITATIVE_CANON.correctedTerms[0],
+    }],
+    openThreads: [
+      {
+        due: true,
+        setup: AUTHORITATIVE_CANON.unresolvedSetups[1],
+        promisedPayoff: "Mara must save the flare for the harbor blackout, when trusting June becomes the only way through.",
+      },
+      {
+        due: false,
+        setup: AUTHORITATIVE_CANON.unresolvedSetups[0],
+        promisedPayoff: "June returns the cracked ferry token in the climax with changed meaning.",
+      },
+    ],
+    storyObligationCorrections: STORY_OBLIGATION_CORRECTIONS,
+  };
   return {
     screenplayProjectTitle: AUTHORITATIVE_CANON.projectTitle,
     screenplayAct: AUTHORITATIVE_CANON.act,
@@ -32,6 +78,8 @@ function studioMeta() {
     screenplayUnresolvedSetups: AUTHORITATIVE_CANON.unresolvedSetups,
     screenplayCorrectedTerms: AUTHORITATIVE_CANON.correctedTerms,
     screenplayCorrectionReplacements: AUTHORITATIVE_CANON.correctionReplacements,
+    screenplayFeatureStoryGraph: featureStoryGraph,
+    screenplayStoryObligationCorrections: STORY_OBLIGATION_CORRECTIONS,
   };
 }
 
@@ -43,6 +91,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
     systemPrompt: [
       "You are Clementine, an elite feature-film story editor performing Scene Doctor work.",
       "Treat every CANON fact as authoritative. Never resurrect a retired fact or claim a proposal is remembered canon.",
+      "Obey writer obligation corrections exactly: keep corrected-open setups unresolved and omit retired obligations entirely.",
       "Lead with one highest-leverage diagnosis, cite concrete scene evidence, prescribe one playable revision, and trace its causal effect into the character arc and Act III payoff.",
       "Return the final note only. Be decisive, emotionally perceptive, and screenplay-specific.",
     ].join("\n"),
@@ -53,9 +102,12 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "- Eli memorized the ledger's final page. His memory is the only surviving record.",
       "- Mara's false belief is that trusting someone means surrendering control.",
       "- The cracked ferry token Mara gave June in Act I must pay off in the climax.",
+      "WRITER OBLIGATION CORRECTIONS:",
+      "- KEEP_OPEN: The red emergency flare in Mara's coat remains unspent until the harbor blackout.",
+      "- RETIRE: The bronze locker key opening the customs evidence vault is out of canon and cannot return.",
       "CURRENT SCENE:",
       "In the empty terminal, Mara keeps searching lockers for the destroyed ledger while demanding that Eli prove he remembers the names. Eli refuses to repeat them until she trusts him. The argument circles without changing either character's leverage.",
-      "Give the highest-leverage Scene Doctor diagnosis and a short playable replacement beat. Explain exactly how the turn forces the next scene, advances Mara's arc, and sharpens the ferry-token payoff.",
+      "Give the highest-leverage Scene Doctor diagnosis and a short playable replacement beat. Use the red flare as active pressure but keep it unspent for the harbor blackout. Explain exactly how the turn forces the next scene, advances Mara's arc, and sharpens the ferry-token payoff.",
     ].join("\n"),
     studioMeta: studioMeta(),
     maxTokens: 1_200,
@@ -67,6 +119,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
     systemPrompt: [
       "You are Clementine, an elite feature-film architect.",
       "Treat every CANON fact as authoritative. Build one causal movie, not a menu of frameworks.",
+      "Obey writer obligation corrections exactly: keep corrected-open setups unresolved and omit retired obligations entirely.",
       "Make Act I force Act II, make the midpoint and crisis force Act III, and make the climax prove character change through behavior.",
       "Track the named setup into a specific earned payoff and end with the next three playable scenes.",
     ].join("\n"),
@@ -78,10 +131,46 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
       "- Mara burned the ferry ledger at the Act I commitment. It cannot be recovered intact.",
       "- Eli memorized the ledger's final page. His memory is the only surviving record.",
       "- The cracked ferry token Mara gave June in Act I must pay off in the climax.",
+      "- KEEP_OPEN: The red emergency flare in Mara's coat must remain unspent until the harbor blackout.",
+      "- RETIRE: The bronze locker key opening the customs evidence vault is out of canon and cannot return.",
       "- FINAL IMAGE: Mara gives June the wheel and takes the passenger seat as dawn reaches the mainland.",
-      "Architect the feature from Act I through Act II and Act III. Include catalyst, commitment, midpoint reversal, crisis/all-is-lost, climax, final image, causal act bridges, Mara's want/need/false-belief arc, the token's setup/payoff path, and the next three playable scenes from the current Act II pressure.",
+      "Architect the feature from Act I through Act II and Act III. Include catalyst, commitment, midpoint reversal, crisis/all-is-lost, climax, final image, causal act bridges, Mara's want/need/false-belief arc, the token's setup/payoff path, and the next three playable scenes from the current Act II pressure. Keep the red flare visibly active but unresolved until the harbor blackout.",
     ].join("\n"),
     studioMeta: studioMeta(),
+    maxTokens: 1_600,
+  }),
+  Object.freeze({
+    id: "continuation_writer_obligation_corrections",
+    outputKind: "page",
+    taskIntent: "continue_scene",
+    modelReason: "screenplay_page_write",
+    systemPrompt: [
+      "You are Clementine, an elite feature-film screenwriter continuing an accepted scene.",
+      "Return only clean playable Fountain screenplay text. Preserve accepted state and writer authority.",
+      "Keep corrected-open setups unresolved and omit retired obligations entirely.",
+      "Change leverage through behavior and end on a consequence that forces the next scene.",
+    ].join("\n"),
+    transcript: [
+      "PROJECT: Split Ferries",
+      "ACCEPTED HANDOFF: Mara cornered Eli in the empty terminal, but he refused to repeat the memorized names until she trusted him.",
+      "WRITER OBLIGATION CORRECTIONS:",
+      "- KEEP_OPEN: The red emergency flare in Mara's coat remains unspent until the harbor blackout. Let it pressure this scene without igniting or resolving it.",
+      "- RETIRE: The bronze locker key opening the customs evidence vault is out of canon. Do not include it.",
+      "Continue for one screenplay page. Mara must choose a small act of trust that gives Eli leverage and forces them toward the harbor blackout.",
+    ].join("\n"),
+    studioMeta: {
+      ...studioMeta(),
+      screenplayTarget: "page",
+      screenplayRequestedPages: 1,
+      screenplayDraftExcerpt: "INT. EMPTY FERRY TERMINAL - NIGHT\nMara corners Eli beside the dark departures board. He refuses to repeat the names until she trusts him.",
+      screenplayNextSceneExecutionBrief: {
+        assignment: "Mara gives Eli one concrete piece of control, and he answers with one memorized name.",
+        obstacle: "The terminal lights fail as the harbor blackout begins moving toward them.",
+        arc: "Mara must practice trust without completing her transformation.",
+        payoff: "Pressure the red emergency flare but leave it unspent.",
+        exit: "The first memorized name points them toward the harbor.",
+      },
+    },
     maxTokens: 1_600,
   }),
 ]);
@@ -95,9 +184,35 @@ function causalConnectorCount(text) {
   return (text.match(/\b(?:because|therefore|which forces|forcing|as a result|leads to|drives|creates|so that|makes [^.\n]{0,80} inevitable)\b/gi) || []).length;
 }
 
-function scoreStudioStructuralCanaryReply({ reply = "", caseId = "" } = {}) {
+function scoreWriterCorrectionAdherence(reply = "", corrections = []) {
+  const normalized = normalizeStoryObligationCorrections(corrections);
+  if (!normalized.length) {
+    return { applicable: false, passed: true, score: 1, checks: {} };
+  }
+  const guard = evaluateStoryObligationCorrectionAdherence({ text: reply, corrections: normalized });
+  const keepOpen = normalized.filter((item) => item.action === "keep_open");
+  const retired = normalized.filter((item) => item.action === "retire");
+  const checks = {
+    deterministicGuard: guard.ok,
+    namesCorrectedOpenSetup: keepOpen.every((item) => supportsObligation(reply, item.obligation)),
+    preservesOpenState: keepOpen.every((item) => (
+      supportsObligation(reply, item.obligation) &&
+      /\b(?:remain|remains|still|keep|keeps|leave|leaves|hold|holds|save|saves|reserve|reserves|carry|carries)\b.{0,90}\b(?:open|unresolved|unspent|unused|active|alive|later|blackout)\b|\b(?:unspent|unresolved)\b/i.test(reply)
+    )),
+    omitsRetiredObligation: retired.every((item) => !supportsObligation(reply, item.obligation)),
+  };
+  const passed = Object.values(checks).every(Boolean);
+  return {
+    applicable: true,
+    passed,
+    score: passed ? 1 : 0,
+    checks,
+    violations: guard.violations,
+  };
+}
+
+function scoreStudioStructuralCanaryReply({ reply = "", caseId = "", corrections = [] } = {}) {
   const text = String(reply || "").trim();
-  const lower = text.toLowerCase();
   const featureCase = String(caseId).includes("feature_architecture");
   const canonChecks = {
     namesProtagonist: /\bmara\b/i.test(text),
@@ -136,6 +251,10 @@ function scoreStudioStructuralCanaryReply({ reply = "", caseId = "" } = {}) {
     characterArc: average(arcChecks),
     payoffQuality: average(payoffChecks),
   };
+  const correctionAdherence = scoreWriterCorrectionAdherence(text, corrections);
+  if (correctionAdherence.applicable) {
+    scores.writerCorrectionAdherence = correctionAdherence.score;
+  }
   const failedDimensions = Object.entries(scores)
     .filter(([, score]) => score < LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE)
     .map(([name]) => name);
@@ -148,7 +267,40 @@ function scoreStudioStructuralCanaryReply({ reply = "", caseId = "" } = {}) {
       actCausality: actChecks,
       characterArc: arcChecks,
       payoffQuality: payoffChecks,
+      ...(correctionAdherence.applicable
+        ? { writerCorrectionAdherence: correctionAdherence.checks }
+        : {}),
     },
+    correctionAdherence,
+    failedDimensions,
+  };
+}
+
+function scoreStudioContinuationCanaryReply({ reply = "", corrections = [] } = {}) {
+  const text = String(reply || "").trim();
+  const screenplayChecks = {
+    screenplayShape: /(?:^|\n)(?:INT\.|EXT\.|INT\.\/EXT\.)/m.test(text),
+    playableAction: /\b(?:Mara|Eli)\b[^\n]{6,}/i.test(text),
+    characterCue: /(?:^|\n)(?:MARA|ELI)\s*(?:\n|$)/m.test(text),
+    consequentialExit: /\b(?:name|harbor|blackout|trust|leverage|forces?|points?|leads?)\b/i.test(text),
+  };
+  const correctionAdherence = scoreWriterCorrectionAdherence(text, corrections);
+  const scores = {
+    screenplayContinuation: average(screenplayChecks),
+    writerCorrectionAdherence: correctionAdherence.score,
+  };
+  const failedDimensions = Object.entries(scores)
+    .filter(([, score]) => score < LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE)
+    .map(([name]) => name);
+  return {
+    passed: Boolean(text) && failedDimensions.length === 0,
+    minScore: LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE,
+    scores,
+    checks: {
+      screenplayContinuation: screenplayChecks,
+      writerCorrectionAdherence: correctionAdherence.checks,
+    },
+    correctionAdherence,
     failedDimensions,
   };
 }
@@ -157,5 +309,8 @@ export {
   AUTHORITATIVE_CANON,
   LIVE_STUDIO_STRUCTURAL_CANARY_CASES,
   LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE,
+  STORY_OBLIGATION_CORRECTIONS,
+  scoreStudioContinuationCanaryReply,
   scoreStudioStructuralCanaryReply,
+  scoreWriterCorrectionAdherence,
 };

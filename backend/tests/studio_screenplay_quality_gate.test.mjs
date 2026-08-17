@@ -67,6 +67,49 @@ test("[studio-quality] valid Fountain passes without spending the repair", async
   assert.equal(repairCalls, 0);
 });
 
+test("[studio-quality] rejects and repairs a continuation that resurrects a retired obligation", async () => {
+  const retiredPage = VALID_PAGE.replace(
+    "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+    "Mara takes the bronze locker key and opens the customs evidence vault as footsteps close behind her."
+  );
+  const body = {
+    screenplay_target: "page",
+    screenplay_feature_story_graph: {
+      storyObligationCorrections: [{
+        obligation: "The bronze locker key opens the customs evidence vault.",
+        action: "retire",
+        correctedAt: 200,
+      }],
+    },
+  };
+  const evaluated = evaluateStudioScreenplayReply({
+    reply: retiredPage,
+    transcript: "Continue the scene.",
+    body,
+  });
+  assert.equal(evaluated.ok, false);
+  assert.equal(evaluated.reason, "writer_story_obligation_violation");
+
+  let repairCalls = 0;
+  const repaired = await enforceStudioScreenplayQuality({
+    reply: retiredPage,
+    transcript: "Continue the scene.",
+    body,
+    systemPrompt: "Preserve writer corrections.",
+    renderRepair: async (request) => {
+      repairCalls += 1;
+      assert.match(request.transcript, /WRITER_OBLIGATION_CORRECTION: RETIRE/);
+      assert.match(request.systemPrompt, /Remove the retired story obligation entirely/);
+      return VALID_PAGE;
+    },
+  });
+  assert.equal(repaired.ok, true);
+  assert.equal(repaired.repaired, true);
+  assert.equal(repaired.quality.story_obligation_violation_count, 0);
+  assert.equal(repaired.quality.story_obligation_corrections_checked, 1);
+  assert.equal(repairCalls, 1);
+});
+
 test("[studio-quality] structural analysis passes without spending repair", async () => {
   let repairCalls = 0;
   const result = await enforceStudioStructuralAnalysisQuality({
@@ -312,6 +355,20 @@ test("[studio-quality] absent execution brief does not create a false continuity
   });
   assert.equal(populated.nextSceneExecutionBrief.assignment, "Mara must steal the sealed subpoena");
   assert.equal(populated.nextSceneExecutionBrief.image, "red seal reflected in the locker");
+});
+
+test("[studio-quality] feature context carries binding obligation corrections from the graph", () => {
+  const context = studioScreenplayFeatureContext({
+    screenplay_feature_story_graph: {
+      story_obligation_corrections: [{
+        obligation: "The red emergency flare remains unspent.",
+        action: "keep_open",
+        corrected_at: 200,
+      }],
+    },
+  });
+  assert.equal(context.storyObligationCorrections.length, 1);
+  assert.equal(context.storyObligationCorrections[0].action, "keep_open");
 });
 
 test("[studio-quality] a lone accepted causal handoff still binds the next page", () => {

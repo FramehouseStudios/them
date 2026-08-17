@@ -110,21 +110,21 @@ test("[run-release-preflight] gates live structural story quality before UI evid
   );
   assert.match(
     scriptSource,
-    /npm --prefix "\$\{ROOT\}\/backend" run eval:live-studio-structural/,
+    /npm --prefix "\$\{ROOT\}\/backend" run eval:live-studio-story-quality/,
   );
-  assert.match(scriptSource, /Skipping live Studio structural canary/);
+  assert.match(scriptSource, /Skipping live Studio story-quality canary/);
   assert.ok(
-    scriptSource.indexOf("run eval:live-studio-structural") <
+    scriptSource.indexOf("run eval:live-studio-story-quality") <
       scriptSource.indexOf("run eval:studio-instinct-writer-block-ui"),
   );
 
   assert.match(workflowSource, /live-structural-canary:/);
-  assert.match(workflowSource, /name: Live Scene Doctor And Feature Architecture/);
+  assert.match(workflowSource, /name: Live Scene Doctor, Feature Architecture, And Continuation Corrections/);
   assert.match(workflowSource, /name: Require OpenAI Provider Secret/);
-  assert.match(workflowSource, /name: Score Live Structural Story Quality/);
-  assert.match(workflowSource, /run: npm run eval:live-studio-structural/);
+  assert.match(workflowSource, /name: Score Live Story And Correction Quality/);
+  assert.match(workflowSource, /run: npm run eval:live-studio-story-quality/);
   assert.ok(
-    workflowSource.indexOf("run: npm run eval:live-studio-structural") <
+    workflowSource.indexOf("run: npm run eval:live-studio-story-quality") <
       workflowSource.indexOf("run: npm run eval:studio-instinct-writer-block-ui"),
   );
 });
