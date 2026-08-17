@@ -22,21 +22,21 @@ function resolveReasoningOutputTokenLimit(maxTokens, reasoningEffort = "medium")
   const ratio = effort === "none"
     ? 0
     : effort === "low"
-      ? 0.20
+      ? 0.30
       : effort === "medium"
-        ? 0.40
+        ? 0.75
         : effort === "high"
-          ? 0.65
-          : 0.85;
+          ? 1.25
+          : 1.75;
   const floor = effort === "none"
     ? 0
     : effort === "low"
-      ? 256
+      ? 768
       : effort === "medium"
-        ? 512
+        ? 1_536
         : effort === "high"
-          ? 1_024
-          : 1_536;
+          ? 3_072
+          : 4_096;
   const reasoningHeadroom = Math.max(floor, Math.ceil(visibleBudget * ratio));
   return Math.min(16_000, visibleBudget + reasoningHeadroom);
 }

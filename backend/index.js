@@ -456,11 +456,11 @@ const CHAT_MODEL_STRUCTURAL_FALLBACK = String(
 ).trim();
 const CHAT_STRUCTURAL_REASONING_EFFORT = normalizeReasoningEffort(
   process.env.CHAT_STRUCTURAL_REASONING_EFFORT,
-  "medium"
+  "low"
 );
 const CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT = normalizeReasoningEffort(
   process.env.CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT,
-  "high"
+  "medium"
 );
 const VISUAL_CONTEXT_MODEL = String(process.env.VISUAL_CONTEXT_MODEL || CHAT_MODEL_FAST).trim();
 const VISUAL_CONTEXT_TIMEOUT_MS = parsePositiveInt(process.env.VISUAL_CONTEXT_TIMEOUT_MS, 7_500);
@@ -20306,6 +20306,17 @@ async function renderStudioRealtimeText({
     const err = new Error("Studio render response was empty.");
     err.stage = "studio_render";
     err.status = 502;
+    const responsePayload = payload?.response && typeof payload.response === "object"
+      ? payload.response
+      : payload;
+    const incompleteReason = String(responsePayload?.incomplete_details?.reason || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "_")
+      .slice(0, 64);
+    err.code = incompleteReason
+      ? `studio_render_${incompleteReason}`
+      : "studio_render_empty_response";
     throw err;
   }
 

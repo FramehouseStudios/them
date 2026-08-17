@@ -204,6 +204,12 @@ function classifyLiveStudioCanaryProviderError(error = null) {
   } else if (status === 401 || status === 403) {
     category = "provider_auth_failed";
     retryable = false;
+  } else if (/studio_render_max_output_tokens/i.test(fingerprint)) {
+    category = "provider_reasoning_budget_exhausted";
+    retryable = false;
+  } else if (/studio_render_empty_response/i.test(fingerprint)) {
+    category = "provider_empty_response";
+    retryable = false;
   } else if (/\b(?:timeout|timed out|abort(?:ed)?)\b/i.test(fingerprint)) {
     category = "provider_timeout";
     retryable = true;

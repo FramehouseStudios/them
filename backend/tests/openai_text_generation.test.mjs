@@ -31,12 +31,31 @@ test("[structural-model] Responses requests carry reasoning effort without tempe
   assert.deepEqual(request.body, {
     model: "gpt-structural",
     input: [{ role: "user", content: "Break Act II." }],
-    max_output_tokens: 3960,
+    max_output_tokens: 5472,
     reasoning: { effort: "high" },
     store: false,
     stream: true,
   });
   assert.equal("temperature" in request.body, false);
+});
+
+test("[structural-model] visible screenplay tokens retain bounded reasoning headroom", () => {
+  const low = buildOpenAITextRequest({
+    apiMode: "responses",
+    model: "gpt-structural",
+    messages: [],
+    maxTokens: 1_200,
+    reasoningEffort: "low",
+  });
+  const mediumRepair = buildOpenAITextRequest({
+    apiMode: "responses",
+    model: "gpt-structural",
+    messages: [],
+    maxTokens: 1_400,
+    reasoningEffort: "medium",
+  });
+  assert.equal(low.body.max_output_tokens, 1_968);
+  assert.equal(mediumRepair.body.max_output_tokens, 2_936);
 });
 
 test("[structural-model] Responses output normalizes to the existing chat envelope", () => {

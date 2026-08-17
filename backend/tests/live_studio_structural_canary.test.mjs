@@ -135,4 +135,11 @@ test("[live-studio-canary] provider failures are classified without retaining ra
     classifyLiveStudioCanaryProviderError({ message: "request timed out" }).category,
     "provider_timeout",
   );
+  assert.equal(
+    classifyLiveStudioCanaryProviderError({
+      status: 502,
+      code: "studio_render_max_output_tokens",
+    }).category,
+    "provider_reasoning_budget_exhausted",
+  );
 });
