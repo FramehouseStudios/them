@@ -286,7 +286,7 @@ function evaluateSceneDoctor(text, storyContext = null) {
     developed: words >= 55,
     diagnosis: /\b(?:core problem|main problem|central issue|scene (?:stalls|drags|flattens|lacks|needs|works|fails)|scene's? (?:engine|problem|weakest point)|diagnosis|weakness|issue is|what is not working|what's not working)\b/i.test(text),
     craftEvidence: craftEvidenceCount >= 2,
-    priorityFix: /\b(?:strongest|highest-leverage|first fix|priority|the fix|start by|best move|core move|if (?:i|we) (?:fix|change) one thing|i'd fix)\b/i.test(text),
+    priorityFix: /\b(?:strongest|highest-leverage|first fix|priority|the fix|start by|best move|core move|proposed (?:story )?move|revision move|if (?:i|we) (?:fix|change) one thing|i'd fix)\b/i.test(text),
     actionableRevision: /\b(?:cut|move|give|make|force|reveal|withhold|rewrite|replace|start|open|end|turn|interrupt|compress|externalize)\b/i.test(text),
     playableExample: /(?:^|\n)(?:INT\.|EXT\.|INT\.\/EXT\.|[A-Z][A-Z0-9 .'-]{1,28}\n)|\b(?:for example|try this|replacement beat|on the page|a playable version)\b|["“][^"”\n]{8,}["”]/i.test(text),
     featureConsequence: /\b(?:next scene|later|payoff|setup|act\s*(?:i{1,3}|[123])|character arc|ending|climax|feature)\b/i.test(text),

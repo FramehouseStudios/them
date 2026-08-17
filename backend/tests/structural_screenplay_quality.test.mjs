@@ -54,6 +54,21 @@ test("[structural-quality] accepts prioritized, playable Scene Doctor work", () 
   assert.equal(quality.score, 1);
 });
 
+test("[structural-quality] treats one proposed story move as the Scene Doctor priority", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_scene_doctor",
+    reply: [
+      "The scene stalls because Mara's objective cannot produce a turn: the destroyed ledger is gone, while Eli's refusal creates no exit pressure.",
+      "Proposed story move: make the closing terminal force Mara to hand Eli the map before he gives her a name. This changes leverage, obstacle, and tactic in one beat.",
+      "INT. EMPTY FERRY TERMINAL - NIGHT",
+      "Mara gives Eli the map. He ducks beneath the shutter. She follows.",
+      "The choice forces the next scene toward June, advances Mara's Act II trust arc, and protects the token payoff.",
+    ].join("\n"),
+  });
+  assert.equal(quality.ok, true);
+  assert.equal(quality.dimensions.priorityFix, true);
+});
+
 test("[structural-quality] rejects polished Scene Doctor advice that resurrects a retired obligation", () => {
   const quality = evaluateStructuralScreenplayReply({
     modelReason: "screenplay_scene_doctor",
