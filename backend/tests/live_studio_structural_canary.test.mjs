@@ -41,6 +41,19 @@ test("[live-studio-canary] resurrected canon and missing payoff fail closed", ()
   assert.ok(score.failedDimensions.includes("payoffQuality"));
 });
 
+test("[live-studio-canary] semantic canon phrasing recognizes impossible recovery and Eli's unique memory", () => {
+  const score = scoreStudioStructuralCanaryReply({
+    reply: [
+      "Mara keeps pursuing an impossible intact ledger instead of accepting what burned.",
+      "Eli forces the next scene by naming himself as the only person who remembers.",
+      "The highest-leverage fix changes control into trust and returns the cracked ferry token as an Act I setup with a changed-meaning climax payoff.",
+    ].join("\n"),
+    caseId: "scene_doctor_canon_pressure",
+  });
+  assert.equal(score.checks.canonContinuity.honorsDestroyedLedger, true);
+  assert.equal(score.checks.canonContinuity.preservesEliMemory, true);
+});
+
 test("[live-studio-canary] release cases exercise both production structural lanes", () => {
   assert.deepEqual(
     LIVE_STUDIO_STRUCTURAL_CANARY_CASES.map((item) => item.modelReason),
@@ -92,6 +105,12 @@ test("[live-studio-canary] correction score requires the open setup and omits re
   );
   assert.equal(consumed.passed, false);
   assert.equal(consumed.checks.deterministicGuard, false);
+
+  const resolvedOnTime = scoreWriterCorrectionAdherence(
+    "During the harbor blackout, Mara pulls the red emergency flare from her coat and ignites it.",
+    STORY_OBLIGATION_CORRECTIONS,
+  );
+  assert.equal(resolvedOnTime.passed, true);
 });
 
 test("[live-studio-canary] continuation release score requires playable pages and correction adherence", () => {

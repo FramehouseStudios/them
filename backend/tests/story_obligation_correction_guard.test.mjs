@@ -95,6 +95,23 @@ test("[obligation-correction-guard] using a corrected-open setup fails even with
   assert.equal(result.violations[0].type, "open_obligation_closed");
 });
 
+test("[obligation-correction-guard] a keep-open-until setup may resolve when its named event arrives", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: "During the harbor blackout, Mara pulls the red emergency flare from her coat and ignites it.",
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[obligation-correction-guard] naming a future release event does not permit premature use", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: "Before the harbor blackout, Mara pulls the red emergency flare from her coat and ignites it.",
+    corrections,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.violations[0].type, "open_obligation_closed");
+});
+
 test("[obligation-correction-guard] explicit non-use remains correction-safe", () => {
   const result = evaluateStoryObligationCorrectionAdherence({
     text: "Mara grips the red emergency flare without igniting it, then returns it to her coat.",
@@ -165,6 +182,20 @@ test("[obligation-correction-guard] anchor matching tolerates screenplay phrasin
   assert.equal(
     supportsObligation(
       "The RED FLARE presses against Mara's coat as she runs.",
+      corrections[0].obligation,
+    ),
+    true,
+  );
+});
+
+test("[obligation-correction-guard] long feature plans still find obligations introduced after early acts", () => {
+  const earlyArchitecture = Array.from(
+    { length: 180 },
+    (_, index) => `distinctivebeat${index} forces consequence${index}`,
+  ).join(" ");
+  assert.equal(
+    supportsObligation(
+      `${earlyArchitecture}\nDuring the harbor blackout, Mara ignites the red emergency flare from her coat.`,
       corrections[0].obligation,
     ),
     true,

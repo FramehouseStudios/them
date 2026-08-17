@@ -87,6 +87,29 @@ function actionAnchorTokens(value = "") {
   )].slice(0, 8);
 }
 
+function temporalReleaseCondition(value = "") {
+  const match = clean(value, 220).match(/\buntil\s+(.+)$/i);
+  return match ? clean(match[1], 120).replace(/[.!?]+$/g, "").trim() : "";
+}
+
+function reachesTemporalReleaseCondition(windowText = "", obligation = "") {
+  const condition = temporalReleaseCondition(obligation);
+  const conditionTokens = anchorTokens(condition, 6);
+  if (!conditionTokens.length) return false;
+  const windowTokens = new Set(anchorTokens(windowText, 128));
+  const matches = conditionTokens.filter((token) => windowTokens.has(token)).length;
+  const required = conditionTokens.length <= 2 ? 1 : 2;
+  if (matches < required) return false;
+  const anchorPattern = conditionTokens
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const premature = new RegExp(`\\b(?:before|ahead of|prior to)\\b.{0,70}\\b(?:${anchorPattern})\\b`, "i");
+  if (premature.test(String(windowText || ""))) return false;
+  return /\b(?:after|as|at|during|inside|once|through|when|while)\b|\b(?:begins?|starts?|falls?|hits?|arrives?)\b/i.test(
+    String(windowText || "")
+  );
+}
+
 function consumesOpenObligation(windowText = "", obligation = "") {
   const anchors = actionAnchorTokens(obligation);
   if (!anchors.length) return false;
@@ -104,7 +127,7 @@ function consumesOpenObligation(windowText = "", obligation = "") {
 function supportsObligation(windowText = "", obligation = "") {
   const anchors = anchorTokens(obligation);
   if (!anchors.length) return false;
-  const tokens = new Set(anchorTokens(windowText, 128));
+  const tokens = new Set(anchorTokens(windowText, 4096));
   const matches = anchors.filter((token) => tokens.has(token)).length;
   const required = anchors.length === 1 ? 1 : Math.min(3, Math.max(2, Math.ceil(anchors.length * 0.4)));
   return matches >= required;
@@ -168,7 +191,8 @@ function evaluateStoryObligationCorrectionAdherence({
       const closed = matching.find((window) => (
         (CLOSED_OBLIGATION_FRAME.test(window) || consumesOpenObligation(window, correction.obligation)) &&
         !SAFE_OPEN_FRAME.test(window) &&
-        !NON_CONSUMPTION_SPEECH_FRAME.test(window)
+        !NON_CONSUMPTION_SPEECH_FRAME.test(window) &&
+        !reachesTemporalReleaseCondition(window, correction.obligation)
       ));
       if (closed) {
         violations.push({

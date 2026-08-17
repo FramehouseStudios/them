@@ -256,8 +256,11 @@ function scoreStudioStructuralCanaryReply({ reply = "", caseId = "", corrections
   const featureCase = String(caseId).includes("feature_architecture");
   const canonChecks = {
     namesProtagonist: /\bmara\b/i.test(text),
-    honorsDestroyedLedger: /\b(?:burned|destroyed|gone|unrecoverable|cannot be recovered)\b[^.\n]{0,100}\bledger\b|\bledger\b[^.\n]{0,100}\b(?:burned|destroyed|gone|unrecoverable|cannot be recovered)\b/i.test(text),
-    preservesEliMemory: /\beli\b[^.\n]{0,140}\b(?:memor(?:y|ized|ises|izes)|names|final page|surviving record)\b/i.test(text),
+    honorsDestroyedLedger: /\b(?:burned|destroyed|gone|unrecoverable|cannot be recovered|impossible)\b[^.\n]{0,120}\b(?:intact\s+)?ledger\b|\b(?:intact\s+)?ledger\b[^.\n]{0,120}\b(?:burned|destroyed|gone|unrecoverable|cannot be recovered|impossible)\b/i.test(text),
+    preservesEliMemory: /\beli\b[^.\n]{0,140}\b(?:memor(?:y|ized|ises|izes)|names|final page|surviving record)\b/i.test(text) || (
+      /\beli\b/i.test(text) &&
+      /\b(?:only (?:person|one) who remembers|only surviving memory|releases? (?:one|a) (?:verifiable )?name)\b/i.test(text)
+    ),
     avoidsLedgerResurrection: !/\b(?:recover|retrieve|find|restore)s?\b[^.\n]{0,50}\b(?:intact )?ledger\b|\bledger\b[^.\n]{0,50}\b(?:is|was|remains) intact\b/i.test(text),
   };
   const actChecks = featureCase
