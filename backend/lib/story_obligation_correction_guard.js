@@ -10,7 +10,7 @@ const ANCHOR_STOP_WORDS = new Set([
 ]);
 
 const SAFE_RETIREMENT_FRAME = /\b(?:retired|removed|discarded|off limits|out of canon)\b|\b(?:do not|don't|never|must not|cannot|can't|avoid|omit|without)\b.{0,80}\b(?:use|return|restore|resurrect|reintroduce|recover|find|open|include|mention)\b/i;
-const CLOSED_OBLIGATION_FRAME = /\b(?:already\s+)?(?:pays?\s+off|paid\s+off|resolves?|resolved|closes?|closed|completes?|completed|fulfills?|fulfilled|settles?|settled|finishes?|finished|discharges?|discharged|wraps?\s+up|wrapped\s+up|no\s+longer\s+open|ends?\s+the\s+(?:setup|thread|promise))\b/i;
+const CLOSED_OBLIGATION_FRAME = /\b(?:already\s+)?(?:pays?\s+off|paid\s+off|no\s+longer\s+open)\b|\b(?:setup|thread|promise|obligation|plant)\b(?:\s+[^\s.!?]+){0,8}\s+\b(?:resolves?|resolved|closes?|closed|completes?|completed|fulfills?|fulfilled|settles?|settled|finishes?|finished|discharges?|discharged|wraps?\s+up|wrapped\s+up)\b|\b(?:resolves?|resolved|resolving|closes?|closed|closing|completes?|completed|completing|fulfills?|fulfilled|fulfilling|settles?|settled|settling|finishes?|finished|finishing|discharges?|discharged|discharging|wraps?\s+up|wrapped\s+up)\b(?:\s+[^\s.!?]+){0,8}\s+\b(?:setup|thread|promise|obligation|plant)\b/i;
 const CONSUMED_OPEN_OBLIGATION_ACTION = "use|uses|used|spend|spends|spent|ignite|ignites|ignited|light|lights|lit|fire|fires|fired|burn|burns|burned|launch|launches|launched|detonate|detonates|detonated|destroy|destroys|destroyed";
 const SAFE_OPEN_FRAME = /\b(?:keep|keeps|kept|leave|leaves|left|remain|remains|still)\b.{0,50}\b(?:open|unresolved|unpaid|unspent|unused|active|alive)\b|\b(?:not|isn't|is not|hasn't|has not|never|without|do not|don't|must not)\b.{0,35}\b(?:use|used|spend|spent|ignite|ignited|light|lit|fire|fired|burn|burned|launch|launched|detonate|detonated|destroy|destroyed|pay\s+off|paid\s+off|resolve|resolved|close|closed|complete|completed|fulfill|fulfilled|settle|settled|finish|finished)\b/i;
 const NON_CONSUMPTION_SPEECH_FRAME = /\b(?:if|unless|should|could|would|might|can|cannot|can't|don't|do not|never)\b.{0,45}\b(?:use|spend|ignite|light|fire|burn|launch|detonate|destroy)\b|\b(?:use|spend|ignite|light|fire|burn|launch|detonate|destroy)\s+(?:that|it)\s*[,?]/i;
@@ -96,7 +96,9 @@ function consumesOpenObligation(windowText = "", obligation = "") {
     `\\b(?:${anchorPattern})\\b(?:\\s+[^\\s.!?]+){0,8}\\s+\\b(?:${CONSUMED_OPEN_OBLIGATION_ACTION})\\b`,
     "i"
   );
-  return directFrame.test(String(windowText || ""));
+  return String(windowText || "")
+    .split(/\n+/)
+    .some((line) => directFrame.test(line));
 }
 
 function supportsObligation(windowText = "", obligation = "") {
@@ -117,7 +119,11 @@ function correctionWindows(text = "") {
   const out = [];
   const seen = new Set();
   for (let index = 0; index < lines.length; index += 1) {
-    const value = clean(lines.slice(Math.max(0, index - 1), Math.min(lines.length, index + 2)).join(" "), 640);
+    const value = lines
+      .slice(Math.max(0, index - 1), Math.min(lines.length, index + 2))
+      .join("\n")
+      .slice(0, 640)
+      .trim();
     if (!value || seen.has(value)) continue;
     seen.add(value);
     out.push(value);

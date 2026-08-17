@@ -124,6 +124,43 @@ test("[obligation-correction-guard] dialogue warning about use is not mistaken f
   assert.equal(result.ok, true);
 });
 
+test("[obligation-correction-guard] dialogue imperative stays separate from the nearby flare action", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: [
+      "Mara's hand dives into her coat. Finds the RED FLARE.",
+      "ELI",
+      "Light that now, June has nothing when the harbor goes black.",
+      "Mara zips the flare inside her coat.",
+    ].join("\n"),
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[obligation-correction-guard] physical hand closure does not close a story obligation", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: [
+      "Mara's hand closes inside her coat.",
+      "The hard cylinder of the flare presses against her ribs.",
+      "She lets go of it.",
+    ].join("\n"),
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("[obligation-correction-guard] harbor escape language does not close the flare setup", () => {
+  const result = evaluateStoryObligationCorrectionAdherence({
+    text: [
+      "The flare remains unspent for the harbor blackout.",
+      "Voss releases the ferry into the dark channel and leaves Mara facing her old reflex.",
+      "The token payoff forces Mara to trust June with the wheel.",
+    ].join("\n"),
+    corrections,
+  });
+  assert.equal(result.ok, true);
+});
+
 test("[obligation-correction-guard] anchor matching tolerates screenplay phrasing", () => {
   assert.equal(
     supportsObligation(
