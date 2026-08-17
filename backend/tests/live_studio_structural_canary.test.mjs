@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   LIVE_STUDIO_STRUCTURAL_CANARY_CASES,
   STORY_OBLIGATION_CORRECTIONS,
+  classifyLiveStudioCanaryProviderError,
   scoreStudioContinuationCanaryReply,
   scoreStudioStructuralCanaryReply,
   scoreWriterCorrectionAdherence,
@@ -106,4 +107,31 @@ test("[live-studio-canary] structural release score fails the writer-correction 
   });
   assert.equal(score.passed, false);
   assert.ok(score.failedDimensions.includes("writerCorrectionAdherence"));
+});
+
+test("[live-studio-canary] provider failures are classified without retaining raw messages", () => {
+  const quota = classifyLiveStudioCanaryProviderError({
+    status: 429,
+    stage: "studio_render",
+    message: "credit balance exhausted for private-account@example.com",
+  });
+  assert.deepEqual(quota, {
+    category: "provider_quota_exhausted",
+    status: 429,
+    stage: "studio_render",
+    retryable: false,
+  });
+  assert.equal(JSON.stringify(quota).includes("private-account"), false);
+  assert.equal(
+    classifyLiveStudioCanaryProviderError({ status: 429, message: "rate limit" }).category,
+    "provider_rate_limited",
+  );
+  assert.equal(
+    classifyLiveStudioCanaryProviderError({ status: 401 }).category,
+    "provider_auth_failed",
+  );
+  assert.equal(
+    classifyLiveStudioCanaryProviderError({ message: "request timed out" }).category,
+    "provider_timeout",
+  );
 });

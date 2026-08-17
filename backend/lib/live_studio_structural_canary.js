@@ -184,6 +184,35 @@ function causalConnectorCount(text) {
   return (text.match(/\b(?:because|therefore|which forces|forcing|as a result|leads to|drives|creates|so that|makes [^.\n]{0,80} inevitable)\b/gi) || []).length;
 }
 
+function classifyLiveStudioCanaryProviderError(error = null) {
+  const statusValue = Number(error?.status || 0);
+  const status = Number.isFinite(statusValue) ? Math.max(0, Math.round(statusValue)) : 0;
+  const fingerprint = [error?.message, error?.code, error?.type]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  let category = "provider_request_failed";
+  let retryable = status >= 500;
+  if (status === 429 && /(?:quota|credit|billing|balance)/i.test(fingerprint)) {
+    category = "provider_quota_exhausted";
+    retryable = false;
+  } else if (status === 429) {
+    category = "provider_rate_limited";
+    retryable = true;
+  } else if (status === 401 || status === 403) {
+    category = "provider_auth_failed";
+    retryable = false;
+  } else if (/\b(?:timeout|timed out|abort(?:ed)?)\b/i.test(fingerprint)) {
+    category = "provider_timeout";
+    retryable = true;
+  }
+  return {
+    category,
+    status,
+    stage: String(error?.stage || "studio_render").replace(/[^a-z0-9_-]/gi, "").slice(0, 48) || "studio_render",
+    retryable,
+  };
+}
+
 function scoreWriterCorrectionAdherence(reply = "", corrections = []) {
   const normalized = normalizeStoryObligationCorrections(corrections);
   if (!normalized.length) {
@@ -310,6 +339,7 @@ export {
   LIVE_STUDIO_STRUCTURAL_CANARY_CASES,
   LIVE_STUDIO_STRUCTURAL_CANARY_MIN_SCORE,
   STORY_OBLIGATION_CORRECTIONS,
+  classifyLiveStudioCanaryProviderError,
   scoreStudioContinuationCanaryReply,
   scoreStudioStructuralCanaryReply,
   scoreWriterCorrectionAdherence,

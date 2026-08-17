@@ -21,7 +21,7 @@ const [
 ]);
 
 const results = [];
-for (const scenario of canary.LIVE_STUDIO_STRUCTURAL_CANARY_CASES) {
+async function runScenario(scenario) {
   const screenplayTask = inferScreenplayTask(scenario.transcript);
   const providerSystemPrompt = buildModelPrompt({
     persona: scenario.systemPrompt,
@@ -90,10 +90,31 @@ for (const scenario of canary.LIVE_STUDIO_STRUCTURAL_CANARY_CASES) {
   }
 }
 
+for (const scenario of canary.LIVE_STUDIO_STRUCTURAL_CANARY_CASES) {
+  try {
+    await runScenario(scenario);
+  } catch (error) {
+    const providerError = canary.classifyLiveStudioCanaryProviderError(error);
+    results.push({
+      id: scenario.id,
+      outputKind: scenario.outputKind === "page" ? "page" : "structural_analysis",
+      passed: false,
+      repaired: false,
+      providerError,
+    });
+    console.log(
+      `BLOCKED ${scenario.id} category=${providerError.category} status=${providerError.status || "unknown"} stage=${providerError.stage}`,
+    );
+    if (!providerError.retryable) break;
+  }
+}
+
 const passed = results.every((item) => item.passed);
+const providerBlocked = results.some((item) => item.providerError);
 console.log(JSON.stringify({
   canary: "live_studio_story_quality",
   passed,
+  providerBlocked,
   provider: "openai",
   cases: results,
 }, null, 2));
