@@ -51,6 +51,7 @@ test("[live-studio-canary] release cases exercise both production structural lan
     ],
   );
   for (const item of LIVE_STUDIO_STRUCTURAL_CANARY_CASES) {
+    assert.equal(item.safeToLogSyntheticOutput, true);
     assert.match(item.transcript, /KEEP_OPEN/i);
     assert.match(item.transcript, /RETIRE/i);
     assert.ok(item.studioMeta.screenplayCorrectedTerms.length > 0);

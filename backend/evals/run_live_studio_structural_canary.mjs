@@ -87,6 +87,9 @@ async function runScenario(scenario) {
   );
   if (!passed) {
     console.log(`  failed=${releaseScore.failedDimensions.join(",") || productionGate?.reason || "production_gate"}`);
+    if (scenario.safeToLogSyntheticOutput) {
+      console.log(`  synthetic_output=${JSON.stringify(finalReply.slice(0, 2_400))}`);
+    }
   }
 }
 

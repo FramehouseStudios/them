@@ -88,6 +88,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
     id: "scene_doctor_canon_pressure",
     taskIntent: "scene_doctor",
     modelReason: "screenplay_scene_doctor",
+    safeToLogSyntheticOutput: true,
     systemPrompt: [
       "You are Clementine, an elite feature-film story editor performing Scene Doctor work.",
       "Treat every CANON fact as authoritative. Never resurrect a retired fact or claim a proposal is remembered canon.",
@@ -116,6 +117,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
     id: "feature_architecture_causal_payoff",
     taskIntent: "outline_structure",
     modelReason: "screenplay_feature_architecture",
+    safeToLogSyntheticOutput: true,
     systemPrompt: [
       "You are Clementine, an elite feature-film architect.",
       "Treat every CANON fact as authoritative. Build one causal movie, not a menu of frameworks.",
@@ -144,6 +146,7 @@ const LIVE_STUDIO_STRUCTURAL_CANARY_CASES = Object.freeze([
     outputKind: "page",
     taskIntent: "continue_scene",
     modelReason: "screenplay_page_write",
+    safeToLogSyntheticOutput: true,
     systemPrompt: [
       "You are Clementine, an elite feature-film screenwriter continuing an accepted scene.",
       "Return only clean playable Fountain screenplay text. Preserve accepted state and writer authority.",

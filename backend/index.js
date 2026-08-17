@@ -378,6 +378,10 @@ const EMPTY_TRANSCRIPT_VOICE_PROMPT_TEXT = String(
   process.env.EMPTY_TRANSCRIPT_VOICE_PROMPT_TEXT || CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT
 ).trim();
 const CHAT_TIMEOUT_MS = parsePositiveInt(process.env.CHAT_TIMEOUT_MS, 30_000);
+const CHAT_STRUCTURAL_TIMEOUT_MS = Math.max(
+  CHAT_TIMEOUT_MS,
+  parsePositiveInt(process.env.CHAT_STRUCTURAL_TIMEOUT_MS, 90_000)
+);
 const TTS_TIMEOUT_MS = parsePositiveInt(process.env.TTS_TIMEOUT_MS, 30_000);
 const TALK_THINKING_MIN_MS = parseNonNegativeInt(process.env.TALK_THINKING_MIN_MS, 0);
 const TALK_THINKING_MAX_MS = Math.max(
@@ -20219,6 +20223,7 @@ function resolveStudioTextModelPolicy(modelTier = "fast") {
         ? CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT
         : CHAT_STRUCTURAL_REASONING_EFFORT,
       fallbackModel: CHAT_MODEL_STRUCTURAL_FALLBACK,
+      timeoutMs: CHAT_STRUCTURAL_TIMEOUT_MS,
     };
   }
   return {
@@ -20226,6 +20231,7 @@ function resolveStudioTextModelPolicy(modelTier = "fast") {
     apiMode: "chat_completions",
     reasoningEffort: "",
     fallbackModel: "",
+    timeoutMs: CHAT_TIMEOUT_MS,
   };
 }
 
@@ -20263,7 +20269,7 @@ async function renderStudioRealtimeText({
       Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
     ),
     fetchWithTimeout,
-    timeoutMs: CHAT_TIMEOUT_MS,
+    timeoutMs: policy.timeoutMs,
   });
   if (requestResult.fallbackUsed) {
     console.warn(
@@ -20345,7 +20351,7 @@ async function streamStudioRealtimeText({
     ),
     stream: true,
     fetchWithTimeout,
-    timeoutMs: CHAT_TIMEOUT_MS,
+    timeoutMs: policy.timeoutMs,
   });
   if (requestResult.fallbackUsed) {
     console.warn(
