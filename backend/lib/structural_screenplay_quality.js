@@ -157,6 +157,66 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
   };
 }
 
+function featureActSections(text = "") {
+  const source = normalizeText(text);
+  const markers = [...source.matchAll(/(?:^|\n)[\t #*_\-]*act\s*(iii|ii|i|3|2|1|three|two|one)\b/gim)];
+  const sections = { act1: "", act2: "", act3: "" };
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index];
+    const label = String(marker[1] || "").toLowerCase();
+    const kind = /^(?:i|1|one)$/.test(label)
+      ? "act1"
+      : /^(?:ii|2|two)$/.test(label)
+        ? "act2"
+        : "act3";
+    const start = Number(marker.index || 0);
+    const end = index + 1 < markers.length ? Number(markers[index + 1].index || source.length) : source.length;
+    let candidate = source.slice(start, end).trim();
+    if (kind === "act3") {
+      const forwardPlanIndex = candidate.search(/\n[\t #*_\-]*next\s+(?:three\s+)?(?:scenes?|beats?|turns?)\b/i);
+      if (forwardPlanIndex > 0) candidate = candidate.slice(0, forwardPlanIndex).trim();
+    }
+    if (candidate.length > sections[kind].length) sections[kind] = candidate;
+  }
+  return sections;
+}
+
+function storyPayoffPairs(storyContext = null) {
+  if (!storyContext || typeof storyContext !== "object" || Array.isArray(storyContext)) return [];
+  const graph = storyContext.screenplayFeatureStoryGraph ??
+    storyContext.screenplay_feature_story_graph ??
+    storyContext.featureStoryGraph ??
+    storyContext.feature_story_graph ??
+    {};
+  const graphThreads = Array.isArray(graph?.openThreads) ? graph.openThreads : [];
+  const pairs = graphThreads.map((item) => ({
+    setup: cleanContextValue(item?.setup, 220),
+    payoff: cleanContextValue(item?.promisedPayoff ?? item?.promised_payoff, 220),
+  }));
+  const setups = contextValues(storyContext, "screenplayUnresolvedSetups", "screenplay_unresolved_setups");
+  const payoffs = contextValues(storyContext, "screenplayActThreePayoffPath", "screenplay_act_three_payoff_path");
+  for (let index = 0; index < Math.max(setups.length, payoffs.length); index += 1) {
+    pairs.push({ setup: setups[index] || "", payoff: payoffs[index] || "" });
+  }
+  return pairs.filter((item) => groundingTokens(item.setup).length > 0);
+}
+
+function tracksKnownSetupIntoActThree(text = "", storyContext = null) {
+  const sections = featureActSections(text);
+  if (!sections.act1 || !sections.act3) return false;
+  const actThreePayoffMove = /\b(?:returns?|gives?|hands?|uses?|reveals?|echoes?|transforms?|changes? meaning|pays? off|fulfills?|reverses?)\b/i.test(sections.act3);
+  if (!actThreePayoffMove) return false;
+  const actThreeTokens = new Set(groundingTokens(sections.act3));
+  return storyPayoffPairs(storyContext).some(({ setup }) => {
+    const setupTokens = groundingTokens(setup);
+    const actThreeMatches = setupTokens.filter((token) => actThreeTokens.has(token)).length;
+    const requiredActThreeMatches = setupTokens.length === 1
+      ? 1
+      : Math.min(3, Math.max(2, Math.ceil(setupTokens.length * 0.35)));
+    return replySupportsGroundingPhrase(sections.act1, setup) && actThreeMatches >= requiredActThreeMatches;
+  });
+}
+
 function result({ applicable = true, reason, dimensions, directives = [] }) {
   const entries = Object.entries(dimensions || {});
   const passed = entries.filter(([, value]) => Boolean(value)).length;
@@ -282,7 +342,10 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
       /\b(?:old tactic|changed behavior|change[sd]? tactic|transformation)\b/,
     ]) >= 2,
     majorFeatureTurns: majorTurnCount >= 4,
-    setupPayoffPath: /\b(?:setup|plant|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text),
+    setupPayoffPath: (
+      (/\b(?:setup|plant|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text)) ||
+      tracksKnownSetupIntoActThree(text, storyContext)
+    ),
     sceneForwardPlan: /\b(?:next (?:three )?(?:scene|beat|turn)s?|sequence\s*(?:one|two|three|[1-8])|scene\s*(?:one|two|three|[1-3]))\b/i.test(text),
   };
   const grounding = evaluateStorySpecificGrounding(text, storyContext, "screenplay_feature_architecture");

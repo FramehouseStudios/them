@@ -199,6 +199,63 @@ test("[structural-quality] accepts architecture grounded across state, character
   assert.equal(quality.dimensions.storySpecificGrounding, true);
 });
 
+test("[structural-quality] recognizes a known prop planted in Act I and returned in Act III without meta labels", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_feature_architecture",
+    storyContext: {
+      screenplayFeatureStoryGraph: {
+        currentState: {
+          lastAcceptedOutcome: "Eli refuses to repeat the names until Mara trusts him.",
+          characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+        },
+        bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+        openThreads: [{
+          setup: "The cracked ferry token Mara gave June in Act I.",
+          promisedPayoff: "June returns the cracked ferry token when Mara gives her the wheel.",
+        }],
+      },
+    },
+    reply: [
+      "Act I: Mara wants the last ferry, but her false belief makes control feel safer than trust. The catalyst exposes the ledger conspiracy. At commitment, Mara burns the ferry ledger beyond recovery and gives June the cracked ferry token, which forces Mara and Eli into the restricted harbor.",
+      "Act II: Mara controls every route. At the midpoint Eli refuses her command and reveals the memorized names, therefore the escape becomes a rescue. Her old tactic causes the all is lost crisis when June is stranded across the blackout.",
+      "Act III: Mara needs dependence. Because command has failed, she gives June the wheel. In the climax June returns the cracked ferry token before choosing the crossing herself, proving Mara's changed behavior. The final image leaves Mara in the passenger seat.",
+      "Next three scenes: Mara follows Eli into the terminal; June reaches the launch; Voss forces the harbor confrontation.",
+    ].join("\n\n"),
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.dimensions.setupPayoffPath, true);
+});
+
+test("[structural-quality] does not infer a payoff when the known Act I prop never reaches Act III", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_feature_architecture",
+    storyContext: {
+      screenplayFeatureStoryGraph: {
+        currentState: {
+          lastAcceptedOutcome: "Eli refuses to repeat the names until Mara trusts him.",
+          characterArcState: "Mara treats dependence as danger and trust as surrendering control.",
+        },
+        bindingFacts: [{ fact: "Mara burned the ferry ledger beyond recovery." }],
+        openThreads: [{
+          setup: "The cracked ferry token Mara gave June in Act I.",
+          promisedPayoff: "June returns the cracked ferry token when Mara gives her the wheel.",
+        }],
+      },
+    },
+    reply: [
+      "Act I: Mara wants the last ferry, but her false belief makes control feel safer than trust. The catalyst exposes the ledger conspiracy. At commitment, Mara burns the ferry ledger beyond recovery and gives June the cracked ferry token, which forces Mara and Eli into the restricted harbor.",
+      "Act II: Mara controls every route. At the midpoint Eli reveals the memorized names, therefore the escape becomes a rescue. Her old tactic causes the all is lost crisis when June is stranded across the blackout.",
+      "Act III: Mara needs dependence. Because command has failed, she gives Eli the final choice in the climax and transforms the escape into a rescue. The final image leaves Mara in the passenger seat.",
+      "Next three scenes: Mara follows Eli into the terminal; June reaches the launch; Voss forces the harbor confrontation.",
+    ].join("\n\n"),
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_setup_payoff_path");
+  assert.equal(quality.dimensions.setupPayoffPath, false);
+});
+
 test("[structural-quality] leaves page writes and ordinary talk alone", () => {
   for (const modelReason of ["screenplay_page_write", "knowledge_answer", ""]) {
     const quality = evaluateStructuralScreenplayReply({ modelReason, reply: "Anything." });
