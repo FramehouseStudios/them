@@ -54,6 +54,19 @@ test("[live-studio-canary] semantic canon phrasing recognizes impossible recover
   assert.equal(score.checks.canonContinuity.preservesEliMemory, true);
 });
 
+test("[live-studio-canary] changed tactics count as arc movement without workshop labels", () => {
+  const score = scoreStudioStructuralCanaryReply({
+    reply: [
+      "The highest-leverage fix forces Mara to choose trust over control.",
+      "She gives June the keys and accepts the passenger position while Eli supplies the only remembered name.",
+      "That new tactic of conditional trust forces the next scene and returns the cracked ferry token with changed meaning in the climax.",
+    ].join("\n"),
+    caseId: "scene_doctor_canon_pressure",
+  });
+  assert.equal(score.checks.characterArc.identifiesNeedOrChange, true);
+  assert.ok(score.scores.characterArc >= 0.75);
+});
+
 test("[live-studio-canary] release cases exercise both production structural lanes", () => {
   assert.deepEqual(
     LIVE_STUDIO_STRUCTURAL_CANARY_CASES.map((item) => item.modelReason),

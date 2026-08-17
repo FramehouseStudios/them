@@ -279,7 +279,7 @@ function scoreStudioStructuralCanaryReply({ reply = "", caseId = "", corrections
   const arcChecks = {
     namesFalseBelief: /\b(?:false belief|misbelief|believes?)\b/i.test(text),
     trustVersusControl: /\btrust\b/i.test(text) && /\bcontrol\b/i.test(text),
-    identifiesNeedOrChange: /\b(?:need|learn|change|arc|transformation)\b/i.test(text),
+    identifiesNeedOrChange: /\b(?:need|learn|change|arc|transformation|new tactic|old tactic|practices? trust|chooses? dependence|accepts? dependence|relinquishes? control|passenger position|begins? to (?:trust|depend))\b/i.test(text),
     provesChangeInBehavior: /\b(?:choice|chooses|lets|allows|hands|gives|relinquishes|surrenders|depends|accepts)\b/i.test(text),
   };
   const payoffChecks = {
