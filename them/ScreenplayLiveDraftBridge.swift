@@ -1389,6 +1389,61 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         cleanList(values)
     }
 
+    func applyingStoryObligationCorrection(
+        change: BackendStoryObligationChange,
+        action: String,
+        updatedAt: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        let obligation = change.obligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = obligation.lowercased()
+        let cleanAction = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let remainingChanges = (storyObligationChanges ?? []).filter {
+            $0.obligation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != key
+        }
+        func removingObligation(_ values: [String]?) -> [String]? {
+            let filtered = Self.cleanList(values ?? []).filter { $0.lowercased() != key }
+            return filtered.isEmpty ? nil : filtered
+        }
+        var nextSetups = removingObligation(unresolvedSetups)
+        var nextThreads = removingObligation(unresolvedStoryThreads)
+        var nextPayoffs = removingObligation(actThreePayoffPath)
+        if cleanAction == "keep_open", !obligation.isEmpty {
+            if change.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "promised_payoff" {
+                nextPayoffs = Self.cleanList((nextPayoffs ?? []) + [obligation])
+            } else if change.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "accepted_consequence" {
+                nextThreads = Self.cleanList((nextThreads ?? []) + [obligation])
+            } else {
+                nextSetups = Self.cleanList((nextSetups ?? []) + [obligation])
+            }
+        }
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "story_obligation_correction",
+            projectId: projectId,
+            projectTitle: projectTitle,
+            act: act,
+            featureSequence: featureSequence,
+            currentBeat: currentBeat,
+            nextScenePlan: nextScenePlan,
+            nextThreeTurns: nextThreeTurns,
+            actThreePayoffPath: nextPayoffs,
+            unresolvedSetups: nextSetups,
+            unresolvedStoryThreads: nextThreads,
+            characterArcTurns: characterArcTurns,
+            imageMotifs: imageMotifs,
+            storyObligationChanges: remainingChanges,
+            characters: characters,
+            correctedTerms: correctedTerms,
+            correctionReplacements: correctionReplacements,
+            characterBibleApplied: characterBibleApplied,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanAction == "retire"
+                ? "Retired story obligation: \(obligation)"
+                : "Kept story obligation open: \(obligation)",
+            updatedAt: updatedAt
+        )
+    }
+
     func applyingCanonCorrection(
         correctionText: String,
         retiredFacts: [String],
@@ -8313,6 +8368,36 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             projectIdOverride: projectId,
             projectTitleOverride: projectTitle
         )
+    }
+
+    @discardableResult
+    func correctStoryObligation(
+        _ change: BackendStoryObligationChange,
+        action: String
+    ) async throws -> String {
+        let projectID = (latestAppliedMemory.projectId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectTitle = (latestAppliedMemory.projectTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectID.isEmpty || !projectTitle.isEmpty else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "No applied screenplay project is active for this correction."
+            )
+        }
+        let result = try await BackendMemoryAPI.shared.correctStoryObligation(
+            projectID: projectID,
+            projectTitle: projectTitle,
+            change: change,
+            action: action
+        )
+        latestAppliedMemory = latestAppliedMemory.applyingStoryObligationCorrection(
+            change: change,
+            action: action
+        )
+        return result.payload.message ?? (action == "retire"
+            ? "Story obligation retired."
+            : "Story obligation kept open.")
     }
 
     @discardableResult

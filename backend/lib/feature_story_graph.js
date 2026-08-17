@@ -4,12 +4,14 @@ const FEATURE_STORY_GRAPH_FACT_MAX = 8;
 const FEATURE_STORY_GRAPH_THREAD_MAX = 6;
 const FEATURE_STORY_GRAPH_CONSEQUENCE_MAX = 24;
 const FEATURE_STORY_GRAPH_OBLIGATION_MAX = 24;
+const FEATURE_STORY_GRAPH_CORRECTION_MAX = 24;
 const STORY_OBLIGATION_STATUSES = new Set([
   "advanced",
   "complicated",
   "transformed",
   "paid_off",
 ]);
+const STORY_OBLIGATION_CORRECTION_ACTIONS = new Set(["keep_open", "retire"]);
 
 const CONSEQUENCE_STOPWORDS = new Set([
   "about", "after", "again", "against", "and", "before", "being", "both", "could", "from",
@@ -121,14 +123,50 @@ function sanitizeStoryObligationChanges(value = []) {
   return out;
 }
 
-function buildStoryObligationLedger(acceptedScenes = []) {
+function sanitizeStoryObligationCorrections(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const newestByObligation = new Map();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obligation = clean(item.obligation, 220);
+    const action = clean(item.action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const correctedAtValue = Number(item.correctedAt ?? item.corrected_at ?? item.updatedAt ?? item.updated_at ?? 0);
+    const correctedAt = Number.isFinite(correctedAtValue) ? Math.max(0, correctedAtValue) : 0;
+    if (!obligation || !STORY_OBLIGATION_CORRECTION_ACTIONS.has(action) || correctedAt <= 0) continue;
+    const correction = Object.fromEntries(Object.entries({
+      id: clean(item.id, 96) || `obligation_correction_${correctedAt}`,
+      obligation,
+      action,
+      note: clean(item.note, 240),
+      sourceChangeId: clean(item.sourceChangeId ?? item.source_change_id, 96),
+      sourceStatus: clean(item.sourceStatus ?? item.source_status, 32),
+      correctedAt,
+    }).filter(([, field]) => typeof field === "number" ? true : Boolean(field)));
+    const key = obligation.toLowerCase();
+    const existing = newestByObligation.get(key);
+    if (!existing || correction.correctedAt >= existing.correctedAt) {
+      newestByObligation.set(key, correction);
+    }
+  }
+  return [...newestByObligation.values()]
+    .sort((left, right) => right.correctedAt - left.correctedAt)
+    .slice(0, FEATURE_STORY_GRAPH_CORRECTION_MAX);
+}
+
+function buildStoryObligationLedger(acceptedScenes = [], corrections = []) {
   const scenes = Array.isArray(acceptedScenes) ? acceptedScenes : [];
+  const correctionByObligation = new Map(
+    sanitizeStoryObligationCorrections(corrections)
+      .map((item) => [item.obligation.toLowerCase(), item])
+  );
   const latestByObligation = new Map();
   scenes.forEach((scene, sceneIndex) => {
     const changes = sanitizeStoryObligationChanges(
       scene?.storyObligationChanges ?? scene?.story_obligation_changes
     );
     changes.forEach((change, changeIndex) => {
+      const correction = correctionByObligation.get(change.obligation.toLowerCase());
+      if (correction && correction.correctedAt >= acceptedAt(scene)) return;
       latestByObligation.set(change.obligation.toLowerCase(), Object.fromEntries(Object.entries({
         id: `obligation_${sceneIndex + 1}_${changeIndex + 1}`,
         ...change,
@@ -306,6 +344,7 @@ function buildOpenThreads({
   nodes = [],
   dueStoryThread = null,
   storyObligationLedger = [],
+  storyObligationCorrections = [],
 } = {}) {
   const setups = cleanList(project.unresolvedSetups ?? project.unresolved_setups, FEATURE_STORY_GRAPH_THREAD_MAX, 220);
   const payoffs = cleanList(project.actThreePayoffPath ?? project.act_three_payoff_path, 5, 220);
@@ -317,12 +356,19 @@ function buildOpenThreads({
       .filter((item) => item?.obligation)
       .map((item) => [item.obligation.toLowerCase(), item])
   );
+  const correctionByObligation = new Map(
+    sanitizeStoryObligationCorrections(storyObligationCorrections)
+      .map((item) => [item.obligation.toLowerCase(), item])
+  );
   return ordered.map((setup, index) => {
     const source = matchingSourceNode(nodes, setup);
     const isDue = Boolean(dueSetup && setup.toLowerCase() === dueSetup.toLowerCase());
     const promisedPayoff = isDue
       ? duePayoff
       : (payoffs[index] || (ordered.length === 1 && payoffs.length === 1 ? payoffs[0] : ""));
+    const correction = correctionByObligation.get(setup.toLowerCase()) ||
+      (promisedPayoff ? correctionByObligation.get(promisedPayoff.toLowerCase()) : null);
+    if (correction?.action === "retire") return null;
     const change = explicitChanges.get(setup.toLowerCase()) ||
       (promisedPayoff ? explicitChanges.get(promisedPayoff.toLowerCase()) : null);
     if (change?.status === "paid_off") return null;
@@ -361,12 +407,19 @@ function buildFeatureStoryGraph({
     .map(normalizedFact)
     .filter(Boolean)
     .slice(0, FEATURE_STORY_GRAPH_FACT_MAX);
-  const obligationState = buildStoryObligationLedger(acceptedSceneRecords);
+  const storyObligationCorrections = sanitizeStoryObligationCorrections(
+    project.storyObligationCorrections ?? project.story_obligation_corrections
+  );
+  const obligationState = buildStoryObligationLedger(
+    acceptedSceneRecords,
+    storyObligationCorrections
+  );
   const openThreads = buildOpenThreads({
     project,
     nodes,
     dueStoryThread,
     storyObligationLedger: obligationState.items,
+    storyObligationCorrections,
   });
   const consequenceState = buildConsequenceLedger(acceptedSceneRecords, obligationState.items);
   const latest = nodes[nodes.length - 1] || null;
@@ -421,6 +474,7 @@ function buildFeatureStoryGraph({
     openThreads,
     storyObligationLedger: obligationState.items,
     currentStoryObligationChange: obligationState.currentStoryObligationChange,
+    storyObligationCorrections,
     consequenceLedger: consequenceState.items,
     consequenceSummary: consequenceState.summary,
     currentDueConsequence: consequenceState.currentDueConsequence,
@@ -431,4 +485,5 @@ function buildFeatureStoryGraph({
 export {
   FEATURE_STORY_GRAPH_VERSION,
   buildFeatureStoryGraph,
+  sanitizeStoryObligationCorrections,
 };

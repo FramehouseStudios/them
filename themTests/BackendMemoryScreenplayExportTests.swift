@@ -665,7 +665,16 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
                     "status": "paid_off",
                     "result": "June returns the token after Mara gives her the wheel.",
                     "evidence": "June sets the token in Mara's palm, then takes the wheel."
-                  }
+                  },
+                  "story_obligation_corrections": [{
+                    "id": "obligation_correction_1",
+                    "obligation": "The bell in Mara's apartment",
+                    "action": "retire",
+                    "note": "It is atmosphere, not a setup.",
+                    "source_change_id": "obligation_4_1",
+                    "source_status": "advanced",
+                    "corrected_at": 1800000030000
+                  }]
                 }
                 """#.utf8
             )
@@ -677,6 +686,11 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(
             spine.currentStoryObligationChange?.evidence,
             "June sets the token in Mara's palm, then takes the wheel."
+        )
+        XCTAssertEqual(spine.storyObligationCorrections?.first?.actionLabel, "Retired")
+        XCTAssertEqual(
+            spine.storyObligationCorrections?.first?.note,
+            "It is atmosphere, not a setup."
         )
         XCTAssertNil(spine.payload["story_obligation_ledger"])
     }
@@ -825,6 +839,96 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
             "split-ferries"
         )
         XCTAssertNil(scopedRequest.queryItems["story_preference_project_title"])
+    }
+
+    func testStoryObligationCorrectionPostsWriterAuthorityWithCreativeRevision() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "source": "auth_user", "source_ip": "", "creative_memory_revision": "cm_before_obligation", "memories": [], "conversation_samples": [] }"#.utf8)
+                )
+            case "/memories/story-obligations/correct":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "ok": true,
+                          "action": "story_obligation_correction",
+                          "status": "keep_open",
+                          "message": "Clementine will keep this obligation open.",
+                          "creative_memory_revision": "cm_after_obligation",
+                          "story_obligation_correction": {
+                            "id": "obligation_correction_1",
+                            "obligation": "The cracked ferry token Mara gave June",
+                            "action": "keep_open",
+                            "source_change_id": "obligation_12_1",
+                            "source_status": "paid_off",
+                            "corrected_at": 5000
+                          }
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+        let change = BackendStoryObligationChange(
+            id: "obligation_12_1",
+            kind: "setup",
+            obligation: "The cracked ferry token Mara gave June",
+            status: "paid_off",
+            result: "June returns the token.",
+            evidence: "June places it in Mara's palm.",
+            sourceSceneHeading: nil,
+            sourceAct: nil,
+            sourcePosition: nil,
+            acceptedAt: nil
+        )
+
+        let result = try await api.correctStoryObligation(
+            projectID: "split-ferries",
+            projectTitle: "Split Ferries",
+            change: change,
+            action: "keep_open"
+        )
+
+        XCTAssertEqual(result.payload.storyObligationCorrection?.actionLabel, "Kept open")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/story-obligations/correct" }
+        )
+        XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
+        XCTAssertEqual(request.bodyObject?["obligation"] as? String, change.obligation)
+        XCTAssertEqual(request.bodyObject?["action"] as? String, "keep_open")
+        XCTAssertEqual(request.bodyObject?["source_change_id"] as? String, change.id)
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_before_obligation"
+        )
     }
 }
 

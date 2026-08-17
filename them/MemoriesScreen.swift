@@ -105,6 +105,8 @@ final class MemoriesViewModel: ObservableObject {
     @Published var storyMovePreferences: [BackendStoryMovePreference] = []
     @Published var updatingStoryMoveFamily = ""
     @Published var preferenceActionError = ""
+    @Published var correctingStoryObligationID = ""
+    @Published var storyObligationActionError = ""
 
     private var isLoading = false
     private var lastLoadedAt: Date?
@@ -600,6 +602,38 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
+    func correctStoryObligation(
+        projectID: String,
+        projectTitle: String,
+        change: BackendStoryObligationChange,
+        action: String
+    ) async {
+        guard correctingStoryObligationID.isEmpty else { return }
+        correctingStoryObligationID = change.id
+        storyObligationActionError = ""
+        defer { correctingStoryObligationID = "" }
+        do {
+            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+            let result = try await BackendMemoryAPI.shared.correctStoryObligation(
+                projectID: projectID,
+                projectTitle: projectTitle,
+                change: change,
+                action: action
+            )
+            lastSync = result.sync
+            if !result.sync.stateVersion.isEmpty {
+                latestSeenStateVersion = result.sync.stateVersion
+            }
+            await load(force: true, sinceVersion: nil)
+        } catch {
+            if let backendError = error as? BackendMemoryAPIError,
+               backendError.isCrossDeviceMemoryConflict {
+                await load(force: true, sinceVersion: nil)
+            }
+            storyObligationActionError = error.localizedDescription
+        }
+    }
+
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
         let versionKey = event.stateVersion.isEmpty ? event.turnId : event.stateVersion
         guard !versionKey.isEmpty else { return }
@@ -973,9 +1007,24 @@ struct MemoriesScreen: View {
                     })
                 case .loaded(let items):
                     if let storySpine = StorySpineSnapshot.make(from: items) {
-                        StorySpineOverview(snapshot: storySpine, onTap: { tapped in
-                            vm.selection = tapped
-                        })
+                        StorySpineOverview(
+                            snapshot: storySpine,
+                            correctingObligationID: vm.correctingStoryObligationID,
+                            correctionError: vm.storyObligationActionError,
+                            onTap: { tapped in
+                                vm.selection = tapped
+                            },
+                            onCorrectObligation: { change, action in
+                                Task {
+                                    await vm.correctStoryObligation(
+                                        projectID: storySpine.projectID,
+                                        projectTitle: storySpine.projectName,
+                                        change: change,
+                                        action: action
+                                    )
+                                }
+                            }
+                        )
                     }
                     MemoriesGrid(items: items) { tapped in
                         vm.selection = tapped
@@ -1534,6 +1583,10 @@ private struct StorySpineSnapshot: Hashable {
             projectItem.title
     }
 
+    var projectID: String {
+        clean(spine.projectId) ?? projectItem.projectID
+    }
+
     var positionText: String {
         join([spine.act, spine.featureSequence], separator: " / ") ?? "Feature"
     }
@@ -1593,6 +1646,10 @@ private struct StorySpineSnapshot: Hashable {
                 .lowercased()
             return !key.isEmpty && seen.insert(key).inserted
         }
+    }
+
+    var obligationCorrections: [BackendStoryObligationCorrection] {
+        spine.storyObligationCorrections ?? []
     }
 
     private func first(_ values: [String?]) -> String {
@@ -1678,7 +1735,10 @@ private extension BackendStorySpineMemory {
 
 private struct StorySpineOverview: View {
     let snapshot: StorySpineSnapshot
+    let correctingObligationID: String
+    let correctionError: String
     var onTap: (MemoryItem) -> Void
+    var onCorrectObligation: (BackendStoryObligationChange, String) -> Void
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: 235, maximum: 360), spacing: 12, alignment: .topLeading)]
@@ -1734,12 +1794,36 @@ private struct StorySpineOverview: View {
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.78))
 
                     ForEach(Array(snapshot.obligationChanges.prefix(3))) { change in
-                        StoryObligationChangeCard(change: change) {
-                            onTap(snapshot.projectItem)
-                        }
+                        StoryObligationChangeCard(
+                            change: change,
+                            isSaving: correctingObligationID == change.id,
+                            onCorrect: { action in
+                                onCorrectObligation(change, action)
+                            }
+                        )
                     }
                 }
                 .accessibilityIdentifier("memories.story-obligations")
+            }
+
+            if !snapshot.obligationCorrections.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Writer Corrections")
+                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.78))
+                    ForEach(Array(snapshot.obligationCorrections.prefix(3))) { correction in
+                        StoryObligationCorrectionCard(correction: correction)
+                    }
+                }
+                .accessibilityIdentifier("memories.story-obligation-corrections")
+            }
+
+            if !correctionError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(correctionError)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.red.opacity(0.88))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.story-obligation.error")
             }
 
             if !snapshot.characterItems.isEmpty || !snapshot.correctionItems.isEmpty {
@@ -1770,7 +1854,8 @@ private struct StorySpineOverview: View {
 
 private struct StoryObligationChangeCard: View {
     let change: BackendStoryObligationChange
-    let onCorrect: () -> Void
+    let isSaving: Bool
+    let onCorrect: (String) -> Void
 
     private var statusColor: Color {
         switch change.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
@@ -1801,15 +1886,36 @@ private struct StoryObligationChangeCard: View {
                     .font(.system(size: 10, weight: .medium, design: .default))
                     .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.58))
                 Spacer(minLength: 8)
-                Button {
-                    onCorrect()
-                } label: {
-                    Label("Correct Story Spine", systemImage: "pencil")
-                        .font(.system(size: 11, weight: .medium, design: .default))
+                if isSaving {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 28, height: 28)
+                        .accessibilityLabel("Saving story correction")
+                } else {
+                    Menu {
+                        Button {
+                            onCorrect("keep_open")
+                        } label: {
+                            Label("Keep Open", systemImage: "arrow.uturn.backward.circle")
+                        }
+                        .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).keep-open")
+
+                        Button(role: .destructive) {
+                            onCorrect("retire")
+                        } label: {
+                            Label("Retire Obligation", systemImage: "archivebox")
+                        }
+                        .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).retire")
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 15, weight: .medium, design: .default))
+                            .frame(width: 28, height: 28)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("Correct this setup or payoff")
+                    .accessibilityLabel("Correct \(change.obligation)")
+                    .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).correct")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey).correct")
             }
 
             Text(change.obligation)
@@ -1847,6 +1953,40 @@ private struct StoryObligationChangeCard: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("memories.story-obligation.\(change.accessibilityKey)")
+    }
+}
+
+private struct StoryObligationCorrectionCard: View {
+    let correction: BackendStoryObligationCorrection
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: correction.actionLabel == "Retired" ? "archivebox.fill" : "arrow.uturn.backward.circle.fill")
+                .foregroundStyle(correction.actionLabel == "Retired" ? Color.red.opacity(0.76) : Color.green.opacity(0.82))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(correction.actionLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                Text(correction.obligation)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note = correction.note,
+                   !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(note)
+                        .font(.system(size: 10, weight: .regular, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.88))
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(correction.actionLabel): \(correction.obligation)")
+        .accessibilityIdentifier("memories.story-obligation-correction.\(correction.accessibilityKey)")
     }
 }
 

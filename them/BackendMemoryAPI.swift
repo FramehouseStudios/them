@@ -382,6 +382,32 @@ nonisolated struct BackendStoryObligationChange: Codable, Hashable, Identifiable
     }
 }
 
+nonisolated struct BackendStoryObligationCorrection: Codable, Hashable, Identifiable {
+    let id: String
+    let obligation: String
+    let action: String
+    let note: String?
+    let sourceChangeId: String?
+    let sourceStatus: String?
+    let correctedAt: TimeInterval
+
+    var actionLabel: String {
+        action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "retire"
+            ? "Retired"
+            : "Kept open"
+    }
+
+    var accessibilityKey: String {
+        let source = id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? obligation
+            : id
+        let clean = source
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
 nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     var character: String
     var canon: [String]
@@ -562,6 +588,7 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
     var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
     var storyObligationLedger: [BackendStoryObligationChange]? = nil
     var currentStoryObligationChange: BackendStoryObligationChange? = nil
+    var storyObligationCorrections: [BackendStoryObligationCorrection]? = nil
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]
@@ -1299,6 +1326,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let correctionReceipt: BackendCanonCorrectionReceipt?
     let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     let storyMovePreferences: [BackendStoryMovePreference]?
+    let storyObligationCorrection: BackendStoryObligationCorrection?
     let sessionId: String?
     let stateVersion: String?
     let creativeMemoryRevision: String?
@@ -1439,6 +1467,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let dueStoryThread: BackendDueStoryThread?
     let storyObligationLedger: [BackendStoryObligationChange]
     let currentStoryObligationChange: BackendStoryObligationChange?
+    let storyObligationCorrections: [BackendStoryObligationCorrection]
 
     var isMeaningful: Bool {
         hasContinuity && ([
@@ -1479,6 +1508,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
             dueStoryThread?.isMeaningful == true ||
             storyObligationLedger.contains(where: \.isMeaningful) ||
             currentStoryObligationChange?.isMeaningful == true ||
+            !storyObligationCorrections.isEmpty ||
             pageCount > 0 ||
             targetPages > 0)
     }
@@ -1525,6 +1555,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         case dueStoryThread
         case storyObligationLedger
         case currentStoryObligationChange
+        case storyObligationCorrections
     }
 
     init(from decoder: Decoder) throws {
@@ -1576,6 +1607,10 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
             BackendStoryObligationChange.self,
             forKey: .currentStoryObligationChange
         )
+        storyObligationCorrections = try container.decodeIfPresent(
+            [BackendStoryObligationCorrection].self,
+            forKey: .storyObligationCorrections
+        ) ?? []
     }
 }
 
@@ -6277,6 +6312,31 @@ actor BackendMemoryAPI {
         )
     }
 
+    func correctStoryObligation(
+        projectID: String,
+        projectTitle: String,
+        change: BackendStoryObligationChange,
+        action: String,
+        note: String = ""
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "obligation": change.obligation,
+            "action": action,
+            "source_change_id": change.id,
+            "source_status": change.status,
+        ]
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanProjectID.isEmpty { payload["project_id"] = cleanProjectID }
+        if !cleanProjectTitle.isEmpty { payload["project_title"] = cleanProjectTitle }
+        if !cleanNote.isEmpty { payload["note"] = String(cleanNote.prefix(240)) }
+        return try await runMemoryMutation(
+            path: "/memories/story-obligations/correct",
+            payload: payload
+        )
+    }
+
     func undoCanonCorrection(
         receiptID: String
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
@@ -6596,6 +6656,7 @@ actor BackendMemoryAPI {
         let revisionProtectedPaths: Set<String> = [
             "/memories/character-bible/update",
             "/memories/story-preferences/update",
+            "/memories/story-obligations/correct",
             "/memories/corrections/undo",
             "/memories/corrections/resolve",
             "/memories/forget",

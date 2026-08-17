@@ -946,6 +946,147 @@ function mountMemoriesRoutes(app, deps = {}) {
     }
   });
 
+  // ============== POST /memories/story-obligations/correct ==============
+  app.post("/memories/story-obligations/correct", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_story_obligation_correct");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.correctStoryObligation !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+        request_id: rid,
+      });
+    }
+    const projectId = normalizeSnippet(req.body?.project_id ?? req.body?.projectId, 96);
+    const projectTitle = normalizeSnippet(req.body?.project_title ?? req.body?.projectTitle, 160);
+    const obligation = normalizeSnippet(req.body?.obligation, 220);
+    const action = normalizeSnippet(req.body?.action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const note = normalizeSnippet(req.body?.note, 240);
+    const sourceChangeId = normalizeSnippet(
+      req.body?.source_change_id ?? req.body?.sourceChangeId,
+      96
+    );
+    const sourceStatus = normalizeSnippet(
+      req.body?.source_status ?? req.body?.sourceStatus,
+      32
+    );
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    if (!projectId && !projectTitle) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "missing_project_identity",
+        message: "A screenplay project is required.",
+        request_id: rid,
+      });
+    }
+    if (!obligation || !["keep_open", "retire"].includes(action)) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: !obligation ? "obligation_required" : "invalid_action",
+        message: !obligation
+          ? "Choose the setup or payoff to correct."
+          : "Choose keep_open or retire.",
+        request_id: rid,
+      });
+    }
+
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "story_obligation_correction",
+      requestId: rid,
+      nowTs: Date.now(),
+    });
+    if (!context) return;
+
+    try {
+      const receipt = await creativeMemoryStore.correctStoryObligation({
+        userId,
+        projectId,
+        projectTitle,
+        obligation,
+        action,
+        note,
+        sourceChangeId,
+        sourceStatus,
+        expectedRevision,
+      });
+      if (!receipt?.ok) {
+        const notFound = [
+          "creative_memory_not_found",
+          "project_not_found",
+          "story_obligation_not_found",
+        ].includes(receipt?.reason);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(notFound ? 404 : 400).json({
+          ok: false,
+          action: "story_obligation_correction",
+          status: String(receipt?.reason || "story_obligation_correction_failed"),
+          message: notFound
+            ? "That screenplay obligation could not be found. Reload and try again."
+            : "The story obligation correction could not be saved.",
+          request_id: rid,
+        });
+      }
+      const creativeMemory = await readCreativeMemoryForUser(
+        userId,
+        `${receipt.projectTitle || projectTitle} ${obligation}`
+      );
+      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+      const memory = sanitizePersistedSessionMemory(context.memory);
+      const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+      res.setHeader("Cache-Control", "no-store");
+      applyReadStateHeaders(res, readMeta);
+      applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
+      return res.status(200).json({
+        ok: true,
+        action: "story_obligation_correction",
+        status: action,
+        message: action === "retire"
+          ? "Clementine will retire this obligation from future story reasoning."
+          : "Clementine will keep this obligation open until later accepted evidence resolves it.",
+        story_obligation_correction: receipt.correction || null,
+        session_id: readMeta.sessionId,
+        state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
+        last_turn_id: readMeta.lastTurnId || null,
+        last_updated_at: readMeta.lastUpdatedAt || null,
+        history_updated_at: readMeta.historyUpdatedAt || null,
+        memory_updated_at: Math.max(
+          Number(readMeta.memoryUpdatedAt || 0),
+          Number(receipt.updatedAt || 0)
+        ) || null,
+        schema_version: readMeta.schemaVersion,
+        backend_build: readMeta.backendBuild,
+        backend_boot_id: readMeta.backendBootId,
+      });
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "story_obligation_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[memories_story_obligation_correct_failed] error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "story_obligation_correction_failed",
+        message: "The story obligation correction could not be saved.",
+        request_id: rid,
+      });
+    }
+  });
+
   // ============== POST /memories/character-bible/update ==============
   app.post("/memories/character-bible/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
     const userId = requireMemoryUser(req, res, "memories_character_bible_update");

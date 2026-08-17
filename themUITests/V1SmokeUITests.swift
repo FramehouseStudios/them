@@ -1526,6 +1526,11 @@ final class V1SmokeUITests: XCTestCase {
             ),
             "Studio did not show the accepted-page evidence."
         )
+        XCTAssertTrue(
+            element(identifier: "studio.story-obligation.current.correct", in: app)
+                .waitForExistence(timeout: 5),
+            "Studio did not expose the direct setup/payoff correction control."
+        )
         app.terminate()
 
         app = launchApp(openStudio: true, resetState: false)

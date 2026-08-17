@@ -1005,6 +1005,9 @@ function serializeFeatureStoryGraph(value) {
   const obligationChanges = Array.isArray(value.storyObligationLedger)
     ? value.storyObligationLedger.slice(0, 6)
     : [];
+  const obligationCorrections = Array.isArray(value.storyObligationCorrections)
+    ? value.storyObligationCorrections.slice(0, 6)
+    : [];
   const currentObligationChange = value.currentStoryObligationChange &&
     typeof value.currentStoryObligationChange === "object"
     ? value.currentStoryObligationChange
@@ -1022,6 +1025,7 @@ function serializeFeatureStoryGraph(value) {
     !threads.length &&
     !consequences.length &&
     !obligationChanges.length &&
+    !obligationCorrections.length &&
     !Object.keys(state).length
   ) return "";
   const lines = [
@@ -1097,6 +1101,21 @@ function serializeFeatureStoryGraph(value) {
       source ? `source=${source}` : "",
     ].filter(Boolean);
     if (parts.length) lines.push(`    - ${parts.join("; ")}`);
+  }
+  if (obligationCorrections.length) lines.push("  binding_writer_obligation_corrections:");
+  for (const correction of obligationCorrections) {
+    const action = trimContextLine(correction.action, 32).toLowerCase();
+    const obligation = trimContextLine(correction.obligation, 220);
+    const note = trimContextLine(correction.note, 220);
+    const parts = [
+      `action=${action === "retire" ? "RETIRE" : "KEEP_OPEN"}`,
+      `obligation=${obligation}`,
+      note ? `writer_note=${note}` : "",
+    ].filter(Boolean);
+    if (obligation) lines.push(`    - WRITER_AUTHORITY; ${parts.join("; ")}`);
+  }
+  if (obligationCorrections.length) {
+    lines.push("  correction_contract: writer obligation corrections override all older accepted-page inferences. KEEP_OPEN means the obligation remains unresolved; RETIRE means it must not be raised, paid off, or reintroduced unless a later accepted page explicitly creates it again.");
   }
   if (consequences.length) lines.push("  accepted_consequence_ledger:");
   for (const consequence of consequences) {

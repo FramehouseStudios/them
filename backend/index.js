@@ -4255,6 +4255,10 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       featureStoryGraph?.current_story_obligation_change ??
       storyObligationLedger[0]
   );
+  const storyObligationCorrections = normalizeStoryObligationCorrectionsForApi(
+    featureStoryGraph?.storyObligationCorrections ??
+      featureStoryGraph?.story_obligation_corrections
+  );
   const project = legacyProject || durableProject;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
@@ -4277,7 +4281,8 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     !acceptedScene &&
     !dueStoryThread &&
     !acceptedCausalFacts.length &&
-    !storyObligationLedger.length
+    !storyObligationLedger.length &&
+    !storyObligationCorrections.length
   ) {
     return {
       has_continuity: false,
@@ -4325,6 +4330,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       due_story_thread: null,
       story_obligation_ledger: [],
       current_story_obligation_change: null,
+      story_obligation_corrections: [],
     };
   }
 
@@ -4355,6 +4361,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
   const projectHasCorrection = Boolean(
     correctedTerms.length ||
     correctionReplacements.length ||
+    storyObligationCorrections.length ||
     correctionContract ||
     continuityNotes.some((note) => /\b(authoritative|correction|corrected)\b/i.test(note))
   );
@@ -4394,16 +4401,19 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     next_three_turns: Array.isArray(project?.nextThreeTurns)
       ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
       : [],
-    act_three_payoff_path: Array.isArray(project?.actThreePayoffPath)
-      ? project.actThreePayoffPath.slice(0, 5).map((item) => normalizeSnippet(item, 200)).filter(Boolean)
-      : [],
+    act_three_payoff_path: filterRetiredStoryObligationsForApi(
+      project?.actThreePayoffPath,
+      storyObligationCorrections
+    ).slice(0, 5),
     character_focus: characterFocus,
-    unresolved_setups: Array.isArray(project?.unresolvedSetups)
-      ? project.unresolvedSetups.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
-      : [],
-    unresolved_story_threads: Array.isArray(project?.unresolvedStoryThreads)
-      ? project.unresolvedStoryThreads.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
-      : [],
+    unresolved_setups: filterRetiredStoryObligationsForApi(
+      project?.unresolvedSetups,
+      storyObligationCorrections
+    ),
+    unresolved_story_threads: filterRetiredStoryObligationsForApi(
+      project?.unresolvedStoryThreads,
+      storyObligationCorrections
+    ),
     character_arc_turns: Array.isArray(project?.characterArcTurns)
       ? project.characterArcTurns.slice(0, 6).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
       : [],
@@ -4433,6 +4443,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     due_story_thread: dueStoryThread,
     story_obligation_ledger: storyObligationLedger,
     current_story_obligation_change: currentStoryObligationChange,
+    story_obligation_corrections: storyObligationCorrections,
   };
   return {
     ...snapshot,
@@ -30568,9 +30579,47 @@ function normalizeStoryObligationLedgerForApi(value = []) {
   return out;
 }
 
+function normalizeStoryObligationCorrectionsForApi(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obligation = normalizeSnippet(item.obligation, 220);
+    const action = normalizeSnippet(item.action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const correctedAt = Math.max(0, Number(item.correctedAt ?? item.corrected_at ?? 0));
+    const key = obligation.toLowerCase();
+    if (!obligation || !["keep_open", "retire"].includes(action) || !correctedAt || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(Object.fromEntries(Object.entries({
+      id: normalizeSnippet(item.id, 96),
+      obligation,
+      action,
+      note: normalizeSnippet(item.note, 240),
+      source_change_id: normalizeSnippet(item.sourceChangeId ?? item.source_change_id, 96),
+      source_status: normalizeSnippet(item.sourceStatus ?? item.source_status, 32),
+      corrected_at: correctedAt,
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))));
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+
+function filterRetiredStoryObligationsForApi(values = [], corrections = []) {
+  const retired = new Set(
+    normalizeStoryObligationCorrectionsForApi(corrections)
+      .filter((item) => item.action === "retire")
+      .map((item) => item.obligation.toLowerCase())
+  );
+  return normalizeScreenplayStringList(values, 8, 220)
+    .filter((item) => !retired.has(item.toLowerCase()));
+}
+
 function storyObligationStateForCreativeProject(project = null) {
   if (!project || typeof project !== "object" || Array.isArray(project)) {
-    return { ledger: [], current: null };
+    return { ledger: [], current: null, corrections: [] };
   }
   const graph = buildFeatureStoryGraph({
     projectContinuity: project,
@@ -30581,6 +30630,9 @@ function storyObligationStateForCreativeProject(project = null) {
     ledger,
     current: normalizeStoryObligationChangeForApi(
       graph?.currentStoryObligationChange ?? ledger[0]
+    ),
+    corrections: normalizeStoryObligationCorrectionsForApi(
+      graph?.storyObligationCorrections
     ),
   };
 }
@@ -30658,6 +30710,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       _fieldProvenance: fieldProvenance,
       _storyObligationLedger: obligationState.ledger,
       _currentStoryObligationChange: obligationState.current,
+      _storyObligationCorrections: obligationState.corrections,
     };
     for (const row of fieldProvenance) {
       const projectValue = project?.[row.field];
@@ -30679,6 +30732,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       _fieldProvenance: buildProjectFieldProvenance(project),
       _storyObligationLedger: obligationState.ledger,
       _currentStoryObligationChange: obligationState.current,
+      _storyObligationCorrections: obligationState.corrections,
     });
   }
   screenplayProjectMemory = screenplayProjectMemory
@@ -30705,7 +30759,10 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     const snippets = [
       item.lastWritePreview,
       item.featureObligation,
-      item.unresolvedSetups.slice(0, 2).join(" / "),
+      filterRetiredStoryObligationsForApi(
+        item.unresolvedSetups,
+        item._storyObligationCorrections
+      ).slice(0, 2).join(" / "),
       item.continuityNotes.slice(0, 2).join(" / "),
     ].map((value) => normalizeSnippet(value, 180)).filter(Boolean);
     cards.push({
@@ -30774,11 +30831,20 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         nextScenePlan: normalizeSnippet(item.nextScenePlan, 340),
         nextSceneMoves: normalizeScreenplayStringList(item.nextSceneMoves, 5, 180),
         nextThreeTurns: normalizeScreenplayStringList(item.nextThreeTurns, 3, 180),
-        actThreePayoffPath: normalizeScreenplayStringList(item.actThreePayoffPath, 5, 200),
+        actThreePayoffPath: filterRetiredStoryObligationsForApi(
+          item.actThreePayoffPath,
+          item._storyObligationCorrections
+        ).slice(0, 5),
         beatSequence: normalizeScreenplayStringList(item.beatSequence, 8, 180),
         characterFocus: normalizeScreenplayStringList(item.characterFocus, 8, 120),
-        unresolvedSetups: normalizeScreenplayStringList(item.unresolvedSetups, 8, 220),
-        unresolvedStoryThreads: normalizeScreenplayStringList(item.unresolvedStoryThreads, 8, 220),
+        unresolvedSetups: filterRetiredStoryObligationsForApi(
+          item.unresolvedSetups,
+          item._storyObligationCorrections
+        ),
+        unresolvedStoryThreads: filterRetiredStoryObligationsForApi(
+          item.unresolvedStoryThreads,
+          item._storyObligationCorrections
+        ),
         characterArcTurns: normalizeScreenplayStringList(item.characterArcTurns, 6, 180),
         imageMotifs: normalizeScreenplayStringList(item.imageMotifs, 6, 140),
         continuityNotes: normalizeScreenplayStringList(item.continuityNotes, 8, 220),
@@ -30792,6 +30858,9 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         ),
         current_story_obligation_change: normalizeStoryObligationChangeForApi(
           item._currentStoryObligationChange
+        ),
+        story_obligation_corrections: normalizeStoryObligationCorrectionsForApi(
+          item._storyObligationCorrections
         ),
       },
     });

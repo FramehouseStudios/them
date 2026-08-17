@@ -158,6 +158,118 @@ test("[feature-story-graph] removes a paid-off setup from the open queue using a
   assert.match(prompt, /never reopen or repay the original obligation/i);
 });
 
+test("[feature-story-graph] writer keep-open correction overrides older paid-off evidence", () => {
+  const obligation = "The cracked ferry token Mara gave June";
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: {
+      ...projectFixture(),
+      storyObligationCorrections: [{
+        id: "correction_keep_open",
+        obligation,
+        action: "keep_open",
+        note: "The token return is a false victory, not the payoff.",
+        correctedAt: 300,
+      }],
+    },
+    dueStoryThread: {
+      setup: obligation,
+      promisedPayoff: "June returns the token when Mara gives her the wheel",
+      ageInScenes: 4,
+    },
+    acceptedScenes: [{
+      acceptedAt: 200,
+      act: "Act III",
+      sceneHeading: "INT. PILOT HOUSE - DAWN",
+      unresolvedSetups: [obligation],
+      storyObligationChanges: [{
+        kind: "setup",
+        obligation,
+        status: "paid_off",
+        result: "June returns the cracked token.",
+        evidence: "June sets the cracked token in Mara's open palm.",
+      }],
+    }],
+  });
+
+  assert.equal(graph.storyObligationLedger.length, 0);
+  assert.equal(graph.currentStoryObligationChange, null);
+  assert.equal(graph.openThreads[0].status, "due");
+  assert.equal(graph.storyObligationCorrections[0].action, "keep_open");
+  const prompt = buildModelPrompt({
+    persona: "Clementine",
+    creativeMemory: { featureStoryGraph: graph },
+    userInput: "Continue the screenplay.",
+  });
+  assert.match(prompt, /binding_writer_obligation_corrections:/);
+  assert.match(prompt, /action=KEEP_OPEN/);
+  assert.match(prompt, /false victory, not the payoff/i);
+  assert.match(prompt, /override all older accepted-page inferences/i);
+  assert.doesNotMatch(prompt, /is PAID_OFF by accepted evidence/i);
+});
+
+test("[feature-story-graph] writer retirement removes a false obligation from structural reasoning", () => {
+  const obligation = "The cracked ferry token Mara gave June";
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: {
+      ...projectFixture(),
+      storyObligationCorrections: [{
+        id: "correction_retire",
+        obligation,
+        action: "retire",
+        correctedAt: 300,
+      }],
+    },
+    dueStoryThread: {
+      setup: obligation,
+      promisedPayoff: "June returns the token when Mara gives her the wheel",
+      ageInScenes: 4,
+    },
+    acceptedScenes: [{
+      acceptedAt: 200,
+      unresolvedSetups: [obligation],
+      storyObligationChanges: [{
+        kind: "setup",
+        obligation,
+        status: "advanced",
+        result: "June pockets the token.",
+        evidence: "June closes her fist around the cracked token.",
+      }],
+    }],
+  });
+
+  assert.equal(graph.openThreads.length, 0);
+  assert.equal(graph.storyObligationLedger.length, 0);
+  assert.equal(graph.storyObligationCorrections[0].action, "retire");
+});
+
+test("[feature-story-graph] later accepted evidence can supersede an older writer correction", () => {
+  const obligation = "The cracked ferry token Mara gave June";
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: {
+      ...projectFixture(),
+      storyObligationCorrections: [{
+        id: "correction_keep_open",
+        obligation,
+        action: "keep_open",
+        correctedAt: 200,
+      }],
+    },
+    acceptedScenes: [{
+      acceptedAt: 300,
+      storyObligationChanges: [{
+        kind: "setup",
+        obligation,
+        status: "paid_off",
+        result: "June returns the token after Mara yields control.",
+        evidence: "Mara releases the wheel before June returns the token.",
+      }],
+    }],
+  });
+
+  assert.equal(graph.storyObligationLedger[0].status, "paid_off");
+  assert.match(graph.currentStoryObligationChange.result, /yields control/i);
+});
+
 test("[feature-story-graph] turns a transformed accepted consequence into current state instead of a due replay", () => {
   const obligation = "Mara burns the ferry ledger beyond recovery.";
   const graph = buildFeatureStoryGraph({
@@ -245,6 +357,52 @@ test("[feature-story-graph] survives account restore and applies canon correctio
   assert.ok(memory.featureStoryGraph);
   assert.match(JSON.stringify(memory.featureStoryGraph), /MiniDV tape/);
   assert.doesNotMatch(JSON.stringify(memory.featureStoryGraph), /cassette/i);
+});
+
+test("[feature-story-graph] persists obligation retirement across account restore and removes planner due state", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-obligation-correction-"));
+  const obligation = "The cracked ferry token Mara gave June";
+  const first = createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
+  await first.recordProjectContinuity({
+    userId: "writer-obligation-correction",
+    continuity: {
+      ...projectFixture(),
+      acceptedScenes: [{
+        acceptedAt: 100,
+        sceneHeading: "EXT. EAST FERRY DOCK - NIGHT",
+        unresolvedSetups: [obligation],
+        storyObligationChanges: [{
+          kind: "setup",
+          obligation,
+          status: "advanced",
+          result: "June pockets the token.",
+          evidence: "June closes her fist around the cracked token.",
+        }],
+      }],
+    },
+  });
+  const receipt = await first.correctStoryObligation({
+    userId: "writer-obligation-correction",
+    projectId: "split-ferries",
+    obligation,
+    action: "retire",
+    note: "The token was incidental business, not a setup.",
+    at: 200,
+  });
+  assert.equal(receipt.ok, true);
+
+  const restored = createCreativeMemoryStore({ persistence: createJsonPersistence({ jsonRoot: root }) });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "writer-obligation-correction",
+    projectId: "split-ferries",
+    query: "What setup should pay off next?",
+  });
+
+  assert.equal(memory.dueStoryThread, undefined);
+  assert.deepEqual(memory.projectContinuity.unresolvedSetups, []);
+  assert.equal(memory.featureStoryGraph.storyObligationLedger.length, 0);
+  assert.equal(memory.featureStoryGraph.openThreads.length, 0);
+  assert.equal(memory.featureStoryGraph.storyObligationCorrections[0].action, "retire");
 });
 
 test("[feature-story-graph] centralized prompt exposes current state, accepted changes, and due promise", () => {

@@ -6331,6 +6331,7 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
     @State private var studioAppliedMemoryCorrectionDraft = ""
     @State private var isSavingStudioAppliedMemoryCorrection = false
+    @State private var correctingStudioStoryObligationID = ""
     @State private var isPageCommitNoticeVisible = false
     @State private var pageCommitNoticeTask: Task<Void, Never>?
     @State private var isLastCommittedWriteActionVisible = false
@@ -14185,6 +14186,36 @@ private var projectsSidebarContent: some View {
                                     .accessibilityIdentifier("studio.story-obligation.current.status")
                                 Text(change.kindLabel)
                                     .foregroundStyle(Color.herText.opacity(0.48))
+                                Spacer(minLength: 8)
+                                if correctingStudioStoryObligationID == change.id {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .frame(width: 24, height: 24)
+                                        .accessibilityLabel("Saving story correction")
+                                } else {
+                                    Menu {
+                                        Button {
+                                            correctStudioStoryObligation(change, action: "keep_open")
+                                        } label: {
+                                            Label("Keep Open", systemImage: "arrow.uturn.backward.circle")
+                                        }
+                                        .accessibilityIdentifier("studio.story-obligation.current.keep-open")
+
+                                        Button(role: .destructive) {
+                                            correctStudioStoryObligation(change, action: "retire")
+                                        } label: {
+                                            Label("Retire Obligation", systemImage: "archivebox")
+                                        }
+                                        .accessibilityIdentifier("studio.story-obligation.current.retire")
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                            .frame(width: 24, height: 24)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .help("Correct this setup or payoff")
+                                    .accessibilityLabel("Correct \(change.obligation)")
+                                    .accessibilityIdentifier("studio.story-obligation.current.correct")
+                                }
                             }
                             .font(.system(size: 10, weight: .semibold, design: .default))
                             .foregroundStyle(Color.herStudioAccent.opacity(0.90))
@@ -14267,6 +14298,26 @@ private var projectsSidebarContent: some View {
                 liveDraftBridge.autoInsertStatusText = "Saved correction for \(character)."
             } catch {
                 liveDraftBridge.autoInsertStatusText = "Memory correction failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func correctStudioStoryObligation(
+        _ change: BackendStoryObligationChange,
+        action: String
+    ) {
+        guard correctingStudioStoryObligationID.isEmpty else { return }
+        correctingStudioStoryObligationID = change.id
+        Task { @MainActor in
+            defer { correctingStudioStoryObligationID = "" }
+            do {
+                let message = try await liveDraftBridge.correctStoryObligation(
+                    change,
+                    action: action
+                )
+                liveDraftBridge.autoInsertStatusText = message
+            } catch {
+                liveDraftBridge.autoInsertStatusText = "Story correction failed: \(error.localizedDescription)"
             }
         }
     }

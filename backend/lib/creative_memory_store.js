@@ -34,7 +34,10 @@ import {
   normalizeStoryMoveFamily,
   normalizeStoryMovePreferenceOverrides,
 } from "./story_rescue_move_library.js";
-import { buildFeatureStoryGraph } from "./feature_story_graph.js";
+import {
+  buildFeatureStoryGraph,
+  sanitizeStoryObligationCorrections,
+} from "./feature_story_graph.js";
 import {
   ACCEPTED_SCENE_STATE_VERSION,
   buildDeterministicAcceptedSceneState,
@@ -1417,6 +1420,12 @@ function sanitizeProjectContinuity(value = {}) {
   ).slice(0, STORY_MOVE_PREFERENCE_OVERRIDES_MAX);
   if (storyMovePreferenceOverrides.length) {
     out.storyMovePreferenceOverrides = storyMovePreferenceOverrides;
+  }
+  const storyObligationCorrections = sanitizeStoryObligationCorrections(
+    value.storyObligationCorrections ?? value.story_obligation_corrections
+  );
+  if (storyObligationCorrections.length) {
+    out.storyObligationCorrections = storyObligationCorrections;
   }
   return out;
 }
@@ -2943,8 +2952,17 @@ function bestStoryThreadMatch(target = "", candidates = []) {
 
 function selectDueStoryThreadForPrompt(project = null) {
   if (!project || typeof project !== "object" || Array.isArray(project)) return null;
-  const openSetups = normalizeStringList(project.unresolvedSetups, 8, 220);
-  const promisedPayoffs = normalizeStringList(project.actThreePayoffPath, 5, 220);
+  const retiredObligations = new Set(
+    sanitizeStoryObligationCorrections(
+      project.storyObligationCorrections ?? project.story_obligation_corrections
+    )
+      .filter((item) => item.action === "retire")
+      .map((item) => item.obligation.toLowerCase())
+  );
+  const openSetups = normalizeStringList(project.unresolvedSetups, 8, 220)
+    .filter((item) => !retiredObligations.has(item.toLowerCase()));
+  const promisedPayoffs = normalizeStringList(project.actThreePayoffPath, 5, 220)
+    .filter((item) => !retiredObligations.has(item.toLowerCase()));
   if (!openSetups.length && !promisedPayoffs.length) return null;
   const activeAct = normalizeActLabel(project.act);
   if (!openSetups.length && activeAct !== "Act III") return null;
@@ -2999,6 +3017,29 @@ function selectDueStoryThreadForPrompt(project = null) {
   return Object.fromEntries(
     Object.entries(out).filter(([, value]) => typeof value === "number" || Boolean(value))
   );
+}
+
+function projectContinuityForPrompt(project = null) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) return null;
+  const out = clone(project);
+  const retiredObligations = new Set(
+    sanitizeStoryObligationCorrections(
+      project.storyObligationCorrections ?? project.story_obligation_corrections
+    )
+      .filter((item) => item.action === "retire")
+      .map((item) => item.obligation.toLowerCase())
+  );
+  if (retiredObligations.size) {
+    for (const field of ["unresolvedSetups", "unresolvedStoryThreads", "actThreePayoffPath"]) {
+      if (!Array.isArray(out[field])) continue;
+      out[field] = out[field].filter((item) => (
+        !retiredObligations.has(cleanText(item, 220).toLowerCase())
+      ));
+    }
+  }
+  delete out.acceptedScenes;
+  delete out.writerCanonFacts;
+  return out;
 }
 
 function acceptedCausalFactScore(record = {}, query = "", currentAct = "") {
@@ -5155,9 +5196,7 @@ function createCreativeMemoryStore({
         acceptedCausalFacts,
         dueStoryThread,
       });
-      const promptProjectContinuity = clone(projectContinuity);
-      delete promptProjectContinuity.acceptedScenes;
-      delete promptProjectContinuity.writerCanonFacts;
+      const promptProjectContinuity = projectContinuityForPrompt(projectContinuity);
       out.projectContinuity = promptProjectContinuity;
       if (acceptedScenes.length) out.acceptedScenes = acceptedScenes;
       if (acceptedCausalFacts.length) out.acceptedCausalFacts = acceptedCausalFacts;
@@ -5549,6 +5588,108 @@ function createCreativeMemoryStore({
         projectId: updatedProject?.projectId || project.projectId || "",
         projectTitle: updatedProject?.projectTitle || project.projectTitle || "",
         updatedAt,
+        creativeMemoryRevision: buildCreativeMemoryRevision(current),
+      };
+    });
+  }
+
+  async function correctStoryObligation({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    obligation = "",
+    action = "",
+    note = "",
+    sourceChangeId = "",
+    sourceStatus = "",
+    expectedRevision = "",
+    at = nowMs(),
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanProjectId = cleanText(projectId, 96).toLowerCase();
+    const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+    const cleanObligation = cleanText(obligation, 220);
+    const cleanAction = cleanText(action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const correctedAt = Math.max(1, Number(at) || nowMs());
+    if (!cleanUserId || (!cleanProjectId && !cleanProjectTitle)) {
+      return { ok: false, reason: "missing_project_identity" };
+    }
+    if (!cleanObligation) return { ok: false, reason: "obligation_required" };
+    if (!["keep_open", "retire"].includes(cleanAction)) {
+      return { ok: false, reason: "invalid_action" };
+    }
+
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, reason: "creative_memory_not_found" };
+      assertCreativeMemoryRevision(current, expectedRevision);
+      const baseline = clone(current);
+      const projects = (Array.isArray(current.projects) ? current.projects : [])
+        .map(sanitizeProjectContinuity)
+        .filter(Boolean);
+      let projectIndex = -1;
+      if (cleanProjectId) {
+        projectIndex = projects.findIndex((project) => (
+          projectIdentity(project).projectId === cleanProjectId
+        ));
+      }
+      if (projectIndex < 0 && cleanProjectTitle) {
+        projectIndex = projects.findIndex((project) => (
+          projectIdentity(project).projectTitle === cleanProjectTitle
+        ));
+      }
+      if (projectIndex < 0) return { ok: false, reason: "project_not_found" };
+
+      const project = projects[projectIndex];
+      const obligationKey = cleanObligation.toLowerCase();
+      const knownObligations = new Set([
+        ...normalizeStringList(project.unresolvedSetups, 8, 220),
+        ...normalizeStringList(project.unresolvedStoryThreads, 8, 220),
+        ...normalizeStringList(project.actThreePayoffPath, 5, 220),
+        ...(Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [])
+          .flatMap((scene) => Array.isArray(scene?.storyObligationChanges)
+            ? scene.storyObligationChanges
+            : [])
+          .map((change) => cleanText(change?.obligation, 220)),
+      ].filter(Boolean).map((value) => value.toLowerCase()));
+      if (!knownObligations.has(obligationKey)) {
+        return { ok: false, reason: "story_obligation_not_found" };
+      }
+
+      const correction = {
+        id: `obligation_correction_${randomUUID()}`,
+        obligation: cleanObligation,
+        action: cleanAction,
+        note: cleanText(note, 240),
+        sourceChangeId: cleanText(sourceChangeId, 96),
+        sourceStatus: cleanText(sourceStatus, 32),
+        correctedAt,
+      };
+      const corrections = sanitizeStoryObligationCorrections([
+        correction,
+        ...(project.storyObligationCorrections || []),
+      ]);
+      const updatedProject = sanitizeProjectContinuity({
+        ...project,
+        storyObligationCorrections: corrections,
+        updatedAt: correctedAt,
+      });
+      projects[projectIndex] = updatedProject;
+      current.projects = projects
+        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+        .slice(0, PROJECT_CONTINUITY_MAX);
+      current.updatedAt = correctedAt;
+      await writeUser(cleanUserId, current, {
+        expectedValue: baseline,
+        expectedRevision,
+      });
+      return {
+        ok: true,
+        action: cleanAction,
+        correction: sanitizeStoryObligationCorrections([correction])[0],
+        projectId: updatedProject?.projectId || project.projectId || "",
+        projectTitle: updatedProject?.projectTitle || project.projectTitle || "",
+        updatedAt: correctedAt,
         creativeMemoryRevision: buildCreativeMemoryRevision(current),
       };
     });
@@ -7137,6 +7278,7 @@ function createCreativeMemoryStore({
     resolveCanonCorrectionAmbiguity,
     recordProjectContinuity,
     updateStoryMovePreference,
+    correctStoryObligation,
     recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,

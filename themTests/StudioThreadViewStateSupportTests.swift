@@ -1037,6 +1037,57 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(restored.storyRunwayLines.first, state.storyRunwayLines.first)
     }
 
+    func testStoryObligationCorrectionRepairsAppliedStudioMemoryImmediately() {
+        let change = BackendStoryObligationChange(
+            id: "obligation_12_1",
+            kind: "setup",
+            obligation: "The cracked ferry token Mara gave June",
+            status: "paid_off",
+            result: "June returns the token.",
+            evidence: "June places it in Mara's palm.",
+            sourceSceneHeading: "INT. PILOT HOUSE - DAWN",
+            sourceAct: "Act III",
+            sourcePosition: 12,
+            acceptedAt: 4_000
+        )
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "session_continuity_restore",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            act: "Act III",
+            actThreePayoffPath: ["June returns the token."],
+            unresolvedSetups: [],
+            storyObligationChanges: [change],
+            characters: ["Mara", "June"],
+            correctedTerms: [],
+            correctionReplacements: [],
+            characterBibleApplied: false,
+            correctionAppliedToPrompt: false,
+            lastSavedCorrection: "",
+            updatedAt: Date(timeIntervalSince1970: 4_000)
+        )
+
+        let keptOpen = state.applyingStoryObligationCorrection(
+            change: change,
+            action: "keep_open",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+        XCTAssertNil(keptOpen.currentStoryObligationChange)
+        XCTAssertEqual(keptOpen.unresolvedSetups, [change.obligation])
+        XCTAssertTrue(keptOpen.correctionAppliedToPrompt)
+        XCTAssertTrue(keptOpen.lastSavedCorrection.contains("Kept story obligation open"))
+
+        let retired = state.applyingStoryObligationCorrection(
+            change: change,
+            action: "retire",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+        XCTAssertNil(retired.currentStoryObligationChange)
+        XCTAssertNil(retired.unresolvedSetups)
+        XCTAssertTrue(retired.lastSavedCorrection.contains("Retired story obligation"))
+    }
+
     func testAppliedMemoryPersistenceRestoresFreshCharacterCorrections() throws {
         let createdAt = Date(timeIntervalSince1970: 4_000)
         let state = ScreenplayStudioAppliedMemoryState(

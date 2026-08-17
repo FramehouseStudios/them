@@ -489,6 +489,81 @@ test("[memories] rejects a stale cross-device story preference before writing", 
   });
 });
 
+test("[memories] corrects an accepted story obligation for the authenticated project", async () => {
+  const calls = [];
+  const creativeMemoryStore = {
+    correctStoryObligation: async (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        action: input.action,
+        projectId: input.projectId,
+        projectTitle: "Split Ferries",
+        updatedAt: 6_000,
+        correction: {
+          id: "obligation_correction_1",
+          obligation: input.obligation,
+          action: input.action,
+          correctedAt: 6_000,
+        },
+      };
+    },
+    getCreativeMemoryLedger: async () => ({
+      projects: [{
+        projectId: "split-ferries",
+        storyObligationCorrections: [{
+          id: "obligation_correction_1",
+          obligation: "The cracked ferry token Mara gave June",
+          action: "keep_open",
+          correctedAt: 6_000,
+        }],
+      }],
+    }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/story-obligations/correct", {
+      project_id: "split-ferries",
+      obligation: "The cracked ferry token Mara gave June",
+      action: "keep_open",
+      note: "The return was only a false victory.",
+      source_change_id: "obligation_1_1",
+      source_status: "paid_off",
+      expected_creative_memory_revision: "cm_current",
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.action, "story_obligation_correction");
+    assert.equal(response.body.status, "keep_open");
+    assert.equal(response.body.story_obligation_correction.action, "keep_open");
+    assert.equal(calls[0].userId, "user_memories_test");
+    assert.equal(calls[0].projectId, "split-ferries");
+    assert.equal(calls[0].expectedRevision, "cm_current");
+  });
+});
+
+test("[memories] story obligation correction rejects stale cross-device memory", async () => {
+  const creativeMemoryStore = {
+    correctStoryObligation: async (input) => {
+      const error = new Error("Creative memory changed on another device.");
+      error.code = "stale_creative_memory_revision";
+      error.expectedRevision = input.expectedRevision;
+      error.currentRevision = "cm_newer";
+      throw error;
+    },
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/story-obligations/correct", {
+      project_id: "split-ferries",
+      obligation: "The cracked ferry token Mara gave June",
+      action: "retire",
+      expected_creative_memory_revision: "cm_stale",
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.status, "stale_creative_memory_revision");
+    assert.equal(response.body.current_creative_memory_revision, "cm_newer");
+  });
+});
+
 test("[memories] GET /memories requires authenticated user and does not read memory on spoofed header", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {

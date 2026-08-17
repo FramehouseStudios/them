@@ -34,6 +34,7 @@ const EXPECTED = [
   ["/memories/corrections/undo", "POST"],
   ["/memories/corrections/resolve", "POST"],
   ["/memories/story-preferences/update", "POST"],
+  ["/memories/story-obligations/correct", "POST"],
   ["/memories/forget", "POST"],
   ["/memories/promote", "POST"],
   ["/memories/feedback", "POST"],
