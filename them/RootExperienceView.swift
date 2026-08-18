@@ -8163,6 +8163,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ].contains(nsError.code)
         }
         guard let backendError = error as? BackendError else { return false }
+        if backendError.isProviderQuotaExhausted { return false }
         switch backendError {
         case let .http(status, _):
             return status == -1 ||

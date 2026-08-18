@@ -850,6 +850,47 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testProviderQuotaPolicyRecognizesStructuredFailuresWithoutRetrying() {
+        let quotaBody = Data(#"{"stage":"talk_chat","error_class":"provider_quota","error":"Talk failed during response generation."}"#.utf8)
+        let rateLimitBody = Data(#"{"stage":"rate_limit","error":"rate_limited","retry_after_ms":1200}"#.utf8)
+
+        XCTAssertTrue(
+            BackendProviderFailurePolicy.isQuotaExhausted(
+                statusCode: 429,
+                data: quotaBody
+            )
+        )
+        XCTAssertFalse(
+            BackendProviderFailurePolicy.shouldRetryHTTP(
+                statusCode: 429,
+                data: quotaBody,
+                retryableStatusCodes: [429, 503]
+            )
+        )
+        XCTAssertTrue(
+            BackendProviderFailurePolicy.shouldRetryHTTP(
+                statusCode: 429,
+                data: rateLimitBody,
+                retryableStatusCodes: [429, 503]
+            )
+        )
+    }
+
+    func testProviderQuotaErrorsProtectDraftAndHideProviderDetails() {
+        let error = BackendError.stage(
+            "talk_chat",
+            "Talk failed during response generation (provider_quota). Reference req-private."
+        )
+
+        XCTAssertTrue(error.isProviderQuotaExhausted)
+        XCTAssertEqual(
+            error.localizedDescription,
+            "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
+        )
+        XCTAssertFalse(error.localizedDescription.contains("provider_quota"))
+        XCTAssertFalse(error.localizedDescription.contains("req-private"))
+    }
+
     func testBackendAPIResponseValidatorRejectsCrossOriginRedirects() {
         let requestURL = URL(string: "https://api.them.io/health")!
         let redirectedURL = URL(string: "https://introvert.com/?domain=them.io")!

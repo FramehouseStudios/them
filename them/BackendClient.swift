@@ -1985,6 +1985,27 @@ enum BackendError: LocalizedError {
     case emptyAudio
     case invalidAudioType(String)
 
+    var isProviderQuotaExhausted: Bool {
+        switch self {
+        case let .stage(stage, message):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                payload: "\(stage) \(message)"
+            )
+        case let .http(status, message):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                statusCode: status,
+                payload: message
+            )
+        case let .realtimeUnavailable(unavailable):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                statusCode: unavailable.statusCode,
+                payload: "\(unavailable.code) \(unavailable.message)"
+            )
+        default:
+            return false
+        }
+    }
+
     var requiresUserAuthentication: Bool {
         switch self {
         case let .stage(stage, message):
@@ -2007,6 +2028,9 @@ enum BackendError: LocalizedError {
     }
 
     var errorDescription: String? {
+        if isProviderQuotaExhausted {
+            return BackendProviderFailurePolicy.userMessage
+        }
         switch self {
         case let .stage(stage, message):
             if requiresUserAuthentication {
@@ -2047,6 +2071,58 @@ enum BackendError: LocalizedError {
         case let .invalidAudioType(type):
             return "Backend returned non-audio response (\(type))."
         }
+    }
+}
+
+nonisolated enum BackendProviderFailurePolicy {
+    static let userMessage = "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
+
+    static func isQuotaExhausted(
+        statusCode: Int? = nil,
+        data: Data
+    ) -> Bool {
+        isQuotaExhausted(
+            statusCode: statusCode,
+            payload: String(data: data, encoding: .utf8) ?? ""
+        )
+    }
+
+    static func isQuotaExhausted(
+        statusCode: Int? = nil,
+        payload: String
+    ) -> Bool {
+        let normalized = payload
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+
+        if normalized.contains("provider_quota") ||
+            normalized.contains("insufficient_quota") ||
+            normalized.contains("quota_exhausted") ||
+            normalized.contains("quota_exceeded") {
+            return true
+        }
+
+        guard statusCode == 429 || normalized.contains("quota") else {
+            return false
+        }
+        return normalized.contains("quota") && [
+            "insufficient",
+            "exhausted",
+            "exceeded",
+            "credit_balance",
+            "billing_balance",
+        ].contains { normalized.contains($0) }
+    }
+
+    static func shouldRetryHTTP(
+        statusCode: Int,
+        data: Data,
+        retryableStatusCodes: Set<Int>
+    ) -> Bool {
+        retryableStatusCodes.contains(statusCode) &&
+            !isQuotaExhausted(statusCode: statusCode, data: data)
     }
 }
 
@@ -4617,7 +4693,7 @@ final class BackendClient {
                     throw BackendError.continueListening
                 }
             }
-            if shouldQueueTalkStatus(statusCode) {
+            if shouldQueueTalkStatus(statusCode, data: data) {
                 if let queued = await enqueueOfflineTalkRequest(
                     request,
                     body: body,
@@ -5520,7 +5596,11 @@ final class BackendClient {
                     result = try await URLSession.shared.data(for: request)
                 }
                 if let http = result.1 as? HTTPURLResponse,
-                   retryableHTTPStatus.contains(http.statusCode),
+                   BackendProviderFailurePolicy.shouldRetryHTTP(
+                       statusCode: http.statusCode,
+                       data: result.0,
+                       retryableStatusCodes: retryableHTTPStatus
+                   ),
                    attempt + 1 < maxTalkAttempts {
                     attempt += 1
                     let delayNs = UInt64(300 * attempt) * 1_000_000
@@ -5736,8 +5816,12 @@ final class BackendClient {
         return retryableURLErrors.contains(urlError.code)
     }
 
-    private func shouldQueueTalkStatus(_ statusCode: Int) -> Bool {
-        retryableHTTPStatus.contains(statusCode) || statusCode == -1
+    private func shouldQueueTalkStatus(_ statusCode: Int, data: Data) -> Bool {
+        statusCode == -1 || BackendProviderFailurePolicy.shouldRetryHTTP(
+            statusCode: statusCode,
+            data: data,
+            retryableStatusCodes: retryableHTTPStatus
+        )
     }
 
     private func enqueueOfflineTalkRequest(
