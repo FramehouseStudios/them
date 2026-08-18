@@ -106,8 +106,6 @@ struct ScreenplayStudioScreen: View {
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
     @State private var showingLeadReferenceDetails = false
-    @State private var showingScreenplayShortcuts = false
-    @State private var hoveredScreenplayElement: ScreenplayEditorElement?
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
     @State private var selectedBeatInspectorID: String = ""
     @State private var draggedBeatID: String?
@@ -3151,13 +3149,12 @@ private var directionOneColumnSurface: some View {
         .fill(directionOneChromePanelSoft.opacity(0.98))
 }
     private var isDirectionOneRailOverlayPresented: Bool {
-        showingDirectionOneSettings || showingScreenplayShortcuts || isFocusedPageDiffOverlayPresented
+        showingDirectionOneSettings || isFocusedPageDiffOverlayPresented
     }
 
     private func dismissDirectionOneRailOverlays() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
             showingDirectionOneSettings = false
-            showingScreenplayShortcuts = false
             isFocusedPageDiffOverlayPresented = false
             focusedPageDiffExchangeID = nil
         }
@@ -15458,7 +15455,9 @@ Current draft version:
                 )
                 .overlay(alignment: .topLeading) {
                     if showEmptyPlaceholder {
-                        screenplayPageEmptyPlaceholderOverlay
+                        ScreenplayStudioPageEmptyPlaceholder(
+                            hasSelectedProject: vm.selectedProject != nil
+                        )
                     }
                 }
                 .overlay {
@@ -15472,7 +15471,16 @@ Current draft version:
                 .scaleEffect(isDirectionOnePageFocusTransitionVisible ? 1.003 : 1.0)
                 .shadow(color: Color.herPaperShadow.opacity(0.26), radius: 28, y: 18)
 
-                screenplayElementModeBar
+                ScreenplayStudioElementModeBar(
+                    activeElement: liveDraftBridge.activeScreenplayElement,
+                    panelColor: directionOneChromePanel,
+                    strokeColor: directionOneChromeStroke,
+                    textColor: directionOneChromeText,
+                    secondaryTextColor: directionOneChromeSecondaryText
+                ) { element in
+                    liveDraftBridge.setActiveScreenplayElement(element)
+                    liveDraftBridge.requestEditorFocus()
+                }
                     .offset(y: -16)
 
 #if DEBUG || os(macOS)
@@ -15608,25 +15616,25 @@ Current draft version:
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    screenplayPageMetadataItem(
-                        "Last saved",
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Last saved",
                         value: screenplayPageSavedMetadataText,
-                        tone: screenplayPageSavedMetadataTone
+                        color: screenplayPageSavedMetadataTone.color
                     )
-                    screenplayPageMetadataDivider
-                    screenplayPageMetadataItem(
-                        "Pages",
+                    ScreenplayStudioPageMetadataDivider()
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Pages",
                         value: screenplayPagePageCountText,
-                        tone: .muted
+                        color: ScreenplayPageMetaTone.muted.color
                     )
-                    screenplayPageMetadataDivider
-                    screenplayPageMetadataItem(
-                        "Revision",
+                    ScreenplayStudioPageMetadataDivider()
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Revision",
                         value: screenplayPageRevisionStateText,
-                        tone: screenplayPageRevisionTone
+                        color: screenplayPageRevisionTone.color
                     )
                     if showEditingHint {
-                        screenplayPageMetadataDivider
+                        ScreenplayStudioPageMetadataDivider()
                         Text("Start with a scene heading, or click to place the first line.")
                             .font(.system(size: 10.5, weight: .medium, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.48))
@@ -15734,307 +15742,6 @@ Current draft version:
         return summary.revised + summary.added + summary.moved + summary.removed
     }
 
-    private func screenplayPageMetadataItem(
-        _ title: String,
-        value: String,
-        tone: ScreenplayPageMetaTone
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                .tracking(0.7)
-                .foregroundStyle(Color.herText.opacity(0.40))
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(tone.color)
-                .lineLimit(1)
-        }
-    }
-
-    private var screenplayPageMetadataDivider: some View {
-        Rectangle()
-            .fill(Color.herPaperLine.opacity(0.34))
-            .frame(width: 1, height: 20)
-            .padding(.top, 7)
-    }
-
-    private var screenplayPageEmptyPlaceholderOverlay: some View {
-        GeometryReader { proxy in
-            let editorWidth = max(
-                0,
-                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2)
-            )
-            let editorTextInset = ScreenplayStackMetrics.editorTextInsetHorizontal(
-                forEditorWidth: editorWidth
-            )
-            let metricsContainerWidth = max(
-                120,
-                editorWidth - (editorTextInset * 2)
-            )
-            let metrics = ScreenplayStackMetrics.editor(containerWidth: metricsContainerWidth)
-            let editableWidth = max(
-                metricsContainerWidth,
-                120
-            )
-            let dialogueWidth = max(editableWidth - metrics.dialogueLeading - metrics.dialogueTrailing, 48)
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.44))
-                        .frame(width: 2, height: 18)
-                    Text(
-                        vm.selectedProject == nil
-                        ? "Start typing, then anchor the draft once it has a title."
-                        : "Start with a scene heading or the first visual beat."
-                    )
-                        .font(.custom("Courier", size: 12))
-                        .foregroundStyle(Color.black.opacity(0.24))
-                        .lineLimit(2)
-                }
-                .padding(.bottom, 22)
-
-                Text("INT. LOCATION - DAY")
-                    .font(.custom("Courier", size: 12))
-                    .foregroundStyle(Color.black.opacity(0.15))
-                    .padding(.bottom, metrics.sceneHeadingSpacingAfter + 8)
-
-                screenplayPlaceholderActionLine(width: max(84, editableWidth * 0.72))
-                screenplayPlaceholderActionLine(width: max(110, editableWidth * 0.90))
-                screenplayPlaceholderActionLine(width: max(72, editableWidth * 0.58))
-                    .padding(.bottom, metrics.actionCueSpacingAfter + 16)
-
-                Text("CHARACTER")
-                    .font(.custom("Courier", size: 12))
-                    .foregroundStyle(Color.black.opacity(0.12))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, metrics.characterLeading)
-                    .padding(.trailing, metrics.characterTrailing)
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 7)
-
-                screenplayPlaceholderIndentedLine(
-                    width: max(92, dialogueWidth * 0.82),
-                    leading: metrics.dialogueLeading,
-                    trailing: metrics.dialogueTrailing
-                )
-                .padding(.bottom, 6)
-
-                screenplayPlaceholderIndentedLine(
-                    width: max(78, dialogueWidth * 0.66),
-                    leading: metrics.dialogueLeading,
-                    trailing: metrics.dialogueTrailing
-                )
-
-                Spacer(minLength: 0)
-            }
-            .padding(
-                .top,
-                IOThemSpacing.ScreenplayPageChrome.headerHeight
-                + IOThemSpacing.ScreenplayPageChrome.contentTopPadding
-                + ScreenplayStackMetrics.editorTextInsetVertical
-            )
-            .padding(
-                .leading,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + editorTextInset
-            )
-            .padding(
-                .trailing,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + editorTextInset
-            )
-            .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .allowsHitTesting(false)
-        }
-    }
-
-    private func screenplayPlaceholderActionLine(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Color.black.opacity(0.08))
-            .frame(width: width, height: 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 9)
-    }
-
-    private func screenplayPlaceholderIndentedLine(
-        width: CGFloat,
-        leading: CGFloat,
-        trailing: CGFloat
-    ) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Color.black.opacity(0.08))
-            .frame(width: width, height: 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, leading)
-            .padding(.trailing, trailing)
-    }
-
-    private var screenplayElementModeBar: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
-                    ForEach(ScreenplayEditorElement.allCases) { element in
-                        screenplayElementModeButton(element)
-                    }
-                }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 4)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(directionOneChromePanel.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(directionOneChromeStroke.opacity(0.20), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
-    }
-
-    private func screenplayElementModeButton(_ element: ScreenplayEditorElement) -> some View {
-        let isActive = liveDraftBridge.activeScreenplayElement == element
-        let isHovered = hoveredScreenplayElement == element
-        let label = screenplayElementModeButtonLabel(element)
-        let textColor = isActive
-            ? directionOneChromeText.opacity(0.94)
-            : directionOneChromeSecondaryText.opacity(isHovered ? 0.88 : 0.76)
-        let fillColor = isActive
-            ? Color.white.opacity(0.84)
-            : (isHovered ? Color.black.opacity(0.028) : Color.clear)
-        let strokeColor = isActive
-            ? directionOneChromeStroke.opacity(0.18)
-            : Color.clear
-        let shadowColor = isActive
-            ? Color.black.opacity(0.03)
-            : Color.clear
-
-        return Button {
-            liveDraftBridge.setActiveScreenplayElement(element)
-            liveDraftBridge.requestEditorFocus()
-        } label: {
-            Text(label)
-                .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(fillColor)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(strokeColor, lineWidth: 1)
-                )
-                .shadow(
-                    color: shadowColor,
-                    radius: 2,
-                    y: 1
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            hoveredScreenplayElement = hovering ? element : (hoveredScreenplayElement == element ? nil : hoveredScreenplayElement)
-        }
-        .help(element.hint)
-        .animation(.easeOut(duration: 0.14), value: isActive)
-    }
-
-    private func screenplayElementModeButtonLabel(_ element: ScreenplayEditorElement) -> String {
-        switch element {
-        case .sceneHeading:
-            return "Scene"
-        case .action:
-            return "Action"
-        case .character:
-            return "Character"
-        case .dialogue:
-            return "Dialogue"
-        case .parenthetical:
-            return "( )"
-        case .transition:
-            return "→"
-        }
-    }
-
-    private var screenplayShortcutsSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Screenplay Shortcuts")
-                    .font(.system(size: 18, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.94))
-                Text("Hollywood-standard element shortcuts for the draft page.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-            }
-
-            VStack(spacing: 8) {
-                ForEach(ScreenplayEditorElement.allCases) { element in
-                    screenplayShortcutRow(
-                        keyLabel: "Cmd/Ctrl + \(element.shortcutKey)",
-                        title: element.title,
-                        detail: element.hint
-                    )
-                }
-                screenplayShortcutRow(
-                    keyLabel: "Tab",
-                    title: "Cycle Forward",
-                    detail: "Move to the next screenplay element."
-                )
-                screenplayShortcutRow(
-                    keyLabel: "Shift + Tab",
-                    title: "Cycle Backward",
-                    detail: "Move to the previous screenplay element."
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Smart behavior")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.82))
-                Text("INT./EXT. lines auto-switch to Scene Heading. After Character, Enter defaults to Dialogue. A second Enter on a blank dialogue line returns to Action.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .frame(width: 420)
-        .background(Color.herShellPanel.opacity(0.98))
-    }
-
-    private func screenplayShortcutRow(keyLabel: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(keyLabel)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.84))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.herShellPanelSoft.opacity(0.90))
-                .overlay(
-                    Capsule()
-                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-                )
-                .clipShape(Capsule())
-                .frame(width: 102, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.92))
-                Text(detail)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.60))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
 
     @ViewBuilder
     private func screenplayPageBackground(
