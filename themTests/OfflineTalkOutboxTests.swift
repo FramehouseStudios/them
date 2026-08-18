@@ -188,6 +188,50 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(finalEntries, [])
     }
 
+    func testProviderQuotaParksWithoutRetryingAfterRelaunch() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-quota", forHTTPHeaderField: "X-Idempotency-Key")
+
+        _ = try await outbox.enqueue(request: request, body: Data("queued".utf8), reason: "offline")
+        let quotaBody = Data(#"{"stage":"talk_chat","error_class":"provider_quota","error":"insufficient_quota"}"#.utf8)
+        let parked = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 429, body: quotaBody)
+        }
+
+        XCTAssertEqual(parked.pendingCount, 0)
+        XCTAssertEqual(parked.parkedCount, 1)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.first?.retries, 0)
+        XCTAssertEqual(entries.first?.nextAttemptAt, 0)
+        XCTAssertEqual(
+            entries.first?.lastError,
+            "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
+        )
+    }
+
+    func testProviderRateLimitStillBacksOffForQueuedTurn() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-rate-limit", forHTTPHeaderField: "X-Idempotency-Key")
+
+        _ = try await outbox.enqueue(request: request, body: Data("queued".utf8), reason: "offline")
+        let rateLimitBody = Data(#"{"stage":"rate_limit","error":"rate_limited","retry_after_ms":1200}"#.utf8)
+        let pending = await outbox.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            OfflineTalkOutboxSendResult(statusCode: 429, body: rateLimitBody)
+        }
+
+        XCTAssertEqual(pending.pendingCount, 1)
+        XCTAssertEqual(pending.parkedCount, 0)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.first?.retries, 1)
+        XCTAssertEqual(entries.first?.status, .pending)
+    }
+
     func testNonRetryableClientErrorParksAndCanBeDeleted() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)

@@ -484,7 +484,17 @@ actor OfflineTalkOutbox {
             try? fileManager.removeItem(at: blobURL(for: entry.bodyRef))
             return
         }
-        if isRetryable(statusCode: status) {
+        if BackendProviderFailurePolicy.isQuotaExhausted(
+            statusCode: status,
+            data: result.body
+        ) {
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = BackendProviderFailurePolicy.userMessage
+            return
+        }
+        if isRetryable(statusCode: status, body: result.body) {
             handleRetryableFailure(
                 entryID: entryID,
                 message: "HTTP \(status)",
@@ -555,12 +565,13 @@ actor OfflineTalkOutbox {
         }
     }
 
-    private func isRetryable(statusCode: Int) -> Bool {
-        statusCode == -1 ||
-            statusCode == 408 ||
-            statusCode == 425 ||
-            statusCode == 429 ||
-            (500...599).contains(statusCode)
+    private func isRetryable(statusCode: Int, body: Data) -> Bool {
+        let retryableStatusCodes = Set([408, 425, 429] + Array(500...599))
+        return statusCode == -1 || BackendProviderFailurePolicy.shouldRetryHTTP(
+            statusCode: statusCode,
+            data: body,
+            retryableStatusCodes: retryableStatusCodes
+        )
     }
 
     private func normalizedHeader(_ raw: String?) -> String? {
