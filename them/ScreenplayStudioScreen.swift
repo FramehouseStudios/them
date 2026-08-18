@@ -8772,14 +8772,6 @@ private var projectsSidebarContent: some View {
         }
     }
 
-    private enum DraftStatusChipProminence {
-        case accent
-        case success
-        case warning
-        case danger
-        case muted
-    }
-
     private func draftStatusChip(_ title: String, prominence: DraftStatusChipProminence) -> some View {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let fill: Color
@@ -12398,154 +12390,6 @@ private var projectsSidebarContent: some View {
         }
     }
 
-    private struct VoicePinHistoryGroup: Identifiable {
-        let category: String
-        let items: [ScreenplayAssistantPinState]
-
-        var id: String { category }
-    }
-
-    private struct VoicePinSuggestion: Identifiable {
-        let category: String
-        let text: String
-
-        var id: String { "\(category)|\(text)" }
-    }
-
-    private struct VoicePinTurn: Identifiable, Equatable {
-        enum Source {
-            case voice
-            case typed
-        }
-
-        let id: UUID
-        let exchangeID: UUID
-        let userAskLabel: String
-        let fountainOutput: String
-        let source: Source
-        let packLabel: String
-        let phase: String
-        let timestamp: Date
-        let lineRef: Int?
-
-        var outputExcerpt: String {
-            fountainOutput
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .prefix(2)
-                .joined(separator: " · ")
-        }
-
-        var timeAgo: String {
-            let elapsed = max(0, Int(Date().timeIntervalSince(timestamp)))
-            if elapsed < 60 {
-                return "\(elapsed)s ago"
-            }
-            if elapsed < 3600 {
-                return "\(elapsed / 60)m ago"
-            }
-            return "\(elapsed / 3600)h ago"
-        }
-    }
-
-    private struct StudioAskNoteExchange: Identifiable, Codable, Equatable {
-        let id: UUID
-        let backendThreadID: String?
-        let backendTurn: Int?
-        let requestID: String?
-        let prompt: String
-        let target: StudioTarget
-        let source: StudioPromptSource
-        let noteTitle: String
-        let noteBody: String
-        let developmentText: String?
-        let writeID: String?
-        let replacedWriteID: String?
-        let anchorLine: Int?
-        let anchorEndLine: Int?
-        let anchorSceneLabel: String?
-        let anchorExcerpt: String?
-        let insertedText: String?
-        let replacementApplied: Bool?
-        let revisedBlockText: String?
-        let resolvedAnchorExcerpt: String?
-        let packLabel: String?
-        let phase: String?
-        let sluglineAnchorLine: Int?
-        let memoryDomainRaw: String?
-        let companionModeRaw: String?
-        let timestamp: Date
-
-        init(
-            id: UUID,
-            backendThreadID: String?,
-            backendTurn: Int?,
-            requestID: String?,
-            prompt: String,
-            target: StudioTarget,
-            source: StudioPromptSource,
-            noteTitle: String,
-            noteBody: String,
-            developmentText: String? = nil,
-            writeID: String?,
-            replacedWriteID: String?,
-            anchorLine: Int?,
-            anchorEndLine: Int?,
-            anchorSceneLabel: String?,
-            anchorExcerpt: String?,
-            insertedText: String?,
-            replacementApplied: Bool? = nil,
-            revisedBlockText: String? = nil,
-            resolvedAnchorExcerpt: String? = nil,
-            packLabel: String? = nil,
-            phase: String? = nil,
-            sluglineAnchorLine: Int? = nil,
-            memoryDomainRaw: String? = nil,
-            companionModeRaw: String? = nil,
-            timestamp: Date
-        ) {
-            self.id = id
-            self.backendThreadID = backendThreadID
-            self.backendTurn = backendTurn
-            self.requestID = requestID
-            self.prompt = prompt
-            self.target = target
-            self.source = source
-            self.noteTitle = noteTitle
-            self.noteBody = noteBody
-            let cleanDevelopmentText = developmentText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            self.developmentText = cleanDevelopmentText.isEmpty ? nil : cleanDevelopmentText
-            self.writeID = writeID
-            self.replacedWriteID = replacedWriteID
-            self.anchorLine = anchorLine
-            self.anchorEndLine = anchorEndLine
-            self.anchorSceneLabel = anchorSceneLabel
-            self.anchorExcerpt = anchorExcerpt
-            self.insertedText = insertedText
-            self.replacementApplied = replacementApplied
-            self.revisedBlockText = revisedBlockText
-            self.resolvedAnchorExcerpt = resolvedAnchorExcerpt
-            self.packLabel = packLabel
-            self.phase = phase
-            self.sluglineAnchorLine = sluglineAnchorLine
-            self.memoryDomainRaw = memoryDomainRaw
-            self.companionModeRaw = companionModeRaw
-            self.timestamp = timestamp
-        }
-    }
-
-    private struct StudioWriteAnchorRecord: Codable, Equatable {
-        let writeID: String
-        let anchorLine: Int
-        let anchorEndLine: Int
-        let anchorSceneLabel: String?
-        let anchorExcerpt: String?
-        let insertedText: String?
-        let versionID: String?
-        let updatedAt: Date
-    }
-
     private struct StudioDebugDiffState: Codable, Equatable {
         let debugSessionID: String
         let projectKey: String
@@ -12762,70 +12606,6 @@ private var projectsSidebarContent: some View {
         let developmentText: String
         let insertedText: String
         let error: String
-    }
-
-    private enum StudioActionPreviewDiffKind {
-        case unchanged
-        case added
-        case removed
-        case changed
-    }
-
-    private struct StudioActionPreviewDiffSummary {
-        let unchangedCount: Int
-        let addedCount: Int
-        let removedCount: Int
-        let changedCount: Int
-        let isDestructive: Bool
-
-        var impactedCount: Int {
-            addedCount + removedCount + changedCount
-        }
-    }
-
-    private struct StudioActionPreviewDiffRow: Identifiable {
-        let id = UUID()
-        let kind: StudioActionPreviewDiffKind
-        let beforeLineNumber: Int?
-        let afterLineNumber: Int?
-        let beforeText: String
-        let afterText: String
-    }
-
-    private struct DraftSceneNavigatorItem: Identifiable, Equatable {
-        let id: String
-        let line: Int
-        let label: String
-        let shortLabel: String
-    }
-
-    private struct FullThreadSceneOption: Identifiable, Hashable {
-        let key: String
-        let label: String
-        let count: Int
-        let isCurrent: Bool
-
-        var id: String { key }
-    }
-
-    private struct FullThreadSection: Identifiable {
-        let key: String
-        let title: String
-        let entries: [StudioAskNoteExchange]
-
-        var id: String { key }
-    }
-
-    private enum FullThreadDraftComparisonState {
-        case matchesCurrentDraft
-        case revisedInDraft
-        case removedFromDraft
-    }
-
-    private struct FullThreadDraftComparison {
-        let state: FullThreadDraftComparisonState
-        let currentText: String
-        let sceneLabel: String?
     }
 
     private var voicePinCard: some View {
@@ -14449,15 +14229,6 @@ Current draft version:
         }
     }
 
-    private struct FullThreadRevisionTimelineItem: Identifiable {
-        let id: String
-        let exchange: StudioAskNoteExchange
-        let title: String
-        let subtitle: String
-        let tint: Color
-        let canOpenDiff: Bool
-    }
-
     private func fullThreadRevisionTimelineItems(_ section: FullThreadSection) -> [FullThreadRevisionTimelineItem] {
         section.entries
             .filter { $0.target == .page }
@@ -15855,37 +15626,6 @@ Current draft version:
     }
 #endif
 
-    // Deprecated compatibility shim. New page chrome constants live in IOThemSpacing.ScreenplayPageChrome.
-    private enum ScreenplayPageChrome {
-        static let cornerRadius = IOThemSpacing.ScreenplayPageChrome.cornerRadius
-        static let headerContentMinHeight = IOThemSpacing.ScreenplayPageChrome.headerContentMinHeight
-        static let headerTopPadding = IOThemSpacing.ScreenplayPageChrome.headerTopPadding
-        static let headerBottomPadding = IOThemSpacing.ScreenplayPageChrome.headerBottomPadding
-        static let headerHeight = IOThemSpacing.ScreenplayPageChrome.headerHeight
-        static let contentTopPadding = IOThemSpacing.ScreenplayPageChrome.contentTopPadding
-        static let contentBottomPadding = IOThemSpacing.ScreenplayPageChrome.contentBottomPadding
-    }
-
-    private enum ScreenplayPageMetaTone {
-        case muted
-        case accent
-        case warning
-        case success
-
-        var color: Color {
-            switch self {
-            case .muted:
-                return Color.herText.opacity(0.68)
-            case .accent:
-                return Color.accentColor.opacity(0.82)
-            case .warning:
-                return Color.orange.opacity(0.86)
-            case .success:
-                return Color.green.opacity(0.78)
-            }
-        }
-    }
-
     private func screenplayPageSurface<Content: View>(
         minHeight: CGFloat,
         maxHeight: CGFloat,
@@ -15908,18 +15648,18 @@ Current draft version:
                     )
                     .frame(
                         maxWidth: .infinity,
-                        minHeight: ScreenplayPageChrome.headerContentMinHeight,
+                        minHeight: IOThemSpacing.ScreenplayPageChrome.headerContentMinHeight,
                         alignment: .topLeading
                     )
                     .padding(.horizontal, 22)
-                    .padding(.top, ScreenplayPageChrome.headerTopPadding)
-                    .padding(.bottom, ScreenplayPageChrome.headerBottomPadding)
+                    .padding(.top, IOThemSpacing.ScreenplayPageChrome.headerTopPadding)
+                    .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.headerBottomPadding)
 
                     content()
                         .frame(minHeight: minHeight, maxHeight: maxHeight)
-                        .padding(.top, ScreenplayPageChrome.contentTopPadding)
+                        .padding(.top, IOThemSpacing.ScreenplayPageChrome.contentTopPadding)
                         .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
-                        .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
+                        .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             triggerDirectionOnePageFocusTransition()
@@ -15939,7 +15679,7 @@ Current draft version:
                     }
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                         .stroke(
                             Color.accentColor.opacity(isDirectionOnePageFocusTransitionVisible ? 0.20 : 0),
                             lineWidth: 1.5
@@ -16307,8 +16047,8 @@ Current draft version:
             }
             .padding(
                 .top,
-                ScreenplayPageChrome.headerHeight
-                + ScreenplayPageChrome.contentTopPadding
+                IOThemSpacing.ScreenplayPageChrome.headerHeight
+                + IOThemSpacing.ScreenplayPageChrome.contentTopPadding
                 + ScreenplayStackMetrics.editorTextInsetVertical
             )
             .padding(
@@ -16321,7 +16061,7 @@ Current draft version:
                 ScreenplayStackMetrics.pageSurfaceHorizontalPadding
                 + editorTextInset
             )
-            .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
+            .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .allowsHitTesting(false)
         }
@@ -16521,7 +16261,7 @@ Current draft version:
     ) -> some View {
         GeometryReader { proxy in
             let guidePositions = ScreenplayStackMetrics.paperGuidePositions(in: proxy.size.width)
-            let headerBottom = ScreenplayPageChrome.headerHeight
+            let headerBottom = IOThemSpacing.ScreenplayPageChrome.headerHeight
             let guideTop = headerBottom + 18
             let leftMarkerInset = max(guidePositions.left - 20, 12)
             let markerColor = isDraftingPreviewActive
@@ -16529,7 +16269,7 @@ Current draft version:
                 : Color.accentColor.opacity(0.54)
 
             ZStack {
-                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .fill(Color.herPaper)
 
                 LinearGradient(
@@ -16542,9 +16282,9 @@ Current draft version:
                 )
                 .frame(height: headerBottom + 24)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .clipShape(RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous))
 
-                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .stroke(
                         isDropTargeted ? Color.herStudioActiveStroke : Color.black.opacity(0.08),
                         lineWidth: isDropTargeted ? 1.5 : 0.8
@@ -16938,39 +16678,6 @@ Current draft version:
         isLastCommittedWriteToastCollapsed = false
         clearPageCommitNotice()
         liveDraftBridge.clearLastCommittedWrite()
-    }
-
-    private enum InlineWriteRevisionPreset {
-        case sharper
-        case moreVisual
-        case shorter
-
-        var title: String {
-            switch self {
-            case .sharper: return "sharper"
-            case .moreVisual: return "more visual"
-            case .shorter: return "shorter"
-            }
-        }
-
-        var displayPrompt: String {
-            switch self {
-            case .sharper: return "Make the last write sharper."
-            case .moreVisual: return "Make the last write more visual."
-            case .shorter: return "Make the last write shorter."
-            }
-        }
-
-        var instruction: String {
-            switch self {
-            case .sharper:
-                return "Make it sharper. Tighten the beats, conflict, and line choices without changing the story intent."
-            case .moreVisual:
-                return "Make it more visual. Favor playable action, physical behavior, and screenable images over explanation."
-            case .shorter:
-                return "Make it shorter. Keep the same story intent, but compress the writing and remove anything expendable."
-            }
-        }
     }
 
     private func reviseLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite, preset: InlineWriteRevisionPreset) {
@@ -19655,12 +19362,6 @@ Return revised screenplay lines only.
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return "" }
         return String(clean.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private struct ResolvedStudioExchangeAnchor {
-        let startLine: Int
-        let endLine: Int
-        let sceneLabel: String?
     }
 
     private func fallbackAnchorSnapshot(for exchange: StudioAskNoteExchange) -> ResolvedStudioExchangeAnchor? {

@@ -416,4 +416,292 @@ extension ScreenplayStudioScreen {
         var id: String { url.path }
         var name: String { url.lastPathComponent }
     }
+
+    enum DraftStatusChipProminence {
+        case accent
+        case success
+        case warning
+        case danger
+        case muted
+    }
+
+    struct VoicePinHistoryGroup: Identifiable {
+        let category: String
+        let items: [ScreenplayAssistantPinState]
+
+        var id: String { category }
+    }
+
+    struct VoicePinSuggestion: Identifiable {
+        let category: String
+        let text: String
+
+        var id: String { "\(category)|\(text)" }
+    }
+
+    struct VoicePinTurn: Identifiable, Equatable {
+        enum Source {
+            case voice
+            case typed
+        }
+
+        let id: UUID
+        let exchangeID: UUID
+        let userAskLabel: String
+        let fountainOutput: String
+        let source: Source
+        let packLabel: String
+        let phase: String
+        let timestamp: Date
+        let lineRef: Int?
+
+        var outputExcerpt: String {
+            fountainOutput
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(2)
+                .joined(separator: " · ")
+        }
+
+        var timeAgo: String {
+            let elapsed = max(0, Int(Date().timeIntervalSince(timestamp)))
+            if elapsed < 60 {
+                return "\(elapsed)s ago"
+            }
+            if elapsed < 3600 {
+                return "\(elapsed / 60)m ago"
+            }
+            return "\(elapsed / 3600)h ago"
+        }
+    }
+
+    struct StudioAskNoteExchange: Identifiable, Codable, Equatable {
+        let id: UUID
+        let backendThreadID: String?
+        let backendTurn: Int?
+        let requestID: String?
+        let prompt: String
+        let target: StudioTarget
+        let source: StudioPromptSource
+        let noteTitle: String
+        let noteBody: String
+        let developmentText: String?
+        let writeID: String?
+        let replacedWriteID: String?
+        let anchorLine: Int?
+        let anchorEndLine: Int?
+        let anchorSceneLabel: String?
+        let anchorExcerpt: String?
+        let insertedText: String?
+        let replacementApplied: Bool?
+        let revisedBlockText: String?
+        let resolvedAnchorExcerpt: String?
+        let packLabel: String?
+        let phase: String?
+        let sluglineAnchorLine: Int?
+        let memoryDomainRaw: String?
+        let companionModeRaw: String?
+        let timestamp: Date
+
+        init(
+            id: UUID,
+            backendThreadID: String?,
+            backendTurn: Int?,
+            requestID: String?,
+            prompt: String,
+            target: StudioTarget,
+            source: StudioPromptSource,
+            noteTitle: String,
+            noteBody: String,
+            developmentText: String? = nil,
+            writeID: String?,
+            replacedWriteID: String?,
+            anchorLine: Int?,
+            anchorEndLine: Int?,
+            anchorSceneLabel: String?,
+            anchorExcerpt: String?,
+            insertedText: String?,
+            replacementApplied: Bool? = nil,
+            revisedBlockText: String? = nil,
+            resolvedAnchorExcerpt: String? = nil,
+            packLabel: String? = nil,
+            phase: String? = nil,
+            sluglineAnchorLine: Int? = nil,
+            memoryDomainRaw: String? = nil,
+            companionModeRaw: String? = nil,
+            timestamp: Date
+        ) {
+            self.id = id
+            self.backendThreadID = backendThreadID
+            self.backendTurn = backendTurn
+            self.requestID = requestID
+            self.prompt = prompt
+            self.target = target
+            self.source = source
+            self.noteTitle = noteTitle
+            self.noteBody = noteBody
+            let cleanDevelopmentText = developmentText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self.developmentText = cleanDevelopmentText.isEmpty ? nil : cleanDevelopmentText
+            self.writeID = writeID
+            self.replacedWriteID = replacedWriteID
+            self.anchorLine = anchorLine
+            self.anchorEndLine = anchorEndLine
+            self.anchorSceneLabel = anchorSceneLabel
+            self.anchorExcerpt = anchorExcerpt
+            self.insertedText = insertedText
+            self.replacementApplied = replacementApplied
+            self.revisedBlockText = revisedBlockText
+            self.resolvedAnchorExcerpt = resolvedAnchorExcerpt
+            self.packLabel = packLabel
+            self.phase = phase
+            self.sluglineAnchorLine = sluglineAnchorLine
+            self.memoryDomainRaw = memoryDomainRaw
+            self.companionModeRaw = companionModeRaw
+            self.timestamp = timestamp
+        }
+    }
+
+    struct StudioWriteAnchorRecord: Codable, Equatable {
+        let writeID: String
+        let anchorLine: Int
+        let anchorEndLine: Int
+        let anchorSceneLabel: String?
+        let anchorExcerpt: String?
+        let insertedText: String?
+        let versionID: String?
+        let updatedAt: Date
+    }
+
+    enum StudioActionPreviewDiffKind {
+        case unchanged
+        case added
+        case removed
+        case changed
+    }
+
+    struct StudioActionPreviewDiffSummary {
+        let unchangedCount: Int
+        let addedCount: Int
+        let removedCount: Int
+        let changedCount: Int
+        let isDestructive: Bool
+
+        var impactedCount: Int {
+            addedCount + removedCount + changedCount
+        }
+    }
+
+    struct StudioActionPreviewDiffRow: Identifiable {
+        let id = UUID()
+        let kind: StudioActionPreviewDiffKind
+        let beforeLineNumber: Int?
+        let afterLineNumber: Int?
+        let beforeText: String
+        let afterText: String
+    }
+
+    struct DraftSceneNavigatorItem: Identifiable, Equatable {
+        let id: String
+        let line: Int
+        let label: String
+        let shortLabel: String
+    }
+
+    struct FullThreadSceneOption: Identifiable, Hashable {
+        let key: String
+        let label: String
+        let count: Int
+        let isCurrent: Bool
+
+        var id: String { key }
+    }
+
+    struct FullThreadSection: Identifiable {
+        let key: String
+        let title: String
+        let entries: [StudioAskNoteExchange]
+
+        var id: String { key }
+    }
+
+    enum FullThreadDraftComparisonState {
+        case matchesCurrentDraft
+        case revisedInDraft
+        case removedFromDraft
+    }
+
+    struct FullThreadDraftComparison {
+        let state: FullThreadDraftComparisonState
+        let currentText: String
+        let sceneLabel: String?
+    }
+
+    struct FullThreadRevisionTimelineItem: Identifiable {
+        let id: String
+        let exchange: StudioAskNoteExchange
+        let title: String
+        let subtitle: String
+        let tint: Color
+        let canOpenDiff: Bool
+    }
+
+    enum ScreenplayPageMetaTone {
+        case muted
+        case accent
+        case warning
+        case success
+
+        var color: Color {
+            switch self {
+            case .muted:
+                return Color.herText.opacity(0.68)
+            case .accent:
+                return Color.accentColor.opacity(0.82)
+            case .warning:
+                return Color.orange.opacity(0.86)
+            case .success:
+                return Color.green.opacity(0.78)
+            }
+        }
+    }
+
+    enum InlineWriteRevisionPreset {
+        case sharper
+        case moreVisual
+        case shorter
+
+        var title: String {
+            switch self {
+            case .sharper: return "sharper"
+            case .moreVisual: return "more visual"
+            case .shorter: return "shorter"
+            }
+        }
+
+        var displayPrompt: String {
+            switch self {
+            case .sharper: return "Make the last write sharper."
+            case .moreVisual: return "Make the last write more visual."
+            case .shorter: return "Make the last write shorter."
+            }
+        }
+
+        var instruction: String {
+            switch self {
+            case .sharper:
+                return "Make it sharper. Tighten the beats, conflict, and line choices without changing the story intent."
+            case .moreVisual:
+                return "Make it more visual. Favor playable action, physical behavior, and screenable images over explanation."
+            case .shorter:
+                return "Make it shorter. Keep the same story intent, but compress the writing and remove anything expendable."
+            }
+        }
+    }
+
+    struct ResolvedStudioExchangeAnchor {
+        let startLine: Int
+        let endLine: Int
+        let sceneLabel: String?
+    }
 }
