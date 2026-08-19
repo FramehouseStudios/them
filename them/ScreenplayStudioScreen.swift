@@ -6754,39 +6754,11 @@ private func refreshStudioCreativeInstincts(
         .buttonStyle(.plain)
     }
 
-    private func sidebarSectionLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .default))
-            .tracking(0.7)
-            .foregroundStyle(directionOneChromeTertiaryText)
-    }
-
 private var sidebarModeTabs: some View {
-    HStack(spacing: 10) {
-        ForEach(SidebarSection.allCases) { section in
-            sidebarModeButton(section)
-        }
-    }
-}
-
-private func sidebarModeButton(_ section: SidebarSection) -> some View {
-    let isActive = selectedSidebarSection == section
-    return Button {
-        selectedSidebarSection = section
-    } label: {
-        Text(section.title)
-            .font(.system(size: 11, weight: .semibold, design: .default))
-            .foregroundStyle(isActive ? Color.white : directionOneChromeSecondaryText)
-            .padding(.horizontal, isActive ? 10 : 0)
-            .padding(.vertical, isActive ? 6 : 0)
-            .background(
-                Capsule()
-                    .fill(isActive ? Color.accentColor.opacity(0.96) : Color.clear)
-            )
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(section.title)
-    .accessibilityAddTraits(isActive ? .isSelected : [])
+    ScreenplayStudioSidebarModeTabs(
+        selection: $selectedSidebarSection,
+        secondaryTextColor: directionOneChromeSecondaryText
+    )
 }
     private var directionOneSortedProjects: [BackendScreenplayProjectSummary] {
         vm.projects.sorted { lhs, rhs in
@@ -6806,79 +6778,28 @@ private func sidebarModeButton(_ section: SidebarSection) -> some View {
 
 
 private var projectsSidebarContent: some View {
-    VStack(alignment: .leading, spacing: 12) {
-        sidebarSectionLabel("Projects")
-            .padding(.top, 2)
-
-        HStack(spacing: 8) {
-            TextField("New project title", text: $vm.newProjectTitle)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .default))
-                .foregroundStyle(Color.white.opacity(0.94))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.black.opacity(0.86))
-                )
-            Button("Create") {
-                Task { await vm.createProject() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSaving)
+    ScreenplayStudioProjectsSidebar(
+        projects: directionOneSortedProjects,
+        selectedProjectID: vm.selectedProjectID,
+        hasSelectedProject: vm.selectedProject != nil,
+        newProjectTitle: $vm.newProjectTitle,
+        isSaving: vm.isSaving,
+        isLoading: vm.isLoading,
+        errorText: vm.errorText,
+        textColor: directionOneChromeText,
+        secondaryTextColor: directionOneChromeSecondaryText,
+        tertiaryTextColor: directionOneChromeTertiaryText,
+        selectionFill: directionOneChromeSelectionFill,
+        onCreate: {
+            Task { await vm.createProject() }
+        },
+        onSelect: { projectID in
+            Task { await vm.selectProject(projectID) }
+        },
+        featureSpine: {
+            featureSpineSidebarEditor
         }
-
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(directionOneSortedProjects, id: \.id) { project in
-                    Button {
-                        Task { await vm.selectProject(project.id) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(project.title)
-                                .font(.system(size: 13, weight: vm.selectedProjectID == project.id ? .semibold : .medium, design: .default))
-                                .foregroundStyle(directionOneChromeText.opacity(vm.selectedProjectID == project.id ? 0.96 : 0.88))
-                                .lineLimit(2)
-                            Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
-                                .font(.system(size: 11, weight: .regular, design: .default))
-                                .foregroundStyle(directionOneChromeSecondaryText.opacity(vm.selectedProjectID == project.id ? 0.92 : 0.82))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(vm.selectedProjectID == project.id ? directionOneChromeSelectionFill.opacity(0.82) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if directionOneSortedProjects.isEmpty && !vm.isLoading {
-                    Text("No screenplay projects yet.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .padding(.top, 8)
-                }
-
-                if vm.selectedProject != nil {
-                    featureSpineSidebarEditor
-                        .padding(.top, 4)
-                }
-            }
-            .padding(.vertical, 4)
-        }
-
-        Spacer(minLength: 0)
-
-        if !vm.errorText.isEmpty {
-            Text(vm.errorText)
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(Color.red.opacity(0.74))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    )
 }
 
     private var featureSpineSidebarEditor: some View {
@@ -7279,167 +7200,31 @@ private var projectsSidebarContent: some View {
     }
 
     private var filesSidebarContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                sidebarSectionLabel("Local Files")
-                Spacer()
-                Button("Open Folder") {
-                    openNavigatorRootPicker()
-                }
-                .buttonStyle(.bordered)
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    navigateNavigatorBack()
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.bordered)
-                .disabled(navigatorBackStack.isEmpty)
-
-                Button {
-                    navigateNavigatorForward()
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.bordered)
-                .disabled(navigatorForwardStack.isEmpty)
-
-                Button {
-                    navigateNavigatorUp()
-                } label: {
-                    Image(systemName: "arrow.up")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canNavigateUpInNavigator)
-
-                Toggle("Hidden", isOn: $navigatorShowHidden)
-                    .toggleStyle(.switch)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(navigatorBreadcrumbs, id: \.path) { crumb in
-                        Button(crumb.lastPathComponent.isEmpty ? "/" : crumb.lastPathComponent) {
-                            navigateNavigatorTo(crumb, pushHistory: true)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Color.herShellPanelSoft.opacity(0.55))
-                        .clipShape(Capsule())
-                    }
-                }
-            }
-
-            TextField("Filter files", text: $navigatorFilterText)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 8) {
-                TextField("New folder name", text: $navigatorNewFolderName)
-                    .textFieldStyle(.roundedBorder)
-                Button("Create") {
-                    createFolderInNavigator()
-                }
-                .buttonStyle(.bordered)
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(filteredNavigatorEntries) { entry in
-                        HStack(spacing: 6) {
-                            Button {
-                                openNavigatorEntry(entry)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: entry.isDirectory ? "folder.fill" : "doc.text")
-                                        .font(.system(size: 12, weight: .regular, design: .default))
-                                        .foregroundStyle(entry.isDirectory ? Color.yellow.opacity(0.9) : Color.herText.opacity(0.78))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(entry.name)
-                                            .font(.system(size: 12, weight: .medium, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.90))
-                                            .lineLimit(1)
-                                        if let modified = entry.modifiedAt {
-                                            Text(relativeTimestamp(modified))
-                                                .font(.system(size: 9, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.58))
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                renameNavigatorEntry(entry)
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button {
-                                deleteNavigatorEntry(entry)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(Color.herShellPanelSoft.opacity(0.44))
-                        )
-                        .contextMenu {
-                            Button("Open") {
-                                openNavigatorEntry(entry)
-                            }
-                            Button("Rename") {
-                                renameNavigatorEntry(entry)
-                            }
-                            Button(role: .destructive) {
-                                deleteNavigatorEntry(entry)
-                            } label: {
-                                Text("Delete")
-                            }
-                        }
-                    }
-                    if filteredNavigatorEntries.isEmpty {
-                        Text("No files in this folder.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.64))
-                            .padding(.top, 4)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            .frame(minHeight: 130, maxHeight: 210)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(navigatorDropIsTargeted ? Color.white.opacity(0.65) : Color.white.opacity(0.12), lineWidth: navigatorDropIsTargeted ? 2 : 1)
-            )
-            .onDrop(of: [UTType.fileURL], isTargeted: $navigatorDropIsTargeted) { providers in
-                handleNavigatorDrop(providers: providers)
-            }
-
-            HStack(spacing: 8) {
-                Button("Save Draft As…") {
-                    saveDraftToLocalFile()
-                }
-                .buttonStyle(.bordered)
-                Button("Refresh Files") {
-                    refreshNavigatorEntries()
-                }
-                .buttonStyle(.bordered)
-            }
-        }
+        ScreenplayStudioFilesSidebar(
+            breadcrumbs: navigatorBreadcrumbs,
+            entries: filteredNavigatorEntries,
+            showHidden: $navigatorShowHidden,
+            filterText: $navigatorFilterText,
+            newFolderName: $navigatorNewFolderName,
+            dropIsTargeted: $navigatorDropIsTargeted,
+            canNavigateBack: !navigatorBackStack.isEmpty,
+            canNavigateForward: !navigatorForwardStack.isEmpty,
+            canNavigateUp: canNavigateUpInNavigator,
+            tertiaryTextColor: directionOneChromeTertiaryText,
+            onOpenFolder: openNavigatorRootPicker,
+            onNavigateBack: navigateNavigatorBack,
+            onNavigateForward: navigateNavigatorForward,
+            onNavigateUp: navigateNavigatorUp,
+            onNavigateTo: { navigateNavigatorTo($0, pushHistory: true) },
+            onCreateFolder: createFolderInNavigator,
+            onOpenEntry: openNavigatorEntry,
+            onRenameEntry: renameNavigatorEntry,
+            onDeleteEntry: deleteNavigatorEntry,
+            onDropFiles: { handleNavigatorDrop(providers: $0) },
+            onSaveDraft: saveDraftToLocalFile,
+            onRefresh: refreshNavigatorEntries,
+            relativeTimestamp: relativeTimestamp
+        )
     }
 
 
