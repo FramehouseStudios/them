@@ -396,20 +396,6 @@ extension ScreenplayStudioScreen {
         case muted
     }
 
-    struct VoicePinHistoryGroup: Identifiable {
-        let category: String
-        let items: [ScreenplayAssistantPinState]
-
-        var id: String { category }
-    }
-
-    struct VoicePinSuggestion: Identifiable {
-        let category: String
-        let text: String
-
-        var id: String { "\(category)|\(text)" }
-    }
-
     struct VoicePinTurn: Identifiable, Equatable {
         enum Source {
             case voice
