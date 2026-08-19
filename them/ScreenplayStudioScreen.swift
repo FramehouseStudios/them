@@ -2224,25 +2224,6 @@ Replace is best when this file should become the script you edit. Append is safe
         .accessibilityIdentifier("studio.sidebar.right.drawer")
     }
 
-    private func directionOneAssistantPill(_ label: String, value: String, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeTertiaryText)
-            Text(value)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(tint)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color.herShellPanelSoft.opacity(0.90))
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-    }
-
     private var directionOneThemCollaboratorSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
@@ -5344,172 +5325,35 @@ private var projectsSidebarContent: some View {
 }
 
     private var featureSpineSidebarEditor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.accentColor.opacity(0.82))
-                Text("Feature spine")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.90))
-                Spacer(minLength: 0)
-                directionOneAssistantPill("Act", value: vm.featureActPosition.isEmpty ? "Unset" : vm.featureActPosition, tint: Color.accentColor.opacity(0.78))
-            }
-
-            featureSpineField("Logline", text: $vm.featureLogline)
-            featureSpineField("Theme", text: $vm.featureThemeArgument)
-            featureSpineField("Central question", text: $vm.featureCentralQuestion)
-            featureSpineField("Want", text: $vm.featureProtagonistWant)
-            featureSpineField("Need", text: $vm.featureProtagonistNeed)
-            featureSpineField("Pressure", text: $vm.featureAntagonisticForce)
-            featureSpineField("Act position", text: $vm.featureActPosition)
-            featureSpineField("Ending image", text: $vm.featureEndingImage)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("UNRESOLVED SETUPS")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(0.7)
-                    .foregroundStyle(directionOneChromeTertiaryText)
-                TextEditor(text: $vm.featureUnresolvedSetupsText)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.88))
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 72)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.herPaper.opacity(0.92))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-                    )
-            }
-
-            featureProgressionSidebarGuide(vm.featureProgressionGuide)
-
-            Button {
+        let pendingAction = pendingFeaturePlannerActionForSelectedProject()
+        return ScreenplayStudioFeatureSpineEditor(
+            logline: $vm.featureLogline,
+            themeArgument: $vm.featureThemeArgument,
+            centralQuestion: $vm.featureCentralQuestion,
+            protagonistWant: $vm.featureProtagonistWant,
+            protagonistNeed: $vm.featureProtagonistNeed,
+            antagonisticForce: $vm.featureAntagonisticForce,
+            actPosition: $vm.featureActPosition,
+            endingImage: $vm.featureEndingImage,
+            unresolvedSetupsText: $vm.featureUnresolvedSetupsText,
+            guide: vm.featureProgressionGuide,
+            pendingAction: pendingAction,
+            pendingActionTimestampText: pendingAction.map { relativeTimestamp($0.submittedDate) } ?? "",
+            hasSelectedProject: vm.selectedProject != nil,
+            isSaving: vm.isSaving,
+            isSubmitting: isSubmittingStudioPrompt || isSubmittingPrompt,
+            textColor: directionOneChromeText,
+            secondaryTextColor: directionOneChromeSecondaryText,
+            tertiaryTextColor: directionOneChromeTertiaryText,
+            onSave: {
                 Task { await vm.saveFeatureSpineMetadata() }
-            } label: {
-                Label(vm.isSaving ? "Saving…" : "Save spine", systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(vm.selectedProject == nil || vm.isSaving)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.88))
+            },
+            onCommand: { command, guide in
+                submitFeatureProgressionCommand(command, guide: guide)
+            },
+            onRetry: retryFeaturePlannerAction,
+            onClear: clearFeaturePlannerActionSnapshot
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private func featureProgressionSidebarGuide(_ guide: ScreenplayFeatureProgressionGuide) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
-                .overlay(directionOneChromeTertiaryText.opacity(0.24))
-
-            HStack(spacing: 8) {
-                Image(systemName: "map")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.accentColor.opacity(0.78))
-                Text("Current sequence")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(0.6)
-                    .foregroundStyle(directionOneChromeTertiaryText)
-                Spacer(minLength: 0)
-                Text(guide.progressText)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-            }
-
-            Text("\(guide.currentAct) · \(guide.sequenceLabel) · \(guide.pageRangeText)")
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.92))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(guide.dueNow)
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(directionOneChromeSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("NEXT SCENE")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(0.7)
-                    .foregroundStyle(directionOneChromeTertiaryText)
-                Text(guide.nextScenePlan)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.88))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            ForEach(Array(guide.nextMoves.enumerated()), id: \.offset) { _, move in
-                HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 9, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.accentColor.opacity(0.68))
-                        .padding(.top, 2)
-                    Text(move)
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    featureProgressionActionButton(
-                        "Write scene",
-                        systemImage: "sparkles",
-                        command: .writeNextScene,
-                        guide: guide
-                    )
-                    featureProgressionActionButton(
-                        "Outline turns",
-                        systemImage: "list.number",
-                        command: .outlineNextThreeTurns,
-                        guide: guide
-                    )
-                }
-                featureProgressionActionButton(
-                    "Map feature",
-                    systemImage: "map.circle",
-                    command: .mapFeatureRoadmap,
-                    guide: guide
-                )
-            }
-
-            if let pendingAction = pendingFeaturePlannerActionForSelectedProject() {
-                featurePlannerActionRecoveryCard(pendingAction)
-            }
-        }
-    }
-
-    private func featureProgressionActionButton(
-        _ title: String,
-        systemImage: String,
-        command: ScreenplayFeatureActionCommand,
-        guide: ScreenplayFeatureProgressionGuide
-    ) -> some View {
-        Button {
-            submitFeatureProgressionCommand(command, guide: guide)
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(vm.selectedProject == nil || isSubmittingStudioPrompt || isSubmittingPrompt)
     }
 
     private func featureActionContext() -> ScreenplayFeatureActionContext {
@@ -5653,91 +5497,6 @@ private var projectsSidebarContent: some View {
                 handleFeaturePlannerActionCompletion(retrySnapshot, error: error)
             }
         )
-    }
-
-    private func featurePlannerActionRecoveryCard(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.accentColor.opacity(0.78))
-                Text("Saved planner action")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(0.6)
-                    .foregroundStyle(directionOneChromeTertiaryText)
-                Spacer(minLength: 0)
-                Text(relativeTimestamp(snapshot.submittedDate))
-                    .font(.system(size: 9, weight: .medium, design: .default))
-                    .foregroundStyle(directionOneChromeTertiaryText)
-            }
-
-            Text(snapshot.displayText)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.92))
-                .lineLimit(2)
-
-            Text("\(snapshot.currentAct) · \(snapshot.sequenceLabel) · \(snapshot.pageRangeText)")
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(directionOneChromeSecondaryText)
-                .lineLimit(2)
-
-            HStack(spacing: 8) {
-                Button {
-                    retryFeaturePlannerAction(snapshot)
-                } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-
-                Button {
-                    clearFeaturePlannerActionSnapshot(snapshot)
-                } label: {
-                    Label("Clear", systemImage: "xmark")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-            }
-        }
-        .padding(9)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.herPaper.opacity(0.86))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func featureSpineField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(0.7)
-                .foregroundStyle(directionOneChromeTertiaryText)
-            TextField(title, text: text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.88))
-                .lineLimit(1...3)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.herPaper.opacity(0.92))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-                )
-        }
     }
 
     private var filesSidebarContent: some View {
