@@ -283,27 +283,6 @@ extension ScreenplayStudioScreen {
         }
     }
 
-    enum DirectionOneLeftRailTab: String, CaseIterable, Identifiable {
-        case scenes
-        case projects
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .scenes: return "Scenes"
-            case .projects: return "Projects"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .scenes: return "list.bullet.rectangle"
-            case .projects: return "folder"
-            }
-        }
-    }
-
     enum DirectionOneRightPanelTab: String, CaseIterable, Identifiable {
         case draft
         case beats
@@ -399,14 +378,6 @@ extension ScreenplayStudioScreen {
                 return .outline
             }
         }
-    }
-
-    enum DirectionOneAssistantGuidanceKind {
-        case anchorProject
-        case reviewPendingAction
-        case reviewSignals
-        case reopenThread
-        case advanceDraft
     }
 
     struct StudioFileEntry: Identifiable, Hashable {
