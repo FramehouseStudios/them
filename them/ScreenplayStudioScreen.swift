@@ -4031,29 +4031,16 @@ Detail:
                 .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
 
-            VStack(alignment: .leading, spacing: 18) {
-                inspectorPanelLead(
-                    title: "Track the spine of the movie.",
-                    detail: "Keep acts, scenes, and loose structure visible while the page evolves. The rail should tell you what the story is doing at a glance."
-                )
-
-                HStack(spacing: 10) {
-                    directionOneMiniStat("Acts", value: "\(vm.outline.acts.count)")
-                    directionOneMiniStat("Scenes", value: "\(vm.outline.scenes.count)")
-                    directionOneMiniStat("Beats", value: "\(vm.outline.beats.count)")
-                }
-
-                featureWorkflowCompassCard(featureSnapshot)
-
-                inspectorSubsectionLabel("Story spine")
-
-                if vm.outline.acts.isEmpty && vm.outline.scenes.isEmpty {
-                    inspectorMessageCard(
-                        icon: "list.bullet.rectangle",
-                        title: "No outline yet",
-                        detail: "Add scenes from the page or capture beats first. Acts and grouped scenes will start filling in here as the draft takes shape."
-                    )
-                } else {
+            ScreenplayStudioOutlineInspectorLayout(
+                actCount: vm.outline.acts.count,
+                sceneCount: vm.outline.scenes.count,
+                beatCount: vm.outline.beats.count,
+                hasOutline: !vm.outline.acts.isEmpty || !vm.outline.scenes.isEmpty,
+                hasFocusedScene: currentSceneInspectorSelection != nil,
+                compass: {
+                    featureWorkflowCompassCard(featureSnapshot)
+                },
+                storySpine: {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(orderedActs, id: \.id) { act in
                             outlineActInspectorCard(
@@ -4097,13 +4084,13 @@ Detail:
                             }
                         }
                     }
+                },
+                focusedScene: {
+                    if let selectedScene = currentSceneInspectorSelection {
+                        outlineFocusedSceneCard(selectedScene)
+                    }
                 }
-
-                if let selectedScene = currentSceneInspectorSelection {
-                    inspectorSubsectionLabel("Focused scene")
-                    outlineFocusedSceneCard(selectedScene)
-                }
-            }
+            )
         }
     }
 
@@ -6287,28 +6274,12 @@ private var projectsSidebarContent: some View {
 
 
     private var beatsInspectorContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Shape the story in bigger moves.")
-                    .font(.system(size: 13, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.78))
-                Text("Keep the next turn of the script visible. Beats can stay loose while you ideate, or link directly to scenes and acts as the outline locks in.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 8) {
-                directionOneMiniStat("Beats", value: "\(vm.outline.beats.count)")
-                directionOneMiniStat("Scenes linked", value: "\(linkedBeatSceneCount)")
-                directionOneMiniStat("Acts linked", value: "\(linkedBeatActCount)")
-            }
-
-            inspectorSubsectionLabel("Beat map")
-
-            if vm.outline.beats.isEmpty {
-                beatsEmptyStateCard
-            } else {
+        ScreenplayStudioBeatsInspectorLayout(
+            beatCount: vm.outline.beats.count,
+            linkedSceneCount: linkedBeatSceneCount,
+            linkedActCount: linkedBeatActCount,
+            hasBeats: !vm.outline.beats.isEmpty,
+            beatMap: {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(sortedOutlineBeats.enumerated()), id: \.element.id) { index, beat in
                         beatInspectorCard(beat, index: index + 1)
@@ -6327,14 +6298,11 @@ private var projectsSidebarContent: some View {
                         }
                     }
                 }
+            },
+            composer: {
+                beatsComposerCard
             }
-
-            Divider().overlay(Color.herShellStroke.opacity(0.24))
-
-            inspectorSubsectionLabel("Add beat")
-
-            beatsComposerCard
-        }
+        )
     }
 
     private var linkedBeatSceneCount: Int {
@@ -6353,56 +6321,6 @@ private var projectsSidebarContent: some View {
                 return clean.isEmpty ? nil : clean
             }
         ).count
-    }
-
-    private var beatsEmptyStateCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "flag.slash")
-                    .font(.system(size: 16, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.86))
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.82))
-                    )
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No beats yet")
-                        .font(.system(size: 16, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.92))
-                    Text("Start with a turning point, reveal, reversal, or emotional shift. You can connect it to a scene now or let it stay free until the draft settles.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.68))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Good first beats")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.46))
-                    .textCase(.uppercase)
-                Text("Inciting incident")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                Text("False victory")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                Text("The choice that changes everything")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.42))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
     }
 
     private func beatInspectorCard(_ beat: BackendScreenplayBeat, index: Int) -> some View {
@@ -6598,48 +6516,20 @@ private var projectsSidebarContent: some View {
     }
 
     private var beatsComposerCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .center, spacing: 10) {
-                    Text(vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Capture the next move" : "Refine the beat")
-                        .font(.system(size: 16, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.92))
-
-                    Spacer(minLength: 0)
-
-                    if !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button("Cancel") {
-                            vm.cancelEditingBeat()
-                            beatComposerProvenance = .manual
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-                if !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("You’re editing an existing beat. Save will update it in place.")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.88))
-                }
-                Text(vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Name the beat, describe the turn, then link it to a scene or act if you already know where it belongs." : "Adjust the label, sharpen the summary, or reconnect the beat to a different scene or act.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                beatInspectorFieldLabel("Beat label", detail: "A short, memorable story turn.")
-                beatInspectorTextField("Ex: The lie gets exposed", text: $vm.newBeatLabel)
-            }
-
-            if selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel(
-                        "Quick capture",
-                        detail: canQuickCreateBeatImmediately
-                            ? "Make a beat in one tap from what is already active."
-                            : "Use page context to load the composer without losing your draft."
-                    )
+        let isEditing = !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasQuickCapture = selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil
+        return ScreenplayStudioBeatComposer(
+            label: $vm.newBeatLabel,
+            summary: $vm.newBeatSummary,
+            isEditing: isEditing,
+            isSaving: vm.isSaving,
+            hasQuickCapture: hasQuickCapture,
+            quickCaptureDetail: canQuickCreateBeatImmediately
+                ? "Make a beat in one tap from what is already active."
+                : "Use page context to load the composer without losing your draft.",
+            hasQuickLinks: !beatQuickLinkTargets.isEmpty,
+            quickCapture: {
+                if hasQuickCapture {
                     HStack(spacing: 8) {
                         if selectionQuickCaptureSeed != nil {
                             beatQuickCaptureButton(
@@ -6673,11 +6563,9 @@ private var projectsSidebarContent: some View {
                         }
                     }
                 }
-            }
-
-            if !beatQuickLinkTargets.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Quick links", detail: "Use the page or outline context already in front of you.")
+            },
+            quickLinks: {
+                if !beatQuickLinkTargets.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(beatQuickLinkTargets) { target in
@@ -6687,109 +6575,21 @@ private var projectsSidebarContent: some View {
                         .padding(.vertical, 2)
                     }
                 }
+            },
+            scenePicker: {
+                beatScenePickerField
+            },
+            actPicker: {
+                beatActPickerField
+            },
+            onCancel: {
+                vm.cancelEditingBeat()
+                beatComposerProvenance = .manual
+            },
+            onSave: {
+                Task { await handleBeatSaveAction() }
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                beatInspectorFieldLabel("Beat summary", detail: "What changes here, and why does it matter?")
-                beatInspectorMultilineField("Summarize the shift, reveal, or conflict.", text: $vm.newBeatSummary)
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Scene link", detail: "Optional")
-                    beatScenePickerField
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Act link", detail: "Optional")
-                    beatActPickerField
-                }
-            }
-
-            HStack(alignment: .center, spacing: 12) {
-                Text("You can save this loose now and connect it more precisely later.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.56))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    Task { await handleBeatSaveAction() }
-                } label: {
-                    Label(
-                        vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Save Beat" : "Update Beat",
-                        systemImage: vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "plus.circle.fill" : "checkmark.circle.fill"
-                    )
-                        .font(.system(size: 14, weight: .semibold, design: .default))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(
-                    (
-                        vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                        vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) || vm.isSaving
-                )
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.50))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func beatInspectorFieldLabel(_ title: String, detail: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.74))
-                .textCase(.uppercase)
-            Text(detail)
-                .font(.system(size: 11, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-        }
-    }
-
-    private func beatInspectorTextField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .medium, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.92))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
-    }
-
-    private func beatInspectorMultilineField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(4...7)
-            .font(.system(size: 15, weight: .regular, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.92))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 108, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
     }
 
 
