@@ -6326,139 +6326,59 @@ private var projectsSidebarContent: some View {
     private func beatInspectorCard(_ beat: BackendScreenplayBeat, index: Int) -> some View {
         let linkedScene = linkedScene(for: beat)
         let provenance = beatProvenance(for: beat)
-        let provenanceHistory = beatProvenanceHistory(for: beat)
         let isSelected = selectedBeatInspectorID == beat.id || vm.editingBeatID == beat.id
         let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forBeatID: beat.id)
         let sceneLabel = linkedScene.map { compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
-        return VStack(alignment: .leading, spacing: 6) {
-            inspectorInsertionMarker(isVisible: beatDropTargetID == beat.id)
-                .padding(.horizontal, 6)
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Text(String(format: "%02d", index))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(directionOneChromeText.opacity(0.84))
-                        .frame(width: 34, height: 34)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.88))
-                        )
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(beat.label)
-                            .font(.system(size: 15, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.92))
-                        if let summary = beat.summary, !summary.isEmpty {
-                            Text(summary)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.70))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    reorderHandleMenu(
-                        title: "Reorder beat",
-                        moveUpDisabled: !canMoveBeat(beat, direction: .up),
-                        moveDownDisabled: !canMoveBeat(beat, direction: .down),
-                        moveUp: { Task { await vm.moveBeat(beat, direction: .up) } },
-                        moveDown: { Task { await vm.moveBeat(beat, direction: .down) } }
-                    )
-                }
-
-                HStack(spacing: 8) {
-                    beatProvenanceChip(provenance)
-                    if let sceneLabel, !sceneLabel.isEmpty {
-                        beatInspectorMetaChip(title: "Scene", value: sceneLabel)
-                    } else if let sceneID = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneID.isEmpty {
-                        beatInspectorMetaChip(title: "Scene", value: sceneID)
-                    }
-                    if let actID = beat.actId?.trimmingCharacters(in: .whitespacesAndNewlines), !actID.isEmpty {
-                        beatInspectorMetaChip(title: "Act", value: actID)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                if let provenanceHistory {
-                    beatProvenanceHistoryView(provenanceHistory)
-                }
-
-                HStack(spacing: 8) {
-                    beatActionButton("Edit", systemImage: "pencil") {
-                        beginEditingBeatFromInspector(beat)
-                    }
-
-                    beatActionButton("Delete", systemImage: "trash", role: .destructive) {
-                        selectedBeatInspectorID = beat.id
-                        Task { await vm.deleteBeat(beat) }
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    beatActionButton(
-                        linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
-                        systemImage: "link"
-                    ) {
-                        handleBeatLinkAction(beat)
-                    }
-
-                    beatActionButton("Scene Goal", systemImage: "target") {
-                        handlePromoteBeatToSceneGoal(beat)
-                    }
-                }
-
-                if selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil {
-                    HStack(spacing: 8) {
-                        if selectionQuickCaptureSeed != nil {
-                            beatActionButton("Refresh from Selection", systemImage: "text.badge.arrow.up") {
-                                handleBeatRefreshFromSelection(beat)
-                            }
-                        }
-                        if currentSceneQuickCaptureSeed != nil {
-                            beatActionButton("Refresh from Scene", systemImage: "arrow.clockwise.circle") {
-                                handleBeatRefreshFromCurrentScene(beat)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.52) : Color.white.opacity(0.34))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isSettled
-                            ? Color.herStudioActiveStroke.opacity(0.80)
-                            : beatDropTargetID == beat.id
-                            ? Color.herStudioActiveStroke.opacity(0.76)
-                            : (isSelected ? Color.herStudioActiveStroke.opacity(0.36) : Color.herShellStroke.opacity(0.18)),
-                        lineWidth: isSettled ? 1.6 : (beatDropTargetID == beat.id ? 1.4 : 1)
-                    )
-            )
-            .shadow(
-                color: isSettled ? Color.herStudioActiveStroke.opacity(0.20) : .clear,
-                radius: isSettled ? 12 : 0,
-                y: isSettled ? 6 : 0
-            )
-            .scaleEffect(isSettled ? 1.01 : 1.0)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .id(inspectorScrollAnchorID(forBeatID: beat.id))
-            .onTapGesture {
+        return ScreenplayStudioBeatInspectorCard(
+            beat: beat,
+            index: index,
+            sceneLabel: sceneLabel,
+            provenance: provenance,
+            provenanceHistory: beatProvenanceHistory(for: beat).map(beatProvenanceHistoryPresentation(_:)),
+            isSelected: isSelected,
+            isSettled: isSettled,
+            isDropTargeted: dropTargetBinding(for: beat.id, target: $beatDropTargetID),
+            canMoveUp: canMoveBeat(beat, direction: .up),
+            canMoveDown: canMoveBeat(beat, direction: .down),
+            linkButtonTitle: linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
+            canRefreshFromSelection: selectionQuickCaptureSeed != nil,
+            canRefreshFromScene: currentSceneQuickCaptureSeed != nil,
+            onSelect: {
                 selectBeatInInspector(beat)
-            }
-            .onDrag {
+            },
+            onBeginDrag: {
                 draggedBeatID = beat.id
                 selectedBeatInspectorID = beat.id
-                return NSItemProvider(object: NSString(string: beat.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: beat.id, target: $beatDropTargetID)) { _ in
+            },
+            onDrop: {
                 handleBeatDrop(before: beat)
+            },
+            onMoveUp: {
+                Task { await vm.moveBeat(beat, direction: .up) }
+            },
+            onMoveDown: {
+                Task { await vm.moveBeat(beat, direction: .down) }
+            },
+            onEdit: {
+                beginEditingBeatFromInspector(beat)
+            },
+            onDelete: {
+                selectedBeatInspectorID = beat.id
+                Task { await vm.deleteBeat(beat) }
+            },
+            onLinkScene: {
+                handleBeatLinkAction(beat)
+            },
+            onPromoteToSceneGoal: {
+                handlePromoteBeatToSceneGoal(beat)
+            },
+            onRefreshFromSelection: {
+                handleBeatRefreshFromSelection(beat)
+            },
+            onRefreshFromScene: {
+                handleBeatRefreshFromCurrentScene(beat)
             }
-        }
+        )
     }
 
     private func beatInspectorMetaChip(title: String, value: String) -> some View {
@@ -6479,40 +6399,16 @@ private var projectsSidebarContent: some View {
         )
     }
 
-    private func beatProvenanceChip(_ source: BeatProvenanceSource) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(source.tint)
-                .frame(width: 6, height: 6)
-            Text(source.compactTitle)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(source.tint)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(source.tint.opacity(0.10))
-        )
-        .overlay(
-            Capsule()
-                .stroke(source.tint.opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private func beatProvenanceHistoryView(_ history: BeatProvenanceHistoryEntry) -> some View {
+    private func beatProvenanceHistoryPresentation(
+        _ history: BeatProvenanceHistoryEntry
+    ) -> ScreenplayStudioBeatProvenanceHistoryPresentation {
         let createdDate = dateFromTimestamp(history.createdAt) ?? Date(timeIntervalSince1970: history.createdAt)
         let refreshedDate = dateFromTimestamp(history.lastRefreshedAt) ?? Date(timeIntervalSince1970: history.lastRefreshedAt)
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("Created from \(history.createdFrom.title) · \(relativeTimestamp(createdDate))")
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.52))
-            Text("Last refreshed from \(history.lastRefreshedFrom.title) · \(relativeTimestamp(refreshedDate))")
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.52))
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Created from \(history.createdFrom.title), last refreshed from \(history.lastRefreshedFrom.title)")
+        return ScreenplayStudioBeatProvenanceHistoryPresentation(
+            createdText: "Created from \(history.createdFrom.title) · \(relativeTimestamp(createdDate))",
+            refreshedText: "Last refreshed from \(history.lastRefreshedFrom.title) · \(relativeTimestamp(refreshedDate))",
+            accessibilityLabel: "Created from \(history.createdFrom.title), last refreshed from \(history.lastRefreshedFrom.title)"
+        )
     }
 
     private var beatsComposerCard: some View {
@@ -6597,103 +6493,42 @@ private var projectsSidebarContent: some View {
 
     private func outlineActInspectorCard(_ act: BackendScreenplayAct, scenes: [BackendScreenplayScene]) -> some View {
         let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forActID: act.id)
-        return VStack(alignment: .leading, spacing: 6) {
-            inspectorInsertionMarker(isVisible: actDropTargetID == act.id)
-                .padding(.horizontal, 6)
-
-            intelligenceCollectionCard(title: act.title, icon: "square.split.2x1") {
-                HStack(spacing: 8) {
-                    beatInspectorMetaChip(title: "Order", value: "\((act.order ?? 0) + 1)")
-                    Spacer(minLength: 0)
-                    reorderHandleMenu(
-                        title: "Reorder act",
-                        moveUpDisabled: !canMoveAct(act, direction: .up),
-                        moveDownDisabled: !canMoveAct(act, direction: .down),
-                        moveUp: { Task { await vm.moveAct(act, direction: .up) } },
-                        moveDown: { Task { await vm.moveAct(act, direction: .down) } }
-                    )
+        return ScreenplayStudioOutlineActCard(
+            act: act,
+            sceneCount: scenes.count,
+            isSceneDragActive: draggedSceneID != nil,
+            isSettled: isSettled,
+            isDropTargeted: dropTargetBinding(for: act.id, target: $actDropTargetID),
+            isSceneGroupDropTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID),
+            canMoveUp: canMoveAct(act, direction: .up),
+            canMoveDown: canMoveAct(act, direction: .down),
+            sceneRows: {
+                ForEach(scenes, id: \.id) { scene in
+                    outlineSceneInspectorRow(scene)
                 }
-
-                if scenes.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No scenes grouped into this act yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                        if draggedSceneID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this scene into \(act.title)",
-                                isTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID)
-                            ) { _ in
-                                guard let draggedSceneID else { return false }
-                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
-                                self.draggedSceneID = nil
-                                sceneDropTargetID = ""
-                                sceneGroupDropTargetID = ""
-                                return true
-                            }
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            beatInspectorMetaChip(title: "Scenes", value: "\(scenes.count)")
-                            if let summary = act.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(summary)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.52))
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        ForEach(scenes, id: \.id) { scene in
-                            outlineSceneInspectorRow(scene)
-                        }
-
-                        if draggedSceneID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this scene to the end of \(act.title)",
-                                isTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID)
-                            ) { _ in
-                                guard let draggedSceneID else { return false }
-                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
-                                self.draggedSceneID = nil
-                                sceneDropTargetID = ""
-                                sceneGroupDropTargetID = ""
-                                return true
-                            }
-                        }
-                    }
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isSettled
-                            ? Color.herStudioActiveStroke.opacity(0.82)
-                            : actDropTargetID == act.id
-                            ? Color.herStudioActiveStroke.opacity(0.72)
-                            : Color.clear,
-                        lineWidth: isSettled ? 1.6 : 1.4
-                    )
-            )
-            .shadow(
-                color: isSettled ? Color.herStudioActiveStroke.opacity(0.18) : .clear,
-                radius: isSettled ? 12 : 0,
-                y: isSettled ? 6 : 0
-            )
-            .scaleEffect(isSettled ? 1.008 : 1.0)
-            .id(inspectorScrollAnchorID(forActID: act.id))
-            .onDrag {
+            },
+            onMoveUp: {
+                Task { await vm.moveAct(act, direction: .up) }
+            },
+            onMoveDown: {
+                Task { await vm.moveAct(act, direction: .down) }
+            },
+            onBeginDrag: {
                 draggedActID = act.id
-                return NSItemProvider(object: NSString(string: act.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: act.id, target: $actDropTargetID)) { _ in
+            },
+            onDrop: {
                 handleActDrop(before: act)
+            },
+            onSceneGroupDrop: {
+                guard let draggedSceneID else { return false }
+                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
+                self.draggedSceneID = nil
+                sceneDropTargetID = ""
+                sceneGroupDropTargetID = ""
+                return true
             }
-        }
+        )
     }
 
     private func outlineLooseScenesCard(_ scenes: [BackendScreenplayScene]) -> some View {
@@ -6753,76 +6588,29 @@ private var projectsSidebarContent: some View {
     private func outlineSceneInspectorRow(_ scene: BackendScreenplayScene) -> some View {
         let isActive = isSceneInspectorRowActive(scene)
         let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forSceneID: scene.id)
-        return VStack(alignment: .leading, spacing: 4) {
-            inspectorInsertionMarker(isVisible: sceneDropTargetID == scene.id)
-                .padding(.horizontal, 4)
-
-            Button {
+        return ScreenplayStudioOutlineSceneRow(
+            scene: scene,
+            isActive: isActive,
+            isSettled: isSettled,
+            isDropTargeted: dropTargetBinding(for: scene.id, target: $sceneDropTargetID),
+            canMoveUp: canMoveScene(scene, direction: .up),
+            canMoveDown: canMoveScene(scene, direction: .down),
+            onSelect: {
                 revealSceneInInspector(scene)
-            } label: {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .lineLimit(1)
-                        if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(objective)
-                                .font(.system(size: 11, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.54))
-                                .lineLimit(2)
-                        }
-                    }
-
-                    Spacer(minLength: 10)
-
-                    HStack(spacing: 8) {
-                        reorderHandleMenu(
-                            title: "Reorder scene",
-                            moveUpDisabled: !canMoveScene(scene, direction: .up),
-                            moveDownDisabled: !canMoveScene(scene, direction: .down),
-                            moveUp: { Task { await vm.moveScene(scene, direction: .up) } },
-                            moveDown: { Task { await vm.moveScene(scene, direction: .down) } }
-                        )
-
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.38))
-                    }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(isActive ? Color.herStudioActiveFill.opacity(0.80) : Color.white.opacity(0.70))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            isSettled
-                                ? Color.herStudioActiveStroke.opacity(0.82)
-                                : sceneDropTargetID == scene.id
-                                ? Color.herStudioActiveStroke.opacity(0.72)
-                                : (isActive ? Color.herStudioActiveStroke.opacity(0.34) : Color.clear),
-                            lineWidth: isSettled ? 1.6 : (sceneDropTargetID == scene.id ? 1.4 : 1.0)
-                        )
-                )
-                .shadow(
-                    color: isSettled ? Color.herStudioActiveStroke.opacity(0.16) : .clear,
-                    radius: isSettled ? 10 : 0,
-                    y: isSettled ? 4 : 0
-                )
-                .scaleEffect(isSettled ? 1.008 : 1.0)
-            }
-            .buttonStyle(.plain)
-            .id(inspectorScrollAnchorID(forSceneID: scene.id))
-            .onDrag {
+            },
+            onMoveUp: {
+                Task { await vm.moveScene(scene, direction: .up) }
+            },
+            onMoveDown: {
+                Task { await vm.moveScene(scene, direction: .down) }
+            },
+            onBeginDrag: {
                 draggedSceneID = scene.id
-                return NSItemProvider(object: NSString(string: scene.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: scene.id, target: $sceneDropTargetID)) { _ in
+            },
+            onDrop: {
                 handleSceneDrop(before: scene)
             }
-        }
+        )
     }
 
     private var companionModePickerCard: some View {
@@ -7688,27 +7476,6 @@ private var projectsSidebarContent: some View {
         draggedBeatID != nil || draggedActID != nil || draggedSceneID != nil
     }
 
-    private func inspectorInsertionMarker(isVisible: Bool) -> some View {
-        HStack(spacing: 8) {
-            Capsule()
-                .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.92 : 0.0))
-                .frame(width: 28, height: isVisible ? 5 : 2)
-            Rectangle()
-                .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.68 : 0.0))
-                .frame(height: isVisible ? 2 : 1)
-                .frame(maxWidth: .infinity)
-            if isVisible {
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 10, weight: .bold, design: .default))
-                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
-                    .transition(.opacity.combined(with: .scale))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: isVisible)
-        .accessibilityHidden(true)
-    }
-
     private func inspectorScrollAnchorID(forBeatID beatID: String) -> String {
         "inspector-beat-\(beatID)"
     }
@@ -8100,26 +7867,6 @@ private var projectsSidebarContent: some View {
         return true
     }
 
-    private func beatActionButton(
-        _ title: String,
-        systemImage: String,
-        role: ButtonRole? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(role: role, action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.72))
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
     private func linkedScene(for beat: BackendScreenplayBeat) -> BackendScreenplayScene? {
         guard let sceneID = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneID.isEmpty else {
             return nil
@@ -8173,32 +7920,6 @@ private var projectsSidebarContent: some View {
         case .up: return index > 0
         case .down: return index < groupedScenes.count - 1
         }
-    }
-
-    private func reorderHandleMenu(
-        title: String,
-        moveUpDisabled: Bool,
-        moveDownDisabled: Bool,
-        moveUp: @escaping () -> Void,
-        moveDown: @escaping () -> Void
-    ) -> some View {
-        Menu {
-            Button("Move Up", action: moveUp)
-                .disabled(moveUpDisabled)
-            Button("Move Down", action: moveDown)
-                .disabled(moveDownDisabled)
-        } label: {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.74))
-                )
-        }
-        .help(title)
-        .menuStyle(.borderlessButton)
     }
 
     private func handleBeatLinkAction(_ beat: BackendScreenplayBeat) {

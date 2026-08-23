@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View {
     let beatCount: Int
@@ -133,6 +134,548 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
             }
         }
     }
+}
+
+struct ScreenplayStudioBeatProvenanceHistoryPresentation {
+    let createdText: String
+    let refreshedText: String
+    let accessibilityLabel: String
+}
+
+struct ScreenplayStudioBeatInspectorCard: View {
+    let beat: BackendScreenplayBeat
+    let index: Int
+    let sceneLabel: String?
+    let provenance: BeatProvenanceSource
+    let provenanceHistory: ScreenplayStudioBeatProvenanceHistoryPresentation?
+    let isSelected: Bool
+    let isSettled: Bool
+    @Binding var isDropTargeted: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let linkButtonTitle: String
+    let canRefreshFromSelection: Bool
+    let canRefreshFromScene: Bool
+    let onSelect: () -> Void
+    let onBeginDrag: () -> Void
+    let onDrop: () -> Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onLinkScene: () -> Void
+    let onPromoteToSceneGoal: () -> Void
+    let onRefreshFromSelection: () -> Void
+    let onRefreshFromScene: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            insertionMarker
+                .padding(.horizontal, 6)
+
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                metadata
+
+                if let provenanceHistory {
+                    provenanceHistoryView(provenanceHistory)
+                }
+
+                HStack(spacing: 8) {
+                    actionButton("Edit", systemImage: "pencil", action: onEdit)
+                    actionButton("Delete", systemImage: "trash", role: .destructive, action: onDelete)
+                }
+
+                HStack(spacing: 8) {
+                    actionButton(linkButtonTitle, systemImage: "link", action: onLinkScene)
+                    actionButton("Scene Goal", systemImage: "target", action: onPromoteToSceneGoal)
+                }
+
+                if canRefreshFromSelection || canRefreshFromScene {
+                    HStack(spacing: 8) {
+                        if canRefreshFromSelection {
+                            actionButton(
+                                "Refresh from Selection",
+                                systemImage: "text.badge.arrow.up",
+                                action: onRefreshFromSelection
+                            )
+                        }
+                        if canRefreshFromScene {
+                            actionButton(
+                                "Refresh from Scene",
+                                systemImage: "arrow.clockwise.circle",
+                                action: onRefreshFromScene
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.52) : Color.white.opacity(0.34))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(cardStrokeColor, lineWidth: cardStrokeWidth)
+            )
+            .shadow(
+                color: isSettled ? Color.herStudioActiveStroke.opacity(0.20) : .clear,
+                radius: isSettled ? 12 : 0,
+                y: isSettled ? 6 : 0
+            )
+            .scaleEffect(isSettled ? 1.01 : 1.0)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .id("inspector-beat-\(beat.id)")
+            .onTapGesture(perform: onSelect)
+            .onDrag {
+                onBeginDrag()
+                return NSItemProvider(object: NSString(string: beat.id))
+            }
+            .onDrop(of: [UTType.plainText.identifier], isTargeted: $isDropTargeted) { _ in
+                onDrop()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(String(format: "%02d", index))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.black.opacity(0.74).opacity(0.84))
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.88))
+                )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(beat.label)
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.92))
+                if let summary = beat.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            reorderMenu(
+                title: "Reorder beat",
+                moveUpDisabled: !canMoveUp,
+                moveDownDisabled: !canMoveDown,
+                moveUp: onMoveUp,
+                moveDown: onMoveDown
+            )
+        }
+    }
+
+    private var metadata: some View {
+        HStack(spacing: 8) {
+            provenanceChip
+            if let sceneLabel, !sceneLabel.isEmpty {
+                metaChip(title: "Scene", value: sceneLabel)
+            } else if let sceneID = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneID.isEmpty {
+                metaChip(title: "Scene", value: sceneID)
+            }
+            if let actID = beat.actId?.trimmingCharacters(in: .whitespacesAndNewlines), !actID.isEmpty {
+                metaChip(title: "Act", value: actID)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var provenanceChip: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(provenance.tint)
+                .frame(width: 6, height: 6)
+            Text(provenance.compactTitle)
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(provenance.tint)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(provenance.tint.opacity(0.10)))
+        .overlay(Capsule().stroke(provenance.tint.opacity(0.20), lineWidth: 1))
+    }
+
+    private var insertionMarker: some View {
+        HStack(spacing: 8) {
+            Capsule()
+                .fill(Color.herStudioActiveStroke.opacity(isDropTargeted ? 0.92 : 0.0))
+                .frame(width: 28, height: isDropTargeted ? 5 : 2)
+            Rectangle()
+                .fill(Color.herStudioActiveStroke.opacity(isDropTargeted ? 0.68 : 0.0))
+                .frame(height: isDropTargeted ? 2 : 1)
+                .frame(maxWidth: .infinity)
+            if isDropTargeted {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .bold, design: .default))
+                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
+                    .transition(.opacity.combined(with: .scale))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: isDropTargeted)
+        .accessibilityHidden(true)
+    }
+
+    private var cardStrokeColor: Color {
+        if isSettled {
+            return Color.herStudioActiveStroke.opacity(0.80)
+        }
+        if isDropTargeted {
+            return Color.herStudioActiveStroke.opacity(0.76)
+        }
+        return isSelected
+            ? Color.herStudioActiveStroke.opacity(0.36)
+            : Color.herShellStroke.opacity(0.18)
+    }
+
+    private var cardStrokeWidth: CGFloat {
+        isSettled ? 1.6 : (isDropTargeted ? 1.4 : 1)
+    }
+
+    private func metaChip(title: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.48))
+                .textCase(.uppercase)
+            Text(value)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.herText.opacity(0.82))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.white.opacity(0.72)))
+    }
+
+    private func provenanceHistoryView(_ history: ScreenplayStudioBeatProvenanceHistoryPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(history.createdText)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.52))
+            Text(history.refreshedText)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.52))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(history.accessibilityLabel)
+    }
+
+    private func actionButton(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.72))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ScreenplayStudioOutlineActCard<SceneRows: View>: View {
+    let act: BackendScreenplayAct
+    let sceneCount: Int
+    let isSceneDragActive: Bool
+    let isSettled: Bool
+    @Binding var isDropTargeted: Bool
+    @Binding var isSceneGroupDropTargeted: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    @ViewBuilder let sceneRows: () -> SceneRows
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onBeginDrag: () -> Void
+    let onDrop: () -> Bool
+    let onSceneGroupDrop: () -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            insertionMarker(isVisible: isDropTargeted)
+                .padding(.horizontal, 6)
+
+            intelligenceCollectionCard(title: act.title, icon: "square.split.2x1") {
+                HStack(spacing: 8) {
+                    metaChip(title: "Order", value: "\((act.order ?? 0) + 1)")
+                    Spacer(minLength: 0)
+                    reorderMenu(
+                        title: "Reorder act",
+                        moveUpDisabled: !canMoveUp,
+                        moveDownDisabled: !canMoveDown,
+                        moveUp: onMoveUp,
+                        moveDown: onMoveDown
+                    )
+                }
+
+                if sceneCount == 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No scenes grouped into this act yet.")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.58))
+                        if isSceneDragActive {
+                            sceneGroupDropZone(title: "Drop here to move this scene into \(act.title)")
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            metaChip(title: "Scenes", value: "\(sceneCount)")
+                            if let summary = act.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(summary)
+                                    .font(.system(size: 11, weight: .regular, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.52))
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        sceneRows()
+
+                        if isSceneDragActive {
+                            sceneGroupDropZone(title: "Drop here to move this scene to the end of \(act.title)")
+                        }
+                    }
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(actStrokeColor, lineWidth: isSettled ? 1.6 : 1.4)
+            )
+            .shadow(
+                color: isSettled ? Color.herStudioActiveStroke.opacity(0.18) : .clear,
+                radius: isSettled ? 12 : 0,
+                y: isSettled ? 6 : 0
+            )
+            .scaleEffect(isSettled ? 1.008 : 1.0)
+            .id("inspector-act-\(act.id)")
+            .onDrag {
+                onBeginDrag()
+                return NSItemProvider(object: NSString(string: act.id))
+            }
+            .onDrop(of: [UTType.plainText.identifier], isTargeted: $isDropTargeted) { _ in
+                onDrop()
+            }
+        }
+    }
+
+    private var actStrokeColor: Color {
+        if isSettled {
+            return Color.herStudioActiveStroke.opacity(0.82)
+        }
+        return isDropTargeted ? Color.herStudioActiveStroke.opacity(0.72) : .clear
+    }
+
+    private func sceneGroupDropZone(title: String) -> some View {
+        inspectorReorderDropZone(
+            title: title,
+            isTargeted: $isSceneGroupDropTargeted,
+            onDrop: onSceneGroupDrop
+        )
+    }
+}
+
+struct ScreenplayStudioOutlineSceneRow: View {
+    let scene: BackendScreenplayScene
+    let isActive: Bool
+    let isSettled: Bool
+    @Binding var isDropTargeted: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let onSelect: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onBeginDrag: () -> Void
+    let onDrop: () -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            insertionMarker(isVisible: isDropTargeted)
+                .padding(.horizontal, 4)
+
+            Button(action: onSelect) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.82))
+                            .lineLimit(1)
+                        if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(objective)
+                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.54))
+                                .lineLimit(2)
+                        }
+                    }
+
+                    Spacer(minLength: 10)
+
+                    HStack(spacing: 8) {
+                        reorderMenu(
+                            title: "Reorder scene",
+                            moveUpDisabled: !canMoveUp,
+                            moveDownDisabled: !canMoveDown,
+                            moveUp: onMoveUp,
+                            moveDown: onMoveDown
+                        )
+
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.38))
+                    }
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isActive ? Color.herStudioActiveFill.opacity(0.80) : Color.white.opacity(0.70))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(sceneStrokeColor, lineWidth: sceneStrokeWidth)
+                )
+                .shadow(
+                    color: isSettled ? Color.herStudioActiveStroke.opacity(0.16) : .clear,
+                    radius: isSettled ? 10 : 0,
+                    y: isSettled ? 4 : 0
+                )
+                .scaleEffect(isSettled ? 1.008 : 1.0)
+            }
+            .buttonStyle(.plain)
+            .id("inspector-scene-\(scene.id)")
+            .onDrag {
+                onBeginDrag()
+                return NSItemProvider(object: NSString(string: scene.id))
+            }
+            .onDrop(of: [UTType.plainText.identifier], isTargeted: $isDropTargeted) { _ in
+                onDrop()
+            }
+        }
+    }
+
+    private var sceneStrokeColor: Color {
+        if isSettled {
+            return Color.herStudioActiveStroke.opacity(0.82)
+        }
+        if isDropTargeted {
+            return Color.herStudioActiveStroke.opacity(0.72)
+        }
+        return isActive ? Color.herStudioActiveStroke.opacity(0.34) : .clear
+    }
+
+    private var sceneStrokeWidth: CGFloat {
+        isSettled ? 1.6 : (isDropTargeted ? 1.4 : 1.0)
+    }
+}
+
+private func insertionMarker(isVisible: Bool) -> some View {
+    HStack(spacing: 8) {
+        Capsule()
+            .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.92 : 0.0))
+            .frame(width: 28, height: isVisible ? 5 : 2)
+        Rectangle()
+            .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.68 : 0.0))
+            .frame(height: isVisible ? 2 : 1)
+            .frame(maxWidth: .infinity)
+        if isVisible {
+            Image(systemName: "arrow.down")
+                .font(.system(size: 10, weight: .bold, design: .default))
+                .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
+                .transition(.opacity.combined(with: .scale))
+        }
+    }
+    .frame(maxWidth: .infinity)
+    .animation(.spring(response: 0.18, dampingFraction: 0.88), value: isVisible)
+    .accessibilityHidden(true)
+}
+
+private func inspectorReorderDropZone(
+    title: String,
+    isTargeted: Binding<Bool>,
+    onDrop: @escaping () -> Bool
+) -> some View {
+    HStack(spacing: 10) {
+        Capsule()
+            .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
+            .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.to.line.compact")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .lineLimit(1)
+        }
+        .foregroundStyle((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herText).opacity(isTargeted.wrappedValue ? 0.88 : 0.56))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(isTargeted.wrappedValue ? Color.herStudioActiveFill.opacity(0.28) : Color.white.opacity(0.52))
+        )
+        Capsule()
+            .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
+            .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
+    }
+    .frame(height: 36)
+    .contentShape(Rectangle())
+    .animation(.easeOut(duration: 0.16), value: isTargeted.wrappedValue)
+    .onDrop(of: [UTType.plainText.identifier], isTargeted: isTargeted) { _ in
+        onDrop()
+    }
+}
+
+private func reorderMenu(
+    title: String,
+    moveUpDisabled: Bool,
+    moveDownDisabled: Bool,
+    moveUp: @escaping () -> Void,
+    moveDown: @escaping () -> Void
+) -> some View {
+    Menu {
+        Button("Move Up", action: moveUp)
+            .disabled(moveUpDisabled)
+        Button("Move Down", action: moveDown)
+            .disabled(moveDownDisabled)
+    } label: {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.42))
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.74))
+            )
+    }
+    .help(title)
+    .menuStyle(.borderlessButton)
+}
+
+private func metaChip(title: String, value: String) -> some View {
+    HStack(spacing: 6) {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.48))
+            .textCase(.uppercase)
+        Text(value)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.herText.opacity(0.82))
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .background(Capsule().fill(Color.white.opacity(0.72)))
 }
 
 struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, ScenePicker: View, ActPicker: View>: View {
