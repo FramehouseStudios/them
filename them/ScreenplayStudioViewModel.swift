@@ -242,6 +242,179 @@ enum BeatQuickCaptureActionPlanner {
     }
 }
 
+struct BeatQuickCaptureOutlineMutation {
+    let beat: BackendScreenplayBeat
+    let outline: BackendScreenplayOutline
+}
+
+enum BeatQuickCaptureMutationPlanner {
+    static func appending(
+        seed: BeatQuickCaptureSeed,
+        to outline: BackendScreenplayOutline,
+        beatID: String,
+        timestamp: TimeInterval
+    ) -> BeatQuickCaptureOutlineMutation {
+        let orderedBeats = sortedBeats(outline.beats)
+        let sceneID = cleanID(seed.sceneID)
+        let actID = cleanID(seed.actID)
+        let beat = BackendScreenplayBeat(
+            id: beatID,
+            label: seed.label,
+            summary: seed.summary,
+            sceneId: sceneID.isEmpty ? nil : sceneID,
+            actId: actID.isEmpty ? nil : actID,
+            order: orderedBeats.count,
+            status: "open",
+            createdAt: timestamp,
+            updatedAt: timestamp
+        )
+        let beats = orderedBeats + [beat]
+        let scenes = relinkedScenes(
+            outline.scenes,
+            beatID: beat.id,
+            targetSceneID: sceneID
+        )
+        return BeatQuickCaptureOutlineMutation(
+            beat: beat,
+            outline: rebuiltOutline(
+                from: outline,
+                scenes: scenes,
+                beats: beats,
+                actCount: outline.acts.count,
+                timestamp: timestamp
+            )
+        )
+    }
+
+    static func updating(
+        beatID: String,
+        from seed: BeatQuickCaptureSeed,
+        in outline: BackendScreenplayOutline,
+        timestamp: TimeInterval
+    ) -> BeatQuickCaptureOutlineMutation? {
+        let orderedBeats = sortedBeats(outline.beats)
+        guard let existingBeat = orderedBeats.first(where: { $0.id == beatID }) else {
+            return nil
+        }
+
+        let seedSceneID = cleanID(seed.sceneID)
+        let seedActID = cleanID(seed.actID)
+        let label = existingBeat.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? seed.label
+            : existingBeat.label
+        let beat = BackendScreenplayBeat(
+            id: existingBeat.id,
+            label: label,
+            summary: seed.summary,
+            sceneId: seedSceneID.isEmpty ? existingBeat.sceneId : seedSceneID,
+            actId: seedActID.isEmpty ? existingBeat.actId : seedActID,
+            order: existingBeat.order,
+            status: existingBeat.status,
+            createdAt: existingBeat.createdAt,
+            updatedAt: timestamp
+        )
+        let beats = orderedBeats.map { $0.id == beat.id ? beat : $0 }
+        let targetSceneID = cleanID(beat.sceneId ?? "")
+        let scenes = relinkedScenes(
+            outline.scenes,
+            beatID: beat.id,
+            targetSceneID: targetSceneID
+        )
+        return BeatQuickCaptureOutlineMutation(
+            beat: beat,
+            outline: rebuiltOutline(
+                from: outline,
+                scenes: scenes,
+                beats: beats,
+                actCount: outline.actCount,
+                timestamp: timestamp
+            )
+        )
+    }
+
+    private static func sortedBeats(_ beats: [BackendScreenplayBeat]) -> [BackendScreenplayBeat] {
+        beats.sorted {
+            let lhsOrder = $0.order ?? Int.max
+            let rhsOrder = $1.order ?? Int.max
+            if lhsOrder == rhsOrder { return $0.label < $1.label }
+            return lhsOrder < rhsOrder
+        }
+    }
+
+    private static func relinkedScenes(
+        _ scenes: [BackendScreenplayScene],
+        beatID: String,
+        targetSceneID: String
+    ) -> [BackendScreenplayScene] {
+        scenes.map { scene in
+            var beatIDs = scene.beatIds ?? []
+            if !targetSceneID.isEmpty, scene.id == targetSceneID {
+                if !beatIDs.contains(beatID) {
+                    beatIDs.append(beatID)
+                }
+            } else {
+                beatIDs.removeAll { $0 == beatID }
+            }
+            return BackendScreenplayScene(
+                id: scene.id,
+                slugline: scene.slugline,
+                title: scene.title,
+                objective: scene.objective,
+                summary: scene.summary,
+                actId: scene.actId,
+                order: scene.order,
+                status: scene.status,
+                beatIds: beatIDs,
+                createdAt: scene.createdAt,
+                updatedAt: scene.updatedAt
+            )
+        }
+    }
+
+    private static func rebuiltOutline(
+        from outline: BackendScreenplayOutline,
+        scenes: [BackendScreenplayScene],
+        beats: [BackendScreenplayBeat],
+        actCount: Int?,
+        timestamp: TimeInterval
+    ) -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: timestamp,
+            actCount: actCount,
+            sceneCount: scenes.count,
+            beatCount: beats.count,
+            acts: rebuiltActs(outline.acts, scenes: scenes),
+            scenes: scenes,
+            beats: beats
+        )
+    }
+
+    private static func rebuiltActs(
+        _ acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene]
+    ) -> [BackendScreenplayAct] {
+        acts.enumerated().map { index, act in
+            let sceneIDs = scenes
+                .filter { ($0.actId ?? "") == act.id }
+                .sorted { ($0.order ?? 0) < ($1.order ?? 0) }
+                .map(\.id)
+            return BackendScreenplayAct(
+                id: act.id,
+                title: act.title,
+                summary: act.summary,
+                order: act.order ?? index,
+                sceneIds: sceneIDs,
+                createdAt: act.createdAt,
+                updatedAt: act.updatedAt
+            )
+        }
+    }
+
+    private static func cleanID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 enum BeatQuickLinkTargetPlanner {
     static func makeTargets(
         pageScene: BackendScreenplayScene?,

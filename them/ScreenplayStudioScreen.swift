@@ -6734,62 +6734,7 @@ private var projectsSidebarContent: some View {
             return
         }
 
-        let mergedSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedBeats = sortedOutlineBeats.map { existingBeat in
-            guard existingBeat.id == beat.id else { return existingBeat }
-            return BackendScreenplayBeat(
-                id: existingBeat.id,
-                label: label,
-                summary: seed.summary,
-                sceneId: mergedSceneID.isEmpty ? existingBeat.sceneId : mergedSceneID,
-                actId: mergedActID.isEmpty ? existingBeat.actId : mergedActID,
-                order: existingBeat.order,
-                status: existingBeat.status,
-                createdAt: existingBeat.createdAt,
-                updatedAt: Date().timeIntervalSince1970 * 1000
-            )
-        }
-        let updatedBeat = updatedBeats.first(where: { $0.id == beat.id }) ?? beat
-        let updatedSceneID = (updatedBeat.sceneId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if !updatedSceneID.isEmpty, scene.id == updatedSceneID {
-                if !beatIDs.contains(updatedBeat.id) {
-                    beatIDs.append(updatedBeat.id)
-                }
-            } else {
-                beatIDs.removeAll { $0 == updatedBeat.id }
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
-        selectBeatInInspector(updatedBeat)
-        vm.cancelEditingBeat()
-        beatComposerProvenance = beatProvenance(for: beat)
-        markBeatProvenanceRefresh(seed.provenance, for: beat.id)
-        vm.refreshLiveDraftBridgeContext()
-        vm.infoText = infoText
+        applyLocalBeatQuickCaptureUpdate(beat, seed: seed, infoText: infoText)
     }
 
     private func updateBeatFromCurrentSceneSeed(
@@ -6817,57 +6762,22 @@ private var projectsSidebarContent: some View {
             return
         }
 
-        let mergedSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedBeats = sortedOutlineBeats.map { existingBeat in
-            guard existingBeat.id == beat.id else { return existingBeat }
-            return BackendScreenplayBeat(
-                id: existingBeat.id,
-                label: label,
-                summary: seed.summary,
-                sceneId: mergedSceneID.isEmpty ? existingBeat.sceneId : mergedSceneID,
-                actId: mergedActID.isEmpty ? existingBeat.actId : mergedActID,
-                order: existingBeat.order,
-                status: existingBeat.status,
-                createdAt: existingBeat.createdAt,
-                updatedAt: Date().timeIntervalSince1970 * 1000
-            )
-        }
-        let updatedBeat = updatedBeats.first(where: { $0.id == beat.id }) ?? beat
-        let updatedSceneID = (updatedBeat.sceneId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if !updatedSceneID.isEmpty, scene.id == updatedSceneID {
-                if !beatIDs.contains(updatedBeat.id) {
-                    beatIDs.append(updatedBeat.id)
-                }
-            } else {
-                beatIDs.removeAll { $0 == updatedBeat.id }
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
-        selectBeatInInspector(updatedBeat)
+        applyLocalBeatQuickCaptureUpdate(beat, seed: seed, infoText: infoText)
+    }
+
+    private func applyLocalBeatQuickCaptureUpdate(
+        _ beat: BackendScreenplayBeat,
+        seed: BeatQuickCaptureSeed,
+        infoText: String
+    ) {
+        guard let mutation = BeatQuickCaptureMutationPlanner.updating(
+            beatID: beat.id,
+            from: seed,
+            in: vm.outline,
+            timestamp: Date().timeIntervalSince1970 * 1000
+        ) else { return }
+        vm.outline = mutation.outline
+        selectBeatInInspector(mutation.beat)
         vm.cancelEditingBeat()
         beatComposerProvenance = beatProvenance(for: beat)
         markBeatProvenanceRefresh(seed.provenance, for: beat.id)
@@ -6891,50 +6801,15 @@ private var projectsSidebarContent: some View {
 
     private func appendLocalQuickCaptureBeat(_ seed: BeatQuickCaptureSeed) -> BackendScreenplayBeat {
         let now = Date().timeIntervalSince1970 * 1000
-        let cleanSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let beat = BackendScreenplayBeat(
-            id: "beat-local-\(UUID().uuidString.lowercased())",
-            label: seed.label,
-            summary: seed.summary,
-            sceneId: cleanSceneID.isEmpty ? nil : cleanSceneID,
-            actId: cleanActID.isEmpty ? nil : cleanActID,
-            order: sortedOutlineBeats.count,
-            status: "open",
-            createdAt: now,
-            updatedAt: now
+        let mutation = BeatQuickCaptureMutationPlanner.appending(
+            seed: seed,
+            to: vm.outline,
+            beatID: "beat-local-\(UUID().uuidString.lowercased())",
+            timestamp: now
         )
-        let updatedBeats = sortedOutlineBeats + [beat]
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if scene.id == cleanSceneID {
-                beatIDs.append(beat.id)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: now,
-            actCount: vm.outline.acts.count,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
+        vm.outline = mutation.outline
         vm.refreshLiveDraftBridgeContext()
-        return beat
+        return mutation.beat
     }
 
     private func outlineScene(for selection: ScreenplayEditorSelectionSnapshot) -> BackendScreenplayScene? {

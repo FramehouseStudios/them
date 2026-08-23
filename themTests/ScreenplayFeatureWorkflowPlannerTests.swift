@@ -253,6 +253,171 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         )
     }
 
+    func testBeatQuickCaptureMutationPlannerAppendsDeterministicLinkedAndLooseBeats() throws {
+        let outline = beatMutationOutline()
+        let timestamp = 9_001.0
+        let linkedSeed = BeatQuickCaptureSeed(
+            label: "The ledger opens",
+            summary: "Mara finds the missing ledger.",
+            sceneID: "  scene-new  ",
+            actID: "  act-2  ",
+            infoText: "Created from selection.",
+            provenance: .selection
+        )
+
+        let linked = BeatQuickCaptureMutationPlanner.appending(
+            seed: linkedSeed,
+            to: outline,
+            beatID: "beat-appended",
+            timestamp: timestamp
+        )
+
+        XCTAssertEqual(linked.beat.id, "beat-appended")
+        XCTAssertEqual(linked.beat.label, linkedSeed.label)
+        XCTAssertEqual(linked.beat.summary, linkedSeed.summary)
+        XCTAssertEqual(linked.beat.sceneId, "scene-new")
+        XCTAssertEqual(linked.beat.actId, "act-2")
+        XCTAssertEqual(linked.beat.order, 2)
+        XCTAssertEqual(linked.beat.status, "open")
+        XCTAssertEqual(linked.beat.createdAt, timestamp)
+        XCTAssertEqual(linked.beat.updatedAt, timestamp)
+        XCTAssertEqual(linked.outline.beats.map(\.id), ["beat-target", "beat-other", "beat-appended"])
+        XCTAssertEqual(linked.outline.updatedAt, timestamp)
+        XCTAssertEqual(linked.outline.actCount, 2)
+        XCTAssertEqual(linked.outline.sceneCount, 3)
+        XCTAssertEqual(linked.outline.beatCount, 3)
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-new" })).beatIds,
+            ["beat-other", "beat-appended"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-old" })).beatIds,
+            ["beat-target", "beat-other", "beat-target"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-loose" })).beatIds,
+            []
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.acts.first(where: { $0.id == "act-1" })).sceneIds,
+            ["scene-loose", "scene-old"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.acts.first(where: { $0.id == "act-2" })).sceneIds,
+            ["scene-new"]
+        )
+
+        let looseSeed = BeatQuickCaptureSeed(
+            label: "A loose possibility",
+            summary: "Hold this turn outside the scene plan.",
+            sceneID: " \n ",
+            actID: "  ",
+            infoText: "Created loose.",
+            provenance: .currentScene
+        )
+        let loose = BeatQuickCaptureMutationPlanner.appending(
+            seed: looseSeed,
+            to: outline,
+            beatID: "beat-loose",
+            timestamp: timestamp + 1
+        )
+
+        XCTAssertNil(loose.beat.sceneId)
+        XCTAssertNil(loose.beat.actId)
+        XCTAssertFalse(loose.outline.scenes.contains { ($0.beatIds ?? []).contains(loose.beat.id) })
+    }
+
+    func testBeatQuickCaptureMutationPlannerUpdatesAndRelinksWithoutLosingMetadata() throws {
+        let outline = beatMutationOutline(targetLabel: "  Existing label  ")
+        let seed = BeatQuickCaptureSeed(
+            label: "Generated fallback",
+            summary: "The truth moves into the courthouse.",
+            sceneID: " scene-new ",
+            actID: " act-2 ",
+            infoText: "Updated from selection.",
+            provenance: .selection
+        )
+
+        let mutation = try XCTUnwrap(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "beat-target",
+                from: seed,
+                in: outline,
+                timestamp: 9_500
+            )
+        )
+
+        XCTAssertEqual(mutation.beat.id, "beat-target")
+        XCTAssertEqual(mutation.beat.label, "  Existing label  ")
+        XCTAssertEqual(mutation.beat.summary, seed.summary)
+        XCTAssertEqual(mutation.beat.sceneId, "scene-new")
+        XCTAssertEqual(mutation.beat.actId, "act-2")
+        XCTAssertEqual(mutation.beat.order, 0)
+        XCTAssertEqual(mutation.beat.status, "drafted")
+        XCTAssertEqual(mutation.beat.createdAt, 111)
+        XCTAssertEqual(mutation.beat.updatedAt, 9_500)
+        XCTAssertEqual(mutation.outline.beats.map(\.id), ["beat-target", "beat-other"])
+        XCTAssertEqual(mutation.outline.actCount, 99)
+        XCTAssertEqual(mutation.outline.sceneCount, 3)
+        XCTAssertEqual(mutation.outline.beatCount, 2)
+
+        let oldScene = try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-old" }))
+        XCTAssertEqual(oldScene.beatIds, ["beat-other"])
+        XCTAssertEqual(oldScene.slugline, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(oldScene.status, "drafted")
+        XCTAssertEqual(oldScene.updatedAt, 301)
+
+        let newScene = try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-new" }))
+        XCTAssertEqual(newScene.beatIds, ["beat-other", "beat-target"])
+        XCTAssertEqual(newScene.objective, "Expose the forgery.")
+        XCTAssertEqual(newScene.createdAt, 202)
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.acts.first(where: { $0.id == "act-1" })).sceneIds,
+            ["scene-loose", "scene-old"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.acts.first(where: { $0.id == "act-2" })).sceneIds,
+            ["scene-new"]
+        )
+    }
+
+    func testBeatQuickCaptureMutationPlannerPreservesLinksAndRejectsMissingBeat() throws {
+        let outline = beatMutationOutline(targetLabel: " \n ")
+        let seed = BeatQuickCaptureSeed(
+            label: "Fallback label",
+            summary: "A refreshed summary.",
+            sceneID: "  ",
+            actID: "\n",
+            infoText: "Refreshed.",
+            provenance: .currentScene
+        )
+
+        let mutation = try XCTUnwrap(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "beat-target",
+                from: seed,
+                in: outline,
+                timestamp: 10_000
+            )
+        )
+
+        XCTAssertEqual(mutation.beat.label, seed.label)
+        XCTAssertEqual(mutation.beat.sceneId, "scene-old")
+        XCTAssertEqual(mutation.beat.actId, "act-1")
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-old" })).beatIds,
+            ["beat-target", "beat-other", "beat-target"]
+        )
+        XCTAssertNil(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "missing-beat",
+                from: seed,
+                in: outline,
+                timestamp: 10_001
+            )
+        )
+    }
+
     func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
         let now = Date().timeIntervalSince1970 * 1000
         let outline = BackendScreenplayOutline(
@@ -910,6 +1075,100 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             createdAt: createdAt,
             pageCount: 48,
             targetPages: 110
+        )
+    }
+
+    private func beatMutationOutline(targetLabel: String = "Existing label") -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 500,
+            actCount: 99,
+            sceneCount: 99,
+            beatCount: 99,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-1",
+                    title: "Act I",
+                    summary: "The search begins.",
+                    order: nil,
+                    sceneIds: ["stale-scene"],
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayAct(
+                    id: "act-2",
+                    title: "Act II",
+                    summary: "The truth closes in.",
+                    order: 2,
+                    sceneIds: nil,
+                    createdAt: 102,
+                    updatedAt: 202
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-old",
+                    slugline: "INT. ARCHIVE - NIGHT",
+                    title: "Archive",
+                    objective: "Find the ledger.",
+                    summary: "Mara searches the records.",
+                    actId: "act-1",
+                    order: 1,
+                    status: "drafted",
+                    beatIds: ["beat-target", "beat-other", "beat-target"],
+                    createdAt: 201,
+                    updatedAt: 301
+                ),
+                BackendScreenplayScene(
+                    id: "scene-new",
+                    slugline: "EXT. COURTHOUSE - DAWN",
+                    title: "Courthouse",
+                    objective: "Expose the forgery.",
+                    summary: "Mara confronts the clerk.",
+                    actId: "act-2",
+                    order: 2,
+                    status: "open",
+                    beatIds: ["beat-other"],
+                    createdAt: 202,
+                    updatedAt: 302
+                ),
+                BackendScreenplayScene(
+                    id: "scene-loose",
+                    slugline: nil,
+                    title: "Memory",
+                    objective: nil,
+                    summary: nil,
+                    actId: "act-1",
+                    order: 0,
+                    status: nil,
+                    beatIds: nil,
+                    createdAt: 203,
+                    updatedAt: 303
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-other",
+                    label: "Another beat",
+                    summary: "Something else changes.",
+                    sceneId: "scene-new",
+                    actId: "act-2",
+                    order: 1,
+                    status: "open",
+                    createdAt: 112,
+                    updatedAt: 212
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-target",
+                    label: targetLabel,
+                    summary: "The old summary.",
+                    sceneId: "scene-old",
+                    actId: "act-1",
+                    order: 0,
+                    status: "drafted",
+                    createdAt: 111,
+                    updatedAt: 211
+                )
+            ]
         )
     }
 
