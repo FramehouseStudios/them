@@ -6482,81 +6482,12 @@ private var projectsSidebarContent: some View {
         return nil
     }
 
-    private func actForScene(_ scene: BackendScreenplayScene?) -> BackendScreenplayAct? {
-        guard let scene else { return nil }
-        let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !actID.isEmpty else { return nil }
-        return sortedOutlineActs.first(where: { $0.id == actID })
-    }
-
     private var beatQuickLinkTargets: [BeatQuickLinkTarget] {
-        var targets: [BeatQuickLinkTarget] = [
-            BeatQuickLinkTarget(
-                id: "loose",
-                title: "Keep Loose",
-                subtitle: "Clear scene and act links",
-                sceneID: "",
-                actID: ""
-            )
-        ]
-        var seenIDs = Set(targets.map(\.id))
-
-        let pageScene = activePageOutlineSceneSelection
-        if let scene = pageScene {
-            let label = compactSceneNavigatorLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-            let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let sceneTarget = BeatQuickLinkTarget(
-                id: "scene:\(scene.id)",
-                title: "Current Page",
-                subtitle: label,
-                sceneID: scene.id,
-                actID: actID
-            )
-            if seenIDs.insert(sceneTarget.id).inserted {
-                targets.append(sceneTarget)
-            }
-            if let act = actForScene(scene) {
-                let actTarget = BeatQuickLinkTarget(
-                    id: "act:\(act.id)",
-                    title: "Current Act",
-                    subtitle: act.title,
-                    sceneID: "",
-                    actID: act.id
-                )
-                if seenIDs.insert(actTarget.id).inserted {
-                    targets.append(actTarget)
-                }
-            }
-        }
-
-        if let focusedScene = explicitFocusedOutlineSceneSelection {
-            let label = compactSceneNavigatorLabel(focusedScene.slugline?.isEmpty == false ? focusedScene.slugline! : focusedScene.title)
-            let actID = (focusedScene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let sceneTarget = BeatQuickLinkTarget(
-                id: "scene:\(focusedScene.id)",
-                title: "Focused Scene",
-                subtitle: label,
-                sceneID: focusedScene.id,
-                actID: actID
-            )
-            if seenIDs.insert(sceneTarget.id).inserted {
-                targets.append(sceneTarget)
-            }
-            if let act = actForScene(focusedScene) {
-                let actTarget = BeatQuickLinkTarget(
-                    id: "act:\(act.id)",
-                    title: "Focused Act",
-                    subtitle: act.title,
-                    sceneID: "",
-                    actID: act.id
-                )
-                if seenIDs.insert(actTarget.id).inserted {
-                    targets.append(actTarget)
-                }
-            }
-        }
-
-        return targets
+        BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: activePageOutlineSceneSelection,
+            focusedScene: explicitFocusedOutlineSceneSelection,
+            acts: sortedOutlineActs
+        )
     }
 
     private func applyBeatQuickLinkTarget(_ target: BeatQuickLinkTarget) {

@@ -128,6 +128,95 @@ struct BeatQuickLinkTarget: Identifiable, Equatable {
     let actID: String
 }
 
+enum BeatQuickLinkTargetPlanner {
+    static func makeTargets(
+        pageScene: BackendScreenplayScene?,
+        focusedScene: BackendScreenplayScene?,
+        acts: [BackendScreenplayAct]
+    ) -> [BeatQuickLinkTarget] {
+        var targets = [
+            BeatQuickLinkTarget(
+                id: "loose",
+                title: "Keep Loose",
+                subtitle: "Clear scene and act links",
+                sceneID: "",
+                actID: ""
+            )
+        ]
+        var seenIDs = Set(targets.map(\.id))
+
+        appendTargets(
+            for: pageScene,
+            sceneTitle: "Current Page",
+            actTitle: "Current Act",
+            acts: acts,
+            targets: &targets,
+            seenIDs: &seenIDs
+        )
+        appendTargets(
+            for: focusedScene,
+            sceneTitle: "Focused Scene",
+            actTitle: "Focused Act",
+            acts: acts,
+            targets: &targets,
+            seenIDs: &seenIDs
+        )
+        return targets
+    }
+
+    private static func appendTargets(
+        for scene: BackendScreenplayScene?,
+        sceneTitle: String,
+        actTitle: String,
+        acts: [BackendScreenplayAct],
+        targets: inout [BeatQuickLinkTarget],
+        seenIDs: inout Set<String>
+    ) {
+        guard let scene else { return }
+        let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        append(
+            BeatQuickLinkTarget(
+                id: "scene:\(scene.id)",
+                title: sceneTitle,
+                subtitle: compactSceneLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title),
+                sceneID: scene.id,
+                actID: actID
+            ),
+            targets: &targets,
+            seenIDs: &seenIDs
+        )
+
+        guard !actID.isEmpty, let act = acts.first(where: { $0.id == actID }) else { return }
+        append(
+            BeatQuickLinkTarget(
+                id: "act:\(act.id)",
+                title: actTitle,
+                subtitle: act.title,
+                sceneID: "",
+                actID: act.id
+            ),
+            targets: &targets,
+            seenIDs: &seenIDs
+        )
+    }
+
+    private static func append(
+        _ target: BeatQuickLinkTarget,
+        targets: inout [BeatQuickLinkTarget],
+        seenIDs: inout Set<String>
+    ) {
+        guard seenIDs.insert(target.id).inserted else { return }
+        targets.append(target)
+    }
+
+    private static func compactSceneLabel(_ heading: String) -> String {
+        let cleaned = heading.replacingOccurrences(of: "  ", with: " ")
+        guard cleaned.count > 28 else { return cleaned }
+        let index = cleaned.index(cleaned.startIndex, offsetBy: 28)
+        return String(cleaned[..<index]).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+}
+
 #if DEBUG || os(macOS)
 enum StudioDebugInspectorInteractionAction: String {
     case makeBeatFromSelection = "make_beat_from_selection"

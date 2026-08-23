@@ -3,6 +3,62 @@ import XCTest
 
 @MainActor
 final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
+    func testBeatQuickLinkPlannerOrdersAndDeduplicatesCurrentAndFocusedTargets() {
+        let act = BackendScreenplayAct(
+            id: "act-1",
+            title: "Act I",
+            summary: nil,
+            order: 0,
+            sceneIds: ["scene-page", "scene-focused"],
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let pageScene = BackendScreenplayScene(
+            id: "scene-page",
+            slugline: "INT. ARCHIVE - NIGHT",
+            title: "Archive",
+            objective: nil,
+            summary: nil,
+            actId: act.id,
+            order: 0,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let focusedScene = BackendScreenplayScene(
+            id: "scene-focused",
+            slugline: "EXT. COURTHOUSE STEPS - DAWN",
+            title: "Courthouse",
+            objective: nil,
+            summary: nil,
+            actId: act.id,
+            order: 1,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let targets = BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: pageScene,
+            focusedScene: focusedScene,
+            acts: [act]
+        )
+
+        XCTAssertEqual(targets.map(\.id), ["loose", "scene:scene-page", "act:act-1", "scene:scene-focused"])
+        XCTAssertEqual(targets.map(\.title), ["Keep Loose", "Current Page", "Current Act", "Focused Scene"])
+        XCTAssertEqual(targets[1].actID, act.id)
+        XCTAssertEqual(targets[3].actID, act.id)
+
+        let duplicateTargets = BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: pageScene,
+            focusedScene: pageScene,
+            acts: [act]
+        )
+        XCTAssertEqual(duplicateTargets.map(\.id), ["loose", "scene:scene-page", "act:act-1"])
+    }
+
     func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
         let now = Date().timeIntervalSince1970 * 1000
         let outline = BackendScreenplayOutline(
