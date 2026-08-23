@@ -4041,34 +4041,32 @@ Detail:
                     featureWorkflowCompassCard(featureSnapshot)
                 },
                 storySpine: {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(orderedActs, id: \.id) { act in
-                            outlineActInspectorCard(
-                                act,
-                                scenes: vm.outline.scenes
-                                    .filter { $0.actId == act.id }
-                                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                            )
-                        }
-
-                        if draggedActID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this act to the end",
-                                isTargeted: $isActListDropTargeted
-                            ) { _ in
-                                guard let draggedActID else { return false }
-                                settleInspectorDrop(at: inspectorScrollAnchorID(forActID: draggedActID))
-                                Task { await vm.moveAct(id: draggedActID, before: nil) }
-                                self.draggedActID = nil
-                                actDropTargetID = ""
-                                return true
+                    ScreenplayStudioOutlineStorySpine(
+                        isActDragActive: draggedActID != nil,
+                        showsLooseScenes: !orphanScenes.isEmpty || draggedSceneID != nil,
+                        isActEndDropTargeted: $isActListDropTargeted,
+                        actCards: {
+                            ForEach(orderedActs, id: \.id) { act in
+                                outlineActInspectorCard(
+                                    act,
+                                    scenes: vm.outline.scenes
+                                        .filter { $0.actId == act.id }
+                                        .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+                                )
                             }
-                        }
-
-                        if !orphanScenes.isEmpty || draggedSceneID != nil {
+                        },
+                        looseScenes: {
                             outlineLooseScenesCard(orphanScenes)
+                        },
+                        onDropActAtEnd: {
+                            guard let draggedActID else { return false }
+                            settleInspectorDrop(at: inspectorScrollAnchorID(forActID: draggedActID))
+                            Task { await vm.moveAct(id: draggedActID, before: nil) }
+                            self.draggedActID = nil
+                            actDropTargetID = ""
+                            return true
                         }
-                    }
+                    )
                 },
                 focusedScene: {
                     if let selectedScene = currentSceneInspectorSelection {
@@ -6265,24 +6263,23 @@ private var projectsSidebarContent: some View {
             linkedActCount: linkedBeatActCount,
             hasBeats: !vm.outline.beats.isEmpty,
             beatMap: {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(sortedOutlineBeats.enumerated()), id: \.element.id) { index, beat in
-                        beatInspectorCard(beat, index: index + 1)
-                    }
-                    if draggedBeatID != nil {
-                        inspectorReorderDropZone(
-                            title: "Drop here to move this beat to the end",
-                            isTargeted: $isBeatListDropTargeted
-                        ) { _ in
-                            guard let draggedBeatID else { return false }
-                            settleInspectorDrop(at: inspectorScrollAnchorID(forBeatID: draggedBeatID))
-                            Task { await vm.moveBeat(id: draggedBeatID, before: nil) }
-                            self.draggedBeatID = nil
-                            beatDropTargetID = ""
-                            return true
+                ScreenplayStudioBeatMapList(
+                    isBeatDragActive: draggedBeatID != nil,
+                    isEndDropTargeted: $isBeatListDropTargeted,
+                    beatRows: {
+                        ForEach(Array(sortedOutlineBeats.enumerated()), id: \.element.id) { index, beat in
+                            beatInspectorCard(beat, index: index + 1)
                         }
+                    },
+                    onDropAtEnd: {
+                        guard let draggedBeatID else { return false }
+                        settleInspectorDrop(at: inspectorScrollAnchorID(forBeatID: draggedBeatID))
+                        Task { await vm.moveBeat(id: draggedBeatID, before: nil) }
+                        self.draggedBeatID = nil
+                        beatDropTargetID = ""
+                        return true
                     }
-                }
+                )
             },
             composer: {
                 beatsComposerCard
@@ -7736,39 +7733,6 @@ private var projectsSidebarContent: some View {
                 }
             }
         )
-    }
-
-    private func inspectorReorderDropZone(
-        title: String,
-        isTargeted: Binding<Bool>,
-        performDrop: @escaping ([NSItemProvider]) -> Bool
-    ) -> some View {
-        HStack(spacing: 10) {
-            Capsule()
-                .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
-                .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.down.to.line.compact")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herText).opacity(isTargeted.wrappedValue ? 0.88 : 0.56))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                Capsule()
-                    .fill(isTargeted.wrappedValue ? Color.herStudioActiveFill.opacity(0.28) : Color.white.opacity(0.52))
-            )
-            Capsule()
-                .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
-                .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
-        }
-        .frame(height: 36)
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.16), value: isTargeted.wrappedValue)
-        .onDrop(of: [UTType.plainText.identifier], isTargeted: isTargeted, perform: performDrop)
     }
 
     private func handleBeatDrop(before beat: BackendScreenplayBeat) -> Bool {

@@ -136,6 +136,51 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
     }
 }
 
+struct ScreenplayStudioBeatMapList<BeatRows: View>: View {
+    let isBeatDragActive: Bool
+    @Binding var isEndDropTargeted: Bool
+    @ViewBuilder let beatRows: () -> BeatRows
+    let onDropAtEnd: () -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            beatRows()
+            if isBeatDragActive {
+                inspectorReorderDropZone(
+                    title: "Drop here to move this beat to the end",
+                    isTargeted: $isEndDropTargeted,
+                    onDrop: onDropAtEnd
+                )
+            }
+        }
+    }
+}
+
+struct ScreenplayStudioOutlineStorySpine<ActCards: View, LooseScenes: View>: View {
+    let isActDragActive: Bool
+    let showsLooseScenes: Bool
+    @Binding var isActEndDropTargeted: Bool
+    @ViewBuilder let actCards: () -> ActCards
+    @ViewBuilder let looseScenes: () -> LooseScenes
+    let onDropActAtEnd: () -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            actCards()
+            if isActDragActive {
+                inspectorReorderDropZone(
+                    title: "Drop here to move this act to the end",
+                    isTargeted: $isActEndDropTargeted,
+                    onDrop: onDropActAtEnd
+                )
+            }
+            if showsLooseScenes {
+                looseScenes()
+            }
+        }
+    }
+}
+
 struct ScreenplayStudioBeatProvenanceHistoryPresentation {
     let createdText: String
     let refreshedText: String
