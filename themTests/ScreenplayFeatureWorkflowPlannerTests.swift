@@ -418,6 +418,155 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         )
     }
 
+    func testBeatOrderMutationPlannerMovesOneStepAndPreservesSceneMembership() throws {
+        let outline = beatOrderOutline()
+
+        let movedDown = try XCTUnwrap(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedDown.beats.map(\.id), ["beat-a", "beat-c", "beat-b"])
+        XCTAssertEqual(movedDown.beats.map(\.order), [0, 1, 2])
+        XCTAssertEqual(movedDown.beats[2].label, "Beat B")
+        XCTAssertEqual(movedDown.beats[2].summary, "B summary")
+        XCTAssertEqual(movedDown.beats[2].sceneId, "scene-order")
+        XCTAssertEqual(movedDown.beats[2].actId, "act-order")
+        XCTAssertEqual(movedDown.beats[2].status, "drafted")
+        XCTAssertEqual(movedDown.beats[2].createdAt, 102)
+        XCTAssertEqual(movedDown.beats[2].updatedAt, 202)
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-order" })).beatIds,
+            ["beat-a", "beat-c", "beat-b", "beat-b", "unknown-1", "unknown-2"]
+        )
+        let emptyScene = try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-empty" }))
+        XCTAssertEqual(emptyScene.beatIds, [])
+        XCTAssertEqual(emptyScene.title, "Empty scene")
+        XCTAssertEqual(emptyScene.updatedAt, 402)
+
+        let movedUp = try XCTUnwrap(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedUp.beats.map(\.id), ["beat-b", "beat-a", "beat-c"])
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-a",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-c",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "missing",
+                to: .end,
+                in: outline
+            )
+        )
+    }
+
+    func testBeatOrderMutationPlannerHandlesBoundariesDragAndStrictRestore() throws {
+        let outline = beatOrderOutline()
+
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-c",
+                    to: .beginning,
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-c", "beat-a", "beat-b"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-a",
+                    to: .end,
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-b", "beat-c", "beat-a"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-c",
+                    to: .before("beat-a"),
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-c", "beat-a", "beat-b"]
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .before("beat-b"),
+                in: outline
+            )
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-a",
+                    to: .before("missing-target"),
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-b", "beat-c", "beat-a"]
+        )
+
+        let restored = try XCTUnwrap(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: [" beat-b ", "beat-c", " beat-a"],
+                in: outline
+            )
+        )
+        XCTAssertEqual(restored.beats.map(\.id), ["beat-b", "beat-c", "beat-a"])
+        XCTAssertEqual(restored.beats.map(\.order), [0, 1, 2])
+
+        let repairedStaleOrders = try XCTUnwrap(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-c", "beat-a", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertEqual(repairedStaleOrders.beats.map(\.id), ["beat-c", "beat-a", "beat-b"])
+        XCTAssertEqual(repairedStaleOrders.beats.map(\.order), [0, 1, 2])
+
+        XCTAssertNil(BeatOrderMutationPlanner.restoring(orderedIDs: [], in: outline))
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b", "unknown"],
+                in: outline
+            )
+        )
+    }
+
     func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
         let now = Date().timeIntervalSince1970 * 1000
         let outline = BackendScreenplayOutline(
@@ -1167,6 +1316,89 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
                     status: "drafted",
                     createdAt: 111,
                     updatedAt: 211
+                )
+            ]
+        )
+    }
+
+    private func beatOrderOutline() -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 600,
+            actCount: 1,
+            sceneCount: 2,
+            beatCount: 3,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-order",
+                    title: "Act Order",
+                    summary: nil,
+                    order: 0,
+                    sceneIds: ["scene-order", "scene-empty"],
+                    createdAt: 100,
+                    updatedAt: 200
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-order",
+                    slugline: "INT. EDIT ROOM - NIGHT",
+                    title: "Edit room",
+                    objective: "Put the turns in sequence.",
+                    summary: "The cut finds its shape.",
+                    actId: "act-order",
+                    order: 0,
+                    status: "drafted",
+                    beatIds: ["unknown-1", "beat-c", "beat-a", "unknown-2", "beat-b", "beat-b"],
+                    createdAt: 301,
+                    updatedAt: 401
+                ),
+                BackendScreenplayScene(
+                    id: "scene-empty",
+                    slugline: nil,
+                    title: "Empty scene",
+                    objective: nil,
+                    summary: nil,
+                    actId: "act-order",
+                    order: 1,
+                    status: nil,
+                    beatIds: nil,
+                    createdAt: 302,
+                    updatedAt: 402
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-c",
+                    label: "Beat C",
+                    summary: "C summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 2,
+                    status: "open",
+                    createdAt: 103,
+                    updatedAt: 203
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-a",
+                    label: "Beat A",
+                    summary: "A summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 0,
+                    status: "open",
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-b",
+                    label: "Beat B",
+                    summary: "B summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 1,
+                    status: "drafted",
+                    createdAt: 102,
+                    updatedAt: 202
                 )
             ]
         )

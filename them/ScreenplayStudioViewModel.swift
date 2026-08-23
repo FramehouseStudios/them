@@ -415,6 +415,132 @@ enum BeatQuickCaptureMutationPlanner {
     }
 }
 
+enum BeatOrderDestination {
+    case oneStep(InspectorReorderDirection)
+    case beginning
+    case end
+    case before(String)
+}
+
+struct BeatOrderMutation {
+    let beats: [BackendScreenplayBeat]
+    let scenes: [BackendScreenplayScene]
+}
+
+enum BeatOrderMutationPlanner {
+    static func moving(
+        beatID: String,
+        to destination: BeatOrderDestination,
+        in outline: BackendScreenplayOutline
+    ) -> BeatOrderMutation? {
+        var beats = sortedBeats(outline.beats)
+        guard let sourceIndex = beats.firstIndex(where: { $0.id == beatID }) else { return nil }
+
+        switch destination {
+        case .oneStep(let direction):
+            let destinationIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
+            guard beats.indices.contains(destinationIndex) else { return nil }
+            beats.swapAt(sourceIndex, destinationIndex)
+        case .beginning:
+            let movingBeat = beats.remove(at: sourceIndex)
+            beats.insert(movingBeat, at: 0)
+        case .end:
+            let movingBeat = beats.remove(at: sourceIndex)
+            beats.append(movingBeat)
+        case .before(let targetBeatID):
+            guard targetBeatID != beatID else { return nil }
+            let movingBeat = beats.remove(at: sourceIndex)
+            let destinationIndex = beats.firstIndex(where: { $0.id == targetBeatID }) ?? beats.count
+            beats.insert(movingBeat, at: destinationIndex)
+        }
+        return mutation(beats: beats, scenes: outline.scenes)
+    }
+
+    static func restoring(
+        orderedIDs: [String],
+        in outline: BackendScreenplayOutline
+    ) -> BeatOrderMutation? {
+        let cleanedIDs = orderedIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !cleanedIDs.isEmpty else { return nil }
+
+        let currentBeats = outline.beats
+        let currentIDs = currentBeats.map(\.id)
+        guard Set(currentIDs) == Set(cleanedIDs),
+              currentIDs.count == cleanedIDs.count else { return nil }
+        let alreadyRestored = currentIDs == cleanedIDs && currentBeats.enumerated().allSatisfy {
+            $0.element.order == $0.offset
+        }
+        guard !alreadyRestored else { return nil }
+
+        let beatsByID = Dictionary(
+            currentBeats.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let beats = cleanedIDs.compactMap { beatsByID[$0] }
+        guard beats.count == currentBeats.count else { return nil }
+        return mutation(beats: beats, scenes: outline.scenes)
+    }
+
+    private static func sortedBeats(_ beats: [BackendScreenplayBeat]) -> [BackendScreenplayBeat] {
+        beats.sorted {
+            let lhsOrder = $0.order ?? Int.max
+            let rhsOrder = $1.order ?? Int.max
+            if lhsOrder == rhsOrder { return $0.label < $1.label }
+            return lhsOrder < rhsOrder
+        }
+    }
+
+    private static func mutation(
+        beats: [BackendScreenplayBeat],
+        scenes: [BackendScreenplayScene]
+    ) -> BeatOrderMutation {
+        let reindexedBeats = beats.enumerated().map { index, beat in
+            BackendScreenplayBeat(
+                id: beat.id,
+                label: beat.label,
+                summary: beat.summary,
+                sceneId: beat.sceneId,
+                actId: beat.actId,
+                order: index,
+                status: beat.status,
+                createdAt: beat.createdAt,
+                updatedAt: beat.updatedAt
+            )
+        }
+        let beatOrderByID = Dictionary(
+            reindexedBeats.map { ($0.id, $0.order ?? Int.max) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let reorderedScenes = scenes.map { scene in
+            let beatIDs = (scene.beatIds ?? [])
+                .enumerated()
+                .sorted { lhs, rhs in
+                    let lhsOrder = beatOrderByID[lhs.element] ?? Int.max
+                    let rhsOrder = beatOrderByID[rhs.element] ?? Int.max
+                    if lhsOrder == rhsOrder { return lhs.offset < rhs.offset }
+                    return lhsOrder < rhsOrder
+                }
+                .map(\.element)
+            return BackendScreenplayScene(
+                id: scene.id,
+                slugline: scene.slugline,
+                title: scene.title,
+                objective: scene.objective,
+                summary: scene.summary,
+                actId: scene.actId,
+                order: scene.order,
+                status: scene.status,
+                beatIds: beatIDs,
+                createdAt: scene.createdAt,
+                updatedAt: scene.updatedAt
+            )
+        }
+        return BeatOrderMutation(beats: reindexedBeats, scenes: reorderedScenes)
+    }
+}
+
 enum BeatQuickLinkTargetPlanner {
     static func makeTargets(
         pageScene: BackendScreenplayScene?,
@@ -1961,75 +2087,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func moveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) async {
-        let orderedBeats = outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == beat.id }) else { return }
-        let targetIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
-        guard orderedBeats.indices.contains(targetIndex) else { return }
-        await moveBeat(id: beat.id, before: orderedBeats[targetIndex].id)
+        guard let mutation = BeatOrderMutationPlanner.moving(
+            beatID: beat.id,
+            to: .oneStep(direction),
+            in: outline
+        ) else { return }
+        await persistBeatOrderMutation(mutation)
     }
 
     func moveBeat(id beatID: String, before targetBeatID: String?) async {
-        let orderedBeats = outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == beatID }) else { return }
+        let destination = targetBeatID.map(BeatOrderDestination.before) ?? .end
+        guard let mutation = BeatOrderMutationPlanner.moving(
+            beatID: beatID,
+            to: destination,
+            in: outline
+        ) else { return }
+        await persistBeatOrderMutation(mutation)
+    }
 
-        var reorderedBeats = orderedBeats
-        let movingBeat = reorderedBeats.remove(at: sourceIndex)
-        let destinationIndex: Int
-        if let targetBeatID,
-           let targetIndex = reorderedBeats.firstIndex(where: { $0.id == targetBeatID }) {
-            destinationIndex = targetIndex
-        } else {
-            destinationIndex = reorderedBeats.count
-        }
-        reorderedBeats.insert(movingBeat, at: min(max(0, destinationIndex), reorderedBeats.count))
-
-        let reindexedBeats = reorderedBeats.enumerated().map { index, item in
-            BackendScreenplayBeat(
-                id: item.id,
-                label: item.label,
-                summary: item.summary,
-                sceneId: item.sceneId,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let beatOrderByID = Dictionary(reindexedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
-        let updatedScenes = outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: updatedScenes)
+    private func persistBeatOrderMutation(_ mutation: BeatOrderMutation) async {
+        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: mutation.scenes)
         _ = await persistOutlineMutation(
             acts: updatedActs,
-            scenes: updatedScenes,
-            beats: reindexedBeats,
+            scenes: mutation.scenes,
+            beats: mutation.beats,
             successMessage: "Reordered beats."
         )
     }

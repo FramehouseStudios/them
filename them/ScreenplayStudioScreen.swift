@@ -7041,111 +7041,36 @@ private var projectsSidebarContent: some View {
     private func moveSelectedBeatLocally(toEnd: Bool) -> Bool {
         let currentID = selectedBeatInspectorID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !currentID.isEmpty else { return false }
-        let orderedBeats = sortedOutlineBeats
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == currentID }) else { return false }
-        var reorderedBeats = orderedBeats
-        let movingBeat = reorderedBeats.remove(at: sourceIndex)
-        reorderedBeats.insert(movingBeat, at: toEnd ? reorderedBeats.count : 0)
-        let reindexedBeats = reorderedBeats.enumerated().map { index, item in
-            BackendScreenplayBeat(
-                id: item.id,
-                label: item.label,
-                summary: item.summary,
-                sceneId: item.sceneId,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let beatOrderByID = Dictionary(reindexedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
-        let updatedScenes = vm.outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: reindexedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: reindexedBeats
-        )
+        guard let mutation = BeatOrderMutationPlanner.moving(
+            beatID: currentID,
+            to: toEnd ? .end : .beginning,
+            in: vm.outline
+        ) else { return false }
+        applyLocalBeatOrderMutation(mutation)
         draggedBeatID = nil
         beatDropTargetID = ""
         isBeatListDropTargeted = false
-        vm.refreshLiveDraftBridgeContext()
         persistInspectorWorkspaceState()
         return true
     }
 
     private func restoreBeatOrderIfNeeded(from orderedIDs: [String]) {
-        let cleanedIDs = orderedIDs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        guard !cleanedIDs.isEmpty else { return }
-        let currentBeats = vm.outline.beats
-        let currentIDs = currentBeats.map(\.id)
-        guard Set(currentIDs) == Set(cleanedIDs), currentIDs.count == cleanedIDs.count else { return }
-        guard currentIDs != cleanedIDs else { return }
+        guard let mutation = BeatOrderMutationPlanner.restoring(
+            orderedIDs: orderedIDs,
+            in: vm.outline
+        ) else { return }
+        applyLocalBeatOrderMutation(mutation)
+    }
 
-        let beatsByID = Dictionary(currentBeats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let reorderedBeats = cleanedIDs.enumerated().compactMap { index, beatID -> BackendScreenplayBeat? in
-            guard let beat = beatsByID[beatID] else { return nil }
-            return BackendScreenplayBeat(
-                id: beat.id,
-                label: beat.label,
-                summary: beat.summary,
-                sceneId: beat.sceneId,
-                actId: beat.actId,
-                order: index,
-                status: beat.status,
-                createdAt: beat.createdAt,
-                updatedAt: beat.updatedAt
-            )
-        }
-        guard reorderedBeats.count == currentBeats.count else { return }
-        let beatOrderByID = Dictionary(reorderedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
-        let updatedScenes = vm.outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
+    private func applyLocalBeatOrderMutation(_ mutation: BeatOrderMutation) {
         vm.outline = BackendScreenplayOutline(
             updatedAt: Date().timeIntervalSince1970 * 1000,
             actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: reorderedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: reorderedBeats
+            sceneCount: mutation.scenes.count,
+            beatCount: mutation.beats.count,
+            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: mutation.scenes),
+            scenes: mutation.scenes,
+            beats: mutation.beats
         )
         vm.refreshLiveDraftBridgeContext()
     }
