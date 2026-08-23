@@ -6287,40 +6287,17 @@ private var projectsSidebarContent: some View {
                 : "Use page context to load the composer without losing your draft.",
             hasQuickLinks: !beatQuickLinkTargets.isEmpty,
             quickCapture: {
-                if hasQuickCapture {
-                    HStack(spacing: 8) {
-                        if selectionQuickCaptureSeed != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickCreateBeatImmediately ? "Make from Selection" : "Use Selection",
-                                subtitle: "Pull the current highlighted block into a beat.",
-                                systemImage: "text.badge.plus",
-                                shortcutHint: "⌥⌘B"
-                            ) {
-                                handleSelectionQuickBeatCapture()
-                            }
-                        }
-                        if currentSceneQuickCaptureSeed != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickCreateBeatImmediately ? "Make from Scene" : "Use Scene",
-                                subtitle: "Turn the active page scene into the next beat shell.",
-                                systemImage: "sparkles.rectangle.stack"
-                            ) {
-                                handleCurrentSceneQuickBeatCapture()
-                            }
-                        }
-                        if selectionQuickCaptureSeed != nil,
-                           selectedBeatForQuickUpdate != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickUpdateSelectedBeatImmediately ? "Update Selected Beat" : "Use for Selected Beat",
-                                subtitle: selectedBeatQuickUpdateSubtitle,
-                                systemImage: "arrow.triangle.merge",
-                                shortcutHint: "⌥⌘U"
-                            ) {
-                                handleSelectedBeatQuickUpdate()
-                            }
-                        }
-                    }
-                }
+                ScreenplayStudioBeatQuickCaptureRow(
+                    showsSelectionCapture: selectionQuickCaptureSeed != nil,
+                    showsSceneCapture: currentSceneQuickCaptureSeed != nil,
+                    showsSelectedBeatUpdate: selectionQuickCaptureSeed != nil && selectedBeatForQuickUpdate != nil,
+                    createsImmediately: canQuickCreateBeatImmediately,
+                    updatesSelectedBeatImmediately: canQuickUpdateSelectedBeatImmediately,
+                    selectedBeatUpdateSubtitle: selectedBeatQuickUpdateSubtitle,
+                    onCaptureSelection: handleSelectionQuickBeatCapture,
+                    onCaptureScene: handleCurrentSceneQuickBeatCapture,
+                    onUpdateSelectedBeat: handleSelectedBeatQuickUpdate
+                )
             },
             quickLinks: {
                 if !beatQuickLinkTargets.isEmpty {
@@ -6733,60 +6710,6 @@ private var projectsSidebarContent: some View {
             infoText: "Created a beat from \(sceneLabel).",
             provenance: .currentScene
         )
-    }
-
-    private func beatQuickCaptureButton(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        shortcutHint: String? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.white.opacity(0.84))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.88))
-                        if let shortcutHint, !shortcutHint.isEmpty {
-                            Text(shortcutHint)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.herText.opacity(0.46))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(Color.white.opacity(0.74)))
-                        }
-                    }
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.58))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.80))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private func handleSelectionQuickBeatCapture() {

@@ -927,6 +927,103 @@ private func metaChip(title: String, value: String) -> some View {
     .background(Capsule().fill(Color.white.opacity(0.72)))
 }
 
+struct ScreenplayStudioBeatQuickCaptureRow: View {
+    let showsSelectionCapture: Bool
+    let showsSceneCapture: Bool
+    let showsSelectedBeatUpdate: Bool
+    let createsImmediately: Bool
+    let updatesSelectedBeatImmediately: Bool
+    let selectedBeatUpdateSubtitle: String
+    let onCaptureSelection: () -> Void
+    let onCaptureScene: () -> Void
+    let onUpdateSelectedBeat: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if showsSelectionCapture {
+                quickCaptureButton(
+                    title: createsImmediately ? "Make from Selection" : "Use Selection",
+                    subtitle: "Pull the current highlighted block into a beat.",
+                    systemImage: "text.badge.plus",
+                    shortcutHint: "⌥⌘B",
+                    action: onCaptureSelection
+                )
+            }
+            if showsSceneCapture {
+                quickCaptureButton(
+                    title: createsImmediately ? "Make from Scene" : "Use Scene",
+                    subtitle: "Turn the active page scene into the next beat shell.",
+                    systemImage: "sparkles.rectangle.stack",
+                    action: onCaptureScene
+                )
+            }
+            if showsSelectedBeatUpdate {
+                quickCaptureButton(
+                    title: updatesSelectedBeatImmediately ? "Update Selected Beat" : "Use for Selected Beat",
+                    subtitle: selectedBeatUpdateSubtitle,
+                    systemImage: "arrow.triangle.merge",
+                    shortcutHint: "⌥⌘U",
+                    action: onUpdateSelectedBeat
+                )
+            }
+        }
+    }
+
+    private func quickCaptureButton(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        shortcutHint: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.84))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.88))
+                        if let shortcutHint, !shortcutHint.isEmpty {
+                            Text(shortcutHint)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Color.herText.opacity(0.46))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.white.opacity(0.74)))
+                        }
+                    }
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.58))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.80))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ScreenplayStudioBeatQuickLinks: View {
     let targets: [BeatQuickLinkTarget]
     let selectedSceneID: String?
