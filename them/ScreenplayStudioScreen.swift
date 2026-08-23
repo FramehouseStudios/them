@@ -4153,145 +4153,43 @@ Detail:
     }
 
     private func featureWorkflowCompassCard(_ snapshot: ScreenplayFeatureWorkflowSnapshot) -> some View {
-        intelligenceCollectionCard(title: "Feature Compass", icon: "map") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    directionOneMiniStat("Act", value: snapshot.currentActTitle)
-                    directionOneMiniStat("Progress", value: snapshot.actProgressLabel)
-                }
-
-                HStack(spacing: 8) {
-                    directionOneMiniStat("Draft", value: snapshot.draftProgressLabel)
-                    directionOneMiniStat("Batches", value: "\(acceptedStudioPageWriteExchanges.count)")
-                }
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(snapshot.structuralObligation)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !snapshot.nextSceneDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(snapshot.nextSceneDetail)
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(10)
-                .background(Color.white.opacity(0.22))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    inspectorSubsectionLabel("Next three turns")
-                    ForEach(snapshot.nextMoves) { move in
-                        featureWorkflowMoveRow(move)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    inspectorSubsectionLabel("Accepted page batch")
-                    Text(snapshot.acceptedBatchDetail)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 8) {
-                        Button {
-                            submitFeatureWorkflowPageWrite(snapshot.pageWritePrompt, displayText: "Continue feature: \(snapshot.nextSceneTitle)")
-                        } label: {
-                            Label("Write Next Pages", systemImage: "doc.badge.plus")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-
-                        Button {
-                            openStudioCommandBar(
-                                prefill: snapshot.planningPrompt,
-                                routingMode: .voicePin,
-                                intent: .advice
-                            )
-                            vm.infoText = "Loaded a next-three-turns plan for Clementine."
-                        } label: {
-                            Label("Plan", systemImage: "list.bullet")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button {
-                            openStudioCommandBar(
-                                prefill: snapshot.sceneDoctorPrompt,
-                                routingMode: .voicePin,
-                                intent: .advice
-                            )
-                            vm.infoText = "Loaded a feature scene-doctor brief."
-                        } label: {
-                            Label("Doctor", systemImage: "cross.case")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-
-                        if snapshot.hasAcceptedBatch {
-                            Button {
-                                revealFeatureWorkflowAcceptedBatch(snapshot)
-                            } label: {
-                                Label("Review Batch", systemImage: "text.magnifyingglass")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-
-                        if let committedWrite = liveDraftBridge.lastCommittedWrite {
-                            Button {
-                                reviseLastCommittedWrite(committedWrite, preset: .moreVisual)
-                            } label: {
-                                Label("Polish Batch", systemImage: "sparkles")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func featureWorkflowMoveRow(_ move: ScreenplayFeatureWorkflowMove) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(move.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(move.detail)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.56))
-                    .lineLimit(3)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
+        ScreenplayStudioFeatureCompassCard(
+            snapshot: snapshot,
+            acceptedPageBatchCount: acceptedStudioPageWriteExchanges.count,
+            isWriteDisabled: isSubmittingStudioPrompt || isSubmittingPrompt,
+            canPolishLastBatch: liveDraftBridge.lastCommittedWrite != nil,
+            onWriteNextPages: {
+                submitFeatureWorkflowPageWrite(
+                    snapshot.pageWritePrompt,
+                    displayText: "Continue feature: \(snapshot.nextSceneTitle)"
+                )
+            },
+            onPlan: {
+                openStudioCommandBar(
+                    prefill: snapshot.planningPrompt,
+                    routingMode: .voicePin,
+                    intent: .advice
+                )
+                vm.infoText = "Loaded a next-three-turns plan for Clementine."
+            },
+            onDoctor: {
+                openStudioCommandBar(
+                    prefill: snapshot.sceneDoctorPrompt,
+                    routingMode: .voicePin,
+                    intent: .advice
+                )
+                vm.infoText = "Loaded a feature scene-doctor brief."
+            },
+            onReviewBatch: {
+                revealFeatureWorkflowAcceptedBatch(snapshot)
+            },
+            onPolishLastBatch: {
+                guard let committedWrite = liveDraftBridge.lastCommittedWrite else { return }
+                reviseLastCommittedWrite(committedWrite, preset: .moreVisual)
+            },
+            onWriteMove: { move in
                 submitFeatureWorkflowPageWrite(move.prompt, displayText: move.shortTitle)
-            } label: {
-                Label("Write", systemImage: "square.and.pencil")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.18))
         )
     }
 
