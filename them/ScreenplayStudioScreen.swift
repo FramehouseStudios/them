@@ -6324,21 +6324,28 @@ private var projectsSidebarContent: some View {
             },
             quickLinks: {
                 if !beatQuickLinkTargets.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(beatQuickLinkTargets) { target in
-                                beatQuickLinkButton(target)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
+                    ScreenplayStudioBeatQuickLinks(
+                        targets: beatQuickLinkTargets,
+                        selectedSceneID: selectedBeatScene?.id,
+                        selectedActID: selectedBeatAct?.id,
+                        onSelect: applyBeatQuickLinkTarget
+                    )
                 }
             },
             scenePicker: {
-                beatScenePickerField
+                ScreenplayStudioBeatScenePicker(
+                    selectedScene: selectedBeatScene,
+                    currentScene: currentSceneInspectorSelection,
+                    availableScenes: availableBeatSceneOptions,
+                    onSelect: selectBeatScene
+                )
             },
             actPicker: {
-                beatActPickerField
+                ScreenplayStudioBeatActPicker(
+                    selectedAct: selectedBeatAct,
+                    acts: sortedOutlineActs,
+                    onSelect: selectBeatAct
+                )
             },
             onCancel: {
                 vm.cancelEditingBeat()
@@ -6504,72 +6511,6 @@ private var projectsSidebarContent: some View {
         return scenes.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
 
-    private var beatScenePickerField: some View {
-        Menu {
-            Button("No scene link") {
-                selectBeatScene(nil)
-            }
-            if let currentScene = currentSceneInspectorSelection {
-                Divider()
-                Button("Current scene: \(currentScene.slugline?.isEmpty == false ? currentScene.slugline! : currentScene.title)") {
-                    selectBeatScene(currentScene)
-                }
-            }
-            if !availableBeatSceneOptions.isEmpty {
-                Divider()
-                ForEach(availableBeatSceneOptions, id: \.id) { scene in
-                    Button {
-                        selectBeatScene(scene)
-                    } label: {
-                        HStack {
-                            Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                            if selectedBeatScene?.id == scene.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            inspectorPickerButton(
-                title: selectedBeatScene?.slugline?.isEmpty == false ? selectedBeatScene!.slugline! : (selectedBeatScene?.title ?? "Choose scene"),
-                subtitle: selectedBeatScene == nil ? "Keep it loose or connect it to the current scene." : "Linked to this scene."
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var beatActPickerField: some View {
-        Menu {
-            Button("No act link") {
-                selectBeatAct(nil)
-            }
-            if !sortedOutlineActs.isEmpty {
-                Divider()
-                ForEach(sortedOutlineActs, id: \.id) { act in
-                    Button {
-                        selectBeatAct(act)
-                    } label: {
-                        HStack {
-                            Text(act.title)
-                            if selectedBeatAct?.id == act.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            inspectorPickerButton(
-                title: selectedBeatAct?.title ?? "Choose act",
-                subtitle: selectedBeatAct == nil ? "Optional story-placement cue." : "Acts help sort beats before the page settles."
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
     private var activePageOutlineSceneSelection: BackendScreenplayScene? {
         guard let active = activeDraftSceneNavigatorItem else { return nil }
         if let exact = vm.outline.scenes.first(where: { draftSceneNavigatorItem(for: $0)?.id == active.id }) {
@@ -6665,35 +6606,6 @@ private var projectsSidebarContent: some View {
         }
 
         return targets
-    }
-
-    private func beatQuickLinkButton(_ target: BeatQuickLinkTarget) -> some View {
-        let isActive = selectedBeatScene?.id == target.sceneID && selectedBeatAct?.id == target.actID
-            || (target.sceneID.isEmpty && target.actID.isEmpty && selectedBeatScene == nil && selectedBeatAct == nil)
-        return Button {
-            applyBeatQuickLinkTarget(target)
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(target.title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.78))
-                Text(target.subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.64 : 0.50))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.90) : Color.white.opacity(0.76))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isActive ? Color.herStudioActiveStroke.opacity(0.70) : Color.herShellStroke.opacity(0.18), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private func applyBeatQuickLinkTarget(_ target: BeatQuickLinkTarget) {
@@ -7263,35 +7175,6 @@ private var projectsSidebarContent: some View {
             }
         }
         return currentSceneInspectorSelection
-    }
-
-    private func inspectorPickerButton(title: String, subtitle: String) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.90))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.50))
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
     }
 
     private func beginEditingBeatFromInspector(_ beat: BackendScreenplayBeat) {

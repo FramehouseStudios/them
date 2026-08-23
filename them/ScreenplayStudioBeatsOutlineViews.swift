@@ -927,6 +927,172 @@ private func metaChip(title: String, value: String) -> some View {
     .background(Capsule().fill(Color.white.opacity(0.72)))
 }
 
+struct ScreenplayStudioBeatQuickLinks: View {
+    let targets: [BeatQuickLinkTarget]
+    let selectedSceneID: String?
+    let selectedActID: String?
+    let onSelect: (BeatQuickLinkTarget) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(targets) { target in
+                    quickLinkButton(target)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func quickLinkButton(_ target: BeatQuickLinkTarget) -> some View {
+        let isActive = selectedSceneID == target.sceneID && selectedActID == target.actID
+            || (target.sceneID.isEmpty && target.actID.isEmpty && selectedSceneID == nil && selectedActID == nil)
+        return Button {
+            onSelect(target)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(target.title)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.78))
+                Text(target.subtitle)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(isActive ? 0.64 : 0.50))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.90) : Color.white.opacity(0.76))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(
+                        isActive ? Color.herStudioActiveStroke.opacity(0.70) : Color.herShellStroke.opacity(0.18),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ScreenplayStudioBeatScenePicker: View {
+    let selectedScene: BackendScreenplayScene?
+    let currentScene: BackendScreenplayScene?
+    let availableScenes: [BackendScreenplayScene]
+    let onSelect: (BackendScreenplayScene?) -> Void
+
+    var body: some View {
+        Menu {
+            Button("No scene link") {
+                onSelect(nil)
+            }
+            if let currentScene {
+                Divider()
+                Button("Current scene: \(title(for: currentScene))") {
+                    onSelect(currentScene)
+                }
+            }
+            if !availableScenes.isEmpty {
+                Divider()
+                ForEach(availableScenes, id: \.id) { scene in
+                    Button {
+                        onSelect(scene)
+                    } label: {
+                        HStack {
+                            Text(title(for: scene))
+                            if selectedScene?.id == scene.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            composerPickerButton(
+                title: selectedScene.map { title(for: $0) } ?? "Choose scene",
+                subtitle: selectedScene == nil
+                    ? "Keep it loose or connect it to the current scene."
+                    : "Linked to this scene."
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func title(for scene: BackendScreenplayScene) -> String {
+        scene.slugline?.isEmpty == false ? scene.slugline! : scene.title
+    }
+}
+
+struct ScreenplayStudioBeatActPicker: View {
+    let selectedAct: BackendScreenplayAct?
+    let acts: [BackendScreenplayAct]
+    let onSelect: (BackendScreenplayAct?) -> Void
+
+    var body: some View {
+        Menu {
+            Button("No act link") {
+                onSelect(nil)
+            }
+            if !acts.isEmpty {
+                Divider()
+                ForEach(acts, id: \.id) { act in
+                    Button {
+                        onSelect(act)
+                    } label: {
+                        HStack {
+                            Text(act.title)
+                            if selectedAct?.id == act.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            composerPickerButton(
+                title: selectedAct?.title ?? "Choose act",
+                subtitle: selectedAct == nil
+                    ? "Optional story-placement cue."
+                    : "Acts help sort beats before the page settles."
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private func composerPickerButton(title: String, subtitle: String) -> some View {
+    HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.90))
+                .lineLimit(1)
+            Text(subtitle)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.50))
+                .lineLimit(2)
+        }
+        Spacer(minLength: 8)
+        Image(systemName: "chevron.up.chevron.down")
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.42))
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 12)
+    .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color.white.opacity(0.94))
+    )
+    .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
+    )
+}
+
 struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, ScenePicker: View, ActPicker: View>: View {
     @Binding var label: String
     @Binding var summary: String
