@@ -415,7 +415,7 @@ enum BeatQuickCaptureMutationPlanner {
     }
 }
 
-enum BeatOrderDestination {
+enum InspectorOrderDestination {
     case oneStep(InspectorReorderDirection)
     case beginning
     case end
@@ -430,10 +430,10 @@ struct BeatOrderMutation {
 enum BeatOrderMutationPlanner {
     static func moving(
         beatID: String,
-        to destination: BeatOrderDestination,
+        to destination: InspectorOrderDestination,
         in outline: BackendScreenplayOutline
     ) -> BeatOrderMutation? {
-        var beats = sortedBeats(outline.beats)
+        var beats = InspectorOrderSupport.sortedBeats(outline.beats)
         guard let sourceIndex = beats.firstIndex(where: { $0.id == beatID }) else { return nil }
 
         switch destination {
@@ -483,15 +483,6 @@ enum BeatOrderMutationPlanner {
         return mutation(beats: beats, scenes: outline.scenes)
     }
 
-    private static func sortedBeats(_ beats: [BackendScreenplayBeat]) -> [BackendScreenplayBeat] {
-        beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
-    }
-
     private static func mutation(
         beats: [BackendScreenplayBeat],
         scenes: [BackendScreenplayScene]
@@ -538,6 +529,273 @@ enum BeatOrderMutationPlanner {
             )
         }
         return BeatOrderMutation(beats: reindexedBeats, scenes: reorderedScenes)
+    }
+}
+
+struct ActOrderMutation {
+    let acts: [BackendScreenplayAct]
+}
+
+enum ActOrderMutationPlanner {
+    static func moving(
+        actID: String,
+        to destination: InspectorOrderDestination,
+        in outline: BackendScreenplayOutline
+    ) -> ActOrderMutation? {
+        var acts = InspectorOrderSupport.sortedActs(outline.acts)
+        guard let sourceIndex = acts.firstIndex(where: { $0.id == actID }) else { return nil }
+
+        switch destination {
+        case .oneStep(let direction):
+            let destinationIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
+            guard acts.indices.contains(destinationIndex) else { return nil }
+            acts.swapAt(sourceIndex, destinationIndex)
+        case .beginning:
+            let movingAct = acts.remove(at: sourceIndex)
+            acts.insert(movingAct, at: 0)
+        case .end:
+            let movingAct = acts.remove(at: sourceIndex)
+            acts.append(movingAct)
+        case .before(let targetActID):
+            guard targetActID != actID,
+                  let targetIndex = acts.firstIndex(where: { $0.id == targetActID }) else {
+                return nil
+            }
+            let movingAct = acts.remove(at: sourceIndex)
+            let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+            acts.insert(movingAct, at: adjustedTargetIndex)
+        }
+
+        let reindexedActs = acts.enumerated().map { index, act in
+            BackendScreenplayAct(
+                id: act.id,
+                title: act.title,
+                summary: act.summary,
+                order: index,
+                sceneIds: InspectorOrderSupport.sceneIDs(for: act.id, scenes: outline.scenes),
+                createdAt: act.createdAt,
+                updatedAt: act.updatedAt
+            )
+        }
+        return ActOrderMutation(acts: reindexedActs)
+    }
+}
+
+enum SceneOrderDestination {
+    case oneStep(InspectorReorderDirection)
+    case before(sceneID: String, targetActID: String?)
+    case end(targetActID: String?)
+}
+
+struct SceneOrderMutation {
+    let acts: [BackendScreenplayAct]
+    let scenes: [BackendScreenplayScene]
+    let beats: [BackendScreenplayBeat]
+}
+
+enum SceneOrderMutationPlanner {
+    static func moving(
+        sceneID: String,
+        to destination: SceneOrderDestination,
+        in outline: BackendScreenplayOutline
+    ) -> SceneOrderMutation? {
+        var scenes = InspectorOrderSupport.sortedScenes(outline.scenes)
+        guard let sourceIndex = scenes.firstIndex(where: { $0.id == sceneID }) else { return nil }
+        let sourceScene = scenes[sourceIndex]
+        let resolvedTargetActID: String?
+
+        switch destination {
+        case .oneStep(let direction):
+            resolvedTargetActID = InspectorOrderSupport.normalizedID(sourceScene.actId)
+            let groupIndices = scenes.indices.filter {
+                InspectorOrderSupport.normalizedID(scenes[$0].actId) == resolvedTargetActID
+            }
+            guard let sourceGroupIndex = groupIndices.firstIndex(of: sourceIndex) else { return nil }
+            let destinationGroupIndex = direction == .up ? sourceGroupIndex - 1 : sourceGroupIndex + 1
+            guard groupIndices.indices.contains(destinationGroupIndex) else { return nil }
+            scenes[sourceIndex] = copiedScene(sourceScene, actID: resolvedTargetActID)
+            scenes.swapAt(sourceIndex, groupIndices[destinationGroupIndex])
+
+        case .before(let targetSceneID, let targetActID):
+            guard targetSceneID != sceneID,
+                  let originalTargetIndex = scenes.firstIndex(where: { $0.id == targetSceneID }) else {
+                return nil
+            }
+            let targetSceneActID = InspectorOrderSupport.normalizedID(scenes[originalTargetIndex].actId)
+            let requestedTargetActID = InspectorOrderSupport.normalizedID(targetActID)
+            guard requestedTargetActID == nil || requestedTargetActID == targetSceneActID,
+                  InspectorOrderSupport.containsAct(targetSceneActID, in: outline.acts) else {
+                return nil
+            }
+            resolvedTargetActID = targetSceneActID
+            let movingScene = scenes.remove(at: sourceIndex)
+            guard let targetIndex = scenes.firstIndex(where: { $0.id == targetSceneID }) else { return nil }
+            scenes.insert(copiedScene(movingScene, actID: resolvedTargetActID), at: targetIndex)
+
+        case .end(let targetActID):
+            resolvedTargetActID = InspectorOrderSupport.normalizedID(targetActID)
+            guard InspectorOrderSupport.containsAct(resolvedTargetActID, in: outline.acts) else {
+                return nil
+            }
+            let movingScene = scenes.remove(at: sourceIndex)
+            let destinationIndex = insertionIndex(
+                forActID: resolvedTargetActID,
+                in: scenes,
+                acts: outline.acts
+            )
+            scenes.insert(copiedScene(movingScene, actID: resolvedTargetActID), at: destinationIndex)
+        }
+
+        let reindexedScenes = scenes.enumerated().map { index, scene in
+            BackendScreenplayScene(
+                id: scene.id,
+                slugline: scene.slugline,
+                title: scene.title,
+                objective: scene.objective,
+                summary: scene.summary,
+                actId: scene.actId,
+                order: index,
+                status: scene.status,
+                beatIds: scene.beatIds,
+                createdAt: scene.createdAt,
+                updatedAt: scene.updatedAt
+            )
+        }
+        let updatedBeats = outline.beats.map { beat in
+            guard beat.sceneId == sceneID else { return beat }
+            return BackendScreenplayBeat(
+                id: beat.id,
+                label: beat.label,
+                summary: beat.summary,
+                sceneId: beat.sceneId,
+                actId: resolvedTargetActID,
+                order: beat.order,
+                status: beat.status,
+                createdAt: beat.createdAt,
+                updatedAt: beat.updatedAt
+            )
+        }
+        return SceneOrderMutation(
+            acts: InspectorOrderSupport.rebuiltActs(outline.acts, scenes: reindexedScenes),
+            scenes: reindexedScenes,
+            beats: updatedBeats
+        )
+    }
+
+    private static func copiedScene(
+        _ scene: BackendScreenplayScene,
+        actID: String?
+    ) -> BackendScreenplayScene {
+        BackendScreenplayScene(
+            id: scene.id,
+            slugline: scene.slugline,
+            title: scene.title,
+            objective: scene.objective,
+            summary: scene.summary,
+            actId: actID,
+            order: scene.order,
+            status: scene.status,
+            beatIds: scene.beatIds,
+            createdAt: scene.createdAt,
+            updatedAt: scene.updatedAt
+        )
+    }
+
+    private static func insertionIndex(
+        forActID actID: String?,
+        in scenes: [BackendScreenplayScene],
+        acts: [BackendScreenplayAct]
+    ) -> Int {
+        if let actID {
+            if let lastSceneIndex = scenes.lastIndex(where: {
+                InspectorOrderSupport.normalizedID($0.actId) == actID
+            }) {
+                return lastSceneIndex + 1
+            }
+            let orderedActs = InspectorOrderSupport.sortedActs(acts)
+            let targetActIndex = orderedActs.firstIndex(where: { $0.id == actID }) ?? orderedActs.count
+            for (index, scene) in scenes.enumerated() {
+                guard let sceneActID = InspectorOrderSupport.normalizedID(scene.actId) else { continue }
+                let sceneActIndex = orderedActs.firstIndex(where: { $0.id == sceneActID }) ?? orderedActs.count
+                if sceneActIndex > targetActIndex {
+                    return index
+                }
+            }
+            return scenes.count
+        }
+
+        if let lastLooseIndex = scenes.lastIndex(where: {
+            InspectorOrderSupport.normalizedID($0.actId) == nil
+        }) {
+            return lastLooseIndex + 1
+        }
+        return scenes.count
+    }
+}
+
+enum InspectorOrderSupport {
+    static func sortedActs(_ acts: [BackendScreenplayAct]) -> [BackendScreenplayAct] {
+        acts.sorted {
+            let lhsOrder = $0.order ?? Int.max
+            let rhsOrder = $1.order ?? Int.max
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+            if $0.title != $1.title { return $0.title < $1.title }
+            return $0.id < $1.id
+        }
+    }
+
+    static func sortedScenes(_ scenes: [BackendScreenplayScene]) -> [BackendScreenplayScene] {
+        scenes.sorted {
+            let lhsOrder = $0.order ?? Int.max
+            let rhsOrder = $1.order ?? Int.max
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+            if $0.title != $1.title { return $0.title < $1.title }
+            return $0.id < $1.id
+        }
+    }
+
+    static func sortedBeats(_ beats: [BackendScreenplayBeat]) -> [BackendScreenplayBeat] {
+        beats.sorted {
+            let lhsOrder = $0.order ?? Int.max
+            let rhsOrder = $1.order ?? Int.max
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+            if $0.label != $1.label { return $0.label < $1.label }
+            return $0.id < $1.id
+        }
+    }
+
+    static func sceneIDs(
+        for actID: String,
+        scenes: [BackendScreenplayScene]
+    ) -> [String] {
+        sortedScenes(scenes.filter { normalizedID($0.actId) == actID }).map(\.id)
+    }
+
+    static func rebuiltActs(
+        _ acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene]
+    ) -> [BackendScreenplayAct] {
+        sortedActs(acts).enumerated().map { index, act in
+            BackendScreenplayAct(
+                id: act.id,
+                title: act.title,
+                summary: act.summary,
+                order: index,
+                sceneIds: sceneIDs(for: act.id, scenes: scenes),
+                createdAt: act.createdAt,
+                updatedAt: act.updatedAt
+            )
+        }
+    }
+
+    static func normalizedID(_ value: String?) -> String? {
+        let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    static func containsAct(_ actID: String?, in acts: [BackendScreenplayAct]) -> Bool {
+        guard let actID else { return true }
+        return acts.contains { normalizedID($0.id) == actID }
     }
 }
 
@@ -2068,24 +2326,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func rebuiltActsForOutline(from acts: [BackendScreenplayAct], scenes: [BackendScreenplayScene]) -> [BackendScreenplayAct] {
-        acts.enumerated().map { index, act in
-            let sceneIDs = scenes
-                .filter { ($0.actId ?? "") == act.id }
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                .map(\.id)
-            return BackendScreenplayAct(
-                id: act.id,
-                title: act.title,
-                summary: act.summary,
-                order: index,
-                sceneIds: sceneIDs,
-                createdAt: act.createdAt,
-                updatedAt: act.updatedAt
-            )
-        }
-    }
-
     func moveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) async {
         guard let mutation = BeatOrderMutationPlanner.moving(
             beatID: beat.id,
@@ -2096,7 +2336,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func moveBeat(id beatID: String, before targetBeatID: String?) async {
-        let destination = targetBeatID.map(BeatOrderDestination.before) ?? .end
+        let destination = targetBeatID.map(InspectorOrderDestination.before) ?? .end
         guard let mutation = BeatOrderMutationPlanner.moving(
             beatID: beatID,
             to: destination,
@@ -2106,7 +2346,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func persistBeatOrderMutation(_ mutation: BeatOrderMutation) async {
-        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: mutation.scenes)
+        let updatedActs = InspectorOrderSupport.rebuiltActs(outline.acts, scenes: mutation.scenes)
         _ = await persistOutlineMutation(
             acts: updatedActs,
             scenes: mutation.scenes,
@@ -2116,54 +2356,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func moveAct(_ act: BackendScreenplayAct, direction: InspectorReorderDirection) async {
-        let orderedActs = outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedActs.firstIndex(where: { $0.id == act.id }) else { return }
-        let targetIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
-        guard orderedActs.indices.contains(targetIndex) else { return }
-        await moveAct(id: act.id, before: orderedActs[targetIndex].id)
+        guard let mutation = ActOrderMutationPlanner.moving(
+            actID: act.id,
+            to: .oneStep(direction),
+            in: outline
+        ) else { return }
+        await persistActOrderMutation(mutation)
     }
 
     func moveAct(id actID: String, before targetActID: String?) async {
-        let orderedActs = outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedActs.firstIndex(where: { $0.id == actID }) else { return }
+        let destination = targetActID.map(InspectorOrderDestination.before) ?? .end
+        guard let mutation = ActOrderMutationPlanner.moving(
+            actID: actID,
+            to: destination,
+            in: outline
+        ) else { return }
+        await persistActOrderMutation(mutation)
+    }
 
-        var reorderedActs = orderedActs
-        let movingAct = reorderedActs.remove(at: sourceIndex)
-        let destinationIndex: Int
-        if let targetActID,
-           let targetIndex = reorderedActs.firstIndex(where: { $0.id == targetActID }) {
-            destinationIndex = targetIndex
-        } else {
-            destinationIndex = reorderedActs.count
-        }
-        reorderedActs.insert(movingAct, at: min(max(0, destinationIndex), reorderedActs.count))
-
-        let reindexedActs = reorderedActs.enumerated().map { index, item in
-            BackendScreenplayAct(
-                id: item.id,
-                title: item.title,
-                summary: item.summary,
-                order: index,
-                sceneIds: outline.scenes
-                    .filter { ($0.actId ?? "") == item.id }
-                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                    .map(\.id),
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
+    private func persistActOrderMutation(_ mutation: ActOrderMutation) async {
         _ = await persistOutlineMutation(
-            acts: reindexedActs,
+            acts: mutation.acts,
             scenes: outline.scenes,
             beats: outline.beats,
             successMessage: "Reordered outline sections."
@@ -2171,135 +2384,36 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func moveScene(_ scene: BackendScreenplayScene, direction: InspectorReorderDirection) async {
-        let orderedScenes = outline.scenes.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        let normalizedActID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupScenes = orderedScenes.filter {
-            ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedActID
-        }
-        guard let sourceGroupIndex = groupScenes.firstIndex(where: { $0.id == scene.id }) else { return }
-        let targetGroupIndex = direction == .up ? sourceGroupIndex - 1 : sourceGroupIndex + 1
-        guard groupScenes.indices.contains(targetGroupIndex) else { return }
-        await moveScene(id: scene.id, before: groupScenes[targetGroupIndex].id, targetActID: normalizedActID)
+        guard let mutation = SceneOrderMutationPlanner.moving(
+            sceneID: scene.id,
+            to: .oneStep(direction),
+            in: outline
+        ) else { return }
+        await persistSceneOrderMutation(mutation)
     }
 
     func moveScene(id sceneID: String, before targetSceneID: String?, targetActID: String?) async {
-        let orderedScenes = outline.scenes.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedScenes.firstIndex(where: { $0.id == sceneID }) else { return }
-
-        var reorderedScenes = orderedScenes
-        let movingScene = reorderedScenes.remove(at: sourceIndex)
-        let resolvedTargetActID = normalizedOrNil(targetActID ?? "")
-            ?? targetSceneID.flatMap { targetID in
-                reorderedScenes
-                    .first(where: { $0.id == targetID })?
-                    .actId
-                    .flatMap { self.normalizedOrNil($0) }
-            }
-            ?? normalizedOrNil(movingScene.actId ?? "")
-
-        let movedScene = BackendScreenplayScene(
-            id: movingScene.id,
-            slugline: movingScene.slugline,
-            title: movingScene.title,
-            objective: movingScene.objective,
-            summary: movingScene.summary,
-            actId: resolvedTargetActID,
-            order: movingScene.order,
-            status: movingScene.status,
-            beatIds: movingScene.beatIds,
-            createdAt: movingScene.createdAt,
-            updatedAt: movingScene.updatedAt
-        )
-
-        let destinationIndex: Int
-        if let targetSceneID,
-           let targetIndex = reorderedScenes.firstIndex(where: { $0.id == targetSceneID }) {
-            destinationIndex = targetIndex
+        let destination: SceneOrderDestination
+        if let targetSceneID {
+            destination = .before(sceneID: targetSceneID, targetActID: targetActID)
         } else {
-            destinationIndex = insertionIndexForSceneGroup(
-                actID: resolvedTargetActID,
-                in: reorderedScenes
-            )
+            destination = .end(targetActID: targetActID)
         }
-        reorderedScenes.insert(movedScene, at: min(max(0, destinationIndex), reorderedScenes.count))
-
-        let reindexedScenes = reorderedScenes.enumerated().map { index, item in
-            BackendScreenplayScene(
-                id: item.id,
-                slugline: item.slugline,
-                title: item.title,
-                objective: item.objective,
-                summary: item.summary,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                beatIds: item.beatIds,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let updatedBeats = outline.beats.map { beat in
-            guard beat.sceneId == movedScene.id else { return beat }
-            return BackendScreenplayBeat(
-                id: beat.id,
-                label: beat.label,
-                summary: beat.summary,
-                sceneId: beat.sceneId,
-                actId: resolvedTargetActID,
-                order: beat.order,
-                status: beat.status,
-                createdAt: beat.createdAt,
-                updatedAt: beat.updatedAt
-            )
-        }
-        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: reindexedScenes)
-        _ = await persistOutlineMutation(
-            acts: updatedActs,
-            scenes: reindexedScenes,
-            beats: updatedBeats,
-            successMessage: "Reordered scenes in the outline."
-        )
+        guard let mutation = SceneOrderMutationPlanner.moving(
+            sceneID: sceneID,
+            to: destination,
+            in: outline
+        ) else { return }
+        await persistSceneOrderMutation(mutation)
     }
 
-    private func insertionIndexForSceneGroup(
-        actID: String?,
-        in scenes: [BackendScreenplayScene]
-    ) -> Int {
-        if let actID {
-            if let lastSceneIndex = scenes.lastIndex(where: { normalizedOrNil($0.actId ?? "") == actID }) {
-                return lastSceneIndex + 1
-            }
-            let orderedActs = outline.acts.sorted {
-                let lhsOrder = $0.order ?? Int.max
-                let rhsOrder = $1.order ?? Int.max
-                if lhsOrder == rhsOrder { return $0.title < $1.title }
-                return lhsOrder < rhsOrder
-            }
-            let targetActIndex = orderedActs.firstIndex(where: { $0.id == actID }) ?? orderedActs.count
-            for (index, scene) in scenes.enumerated() {
-                guard let sceneActID = normalizedOrNil(scene.actId ?? "") else { continue }
-                let sceneActIndex = orderedActs.firstIndex(where: { $0.id == sceneActID }) ?? orderedActs.count
-                if sceneActIndex > targetActIndex {
-                    return index
-                }
-            }
-            return scenes.count
-        }
-
-        if let lastLooseIndex = scenes.lastIndex(where: { normalizedOrNil($0.actId ?? "") == nil }) {
-            return lastLooseIndex + 1
-        }
-        return scenes.count
+    private func persistSceneOrderMutation(_ mutation: SceneOrderMutation) async {
+        _ = await persistOutlineMutation(
+            acts: mutation.acts,
+            scenes: mutation.scenes,
+            beats: mutation.beats,
+            successMessage: "Reordered scenes in the outline."
+        )
     }
 
     func linkBeat(_ beat: BackendScreenplayBeat, to scene: BackendScreenplayScene) async {

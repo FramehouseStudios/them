@@ -1951,10 +1951,7 @@ Replace is best when this file should become the script you edit. Append is safe
         scenes: [BackendScreenplayScene]
     ) -> [BackendScreenplayAct] {
         acts.enumerated().map { index, act in
-            let sceneIDs = scenes
-                .filter { ($0.actId ?? "") == act.id }
-                .sorted { ($0.order ?? 0) < ($1.order ?? 0) }
-                .map(\.id)
+            let sceneIDs = InspectorOrderSupport.sceneIDs(for: act.id, scenes: scenes)
             return BackendScreenplayAct(
                 id: act.id,
                 title: act.title,
@@ -4007,15 +4004,10 @@ Detail:
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
             let featureSnapshot = featureWorkflowSnapshot
-            let orderedActs = vm.outline.acts.sorted {
-                let lhsOrder = $0.order ?? Int.max
-                let rhsOrder = $1.order ?? Int.max
-                if lhsOrder == rhsOrder { return $0.title < $1.title }
-                return lhsOrder < rhsOrder
-            }
-            let orphanScenes = vm.outline.scenes
-                .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+            let orderedActs = InspectorOrderSupport.sortedActs(vm.outline.acts)
+            let orphanScenes = InspectorOrderSupport.sortedScenes(
+                vm.outline.scenes.filter { InspectorOrderSupport.normalizedID($0.actId) == nil }
+            )
 
             ScreenplayStudioOutlineInspectorLayout(
                 actCount: vm.outline.acts.count,
@@ -4035,9 +4027,12 @@ Detail:
                             ForEach(orderedActs, id: \.id) { act in
                                 outlineActInspectorCard(
                                     act,
-                                    scenes: vm.outline.scenes
-                                        .filter { $0.actId == act.id }
-                                        .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+                                    scenes: InspectorOrderSupport.sortedScenes(
+                                        vm.outline.scenes.filter {
+                                            InspectorOrderSupport.normalizedID($0.actId) ==
+                                                InspectorOrderSupport.normalizedID(act.id)
+                                        }
+                                    )
                                 )
                             }
                         },
@@ -6412,21 +6407,11 @@ private var projectsSidebarContent: some View {
 
 
     private var sortedOutlineActs: [BackendScreenplayAct] {
-        vm.outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
+        InspectorOrderSupport.sortedActs(vm.outline.acts)
     }
 
     private var sortedOutlineBeats: [BackendScreenplayBeat] {
-        vm.outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
+        InspectorOrderSupport.sortedBeats(vm.outline.beats)
     }
 
     private var selectedBeatScene: BackendScreenplayScene? {
@@ -6445,7 +6430,7 @@ private var projectsSidebarContent: some View {
             guard !filteredActID.isEmpty else { return true }
             return (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == filteredActID
         }
-        return scenes.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+        return InspectorOrderSupport.sortedScenes(scenes)
     }
 
     private var activePageOutlineSceneSelection: BackendScreenplayScene? {
@@ -6963,9 +6948,7 @@ private var projectsSidebarContent: some View {
             }
         }
         if draggedSceneID != nil {
-            let sceneIDs = vm.outline.scenes
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                .map(\.id)
+            let sceneIDs = InspectorOrderSupport.sortedScenes(vm.outline.scenes).map(\.id)
             if sceneGroupDropTargetID == "loose-scenes", let lastSceneID = sceneIDs.last {
                 return InspectorAutoScrollRequest(
                     anchorID: inspectorScrollAnchorID(forSceneID: lastSceneID),
@@ -6976,10 +6959,11 @@ private var projectsSidebarContent: some View {
             let targetGroupID = sceneGroupDropTargetID.trimmingCharacters(in: .whitespacesAndNewlines)
             if !targetGroupID.isEmpty,
                targetGroupID != "loose-scenes" {
-                let groupedSceneIDs = vm.outline.scenes
-                    .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == targetGroupID }
-                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                    .map(\.id)
+                let groupedSceneIDs = InspectorOrderSupport.sortedScenes(
+                    vm.outline.scenes.filter {
+                        InspectorOrderSupport.normalizedID($0.actId) == targetGroupID
+                    }
+                ).map(\.id)
                 if let lastGroupedSceneID = groupedSceneIDs.last {
                     return InspectorAutoScrollRequest(
                         anchorID: inspectorScrollAnchorID(forSceneID: lastGroupedSceneID),
@@ -7167,10 +7151,12 @@ private var projectsSidebarContent: some View {
     }
 
     private func canMoveScene(_ scene: BackendScreenplayScene, direction: InspectorReorderDirection) -> Bool {
-        let normalizedActID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupedScenes = vm.outline.scenes
-            .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedActID }
-            .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+        let normalizedActID = InspectorOrderSupport.normalizedID(scene.actId)
+        let groupedScenes = InspectorOrderSupport.sortedScenes(
+            vm.outline.scenes.filter {
+                InspectorOrderSupport.normalizedID($0.actId) == normalizedActID
+            }
+        )
         guard let index = groupedScenes.firstIndex(where: { $0.id == scene.id }) else { return false }
         switch direction {
         case .up: return index > 0

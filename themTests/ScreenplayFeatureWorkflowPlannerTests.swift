@@ -480,6 +480,32 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
     func testBeatOrderMutationPlannerHandlesBoundariesDragAndStrictRestore() throws {
         let outline = beatOrderOutline()
 
+        let tiedBeats = [
+            BackendScreenplayBeat(
+                id: "beat-b",
+                label: "Same beat",
+                summary: nil,
+                sceneId: nil,
+                actId: nil,
+                order: 0,
+                status: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayBeat(
+                id: "beat-a",
+                label: "Same beat",
+                summary: nil,
+                sceneId: nil,
+                actId: nil,
+                order: 0,
+                status: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+        XCTAssertEqual(InspectorOrderSupport.sortedBeats(tiedBeats).map(\.id), ["beat-a", "beat-b"])
+
         XCTAssertEqual(
             try XCTUnwrap(
                 BeatOrderMutationPlanner.moving(
@@ -562,6 +588,214 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertNil(
             BeatOrderMutationPlanner.restoring(
                 orderedIDs: ["beat-a", "beat-b", "unknown"],
+                in: outline
+            )
+        )
+    }
+
+    func testActOrderMutationPlannerValidatesAndReplaysDeterministicMoves() throws {
+        let outline = outlineOrderFixture()
+
+        let movedDown = try XCTUnwrap(
+            ActOrderMutationPlanner.moving(
+                actID: "act-b",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedDown.acts.map(\.id), ["act-a", "act-c", "act-b"])
+        XCTAssertEqual(movedDown.acts.map(\.order), [0, 1, 2])
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1", "scene-a2"]
+        )
+        let movedAct = try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-b" }))
+        XCTAssertEqual(movedAct.title, "Same title")
+        XCTAssertEqual(movedAct.summary, "Act B summary")
+        XCTAssertEqual(movedAct.sceneIds, ["scene-b1", "scene-b2"])
+        XCTAssertEqual(movedAct.createdAt, 102)
+        XCTAssertEqual(movedAct.updatedAt, 202)
+
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-b",
+                    to: .oneStep(.up),
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-b", "act-a", "act-c"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-c",
+                    to: .before("act-a"),
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-c", "act-a", "act-b"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-a",
+                    to: .end,
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-b", "act-c", "act-a"]
+        )
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-a", to: .oneStep(.up), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-c", to: .oneStep(.down), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-b", to: .before("act-b"), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-b", to: .before("missing"), in: outline))
+    }
+
+    func testSceneOrderMutationPlannerMovesDownAndReplaysBackUp() throws {
+        let outline = outlineOrderFixture()
+        let movedDown = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+
+        XCTAssertEqual(
+            movedDown.scenes.map(\.id),
+            ["scene-a2", "scene-a1", "scene-b1", "scene-b2", "scene-loose"]
+        )
+        XCTAssertEqual(movedDown.scenes.map(\.order), [0, 1, 2, 3, 4])
+        XCTAssertEqual(movedDown.acts.map(\.id), ["act-a", "act-b", "act-c"])
+        XCTAssertEqual(movedDown.acts.map(\.order), [0, 1, 2])
+        let movedScene = try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-a1" }))
+        XCTAssertEqual(movedScene.slugline, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(movedScene.objective, "Find the ledger.")
+        XCTAssertEqual(movedScene.status, "drafted")
+        XCTAssertEqual(movedScene.createdAt, 301)
+        XCTAssertEqual(movedScene.updatedAt, 401)
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a2", "scene-a1"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.beats.first(where: { $0.id == "beat-a2" })).actId,
+            "act-a"
+        )
+
+        let replayOutline = BackendScreenplayOutline(
+            updatedAt: outline.updatedAt,
+            actCount: movedDown.acts.count,
+            sceneCount: movedDown.scenes.count,
+            beatCount: movedDown.beats.count,
+            acts: movedDown.acts,
+            scenes: movedDown.scenes,
+            beats: movedDown.beats
+        )
+        let replayedUp = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.up),
+                in: replayOutline
+            )
+        )
+        XCTAssertEqual(
+            replayedUp.scenes.map(\.id),
+            ["scene-a1", "scene-a2", "scene-b1", "scene-b2", "scene-loose"]
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+    }
+
+    func testSceneOrderMutationPlannerMovesAcrossActsAndExplicitlyIntoLooseGroup() throws {
+        let outline = outlineOrderFixture()
+        let movedAcrossActs = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-b1", targetActID: " act-b "),
+                in: outline
+            )
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.scenes.first(where: { $0.id == "scene-a2" })).actId,
+            "act-b"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.acts.first(where: { $0.id == "act-b" })).sceneIds,
+            ["scene-a2", "scene-b1", "scene-b2"]
+        )
+        let movedBeat = try XCTUnwrap(movedAcrossActs.beats.first(where: { $0.id == "beat-a2" }))
+        XCTAssertEqual(movedBeat.sceneId, "scene-a2")
+        XCTAssertEqual(movedBeat.actId, "act-b")
+        XCTAssertEqual(movedBeat.label, "A2 beat")
+        XCTAssertEqual(movedBeat.createdAt, 501)
+        XCTAssertEqual(movedBeat.updatedAt, 601)
+
+        let movedLoose = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .end(targetActID: nil),
+                in: outline
+            )
+        )
+        XCTAssertEqual(Array(movedLoose.scenes.suffix(2).map(\.id)), ["scene-loose", "scene-a2"])
+        XCTAssertNil(try XCTUnwrap(movedLoose.scenes.first(where: { $0.id == "scene-a2" })).actId)
+        XCTAssertNil(try XCTUnwrap(movedLoose.beats.first(where: { $0.id == "beat-a2" })).actId)
+        XCTAssertEqual(
+            try XCTUnwrap(movedLoose.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1"]
+        )
+
+        let movedBeforeLoose = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-loose", targetActID: nil),
+                in: outline
+            )
+        )
+        XCTAssertNil(try XCTUnwrap(movedBeforeLoose.scenes.first(where: { $0.id == "scene-a2" })).actId)
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-a2", targetActID: "act-a"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "missing", targetActID: "act-b"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-b1", targetActID: "act-a"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .end(targetActID: "missing-act"),
                 in: outline
             )
         )
@@ -1399,6 +1633,146 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
                     status: "drafted",
                     createdAt: 102,
                     updatedAt: 202
+                )
+            ]
+        )
+    }
+
+    private func outlineOrderFixture() -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 700,
+            actCount: 3,
+            sceneCount: 5,
+            beatCount: 3,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-c",
+                    title: "Same title",
+                    summary: "Act C summary",
+                    order: 1,
+                    sceneIds: nil,
+                    createdAt: 103,
+                    updatedAt: 203
+                ),
+                BackendScreenplayAct(
+                    id: "act-a",
+                    title: "Opening",
+                    summary: "Act A summary",
+                    order: 0,
+                    sceneIds: ["stale"],
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayAct(
+                    id: "act-b",
+                    title: "Same title",
+                    summary: "Act B summary",
+                    order: 1,
+                    sceneIds: ["stale"],
+                    createdAt: 102,
+                    updatedAt: 202
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-loose",
+                    slugline: nil,
+                    title: "Loose memory",
+                    objective: nil,
+                    summary: "A scene outside the acts.",
+                    actId: nil,
+                    order: 4,
+                    status: "open",
+                    beatIds: ["beat-loose"],
+                    createdAt: 305,
+                    updatedAt: 405
+                ),
+                BackendScreenplayScene(
+                    id: "scene-b2",
+                    slugline: "EXT. COURTHOUSE - DAY",
+                    title: "Courthouse",
+                    objective: "Make the accusation public.",
+                    summary: "Mara steps into daylight.",
+                    actId: "act-b",
+                    order: 3,
+                    status: "open",
+                    beatIds: nil,
+                    createdAt: 304,
+                    updatedAt: 404
+                ),
+                BackendScreenplayScene(
+                    id: "scene-a2",
+                    slugline: "INT. STACKS - NIGHT",
+                    title: "Stacks",
+                    objective: "Decode the ledger.",
+                    summary: "The entries point to the court.",
+                    actId: " act-a ",
+                    order: 1,
+                    status: "open",
+                    beatIds: ["beat-a2"],
+                    createdAt: 302,
+                    updatedAt: 402
+                ),
+                BackendScreenplayScene(
+                    id: "scene-b1",
+                    slugline: "INT. COURTHOUSE - DAWN",
+                    title: "Clerk's office",
+                    objective: "Confront the clerk.",
+                    summary: "The forgery becomes undeniable.",
+                    actId: "act-b",
+                    order: 2,
+                    status: "drafted",
+                    beatIds: ["beat-b1"],
+                    createdAt: 303,
+                    updatedAt: 403
+                ),
+                BackendScreenplayScene(
+                    id: "scene-a1",
+                    slugline: "INT. ARCHIVE - NIGHT",
+                    title: "Archive",
+                    objective: "Find the ledger.",
+                    summary: "Mara searches the records.",
+                    actId: "act-a",
+                    order: 0,
+                    status: "drafted",
+                    beatIds: nil,
+                    createdAt: 301,
+                    updatedAt: 401
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-a2",
+                    label: "A2 beat",
+                    summary: "The ledger names the clerk.",
+                    sceneId: "scene-a2",
+                    actId: "act-a",
+                    order: 0,
+                    status: "drafted",
+                    createdAt: 501,
+                    updatedAt: 601
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-b1",
+                    label: "B1 beat",
+                    summary: "The clerk folds.",
+                    sceneId: "scene-b1",
+                    actId: "act-b",
+                    order: 1,
+                    status: "open",
+                    createdAt: 502,
+                    updatedAt: 602
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-loose",
+                    label: "Loose beat",
+                    summary: "A memory waits outside structure.",
+                    sceneId: "scene-loose",
+                    actId: nil,
+                    order: 2,
+                    status: "open",
+                    createdAt: 503,
+                    updatedAt: 603
                 )
             ]
         )
