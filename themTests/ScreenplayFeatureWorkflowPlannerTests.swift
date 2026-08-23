@@ -59,6 +59,113 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(duplicateTargets.map(\.id), ["loose", "scene:scene-page", "act:act-1"])
     }
 
+    func testBeatQuickCaptureSeedPlannerNormalizesSelectionAndLinksScene() throws {
+        let scene = BackendScreenplayScene(
+            id: "scene-selection",
+            slugline: "INT. ARCHIVE - NIGHT",
+            title: "Archive",
+            objective: nil,
+            summary: nil,
+            actId: "  act-2  ",
+            order: 0,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let text = "  Mara   finds\n the hidden key and runs before dawn.  "
+        let selection = ScreenplayEditorSelectionSnapshot(
+            location: 10,
+            length: text.count,
+            startLine: 2,
+            endLine: 3,
+            text: text,
+            sceneLabel: nil
+        )
+
+        let seed = try XCTUnwrap(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(selection: selection, linkedScene: scene)
+        )
+
+        XCTAssertEqual(seed.label, "Mara finds the hidden key and")
+        XCTAssertEqual(seed.summary, selection.trimmedText)
+        XCTAssertEqual(seed.sceneID, scene.id)
+        XCTAssertEqual(seed.actID, "act-2")
+        XCTAssertEqual(seed.infoText, "Created a beat from the selected block.")
+        XCTAssertEqual(seed.provenance, .selection)
+    }
+
+    func testBeatQuickCaptureSeedPlannerRejectsEmptySelectionAndCapsGeneratedText() throws {
+        let emptySelection = ScreenplayEditorSelectionSnapshot(
+            location: 0,
+            length: 0,
+            startLine: 1,
+            endLine: 1,
+            text: "   ",
+            sceneLabel: "INT. EMPTY ROOM - DAY"
+        )
+        XCTAssertNil(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+                selection: emptySelection,
+                linkedScene: nil
+            )
+        )
+
+        let longText = String(repeating: "A", count: 400)
+        let longSelection = ScreenplayEditorSelectionSnapshot(
+            location: 0,
+            length: longText.count,
+            startLine: 1,
+            endLine: 1,
+            text: longText,
+            sceneLabel: nil
+        )
+        let seed = try XCTUnwrap(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+                selection: longSelection,
+                linkedScene: nil
+            )
+        )
+
+        XCTAssertEqual(seed.label.count, 72)
+        XCTAssertEqual(seed.summary.count, 280)
+        XCTAssertEqual(seed.sceneID, "")
+        XCTAssertEqual(seed.actID, "")
+    }
+
+    func testBeatQuickCaptureSeedPlannerPrefersSceneObjectiveAndPreservesLabelFallbacks() {
+        let scene = BackendScreenplayScene(
+            id: "scene-objective",
+            slugline: "EXT. COURTHOUSE STEPS - DAWN",
+            title: "Courthouse",
+            objective: "  Expose   the forgery before dawn.  ",
+            summary: "A lower-priority summary.",
+            actId: "act-3",
+            order: 1,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let seed = BeatQuickCaptureSeedPlanner.makeCurrentSceneSeed(scene: scene)
+
+        XCTAssertEqual(seed.label, "Expose the forgery before dawn.")
+        XCTAssertEqual(seed.summary, "Expose   the forgery before dawn.")
+        XCTAssertEqual(seed.sceneID, scene.id)
+        XCTAssertEqual(seed.actID, "act-3")
+        XCTAssertEqual(seed.provenance, .currentScene)
+        XCTAssertEqual(
+            BeatQuickCaptureSeedPlanner.makeLabel(
+                from: "one two three four five six seven eight",
+                sceneLabel: nil
+            ),
+            "one two three four five six"
+        )
+        XCTAssertEqual(BeatQuickCaptureSeedPlanner.makeLabel(from: "", sceneLabel: nil), "Beat: Story beat")
+        XCTAssertEqual(BeatQuickCaptureSeedPlanner.makeLabel(from: "", sceneLabel: "   "), "Story beat")
+    }
+
     func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
         let now = Date().timeIntervalSince1970 * 1000
         let outline = BackendScreenplayOutline(

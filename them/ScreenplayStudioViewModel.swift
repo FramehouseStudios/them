@@ -128,6 +128,64 @@ struct BeatQuickLinkTarget: Identifiable, Equatable {
     let actID: String
 }
 
+enum BeatQuickCaptureSeedPlanner {
+    static func makeSelectionSeed(
+        selection: ScreenplayEditorSelectionSnapshot,
+        linkedScene: BackendScreenplayScene?
+    ) -> BeatQuickCaptureSeed? {
+        guard selection.hasSelection else { return nil }
+        let summary = selection.trimmedText
+        guard !summary.isEmpty else { return nil }
+        let sceneLabel = selection.sceneLabel
+            ?? linkedScene.map { compactBeatSceneLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
+        return BeatQuickCaptureSeed(
+            label: makeLabel(from: summary, sceneLabel: sceneLabel),
+            summary: String(summary.prefix(280)),
+            sceneID: linkedScene?.id ?? "",
+            actID: (linkedScene?.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            infoText: "Created a beat from the selected block.",
+            provenance: .selection
+        )
+    }
+
+    static func makeCurrentSceneSeed(scene: BackendScreenplayScene) -> BeatQuickCaptureSeed {
+        let sceneLabel = compactBeatSceneLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
+        let summarySource = [
+            scene.objective?.trimmingCharacters(in: .whitespacesAndNewlines),
+            scene.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+            scene.slugline?.trimmingCharacters(in: .whitespacesAndNewlines),
+            scene.title.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+            .compactMap { $0 }
+            .first(where: { !$0.isEmpty }) ?? "The next turn inside \(sceneLabel)."
+        return BeatQuickCaptureSeed(
+            label: makeLabel(from: summarySource, sceneLabel: sceneLabel),
+            summary: String(summarySource.prefix(280)),
+            sceneID: scene.id,
+            actID: (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            infoText: "Created a beat from \(sceneLabel).",
+            provenance: .currentScene
+        )
+    }
+
+    static func makeLabel(from text: String, sceneLabel: String?) -> String {
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        if !normalized.isEmpty {
+            let words = normalized.split(separator: " ")
+            let prefix = words.prefix(6).joined(separator: " ")
+            let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty {
+                return String(clean.prefix(72))
+            }
+        }
+        let fallback = (sceneLabel ?? "Story beat")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? "Story beat" : "Beat: \(fallback)"
+    }
+}
+
 enum BeatQuickLinkTargetPlanner {
     static func makeTargets(
         pageScene: BackendScreenplayScene?,
@@ -178,7 +236,7 @@ enum BeatQuickLinkTargetPlanner {
             BeatQuickLinkTarget(
                 id: "scene:\(scene.id)",
                 title: sceneTitle,
-                subtitle: compactSceneLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title),
+                subtitle: compactBeatSceneLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title),
                 sceneID: scene.id,
                 actID: actID
             ),
@@ -208,13 +266,13 @@ enum BeatQuickLinkTargetPlanner {
         guard seenIDs.insert(target.id).inserted else { return }
         targets.append(target)
     }
+}
 
-    private static func compactSceneLabel(_ heading: String) -> String {
-        let cleaned = heading.replacingOccurrences(of: "  ", with: " ")
-        guard cleaned.count > 28 else { return cleaned }
-        let index = cleaned.index(cleaned.startIndex, offsetBy: 28)
-        return String(cleaned[..<index]).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
-    }
+private func compactBeatSceneLabel(_ heading: String) -> String {
+    let cleaned = heading.replacingOccurrences(of: "  ", with: " ")
+    guard cleaned.count > 28 else { return cleaned }
+    let index = cleaned.index(cleaned.startIndex, offsetBy: 28)
+    return String(cleaned[..<index]).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
 }
 
 #if DEBUG || os(macOS)

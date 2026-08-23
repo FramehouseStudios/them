@@ -1405,7 +1405,10 @@ Replace is best when this file should become the script you edit. Append is safe
         let currentScene = liveDraftBridge.currentSceneSnapshot()
         let binding = currentScene.flatMap { liveDraftBridge.projectBindingSnapshot(forDraftSceneID: $0.id) }
         let summary = selection.trimmedText
-        let label = beatLabel(from: summary, sceneLabel: selection.sceneLabel ?? currentScene?.shortLabel)
+        let label = BeatQuickCaptureSeedPlanner.makeLabel(
+            from: summary,
+            sceneLabel: selection.sceneLabel ?? currentScene?.shortLabel
+        )
         let result: BackendReadResult<BackendScreenplayBeatMutationResponse>
         do {
             result = try await BackendMemoryAPI.shared.upsertScreenplayBeat(
@@ -1962,23 +1965,6 @@ Replace is best when this file should become the script you edit. Append is safe
                 updatedAt: act.updatedAt
             )
         }
-    }
-
-    private func beatLabel(from text: String, sceneLabel: String?) -> String {
-        let normalized = text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-        if !normalized.isEmpty {
-            let words = normalized.split(separator: " ")
-            let prefix = words.prefix(6).joined(separator: " ")
-            let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !clean.isEmpty {
-                return String(clean.prefix(72))
-            }
-        }
-        let fallback = (sceneLabel ?? "Story beat")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return fallback.isEmpty ? "Story beat" : "Beat: \(fallback)"
     }
 
     private var studioBaseLayout: some View {
@@ -6572,49 +6558,16 @@ private var projectsSidebarContent: some View {
     }
 
     private var selectionQuickCaptureSeed: BeatQuickCaptureSeed? {
-        guard let selection = liveDraftBridge.selectedEditorSnapshot(), selection.hasSelection else {
-            return nil
-        }
-        let summary = selection.trimmedText
-        guard !summary.isEmpty else { return nil }
-        let linkedScene = outlineScene(for: selection)
-        let sceneLabel = selection.sceneLabel
-            ?? linkedScene.map { compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
-        let label = beatLabel(from: summary, sceneLabel: sceneLabel)
-        let actID = linkedScene.map {
-            ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        .flatMap { $0.isEmpty ? nil : $0 } ?? ""
-        return BeatQuickCaptureSeed(
-            label: label,
-            summary: String(summary.prefix(280)),
-            sceneID: linkedScene?.id ?? "",
-            actID: actID,
-            infoText: "Created a beat from the selected block.",
-            provenance: .selection
+        guard let selection = liveDraftBridge.selectedEditorSnapshot() else { return nil }
+        return BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+            selection: selection,
+            linkedScene: outlineScene(for: selection)
         )
     }
 
     private var currentSceneQuickCaptureSeed: BeatQuickCaptureSeed? {
         guard let scene = currentSceneInspectorSelection else { return nil }
-        let sceneLabel = compactSceneNavigatorLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-        let summarySource = [
-            scene.objective?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.slugline?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.title.trimmingCharacters(in: .whitespacesAndNewlines),
-        ]
-            .compactMap { $0 }
-            .first(where: { !$0.isEmpty }) ?? "The next turn inside \(sceneLabel)."
-        let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return BeatQuickCaptureSeed(
-            label: beatLabel(from: summarySource, sceneLabel: sceneLabel),
-            summary: String(summarySource.prefix(280)),
-            sceneID: scene.id,
-            actID: actID,
-            infoText: "Created a beat from \(sceneLabel).",
-            provenance: .currentScene
-        )
+        return BeatQuickCaptureSeedPlanner.makeCurrentSceneSeed(scene: scene)
     }
 
     private func handleSelectionQuickBeatCapture() {
