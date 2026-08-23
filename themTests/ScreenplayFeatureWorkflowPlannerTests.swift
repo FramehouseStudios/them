@@ -166,6 +166,93 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(BeatQuickCaptureSeedPlanner.makeLabel(from: "", sceneLabel: "   "), "Story beat")
     }
 
+    func testBeatQuickCaptureActionPlannerPreservesSelectionAndEligibilityRules() {
+        let selectedBeat = BackendScreenplayBeat(
+            id: "beat-selected",
+            label: "The truth surfaces",
+            summary: nil,
+            sceneId: nil,
+            actId: nil,
+            order: 0,
+            status: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let editingBeat = BackendScreenplayBeat(
+            id: "beat-editing",
+            label: "   ",
+            summary: nil,
+            sceneId: nil,
+            actId: nil,
+            order: 1,
+            status: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let beats = [selectedBeat, editingBeat]
+
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.selectedBeat(
+                selectedBeatID: "  \(selectedBeat.id)  ",
+                editingBeatID: editingBeat.id,
+                beats: beats
+            )?.id,
+            selectedBeat.id
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.selectedBeat(
+                selectedBeatID: "missing",
+                editingBeatID: "  \(editingBeat.id)  ",
+                beats: beats
+            )?.id,
+            editingBeat.id
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.updateSubtitle(for: selectedBeat),
+            "Refresh The truth surfaces from the active page block."
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.updateSubtitle(for: editingBeat),
+            "Refresh the selected beat from the active page block."
+        )
+
+        let emptyDraft = BeatQuickCaptureDraftState(
+            editingBeatID: " ",
+            label: " ",
+            summary: "\n",
+            sceneID: "",
+            actID: "  "
+        )
+        XCTAssertTrue(BeatQuickCaptureActionPlanner.canCreateImmediately(draft: emptyDraft))
+        XCTAssertTrue(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: selectedBeat.id,
+                draft: emptyDraft
+            )
+        )
+
+        let occupiedDraft = BeatQuickCaptureDraftState(
+            editingBeatID: editingBeat.id,
+            label: "Existing label",
+            summary: "Existing summary",
+            sceneID: "scene-1",
+            actID: "act-1"
+        )
+        XCTAssertFalse(BeatQuickCaptureActionPlanner.canCreateImmediately(draft: occupiedDraft))
+        XCTAssertTrue(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: editingBeat.id,
+                draft: occupiedDraft
+            )
+        )
+        XCTAssertFalse(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: selectedBeat.id,
+                draft: occupiedDraft
+            )
+        )
+    }
+
     func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
         let now = Date().timeIntervalSince1970 * 1000
         let outline = BackendScreenplayOutline(

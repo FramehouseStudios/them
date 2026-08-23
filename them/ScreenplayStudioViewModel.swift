@@ -186,6 +186,62 @@ enum BeatQuickCaptureSeedPlanner {
     }
 }
 
+struct BeatQuickCaptureDraftState: Equatable {
+    let editingBeatID: String
+    let label: String
+    let summary: String
+    let sceneID: String
+    let actID: String
+
+    var cleanEditingBeatID: String {
+        editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasNoActiveDraft: Bool {
+        cleanEditingBeatID.isEmpty &&
+            label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            sceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            actID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+enum BeatQuickCaptureActionPlanner {
+    static func selectedBeat(
+        selectedBeatID: String,
+        editingBeatID: String,
+        beats: [BackendScreenplayBeat]
+    ) -> BackendScreenplayBeat? {
+        let selectedID = selectedBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selectedID.isEmpty,
+           let selected = beats.first(where: { $0.id == selectedID }) {
+            return selected
+        }
+        let editingID = editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !editingID.isEmpty else { return nil }
+        return beats.first(where: { $0.id == editingID })
+    }
+
+    static func updateSubtitle(for beat: BackendScreenplayBeat?) -> String {
+        let fallback = "Refresh the selected beat from the active page block."
+        guard let beat else { return fallback }
+        let label = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return label.isEmpty ? fallback : "Refresh \(label) from the active page block."
+    }
+
+    static func canCreateImmediately(draft: BeatQuickCaptureDraftState) -> Bool {
+        draft.hasNoActiveDraft
+    }
+
+    static func canUpdateImmediately(
+        beatID: String,
+        draft: BeatQuickCaptureDraftState
+    ) -> Bool {
+        if draft.cleanEditingBeatID == beatID { return true }
+        return draft.hasNoActiveDraft
+    }
+}
+
 enum BeatQuickLinkTargetPlanner {
     static func makeTargets(
         pageScene: BackendScreenplayScene?,

@@ -6489,27 +6489,15 @@ private var projectsSidebarContent: some View {
     }
 
     private var selectedBeatForQuickUpdate: BackendScreenplayBeat? {
-        let selectedID = selectedBeatInspectorID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !selectedID.isEmpty,
-           let selected = sortedOutlineBeats.first(where: { $0.id == selectedID }) {
-            return selected
-        }
-        let editingID = vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !editingID.isEmpty,
-           let editing = sortedOutlineBeats.first(where: { $0.id == editingID }) {
-            return editing
-        }
-        return nil
+        BeatQuickCaptureActionPlanner.selectedBeat(
+            selectedBeatID: selectedBeatInspectorID,
+            editingBeatID: vm.editingBeatID,
+            beats: sortedOutlineBeats
+        )
     }
 
     private var selectedBeatQuickUpdateSubtitle: String {
-        guard let beat = selectedBeatForQuickUpdate else {
-            return "Refresh the selected beat from the active page block."
-        }
-        let label = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        return label.isEmpty
-            ? "Refresh the selected beat from the active page block."
-            : "Refresh \(label) from the active page block."
+        BeatQuickCaptureActionPlanner.updateSubtitle(for: selectedBeatForQuickUpdate)
     }
 
     private var canTriggerMakeBeatFromSelectionShortcut: Bool {
@@ -6534,11 +6522,7 @@ private var projectsSidebarContent: some View {
     }
 
     private var canQuickCreateBeatImmediately: Bool {
-        vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatActID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        BeatQuickCaptureActionPlanner.canCreateImmediately(draft: beatQuickCaptureDraftState)
     }
 
     private var canQuickUpdateSelectedBeatImmediately: Bool {
@@ -6548,13 +6532,20 @@ private var projectsSidebarContent: some View {
     }
 
     private func canQuickUpdateBeatImmediately(for beat: BackendScreenplayBeat) -> Bool {
-        let editingID = vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if editingID == beat.id { return true }
-        return editingID.isEmpty &&
-            vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatActID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        BeatQuickCaptureActionPlanner.canUpdateImmediately(
+            beatID: beat.id,
+            draft: beatQuickCaptureDraftState
+        )
+    }
+
+    private var beatQuickCaptureDraftState: BeatQuickCaptureDraftState {
+        BeatQuickCaptureDraftState(
+            editingBeatID: vm.editingBeatID,
+            label: vm.newBeatLabel,
+            summary: vm.newBeatSummary,
+            sceneID: vm.newBeatSceneID,
+            actID: vm.newBeatActID
+        )
     }
 
     private var selectionQuickCaptureSeed: BeatQuickCaptureSeed? {
