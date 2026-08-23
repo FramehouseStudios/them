@@ -581,6 +581,74 @@ struct ScreenplayStudioOutlineSceneRow: View {
     }
 }
 
+struct ScreenplayStudioOutlineLooseScenesCard<SceneRows: View>: View {
+    let sceneCount: Int
+    let isSceneDragActive: Bool
+    @Binding var isDropTargeted: Bool
+    @ViewBuilder let sceneRows: () -> SceneRows
+    let onDrop: () -> Bool
+
+    var body: some View {
+        intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
+            if sceneCount > 0 {
+                Text("These scenes are on the board, but they still need an act home.")
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                VStack(alignment: .leading, spacing: 8) {
+                    sceneRows()
+                    if isSceneDragActive {
+                        inspectorReorderDropZone(
+                            title: "Drop here to keep this scene loose at the end",
+                            isTargeted: $isDropTargeted,
+                            onDrop: onDrop
+                        )
+                    }
+                }
+            } else if isSceneDragActive {
+                inspectorReorderDropZone(
+                    title: "Drop here to keep this scene loose",
+                    isTargeted: $isDropTargeted,
+                    onDrop: onDrop
+                )
+            }
+        }
+    }
+}
+
+struct ScreenplayStudioOutlineFocusedSceneCard: View {
+    let scene: BackendScreenplayScene
+
+    var body: some View {
+        intelligenceCollectionCard(
+            title: scene.slugline?.isEmpty == false ? scene.slugline! : scene.title,
+            icon: "scope"
+        ) {
+            if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Objective")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.46))
+                        .textCase(.uppercase)
+                    Text(objective)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.76))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let summary = scene.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(summary)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                metaChip(title: "Act", value: (scene.actId ?? "Loose"))
+                metaChip(title: "Beats", value: "\((scene.beatIds ?? []).count)")
+            }
+        }
+    }
+}
+
 private func insertionMarker(isVisible: Bool) -> some View {
     HStack(spacing: 8) {
         Capsule()

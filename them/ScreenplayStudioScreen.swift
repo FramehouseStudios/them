@@ -4065,23 +4065,8 @@ Detail:
                             }
                         }
 
-                        if !orphanScenes.isEmpty {
+                        if !orphanScenes.isEmpty || draggedSceneID != nil {
                             outlineLooseScenesCard(orphanScenes)
-                        } else if draggedSceneID != nil {
-                            intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
-                                inspectorReorderDropZone(
-                                    title: "Drop here to keep this scene loose",
-                                    isTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID)
-                                ) { _ in
-                                    guard let draggedSceneID else { return false }
-                                    settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                    Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
-                                    self.draggedSceneID = nil
-                                    sceneDropTargetID = ""
-                                    sceneGroupDropTargetID = ""
-                                    return true
-                                }
-                            }
                         }
                     }
                 },
@@ -6381,24 +6366,6 @@ private var projectsSidebarContent: some View {
         )
     }
 
-    private func beatInspectorMetaChip(title: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.48))
-                .textCase(.uppercase)
-            Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.82))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.72))
-        )
-    }
-
     private func beatProvenanceHistoryPresentation(
         _ history: BeatProvenanceHistoryEntry
     ) -> ScreenplayStudioBeatProvenanceHistoryPresentation {
@@ -6532,57 +6499,29 @@ private var projectsSidebarContent: some View {
     }
 
     private func outlineLooseScenesCard(_ scenes: [BackendScreenplayScene]) -> some View {
-        intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
-            Text("These scenes are on the board, but they still need an act home.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.58))
-            VStack(alignment: .leading, spacing: 8) {
+        ScreenplayStudioOutlineLooseScenesCard(
+            sceneCount: scenes.count,
+            isSceneDragActive: draggedSceneID != nil,
+            isDropTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID),
+            sceneRows: {
                 ForEach(scenes, id: \.id) { scene in
                     outlineSceneInspectorRow(scene)
                 }
-                if draggedSceneID != nil {
-                    inspectorReorderDropZone(
-                        title: "Drop here to keep this scene loose at the end",
-                        isTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID)
-                    ) { _ in
-                        guard let draggedSceneID else { return false }
-                        settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                        Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
-                        self.draggedSceneID = nil
-                        sceneDropTargetID = ""
-                        sceneGroupDropTargetID = ""
-                        return true
-                    }
-                }
+            },
+            onDrop: {
+                guard let draggedSceneID else { return false }
+                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
+                self.draggedSceneID = nil
+                sceneDropTargetID = ""
+                sceneGroupDropTargetID = ""
+                return true
             }
-        }
+        )
     }
 
     private func outlineFocusedSceneCard(_ scene: BackendScreenplayScene) -> some View {
-        intelligenceCollectionCard(title: scene.slugline?.isEmpty == false ? scene.slugline! : scene.title, icon: "scope") {
-            if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Objective")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.46))
-                        .textCase(.uppercase)
-                    Text(objective)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.76))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if let summary = scene.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(summary)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                beatInspectorMetaChip(title: "Act", value: (scene.actId ?? "Loose"))
-                beatInspectorMetaChip(title: "Beats", value: "\((scene.beatIds ?? []).count)")
-            }
-        }
+        ScreenplayStudioOutlineFocusedSceneCard(scene: scene)
     }
 
     private func outlineSceneInspectorRow(_ scene: BackendScreenplayScene) -> some View {
