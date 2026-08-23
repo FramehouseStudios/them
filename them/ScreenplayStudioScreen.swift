@@ -6275,55 +6275,29 @@ private var projectsSidebarContent: some View {
 
     private var beatsComposerCard: some View {
         let isEditing = !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasQuickCapture = selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil
         return ScreenplayStudioBeatComposer(
             label: $vm.newBeatLabel,
             summary: $vm.newBeatSummary,
             isEditing: isEditing,
             isSaving: vm.isSaving,
-            hasQuickCapture: hasQuickCapture,
-            quickCaptureDetail: canQuickCreateBeatImmediately
-                ? "Make a beat in one tap from what is already active."
-                : "Use page context to load the composer without losing your draft.",
-            hasQuickLinks: !beatQuickLinkTargets.isEmpty,
-            quickCapture: {
-                ScreenplayStudioBeatQuickCaptureRow(
-                    showsSelectionCapture: selectionQuickCaptureSeed != nil,
-                    showsSceneCapture: currentSceneQuickCaptureSeed != nil,
-                    showsSelectedBeatUpdate: selectionQuickCaptureSeed != nil && selectedBeatForQuickUpdate != nil,
-                    createsImmediately: canQuickCreateBeatImmediately,
-                    updatesSelectedBeatImmediately: canQuickUpdateSelectedBeatImmediately,
-                    selectedBeatUpdateSubtitle: selectedBeatQuickUpdateSubtitle,
-                    onCaptureSelection: handleSelectionQuickBeatCapture,
-                    onCaptureScene: handleCurrentSceneQuickBeatCapture,
-                    onUpdateSelectedBeat: handleSelectedBeatQuickUpdate
-                )
-            },
-            quickLinks: {
-                if !beatQuickLinkTargets.isEmpty {
-                    ScreenplayStudioBeatQuickLinks(
-                        targets: beatQuickLinkTargets,
-                        selectedSceneID: selectedBeatScene?.id,
-                        selectedActID: selectedBeatAct?.id,
-                        onSelect: applyBeatQuickLinkTarget
-                    )
-                }
-            },
-            scenePicker: {
-                ScreenplayStudioBeatScenePicker(
-                    selectedScene: selectedBeatScene,
-                    currentScene: currentSceneInspectorSelection,
-                    availableScenes: availableBeatSceneOptions,
-                    onSelect: selectBeatScene
-                )
-            },
-            actPicker: {
-                ScreenplayStudioBeatActPicker(
-                    selectedAct: selectedBeatAct,
-                    acts: sortedOutlineActs,
-                    onSelect: selectBeatAct
-                )
-            },
+            showsSelectionCapture: selectionQuickCaptureSeed != nil,
+            showsSceneCapture: currentSceneQuickCaptureSeed != nil,
+            showsSelectedBeatUpdate: selectionQuickCaptureSeed != nil && selectedBeatForQuickUpdate != nil,
+            createsImmediately: canQuickCreateBeatImmediately,
+            updatesSelectedBeatImmediately: canQuickUpdateSelectedBeatImmediately,
+            selectedBeatUpdateSubtitle: selectedBeatQuickUpdateSubtitle,
+            quickLinkTargets: beatQuickLinkTargets,
+            selectedScene: selectedBeatScene,
+            currentScene: currentSceneInspectorSelection,
+            availableScenes: availableBeatSceneOptions,
+            selectedAct: selectedBeatAct,
+            acts: sortedOutlineActs,
+            onCaptureSelection: handleSelectionQuickBeatCapture,
+            onCaptureScene: handleCurrentSceneQuickBeatCapture,
+            onUpdateSelectedBeat: handleSelectedBeatQuickUpdate,
+            onSelectQuickLink: applyBeatQuickLinkTarget,
+            onSelectScene: selectBeatScene,
+            onSelectAct: selectBeatAct,
             onCancel: {
                 vm.cancelEditingBeat()
                 beatComposerProvenance = .manual

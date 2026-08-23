@@ -1190,18 +1190,29 @@ private func composerPickerButton(title: String, subtitle: String) -> some View 
     )
 }
 
-struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, ScenePicker: View, ActPicker: View>: View {
+struct ScreenplayStudioBeatComposer: View {
     @Binding var label: String
     @Binding var summary: String
     let isEditing: Bool
     let isSaving: Bool
-    let hasQuickCapture: Bool
-    let quickCaptureDetail: String
-    let hasQuickLinks: Bool
-    @ViewBuilder let quickCapture: () -> QuickCapture
-    @ViewBuilder let quickLinks: () -> QuickLinks
-    @ViewBuilder let scenePicker: () -> ScenePicker
-    @ViewBuilder let actPicker: () -> ActPicker
+    let showsSelectionCapture: Bool
+    let showsSceneCapture: Bool
+    let showsSelectedBeatUpdate: Bool
+    let createsImmediately: Bool
+    let updatesSelectedBeatImmediately: Bool
+    let selectedBeatUpdateSubtitle: String
+    let quickLinkTargets: [BeatQuickLinkTarget]
+    let selectedScene: BackendScreenplayScene?
+    let currentScene: BackendScreenplayScene?
+    let availableScenes: [BackendScreenplayScene]
+    let selectedAct: BackendScreenplayAct?
+    let acts: [BackendScreenplayAct]
+    let onCaptureSelection: () -> Void
+    let onCaptureScene: () -> Void
+    let onUpdateSelectedBeat: () -> Void
+    let onSelectQuickLink: (BeatQuickLinkTarget) -> Void
+    let onSelectScene: (BackendScreenplayScene?) -> Void
+    let onSelectAct: (BackendScreenplayAct?) -> Void
     let onCancel: () -> Void
     let onSave: () -> Void
 
@@ -1215,15 +1226,30 @@ struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, SceneP
                 textField("Ex: The lie gets exposed", text: $label)
             }
 
-            if hasQuickCapture {
+            if showsSelectionCapture || showsSceneCapture {
                 fieldSection(title: "Quick capture", detail: quickCaptureDetail) {
-                    quickCapture()
+                    ScreenplayStudioBeatQuickCaptureRow(
+                        showsSelectionCapture: showsSelectionCapture,
+                        showsSceneCapture: showsSceneCapture,
+                        showsSelectedBeatUpdate: showsSelectedBeatUpdate,
+                        createsImmediately: createsImmediately,
+                        updatesSelectedBeatImmediately: updatesSelectedBeatImmediately,
+                        selectedBeatUpdateSubtitle: selectedBeatUpdateSubtitle,
+                        onCaptureSelection: onCaptureSelection,
+                        onCaptureScene: onCaptureScene,
+                        onUpdateSelectedBeat: onUpdateSelectedBeat
+                    )
                 }
             }
 
-            if hasQuickLinks {
+            if !quickLinkTargets.isEmpty {
                 fieldSection(title: "Quick links", detail: "Use the page or outline context already in front of you.") {
-                    quickLinks()
+                    ScreenplayStudioBeatQuickLinks(
+                        targets: quickLinkTargets,
+                        selectedSceneID: selectedScene?.id,
+                        selectedActID: selectedAct?.id,
+                        onSelect: onSelectQuickLink
+                    )
                 }
             }
 
@@ -1236,10 +1262,19 @@ struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, SceneP
 
             HStack(alignment: .top, spacing: 10) {
                 fieldSection(title: "Scene link", detail: "Optional") {
-                    scenePicker()
+                    ScreenplayStudioBeatScenePicker(
+                        selectedScene: selectedScene,
+                        currentScene: currentScene,
+                        availableScenes: availableScenes,
+                        onSelect: onSelectScene
+                    )
                 }
                 fieldSection(title: "Act link", detail: "Optional") {
-                    actPicker()
+                    ScreenplayStudioBeatActPicker(
+                        selectedAct: selectedAct,
+                        acts: acts,
+                        onSelect: onSelectAct
+                    )
                 }
             }
 
@@ -1254,6 +1289,12 @@ struct ScreenplayStudioBeatComposer<QuickCapture: View, QuickLinks: View, SceneP
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
         )
+    }
+
+    private var quickCaptureDetail: String {
+        createsImmediately
+            ? "Make a beat in one tap from what is already active."
+            : "Use page context to load the composer without losing your draft."
     }
 
     private var header: some View {
