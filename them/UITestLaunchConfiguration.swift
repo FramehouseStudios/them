@@ -14,6 +14,7 @@ nonisolated enum UITestLaunchConfiguration {
            let bundleID = Bundle.main.bundleIdentifier {
             defaults.removePersistentDomain(forName: bundleID)
             ScreenplayLiveDraftFileStore.remove()
+            ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }
 
         defaults.set("stub", forKey: "studio_debug_submit_transport_mode")

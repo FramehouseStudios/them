@@ -140,7 +140,13 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
 
         let restored = try await store.entriesForTesting()
 
-        XCTAssertEqual(restored, [parkedEntry])
+        XCTAssertEqual(restored.count, 1)
+        XCTAssertEqual(restored.first?.id, parkedEntry.id)
+        XCTAssertEqual(restored.first?.acts, parkedEntry.acts)
+        XCTAssertEqual(restored.first?.scenes, parkedEntry.scenes)
+        XCTAssertEqual(restored.first?.beats, parkedEntry.beats)
+        XCTAssertEqual(restored.first?.status, parkedEntry.status)
+        XCTAssertEqual(restored.first?.queueSequence, 1)
     }
 
     func testManifestWriteFailureRollsBackEnqueueAndMarkStateInMemory() async throws {
@@ -291,7 +297,7 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
         }
 
         let storedEntries = try await store.entriesForTesting()
-        XCTAssertEqual(storedEntries, [original])
+        XCTAssertEqual(storedEntries, replayedEntries)
     }
 
     func testBackedOffHeadBlocksLaterMutationWithoutBlockingAnotherScope() async throws {
@@ -417,6 +423,7 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
             XCTAssertEqual(entry.expectedOutlineRevision, 7)
             XCTAssertEqual(entry.nextAttemptAt, 0)
             XCTAssertEqual(entry.lastError, "Outline changed remotely at revision 9.")
+            XCTAssertEqual(entry.parkedReason, .supersededByRemoteChange)
         }
         XCTAssertEqual(stored.first(where: { $0.id == "other-owner" })?.status, .pending)
     }
@@ -483,6 +490,7 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
         XCTAssertEqual(entry.retries, 6)
         XCTAssertEqual(entry.nextAttemptAt, 0)
         XCTAssertEqual(entry.lastError, "offline 6")
+        XCTAssertEqual(entry.parkedReason, .retryExhausted)
     }
 
     func testExplicitParkingAndScopedSnapshotsPreserveRecoverableIntent() async throws {
@@ -500,6 +508,9 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
         let missingStatus = try await store.status(id: "missing")
         XCTAssertEqual(mineStatus, .parked)
         XCTAssertEqual(missingStatus, nil)
+        let parkedEntries = try await store.entriesForTesting()
+        let explicitlyParked = parkedEntries.first { $0.id == "mine" }
+        XCTAssertEqual(explicitlyParked?.parkedReason, .permanentRejection)
         let mine = await store.snapshot(ownerUserId: "user-1", projectId: "project-1")
         let theirs = await store.snapshot(ownerUserId: "user-2", projectId: "project-1")
         let all = await store.snapshot()
@@ -520,20 +531,561 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
         XCTAssertFalse(hasMissingOwnerEntries)
     }
 
-    func testQueueOrderingUsesIdentifierAsDeterministicTimestampTieBreaker() async throws {
+    func testRecoveryChainsAreOwnerScopedAndPreserveDependentSnapshotOrder() async throws {
         let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeEntry(id: "request-b", createdAt: 100))
+        try await store.enqueue(
+            makeEntry(id: "earlier-active", createdAt: 90)
+        )
+        try await store.enqueue(
+            makeEntry(
+                id: "parked-head",
+                createdAt: 100,
+                status: .parked,
+                nextAttemptAt: 0,
+                parkedReason: .staleRevision
+            )
+        )
+        try await store.enqueue(
+            makeEntry(
+                id: "dependent",
+                createdAt: 101,
+                status: .parked,
+                nextAttemptAt: 0,
+                parkedReason: .supersededByRemoteChange
+            )
+        )
+        try await store.enqueue(
+            makeEntry(
+                id: "other-project",
+                projectId: "project-2",
+                createdAt: 102,
+                status: .parked,
+                retries: 6,
+                nextAttemptAt: 0,
+                parkedReason: .retryExhausted
+            )
+        )
+        try await store.enqueue(
+            makeEntry(
+                id: "other-owner",
+                ownerUserId: "user-2",
+                createdAt: 103,
+                status: .parked,
+                retries: 6,
+                nextAttemptAt: 0,
+                parkedReason: .retryExhausted
+            )
+        )
+
+        let mine = try await store.recoveryChains(ownerUserIds: [" user-1 "])
+        XCTAssertEqual(mine.map(\.projectId), ["project-1", "project-2"])
+        XCTAssertEqual(mine[0].entries.map(\.id), ["parked-head", "dependent"])
+        XCTAssertFalse(mine[0].permitsRetry)
+        XCTAssertTrue(mine[0].retryUnavailableReason.contains("earlier"))
+        XCTAssertEqual(mine[1].entries.map(\.id), ["other-project"])
+        XCTAssertTrue(mine[1].permitsRetry)
+
+        let theirs = try await store.recoveryChains(ownerUserIds: ["user-2"])
+        XCTAssertEqual(theirs.map(\.parkedHead.id), ["other-owner"])
+        let missing = try await store.recoveryChains(ownerUserIds: ["user-3"])
+        XCTAssertTrue(missing.isEmpty)
+    }
+
+    func testExactRetryPreservesIntentAndSurvivesRelaunch() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(
+            id: "retry-exhausted",
+            expectedRevision: 11,
+            acts: [makeAct(id: "act-1", title: "Preserved Act")],
+            scenes: [makeScene(id: "scene-1", actId: "act-1")],
+            beats: [makeBeat(id: "beat-1", sceneId: "scene-1", actId: "act-1")],
+            source: "reorder scene",
+            createdAt: 100,
+            status: .parked,
+            retries: 6,
+            nextAttemptAt: 0,
+            parkedReason: .retryExhausted
+        )
+        try await store.enqueue(original)
+
+        let snapshot = try await store.retryParkedHead(
+            id: original.id,
+            projectId: original.projectId,
+            ownerUserIds: [original.ownerUserId],
+            now: Date(timeIntervalSince1970: 200)
+        )
+
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 0)
+        let retriedEntries = try await store.entriesForTesting()
+        let retried = try XCTUnwrap(retriedEntries.first)
+        XCTAssertEqual(retried.id, original.id)
+        XCTAssertEqual(retried.projectId, original.projectId)
+        XCTAssertEqual(retried.ownerUserId, original.ownerUserId)
+        XCTAssertEqual(retried.expectedOutlineRevision, original.expectedOutlineRevision)
+        XCTAssertEqual(retried.acts, original.acts)
+        XCTAssertEqual(retried.scenes, original.scenes)
+        XCTAssertEqual(retried.beats, original.beats)
+        XCTAssertEqual(retried.source, original.source)
+        XCTAssertEqual(retried.createdAt, original.createdAt)
+        XCTAssertEqual(retried.status, .pending)
+        XCTAssertEqual(retried.retries, 0)
+        XCTAssertEqual(retried.nextAttemptAt, 200)
+        XCTAssertEqual(retried.updatedAt, 200)
+        XCTAssertNil(retried.parkedReason)
+
+        let restoredStore = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let restoredEntries = try await restoredStore.entriesForTesting()
+        XCTAssertEqual(restoredEntries, [retried])
+    }
+
+    func testKnownStaleRecoveryCannotRetryOrMutateManifest() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let stale = makeEntry(
+            id: "stale-head",
+            expectedRevision: 4,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .staleRevision
+        )
+        try await store.enqueue(stale)
+        let beforeRejectedRetry = try await store.entriesForTesting()
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let originalManifest = try Data(contentsOf: manifestURL)
+
+        do {
+            try await store.retryParkedHead(
+                id: stale.id,
+                projectId: stale.projectId,
+                ownerUserIds: [stale.ownerUserId]
+            )
+            XCTFail("Expected stale exact retry to be rejected")
+        } catch ScreenplayOutlineMutationRecoveryError.exactRetryUnavailable(let reason) {
+            XCTAssertTrue(reason.contains("server outline changed"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let afterRejectedRetry = try await store.entriesForTesting()
+        XCTAssertEqual(afterRejectedRetry, beforeRejectedRetry)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), originalManifest)
+    }
+
+    func testNonHeadRecoveryRetryIsRejectedWithoutMutation() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let earlier = makeEntry(id: "earlier", createdAt: 100)
+        let parked = makeEntry(
+            id: "parked",
+            createdAt: 101,
+            status: .parked,
+            retries: 6,
+            nextAttemptAt: 0,
+            parkedReason: .retryExhausted
+        )
+        try await store.enqueue(earlier)
+        try await store.enqueue(parked)
+        let before = try await store.entriesForTesting()
+
+        do {
+            try await store.retryParkedHead(
+                id: parked.id,
+                projectId: parked.projectId,
+                ownerUserIds: [parked.ownerUserId]
+            )
+            XCTFail("Expected non-head retry to be rejected")
+        } catch ScreenplayOutlineMutationRecoveryError.parkedHeadRequired {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let afterRejectedRetry = try await store.entriesForTesting()
+        XCTAssertEqual(afterRejectedRetry, before)
+    }
+
+    func testDiscardRecoveryChainCannotResurrectDependentSnapshots() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let earlier = makeEntry(id: "earlier", createdAt: 90)
+        let parked = makeEntry(
+            id: "parked",
+            createdAt: 100,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .staleRevision
+        )
+        let dependentOne = makeEntry(
+            id: "dependent-1",
+            acts: [makeAct(id: "act-1", title: "Contains discarded change")],
+            createdAt: 101,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        let dependentTwo = makeEntry(
+            id: "dependent-2",
+            createdAt: 102,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        let otherProject = makeEntry(
+            id: "other-project",
+            projectId: "project-2",
+            createdAt: 103
+        )
+        let otherOwner = makeEntry(
+            id: "other-owner",
+            ownerUserId: "user-2",
+            createdAt: 104
+        )
+        for entry in [earlier, parked, dependentOne, dependentTwo, otherProject, otherOwner] {
+            try await store.enqueue(entry)
+        }
+
+        let result = try await store.discardRecoveryChain(
+            parkedHeadID: parked.id,
+            projectId: parked.projectId,
+            confirmedEntryIDs: [parked.id, dependentOne.id, dependentTwo.id],
+            ownerUserIds: [parked.ownerUserId]
+        )
+
+        XCTAssertEqual(result.removedCount, 3)
+        let remaining = try await store.entriesForTesting()
+        XCTAssertEqual(Set(remaining.map(\.id)), ["earlier", "other-project", "other-owner"])
+        XCTAssertFalse(remaining.contains { $0.acts.first?.title == "Contains discarded change" })
+
+        let restoredStore = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let restoredEntries = try await restoredStore.entriesForTesting()
+        XCTAssertEqual(restoredEntries, remaining)
+    }
+
+    func testDiscardRequiresExactConfirmedChainAndPreservesConcurrentAppend() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let parked = makeEntry(
+            id: "parked",
+            createdAt: 100,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .staleRevision
+        )
+        let dependent = makeEntry(
+            id: "dependent",
+            createdAt: 101,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        try await store.enqueue(parked)
+        try await store.enqueue(dependent)
+        let confirmedChains = try await store.recoveryChains(ownerUserIds: [parked.ownerUserId])
+        let confirmedChain = try XCTUnwrap(confirmedChains.first)
+
+        let concurrentAppend = makeEntry(
+            id: "concurrent-append",
+            createdAt: 102,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        try await store.enqueue(concurrentAppend)
+
+        do {
+            try await store.discardRecoveryChain(
+                parkedHeadID: parked.id,
+                projectId: parked.projectId,
+                confirmedEntryIDs: confirmedChain.entries.map(\.id),
+                ownerUserIds: [parked.ownerUserId]
+            )
+            XCTFail("Expected changed-chain confirmation failure")
+        } catch ScreenplayOutlineMutationRecoveryError.recoveryChainChanged {
+            // Expected: a newly appended snapshot must never be deleted by stale confirmation.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        let afterDeniedDiscard = try await store.entriesForTesting()
+        XCTAssertEqual(afterDeniedDiscard.map(\.id), [parked.id, dependent.id, concurrentAppend.id])
+        let refreshedChains = try await store.recoveryChains(ownerUserIds: [parked.ownerUserId])
+        let refreshedChain = try XCTUnwrap(refreshedChains.first)
+        let result = try await store.discardRecoveryChain(
+            parkedHeadID: parked.id,
+            projectId: parked.projectId,
+            confirmedEntryIDs: refreshedChain.entries.map(\.id),
+            ownerUserIds: [parked.ownerUserId]
+        )
+        XCTAssertEqual(result.removedCount, 3)
+        let finalEntries = try await store.entriesForTesting()
+        XCTAssertTrue(finalEntries.isEmpty)
+    }
+
+    func testRecoveryMutationsRollbackWhenProtectedCandidateWriteFails() async throws {
+        let seedStore = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let parked = makeEntry(
+            id: "parked",
+            createdAt: 100,
+            status: .parked,
+            retries: 6,
+            nextAttemptAt: 0,
+            parkedReason: .retryExhausted
+        )
+        let dependent = makeEntry(
+            id: "dependent",
+            createdAt: 101,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        try await seedStore.enqueue(parked)
+        try await seedStore.enqueue(dependent)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let originalManifest = try Data(contentsOf: manifestURL)
+        let store = ScreenplayOutlineMutationOutbox(
+            storageDirectory: storageDirectory,
+            fileProtectionEnforcer: { url in
+                if url.lastPathComponent.hasPrefix(".queue-") {
+                    throw FileProtectionTestError.rejected
+                }
+            }
+        )
+        let originalEntries = try await store.entriesForTesting()
+
+        do {
+            try await store.retryParkedHead(
+                id: parked.id,
+                projectId: parked.projectId,
+                ownerUserIds: [parked.ownerUserId]
+            )
+            XCTFail("Expected retry persistence failure")
+        } catch FileProtectionTestError.rejected {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        let afterFailedRetry = try await store.entriesForTesting()
+        XCTAssertEqual(afterFailedRetry, originalEntries)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), originalManifest)
+
+        do {
+            try await store.discardRecoveryChain(
+                parkedHeadID: parked.id,
+                projectId: parked.projectId,
+                confirmedEntryIDs: [parked.id, dependent.id],
+                ownerUserIds: [parked.ownerUserId]
+            )
+            XCTFail("Expected discard persistence failure")
+        } catch FileProtectionTestError.rejected {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        let afterFailedDiscard = try await store.entriesForTesting()
+        XCTAssertEqual(afterFailedDiscard, originalEntries)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), originalManifest)
+    }
+
+    func testRecoveryExportIsDeterministicCompleteOwnerRedactedAndNonmutating() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let parked = makeEntry(
+            id: "parked-export",
+            ownerUserId: "owner-secret-partition",
+            expectedRevision: 8,
+            acts: [makeAct(id: "act-1", title: "Exported Act")],
+            scenes: [makeScene(id: "scene-1", actId: "act-1")],
+            beats: [makeBeat(id: "beat-1", sceneId: "scene-1", actId: "act-1")],
+            source: "outline recovery export",
+            createdAt: 100,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .staleRevision
+        )
+        let dependent = makeEntry(
+            id: "dependent-export",
+            ownerUserId: parked.ownerUserId,
+            createdAt: 101,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        try await store.enqueue(parked)
+        try await store.enqueue(dependent)
+        let before = try await store.entriesForTesting()
+        let exportedAt = Date(timeIntervalSince1970: 1_234)
+
+        let first = try await store.exportRecoveryChain(
+            parkedHeadID: parked.id,
+            projectId: parked.projectId,
+            ownerUserIds: [parked.ownerUserId],
+            exportedAt: exportedAt
+        )
+        let second = try await store.exportRecoveryChain(
+            parkedHeadID: parked.id,
+            projectId: parked.projectId,
+            ownerUserIds: [parked.ownerUserId],
+            exportedAt: exportedAt
+        )
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.filename, "io-them-screenplay-outline-recovery-1234.json")
+        let exportText = try XCTUnwrap(String(data: first.data, encoding: .utf8))
+        XCTAssertFalse(exportText.contains(parked.ownerUserId))
+        XCTAssertTrue(exportText.contains("Exported Act"))
+        XCTAssertTrue(exportText.contains("parked-export"))
+        XCTAssertTrue(exportText.contains("dependent-export"))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: first.data) as? [String: Any]
+        )
+        XCTAssertEqual(object["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(object["projectId"] as? String, parked.projectId)
+        XCTAssertEqual((object["entries"] as? [[String: Any]])?.count, 2)
+        let afterExport = try await store.entriesForTesting()
+        XCTAssertEqual(afterExport, before)
+    }
+
+    func testRecoveryActionsDenyOtherOwnerWithoutRevealingEntry() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let parked = makeEntry(
+            id: "private-entry",
+            ownerUserId: "owner-private",
+            status: .parked,
+            retries: 6,
+            nextAttemptAt: 0,
+            parkedReason: .retryExhausted
+        )
+        try await store.enqueue(parked)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let originalManifest = try Data(contentsOf: manifestURL)
+
+        let otherOwnerChains = try await store.recoveryChains(ownerUserIds: ["other-owner"])
+        XCTAssertTrue(otherOwnerChains.isEmpty)
+        for operation in ["retry", "discard", "export"] {
+            do {
+                switch operation {
+                case "retry":
+                    try await store.retryParkedHead(
+                        id: parked.id,
+                        projectId: parked.projectId,
+                        ownerUserIds: ["other-owner"]
+                    )
+                case "discard":
+                    try await store.discardRecoveryChain(
+                        parkedHeadID: parked.id,
+                        projectId: parked.projectId,
+                        confirmedEntryIDs: [parked.id],
+                        ownerUserIds: ["other-owner"]
+                    )
+                default:
+                    _ = try await store.exportRecoveryChain(
+                        parkedHeadID: parked.id,
+                        projectId: parked.projectId,
+                        ownerUserIds: ["other-owner"]
+                    )
+                }
+                XCTFail("Expected owner-scoped \(operation) denial")
+            } catch ScreenplayOutlineMutationRecoveryError.entryUnavailable {
+                // Identical denial for missing and cross-owner entries.
+            } catch {
+                XCTFail("Unexpected \(operation) error: \(error)")
+            }
+        }
+
+        let afterDeniedActions = try await store.entriesForTesting()
+        XCTAssertEqual(afterDeniedActions.map(\.id), [parked.id])
+        XCTAssertEqual(try Data(contentsOf: manifestURL), originalManifest)
+    }
+
+    func testLegacyRetryExhaustedEntryWithoutTypedReasonRemainsRecoverable() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let legacy = makeEntry(
+            id: "legacy-retry-exhausted",
+            status: .parked,
+            retries: 6,
+            nextAttemptAt: 0,
+            parkedReason: nil
+        )
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        try JSONEncoder().encode([legacy]).write(to: manifestURL)
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+
+        let chains = try await store.recoveryChains(ownerUserIds: [legacy.ownerUserId])
+
+        XCTAssertEqual(chains.count, 1)
+        XCTAssertTrue(chains[0].permitsRetry)
+        XCTAssertNil(chains[0].parkedHead.parkedReason)
+    }
+
+    func testQueueOrderingUsesDurableEnqueueSequenceAcrossClockRollbackAndRelaunch() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "request-b", createdAt: 200))
         try await store.enqueue(makeEntry(id: "request-a", createdAt: 100))
 
         let orderedIDs = try await store.entriesForTesting().map(\.id)
-        XCTAssertEqual(orderedIDs, ["request-a", "request-b"])
-        let next = try await store.beginNext(
+        XCTAssertEqual(orderedIDs, ["request-b", "request-a"])
+
+        let restoredStore = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let restoredIDs = try await restoredStore.entriesForTesting().map(\.id)
+        XCTAssertEqual(restoredIDs, orderedIDs)
+        let next = try await restoredStore.beginNext(
             projectId: "project-1",
             ownerUserId: "user-1",
-            now: Date(timeIntervalSince1970: 100),
+            now: Date(timeIntervalSince1970: 200),
             force: true
         )
-        XCTAssertEqual(next?.id, "request-a")
+        XCTAssertEqual(next?.id, "request-b")
+    }
+
+    func testRecoveryChainUsesEnqueueSequenceWhenClockMovesBackward() async throws {
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let parked = makeEntry(
+            id: "parked-after-clock-forward",
+            createdAt: 200,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .staleRevision
+        )
+        let laterSnapshot = makeEntry(
+            id: "later-after-clock-rollback",
+            createdAt: 100,
+            status: .parked,
+            nextAttemptAt: 0,
+            parkedReason: .supersededByRemoteChange
+        )
+        try await store.enqueue(parked)
+        try await store.enqueue(laterSnapshot)
+
+        let chains = try await store.recoveryChains(ownerUserIds: [parked.ownerUserId])
+        let chain = try XCTUnwrap(chains.first)
+        XCTAssertEqual(chain.entries.map(\.id), [parked.id, laterSnapshot.id])
+
+        let result = try await store.discardRecoveryChain(
+            parkedHeadID: parked.id,
+            projectId: parked.projectId,
+            confirmedEntryIDs: chain.entries.map(\.id),
+            ownerUserIds: [parked.ownerUserId]
+        )
+        XCTAssertEqual(result.removedCount, 2)
+        let remainingEntries = try await store.entriesForTesting()
+        XCTAssertTrue(remainingEntries.isEmpty)
+    }
+
+    func testLegacyManifestMigratesArrayOrderToDurableQueueSequence() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let first = makeEntry(id: "legacy-first", createdAt: 200)
+        let second = makeEntry(id: "legacy-second", createdAt: 100)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        try JSONEncoder().encode([first, second]).write(to: manifestURL)
+
+        let store = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let migrated = try await store.entriesForTesting()
+
+        XCTAssertEqual(migrated.map(\.id), [first.id, second.id])
+        XCTAssertEqual(migrated.map(\.queueSequence), [1, 2])
+        let migratedManifest = try String(contentsOf: manifestURL, encoding: .utf8)
+        XCTAssertTrue(migratedManifest.contains("\"queueSequence\":1"))
+        XCTAssertTrue(migratedManifest.contains("\"queueSequence\":2"))
+
+        let restoredStore = ScreenplayOutlineMutationOutbox(storageDirectory: storageDirectory)
+        let restored = try await restoredStore.entriesForTesting()
+        XCTAssertEqual(restored, migrated)
     }
 
     func testLatestActiveEntryReturnsTailOfActiveScope() async throws {
@@ -696,7 +1248,8 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
         createdAt: TimeInterval = 100,
         status: ScreenplayOutlineMutationOutboxStatus = .pending,
         retries: Int = 0,
-        nextAttemptAt: TimeInterval? = nil
+        nextAttemptAt: TimeInterval? = nil,
+        parkedReason: ScreenplayOutlineMutationParkedReason? = nil
     ) -> ScreenplayOutlineMutationOutboxEntry {
         ScreenplayOutlineMutationOutboxEntry(
             id: id,
@@ -712,7 +1265,8 @@ final class ScreenplayOutlineMutationOutboxTests: XCTestCase {
             status: status,
             retries: retries,
             nextAttemptAt: nextAttemptAt ?? createdAt,
-            lastError: ""
+            lastError: "",
+            parkedReason: parkedReason
         )
     }
 

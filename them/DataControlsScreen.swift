@@ -1,15 +1,35 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
 
-private enum DataControlAction: String, Identifiable {
+private enum DataControlAction: Identifiable, Equatable {
     case clearHistory
     case clearMemories
     case clearParkedOutbox
+    case discardOutlineRecovery(
+        headID: String,
+        projectId: String,
+        confirmedEntryIDs: [String],
+        ownerScope: Set<String>
+    )
     case deleteAccount
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .clearHistory:
+            return "clear-history"
+        case .clearMemories:
+            return "clear-memories"
+        case .clearParkedOutbox:
+            return "clear-parked-outbox"
+        case .discardOutlineRecovery(let headID, let projectId, _, _):
+            return "discard-outline-recovery:\(projectId):\(headID)"
+        case .deleteAccount:
+            return "delete-account"
+        }
+    }
 
     var title: String {
         switch self {
@@ -19,6 +39,8 @@ private enum DataControlAction: String, Identifiable {
             return "Delete All Memories"
         case .clearParkedOutbox:
             return "Delete Parked Turns"
+        case .discardOutlineRecovery:
+            return "Discard Parked Outline Changes"
         case .deleteAccount:
             return "Delete Account"
         }
@@ -32,6 +54,10 @@ private enum DataControlAction: String, Identifiable {
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
         case .clearParkedOutbox:
             return "This deletes queued talk turns that could not be retried. This cannot be undone."
+        case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
+            let removalCount = confirmedEntryIDs.count
+            let noun = removalCount == 1 ? "saved outline snapshot" : "causally linked outline snapshots"
+            return "This permanently removes \(removalCount) \(noun) from this device. Later snapshots are included so a discarded edit cannot reappear. Export first if you may need the work."
         case .deleteAccount:
             return "This requests deletion for your backend account, revokes signed-in sessions, and signs this device out. The backend may keep the account in its recovery window before hard deletion."
         }
@@ -45,6 +71,9 @@ private enum DataControlAction: String, Identifiable {
             return "Delete Memories"
         case .clearParkedOutbox:
             return "Delete Parked Turns"
+        case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
+            let removalCount = confirmedEntryIDs.count
+            return removalCount == 1 ? "Discard Change" : "Discard \(removalCount) Changes"
         case .deleteAccount:
             return "Delete Account"
         }
@@ -58,6 +87,8 @@ private enum DataControlAction: String, Identifiable {
             return "trash"
         case .clearParkedOutbox:
             return "tray.and.arrow.down"
+        case .discardOutlineRecovery:
+            return "trash"
         case .deleteAccount:
             return "person.crop.circle.badge.xmark"
         }
@@ -80,6 +111,14 @@ struct DataControlsScreen: View {
     @State private var isRetryingOutbox = false
     @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
+    @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
+    @State private var outlineRecoveryError = ""
+    @State private var isRefreshingOutlineRecovery = false
+    @State private var runningOutlineRecoveryID: String?
+    @State private var inspectingOutlineRecovery: ScreenplayOutlineMutationRecoveryChain?
+    @State private var outlineRecoveryExportDocument: ScreenplayOutlineMutationRecoveryDocument?
+    @State private var outlineRecoveryExportFilename = "io-them-screenplay-outline-recovery.json"
+    @State private var isPresentingOutlineRecoveryExporter = false
     @State private var isRefreshingMemoryStats = false
     @State private var memoryStats: BackendMemoryStatsResponse?
     @State private var memoryStatsError = ""
@@ -87,6 +126,9 @@ struct DataControlsScreen: View {
     @State private var statusMessage = ""
     @State private var stateVersion = ""
     @State private var showingV1LaunchDoctor = false
+    #if DEBUG
+    @State private var didInstallOutlineRecoveryUITestFixture = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -102,23 +144,26 @@ struct DataControlsScreen: View {
                 )
                 .ignoresSafeArea()
 
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    storageExplanation
-                    offlineOutboxStatus
-                    memoryStatus
-                    voiceTransportSettings
-                    realtimeProviderSettings
-                    visualContextSettings
-                    v1LaunchDoctorEntry
-                    actionButtons
-                    statusRow
-                    Spacer(minLength: 0)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        header
+                        storageExplanation
+                        offlineOutboxStatus
+                        outlineRecoveryStatus
+                        memoryStatus
+                        voiceTransportSettings
+                        realtimeProviderSettings
+                        visualContextSettings
+                        v1LaunchDoctorEntry
+                        actionButtons
+                        statusRow
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 28)
+                    .padding(.bottom, 18)
+                    .frame(maxWidth: 980, alignment: .topLeading)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
-                .padding(.bottom, 18)
-                .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .navigationTitle("")
             .toolbar {
@@ -146,13 +191,32 @@ struct DataControlsScreen: View {
             )
         }
         .task {
-            await refreshMemoryStats(force: false)
+            #if DEBUG
+            await installOutlineRecoveryUITestFixtureIfNeeded()
+            #endif
+            await refreshOutlineRecovery(startMonitoring: true)
             await refreshOfflineOutbox(startMonitoring: true)
+            await refreshMemoryStats(force: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
             offlineOutboxSnapshot = OfflineTalkOutboxSnapshot(notification: notification)
             Task { @MainActor in
                 await refreshOfflineOutbox(startMonitoring: false)
+            }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .themScreenplayOutlineMutationOutboxUpdated)
+        ) { _ in
+            Task { @MainActor in
+                await refreshOutlineRecovery(startMonitoring: false)
+            }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)
+        ) { _ in
+            clearOutlineRecoveryPresentation()
+            Task { @MainActor in
+                await refreshOutlineRecovery(startMonitoring: false)
             }
         }
         .accessibilityIdentifier("data.controls.screen")
@@ -161,6 +225,36 @@ struct DataControlsScreen: View {
                 showingV1LaunchDoctor = false
             }
             .frame(minWidth: 760, minHeight: 680)
+        }
+        .sheet(item: $inspectingOutlineRecovery) { chain in
+            ScreenplayOutlineMutationRecoveryDetailView(
+                chain: chain,
+                isDisabled: isBusy,
+                onExport: {
+                    inspectingOutlineRecovery = nil
+                    Task { @MainActor in
+                        await Task.yield()
+                        await exportOutlineRecovery(chain)
+                    }
+                },
+                onDone: {
+                    inspectingOutlineRecovery = nil
+                }
+            )
+        }
+        .fileExporter(
+            isPresented: $isPresentingOutlineRecoveryExporter,
+            document: outlineRecoveryExportDocument,
+            contentType: .json,
+            defaultFilename: outlineRecoveryExportFilename
+        ) { result in
+            switch result {
+            case .success(let url):
+                statusMessage = "Outline recovery export saved: \(url.lastPathComponent)"
+            case .failure(let error):
+                statusMessage = "Outline recovery export failed: \(error.localizedDescription)"
+            }
+            outlineRecoveryExportDocument = nil
         }
     }
 
@@ -360,6 +454,57 @@ struct DataControlsScreen: View {
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    private var outlineRecoveryStatus: some View {
+        ScreenplayOutlineMutationRecoveryPanel(
+            chains: visibleOutlineRecoveryChains,
+            statusText: outlineRecoverySummary,
+            isRefreshing: isRefreshingOutlineRecovery,
+            isDisabled: isBusy,
+            runningChainID: runningOutlineRecoveryID,
+            onRefresh: {
+                Task { @MainActor in
+                    await refreshOutlineRecovery(startMonitoring: false)
+                }
+            },
+            onInspect: { chain in
+                guard isCurrentOutlineRecoveryChain(chain) else {
+                    clearOutlineRecoveryPresentation()
+                    Task { @MainActor in
+                        await refreshOutlineRecovery(startMonitoring: false)
+                    }
+                    return
+                }
+                inspectingOutlineRecovery = chain
+            },
+            onExport: { chain in
+                Task { @MainActor in
+                    await exportOutlineRecovery(chain)
+                }
+            },
+            onRetry: { chain in
+                Task { @MainActor in
+                    await retryOutlineRecovery(chain)
+                }
+            },
+            onDiscard: { chain in
+                let ownerScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+                guard ownerScope.contains(chain.parkedHead.ownerUserId) else {
+                    clearOutlineRecoveryPresentation()
+                    Task { @MainActor in
+                        await refreshOutlineRecovery(startMonitoring: false)
+                    }
+                    return
+                }
+                pendingAction = .discardOutlineRecovery(
+                    headID: chain.parkedHead.id,
+                    projectId: chain.projectId,
+                    confirmedEntryIDs: chain.entries.map(\.id),
+                    ownerScope: ownerScope
+                )
+            }
         )
     }
 
@@ -612,7 +757,12 @@ struct DataControlsScreen: View {
     }
 
     private var isBusy: Bool {
-        runningAction != nil || isExporting || isRefreshingOutbox || isRetryingOutbox
+        runningAction != nil ||
+            isExporting ||
+            isRefreshingOutbox ||
+            isRetryingOutbox ||
+            isRefreshingOutlineRecovery ||
+            runningOutlineRecoveryID != nil
     }
 
     private var memoryStatsSummary: String {
@@ -630,6 +780,35 @@ struct DataControlsScreen: View {
             return status
         }
         return "No talk turns are waiting on this device."
+    }
+
+    private var outlineRecoverySummary: String {
+        if isRefreshingOutlineRecovery {
+            return "Refreshing parked outline changes..."
+        }
+        if !outlineRecoveryError.isEmpty {
+            return "Recovery queue unavailable: \(outlineRecoveryError)"
+        }
+        let chains = visibleOutlineRecoveryChains
+        guard !chains.isEmpty else {
+            return "No screenplay outline changes need attention on this device."
+        }
+        let snapshotCount = chains.reduce(0) { $0 + $1.entries.count }
+        let chainLabel = chains.count == 1 ? "project chain" : "project chains"
+        let snapshotLabel = snapshotCount == 1 ? "snapshot" : "snapshots"
+        return "\(snapshotCount) saved \(snapshotLabel) across \(chains.count) \(chainLabel) need attention."
+    }
+
+    private var visibleOutlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] {
+        let ownerScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+        return outlineRecoveryChains.filter { ownerScope.contains($0.parkedHead.ownerUserId) }
+    }
+
+    private func isCurrentOutlineRecoveryChain(
+        _ chain: ScreenplayOutlineMutationRecoveryChain,
+        ownerScope: Set<String> = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+    ) -> Bool {
+        ownerScope.contains(chain.parkedHead.ownerUserId)
     }
 
     private func outboxTitle(for entry: OfflineTalkOutboxEntry) -> String {
@@ -710,6 +889,121 @@ struct DataControlsScreen: View {
     }
 
     @MainActor
+    private func refreshOutlineRecovery(startMonitoring: Bool) async {
+        if isRefreshingOutlineRecovery { return }
+        isRefreshingOutlineRecovery = true
+        defer { isRefreshingOutlineRecovery = false }
+        if startMonitoring {
+            await ScreenplayOutlineMutationOutbox.shared.startNetworkMonitoring()
+        }
+        for _ in 0..<2 {
+            let requestedScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+            do {
+                let recoveredChains = try await ScreenplayOutlineMutationOutbox.shared.recoveryChains(
+                    ownerUserIds: requestedScope
+                )
+                guard requestedScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                    clearOutlineRecoveryPresentation()
+                    continue
+                }
+                outlineRecoveryChains = recoveredChains
+                outlineRecoveryError = ""
+                return
+            } catch {
+                guard requestedScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                    clearOutlineRecoveryPresentation()
+                    continue
+                }
+                outlineRecoveryChains = []
+                outlineRecoveryError = error.localizedDescription
+                return
+            }
+        }
+        clearOutlineRecoveryPresentation()
+    }
+
+    @MainActor
+    private func clearOutlineRecoveryPresentation() {
+        outlineRecoveryChains = []
+        outlineRecoveryError = ""
+        inspectingOutlineRecovery = nil
+        outlineRecoveryExportDocument = nil
+        isPresentingOutlineRecoveryExporter = false
+    }
+
+    @MainActor
+    private func retryOutlineRecovery(
+        _ chain: ScreenplayOutlineMutationRecoveryChain
+    ) async {
+        let ownerScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+        guard runningOutlineRecoveryID == nil,
+              runningAction == nil,
+              isCurrentOutlineRecoveryChain(chain, ownerScope: ownerScope) else {
+            clearOutlineRecoveryPresentation()
+            return
+        }
+        runningOutlineRecoveryID = chain.id
+        defer { runningOutlineRecoveryID = nil }
+        do {
+            _ = try await ScreenplayOutlineMutationOutbox.shared.retryParkedHead(
+                id: chain.parkedHead.id,
+                projectId: chain.projectId,
+                ownerUserIds: ownerScope
+            )
+            guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                clearOutlineRecoveryPresentation()
+                return
+            }
+            statusMessage = "The exact outline request is queued with its original revision check. Open that project to sync it."
+        } catch {
+            guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                clearOutlineRecoveryPresentation()
+                return
+            }
+            statusMessage = "Outline retry failed: \(error.localizedDescription)"
+        }
+        await refreshOutlineRecovery(startMonitoring: false)
+    }
+
+    @MainActor
+    private func exportOutlineRecovery(
+        _ chain: ScreenplayOutlineMutationRecoveryChain
+    ) async {
+        let ownerScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+        guard runningOutlineRecoveryID == nil,
+              runningAction == nil,
+              isCurrentOutlineRecoveryChain(chain, ownerScope: ownerScope) else {
+            clearOutlineRecoveryPresentation()
+            return
+        }
+        runningOutlineRecoveryID = chain.id
+        defer { runningOutlineRecoveryID = nil }
+        do {
+            let artifact = try await ScreenplayOutlineMutationOutbox.shared.exportRecoveryChain(
+                parkedHeadID: chain.parkedHead.id,
+                projectId: chain.projectId,
+                ownerUserIds: ownerScope
+            )
+            guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                clearOutlineRecoveryPresentation()
+                return
+            }
+            outlineRecoveryExportDocument = ScreenplayOutlineMutationRecoveryDocument(
+                data: artifact.data
+            )
+            outlineRecoveryExportFilename = artifact.filename
+            isPresentingOutlineRecoveryExporter = true
+            statusMessage = "Choose where to save the owner-redacted outline recovery file."
+        } catch {
+            guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                clearOutlineRecoveryPresentation()
+                return
+            }
+            statusMessage = "Outline recovery export failed: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
     private func runAction(_ action: DataControlAction) {
         guard runningAction == nil else { return }
         runningAction = action
@@ -737,6 +1031,7 @@ struct DataControlsScreen: View {
                 case .deleteAccount:
                     let result = try await BackendMemoryAPI.shared.requestAccountDeletion(reason: "Requested from Data Controls")
                     ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
+                    clearOutlineRecoveryPresentation()
                     stateVersion = ""
                     let hardDelete = (result.hardDeleteAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     let recovery = result.recoveryWindowDays.map { "\($0)-day recovery window" } ?? "backend recovery window"
@@ -745,12 +1040,38 @@ struct DataControlsScreen: View {
                         : "Account deletion requested. Hard deletion is scheduled for \(hardDelete) after the \(recovery). This device has been signed out."
                     memoryStats = nil
                     memoryStatsError = ""
+                    await refreshOutlineRecovery(startMonitoring: false)
                 case .clearParkedOutbox:
                     offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.deleteParkedEntries()
                     offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
                     statusMessage = "Parked queued turns deleted."
+                case .discardOutlineRecovery(
+                    let headID,
+                    let projectId,
+                    let confirmedEntryIDs,
+                    let ownerScope
+                ):
+                    guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                        throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+                    }
+                    let result = try await ScreenplayOutlineMutationOutbox.shared.discardRecoveryChain(
+                        parkedHeadID: headID,
+                        projectId: projectId,
+                        confirmedEntryIDs: confirmedEntryIDs,
+                        ownerUserIds: ownerScope
+                    )
+                    guard ownerScope == ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope() else {
+                        clearOutlineRecoveryPresentation()
+                        return
+                    }
+                    let noun = result.removedCount == 1 ? "outline snapshot" : "linked outline snapshots"
+                    statusMessage = "Discarded \(result.removedCount) \(noun) from this device."
+                    await refreshOutlineRecovery(startMonitoring: false)
                 }
             } catch {
+                if case .discardOutlineRecovery = action {
+                    await refreshOutlineRecovery(startMonitoring: false)
+                }
                 statusMessage = "Action failed: \(error.localizedDescription)"
             }
         }
@@ -797,6 +1118,109 @@ struct DataControlsScreen: View {
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    #if DEBUG
+    @MainActor
+    private func installOutlineRecoveryUITestFixtureIfNeeded() async {
+        guard !didInstallOutlineRecoveryUITestFixture,
+              IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-outline-recovery-fixture") else {
+            return
+        }
+        didInstallOutlineRecoveryUITestFixture = true
+        let ownerUserId = ScreenplayOutlineMutationOwnerPartition.currentUser()
+        let head = ScreenplayOutlineMutationOutboxEntry(
+            id: "ui-stale-outline-head",
+            projectId: "ui-recovery-project",
+            ownerUserId: ownerUserId,
+            expectedOutlineRevision: 7,
+            acts: [
+                BackendScreenplayAct(
+                    id: "ui-act-1",
+                    title: "Recovered Act One",
+                    summary: "The locally parked structure.",
+                    order: 0,
+                    sceneIds: ["ui-scene-1"],
+                    createdAt: nil,
+                    updatedAt: nil
+                ),
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "ui-scene-1",
+                    slugline: "INT. ARCHIVE - NIGHT",
+                    title: "Archive",
+                    objective: "Protect the missing reel.",
+                    summary: nil,
+                    actId: "ui-act-1",
+                    order: 0,
+                    status: "outlined",
+                    beatIds: ["ui-beat-1"],
+                    createdAt: nil,
+                    updatedAt: nil
+                ),
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "ui-beat-1",
+                    label: "Mara finds the altered negative.",
+                    summary: nil,
+                    sceneId: "ui-scene-1",
+                    actId: "ui-act-1",
+                    order: 0,
+                    status: "outlined",
+                    createdAt: nil,
+                    updatedAt: nil
+                ),
+            ],
+            source: "Stale outline reorder",
+            createdAt: 1_725_000_000,
+            updatedAt: 1_725_000_100,
+            status: .parked,
+            retries: 1,
+            nextAttemptAt: 0,
+            lastError: "The server outline changed before this reorder could be saved.",
+            parkedReason: .staleRevision
+        )
+        let dependent = ScreenplayOutlineMutationOutboxEntry(
+            id: "ui-stale-outline-dependent",
+            projectId: head.projectId,
+            ownerUserId: ownerUserId,
+            expectedOutlineRevision: 7,
+            acts: head.acts,
+            scenes: head.scenes,
+            beats: head.beats + [
+                BackendScreenplayBeat(
+                    id: "ui-beat-2",
+                    label: "The archive alarm seals the exit.",
+                    summary: nil,
+                    sceneId: "ui-scene-1",
+                    actId: "ui-act-1",
+                    order: 1,
+                    status: "outlined",
+                    createdAt: nil,
+                    updatedAt: nil
+                ),
+            ],
+            source: "Dependent beat edit",
+            createdAt: 1_725_000_200,
+            updatedAt: 1_725_000_200,
+            status: .parked,
+            retries: 0,
+            nextAttemptAt: 0,
+            lastError: "Blocked by the earlier stale outline change.",
+            parkedReason: .supersededByRemoteChange
+        )
+        do {
+            try await ScreenplayOutlineMutationOutbox.shared.replaceEntriesForUITesting([
+                head,
+                dependent,
+            ])
+        } catch {
+            outlineRecoveryError = "UI recovery fixture failed: \(error.localizedDescription)"
+        }
+    }
+    #endif
 }
 
 #Preview {

@@ -16,6 +16,41 @@ nonisolated enum ScreenplayOutlineMutationOutboxStatus: String, Codable, Equatab
     case parked
 }
 
+nonisolated enum ScreenplayOutlineMutationParkedReason: String, Codable, Equatable {
+    case retryExhausted = "retry_exhausted"
+    case authenticationRequired = "authentication_required"
+    case staleRevision = "stale_revision"
+    case requestIDReused = "request_id_reused"
+    case revisionExhausted = "revision_exhausted"
+    case payloadTooLarge = "payload_too_large"
+    case invalidLocalIntent = "invalid_local_intent"
+    case supersededByRemoteChange = "superseded_by_remote_change"
+    case permanentRejection = "permanent_rejection"
+
+    var permitsExactRetry: Bool {
+        self == .retryExhausted || self == .authenticationRequired
+    }
+
+    var retryUnavailableDescription: String {
+        switch self {
+        case .retryExhausted, .authenticationRequired:
+            return "Ready for an exact retry."
+        case .staleRevision, .supersededByRemoteChange:
+            return "The server outline changed. Export or inspect this version before discarding it."
+        case .requestIDReused:
+            return "This request identifier cannot be reused safely."
+        case .revisionExhausted:
+            return "The outline revision limit requires support."
+        case .payloadTooLarge:
+            return "This outline is too large to retry unchanged."
+        case .invalidLocalIntent:
+            return "This local outline contains invalid references and cannot be retried unchanged."
+        case .permanentRejection:
+            return "The server rejected this exact outline change."
+        }
+    }
+}
+
 nonisolated struct ScreenplayOutlineMutationOutboxEntry: Identifiable, Codable, Equatable {
     let id: String
     let projectId: String
@@ -31,6 +66,8 @@ nonisolated struct ScreenplayOutlineMutationOutboxEntry: Identifiable, Codable, 
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String
+    var parkedReason: ScreenplayOutlineMutationParkedReason? = nil
+    var queueSequence: UInt64? = nil
 }
 
 nonisolated struct ScreenplayOutlineMutationOutboxSnapshot: Equatable {
@@ -58,6 +95,50 @@ nonisolated struct ScreenplayOutlineMutationOutboxSnapshot: Equatable {
     }
 }
 
+nonisolated struct ScreenplayOutlineMutationRecoveryChain: Identifiable, Equatable {
+    let projectId: String
+    let parkedHead: ScreenplayOutlineMutationOutboxEntry
+    let entries: [ScreenplayOutlineMutationOutboxEntry]
+    let permitsRetry: Bool
+    let retryUnavailableReason: String
+
+    var id: String { parkedHead.id }
+    var dependentCount: Int { max(0, entries.count - 1) }
+}
+
+nonisolated struct ScreenplayOutlineMutationRecoveryDiscardResult: Equatable {
+    let snapshot: ScreenplayOutlineMutationOutboxSnapshot
+    let removedCount: Int
+}
+
+nonisolated struct ScreenplayOutlineMutationRecoveryExportArtifact: Equatable {
+    let filename: String
+    let data: Data
+}
+
+nonisolated enum ScreenplayOutlineMutationRecoveryError: LocalizedError, Equatable {
+    case ownerScopeRequired
+    case entryUnavailable
+    case parkedHeadRequired
+    case recoveryChainChanged
+    case exactRetryUnavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .ownerScopeRequired:
+            return "A current outline owner is required for recovery."
+        case .entryUnavailable:
+            return "This parked outline change is no longer available."
+        case .parkedHeadRequired:
+            return "An earlier outline change must be resolved first."
+        case .recoveryChainChanged:
+            return "More linked outline changes were saved after confirmation. Review the updated chain and confirm again."
+        case .exactRetryUnavailable(let reason):
+            return reason
+        }
+    }
+}
+
 actor ScreenplayOutlineMutationOutbox {
     typealias FileProtectionEnforcer = @Sendable (URL) throws -> Void
 
@@ -75,6 +156,7 @@ actor ScreenplayOutlineMutationOutbox {
     private let fileProtectionEnforcer: FileProtectionEnforcer?
     private var didLoad = false
     private var entries: [ScreenplayOutlineMutationOutboxEntry] = []
+    private var nextQueueSequence: UInt64 = 1
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-outline-outbox.network")
 
@@ -153,8 +235,10 @@ actor ScreenplayOutlineMutationOutbox {
             return nextSnapshot
         }
 
+        var storedEntry = entry
+        storedEntry.queueSequence = try takeNextQueueSequence()
         let previousEntries = entries
-        entries.append(entry)
+        entries.append(storedEntry)
         entries.sort(by: isOrderedBefore)
         try persistOrRestore(previousEntries)
         let nextSnapshot = snapshotFor(entries)
@@ -185,6 +269,7 @@ actor ScreenplayOutlineMutationOutbox {
         let previousEntries = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
+        entries[index].parkedReason = nil
         try persistOrRestore(previousEntries)
         publishSnapshot()
         return entries[index]
@@ -252,6 +337,7 @@ actor ScreenplayOutlineMutationOutbox {
         entries[index].updatedAt = nowSeconds
         entries[index].nextAttemptAt = nowSeconds
         entries[index].lastError = normalizedError(error)
+        entries[index].parkedReason = nil
         try persistOrRestore(previousEntries)
         publishSnapshot()
         return true
@@ -282,6 +368,7 @@ actor ScreenplayOutlineMutationOutbox {
             entries[queuedIndex].expectedOutlineRevision == completed.expectedOutlineRevision {
             entries[queuedIndex].expectedOutlineRevision = committedRevision
             entries[queuedIndex].updatedAt = nowSeconds
+            entries[queuedIndex].parkedReason = nil
         }
         try persistOrRestore(previousEntries)
         publishSnapshot()
@@ -310,6 +397,7 @@ actor ScreenplayOutlineMutationOutbox {
             entries[queuedIndex].updatedAt = nowSeconds
             entries[queuedIndex].nextAttemptAt = 0
             entries[queuedIndex].lastError = parkedError
+            entries[queuedIndex].parkedReason = .supersededByRemoteChange
         }
         try persistOrRestore(previousEntries)
         publishSnapshot()
@@ -332,6 +420,7 @@ actor ScreenplayOutlineMutationOutbox {
         if retryCount > Self.backoffSeconds.count {
             entries[index].status = .parked
             entries[index].nextAttemptAt = 0
+            entries[index].parkedReason = .retryExhausted
         } else {
             let scheduledDelay = Self.backoffSeconds[retryCount - 1]
             let serverDelay = min(
@@ -340,12 +429,18 @@ actor ScreenplayOutlineMutationOutbox {
             )
             entries[index].status = .pending
             entries[index].nextAttemptAt = nowSeconds + max(scheduledDelay, serverDelay)
+            entries[index].parkedReason = nil
         }
         try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
-    func markParked(id: String, error: String, now: Date = Date()) throws {
+    func markParked(
+        id: String,
+        error: String,
+        reason: ScreenplayOutlineMutationParkedReason = .permanentRejection,
+        now: Date = Date()
+    ) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         let previousEntries = entries
@@ -353,8 +448,192 @@ actor ScreenplayOutlineMutationOutbox {
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].nextAttemptAt = 0
         entries[index].lastError = normalizedError(error)
+        entries[index].parkedReason = reason
         try persistOrRestore(previousEntries)
         publishSnapshot()
+    }
+
+    func recoveryChains(
+        ownerUserIds: Set<String>
+    ) throws -> [ScreenplayOutlineMutationRecoveryChain] {
+        try loadIfNeeded()
+        let allowedOwners = try normalizedRecoveryOwnerScope(ownerUserIds)
+        var entriesByScope: [ScreenplayOutlineMutationScopeKey: [ScreenplayOutlineMutationOutboxEntry]] = [:]
+        for entry in entries where allowedOwners.contains(entry.ownerUserId) {
+            let key = ScreenplayOutlineMutationScopeKey(
+                projectId: entry.projectId,
+                ownerUserId: entry.ownerUserId
+            )
+            entriesByScope[key, default: []].append(entry)
+        }
+
+        return entriesByScope.values.compactMap { scopedEntries in
+            guard let parkedIndex = scopedEntries.firstIndex(where: { $0.status == .parked }) else {
+                return nil
+            }
+            let parkedHead = scopedEntries[parkedIndex]
+            let parkedChain = Array(scopedEntries[parkedIndex...])
+            let isScopeHead = parkedIndex == scopedEntries.startIndex
+            let reasonPermitsRetry = parkedHead.parkedReason?.permitsExactRetry
+                ?? (parkedHead.retries > Self.backoffSeconds.count)
+            let permitsRetry = isScopeHead && reasonPermitsRetry
+            let unavailableReason: String
+            if !isScopeHead {
+                unavailableReason = "An earlier outline change must finish before this chain can retry."
+            } else if let parkedReason = parkedHead.parkedReason {
+                unavailableReason = parkedReason.retryUnavailableDescription
+            } else {
+                unavailableReason = "This legacy parked change must be inspected or exported before removal."
+            }
+            return ScreenplayOutlineMutationRecoveryChain(
+                projectId: parkedHead.projectId,
+                parkedHead: parkedHead,
+                entries: parkedChain,
+                permitsRetry: permitsRetry,
+                retryUnavailableReason: permitsRetry ? "" : unavailableReason
+            )
+        }
+        .sorted { lhs, rhs in
+            isOrderedBefore(lhs.parkedHead, rhs.parkedHead)
+        }
+    }
+
+    @discardableResult
+    func retryParkedHead(
+        id: String,
+        projectId: String,
+        ownerUserIds: Set<String>,
+        now: Date = Date()
+    ) throws -> ScreenplayOutlineMutationOutboxSnapshot {
+        try loadIfNeeded()
+        let allowedOwners = try normalizedRecoveryOwnerScope(ownerUserIds)
+        let index = try recoveryEntryIndex(
+            id: id,
+            projectId: projectId,
+            allowedOwners: allowedOwners
+        )
+        let selected = entries[index]
+        guard selected.status == .parked else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        guard entries.first(where: {
+            $0.projectId == selected.projectId && $0.ownerUserId == selected.ownerUserId
+        })?.id == selected.id else {
+            throw ScreenplayOutlineMutationRecoveryError.parkedHeadRequired
+        }
+        let reasonPermitsRetry = selected.parkedReason?.permitsExactRetry
+            ?? (selected.retries > Self.backoffSeconds.count)
+        guard reasonPermitsRetry else {
+            let reason = selected.parkedReason?.retryUnavailableDescription
+                ?? "This legacy parked change cannot be retried safely."
+            throw ScreenplayOutlineMutationRecoveryError.exactRetryUnavailable(reason)
+        }
+
+        let previousEntries = entries
+        let nowSeconds = now.timeIntervalSince1970
+        entries[index].status = .pending
+        entries[index].retries = 0
+        entries[index].nextAttemptAt = nowSeconds
+        entries[index].updatedAt = nowSeconds
+        entries[index].parkedReason = nil
+        try persistOrRestore(previousEntries)
+        let scopedSnapshot = snapshotFor(entries.filter { allowedOwners.contains($0.ownerUserId) })
+        publishSnapshot()
+        publishRetryRequested(projectId: selected.projectId)
+        return scopedSnapshot
+    }
+
+    @discardableResult
+    func discardRecoveryChain(
+        parkedHeadID: String,
+        projectId: String,
+        confirmedEntryIDs: [String],
+        ownerUserIds: Set<String>
+    ) throws -> ScreenplayOutlineMutationRecoveryDiscardResult {
+        try loadIfNeeded()
+        let allowedOwners = try normalizedRecoveryOwnerScope(ownerUserIds)
+        let selectedIndex = try recoveryEntryIndex(
+            id: parkedHeadID,
+            projectId: projectId,
+            allowedOwners: allowedOwners
+        )
+        let selected = entries[selectedIndex]
+        guard selected.status == .parked else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        let scopedEntries = entries.filter {
+            $0.projectId == selected.projectId && $0.ownerUserId == selected.ownerUserId
+        }
+        guard scopedEntries.first(where: { $0.status == .parked })?.id == selected.id else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        let currentChain = scopedEntries.filter { entry in
+            entry.id == selected.id || isOrderedBefore(selected, entry)
+        }
+        guard currentChain.map(\.id) == confirmedEntryIDs else {
+            throw ScreenplayOutlineMutationRecoveryError.recoveryChainChanged
+        }
+
+        let previousEntries = entries
+        entries.removeAll { entry in
+            entry.projectId == selected.projectId &&
+                entry.ownerUserId == selected.ownerUserId &&
+                (entry.id == selected.id || isOrderedBefore(selected, entry))
+        }
+        let removedCount = previousEntries.count - entries.count
+        guard removedCount > 0 else {
+            entries = previousEntries
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        try persistOrRestore(previousEntries)
+        let scopedSnapshot = snapshotFor(entries.filter { allowedOwners.contains($0.ownerUserId) })
+        publishSnapshot()
+        return ScreenplayOutlineMutationRecoveryDiscardResult(
+            snapshot: scopedSnapshot,
+            removedCount: removedCount
+        )
+    }
+
+    func exportRecoveryChain(
+        parkedHeadID: String,
+        projectId: String,
+        ownerUserIds: Set<String>,
+        exportedAt: Date = Date()
+    ) throws -> ScreenplayOutlineMutationRecoveryExportArtifact {
+        try loadIfNeeded()
+        let allowedOwners = try normalizedRecoveryOwnerScope(ownerUserIds)
+        let selectedIndex = try recoveryEntryIndex(
+            id: parkedHeadID,
+            projectId: projectId,
+            allowedOwners: allowedOwners
+        )
+        let selected = entries[selectedIndex]
+        guard selected.status == .parked else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        let scopedEntries = entries.filter {
+            $0.projectId == selected.projectId && $0.ownerUserId == selected.ownerUserId
+        }
+        guard scopedEntries.first(where: { $0.status == .parked })?.id == selected.id else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        let chain = scopedEntries.filter { entry in
+            entry.id == selected.id || isOrderedBefore(selected, entry)
+        }
+        let envelope = ScreenplayOutlineMutationRecoveryExportEnvelope(
+            exportedAt: exportedAt.timeIntervalSince1970,
+            projectId: selected.projectId,
+            parkedHeadRequestId: selected.id,
+            entries: chain.map(ScreenplayOutlineMutationRecoveryExportEntry.init)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(envelope)
+        let timestamp = max(0, Int(exportedAt.timeIntervalSince1970))
+        return ScreenplayOutlineMutationRecoveryExportArtifact(
+            filename: "io-them-screenplay-outline-recovery-\(timestamp).json",
+            data: data
+        )
     }
 
     func status(id: String) throws -> ScreenplayOutlineMutationOutboxStatus? {
@@ -367,7 +646,43 @@ actor ScreenplayOutlineMutationOutbox {
         return entries
     }
 
-    private static func defaultStorageDirectory() -> URL {
+    #if DEBUG
+    func replaceEntriesForUITesting(
+        _ replacementEntries: [ScreenplayOutlineMutationOutboxEntry]
+    ) throws {
+        try loadIfNeeded()
+        var replacementIDs = Set<String>()
+        for entry in replacementEntries {
+            try validate(entry)
+            guard replacementIDs.insert(entry.id).inserted else {
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "screenplay_outline_client_request_id_reused"
+                )
+            }
+        }
+        var sequencedEntries: [ScreenplayOutlineMutationOutboxEntry] = []
+        sequencedEntries.reserveCapacity(replacementEntries.count)
+        for var entry in replacementEntries {
+            entry.queueSequence = try takeNextQueueSequence()
+            sequencedEntries.append(entry)
+        }
+        let previousEntries = entries
+        entries = sequencedEntries
+        try persistOrRestore(previousEntries)
+        publishSnapshot()
+    }
+
+    nonisolated static func resetStoredQueueForUITesting(
+        fileManager: FileManager = .default
+    ) {
+        let directory = defaultStorageDirectory()
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try? fileManager.removeItem(at: directory)
+    }
+    #endif
+
+    nonisolated private static func defaultStorageDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base
@@ -379,6 +694,7 @@ actor ScreenplayOutlineMutationOutbox {
         guard !didLoad else { return }
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             entries = []
+            nextQueueSequence = 1
             didLoad = true
             return
         }
@@ -390,6 +706,14 @@ actor ScreenplayOutlineMutationOutbox {
             from: data
         )
         var restoredIDs = Set<String>()
+        var restoredSequences = Set<UInt64>()
+        let sequencedEntryCount = restoredEntries.lazy.filter { $0.queueSequence != nil }.count
+        guard sequencedEntryCount == 0 || sequencedEntryCount == restoredEntries.count else {
+            throw BackendMemoryAPIError.server(
+                status: 409,
+                message: "screenplay_outline_queue_sequence_manifest_incomplete"
+            )
+        }
         for entry in restoredEntries {
             try validate(entry)
             guard restoredIDs.insert(entry.id).inserted else {
@@ -398,14 +722,39 @@ actor ScreenplayOutlineMutationOutbox {
                     message: "screenplay_outline_client_request_id_reused"
                 )
             }
+            if let queueSequence = entry.queueSequence,
+               !restoredSequences.insert(queueSequence).inserted {
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "screenplay_outline_queue_sequence_reused"
+                )
+            }
+        }
+        let requiresSequenceMigration = !restoredEntries.isEmpty && sequencedEntryCount == 0
+        if requiresSequenceMigration {
+            for index in restoredEntries.indices {
+                restoredEntries[index].queueSequence = UInt64(index) + 1
+            }
+            nextQueueSequence = UInt64(restoredEntries.count) + 1
+        } else if let maximumSequence = restoredSequences.max() {
+            guard maximumSequence < UInt64.max else {
+                throw BackendMemoryAPIError.server(
+                    status: 507,
+                    message: "screenplay_outline_queue_sequence_exhausted"
+                )
+            }
+            nextQueueSequence = maximumSequence + 1
+        } else {
+            nextQueueSequence = 1
         }
         restoredEntries.sort(by: isOrderedBefore)
         let now = Date().timeIntervalSince1970
-        let requiresRecoveryWrite = restoredEntries.contains { $0.status == .inflight }
+        let requiresRecoveryWrite = requiresSequenceMigration || restoredEntries.contains { $0.status == .inflight }
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
             restoredEntries[index].status = .pending
             restoredEntries[index].nextAttemptAt = min(restoredEntries[index].nextAttemptAt, now)
             restoredEntries[index].lastError = "Interrupted while saving outline."
+            restoredEntries[index].parkedReason = nil
         }
         let previousEntries = entries
         entries = restoredEntries
@@ -531,6 +880,14 @@ actor ScreenplayOutlineMutationOutbox {
                 message: "invalid_screenplay_outline_retry_count"
             )
         }
+        if let queueSequence = entry.queueSequence {
+            guard queueSequence > 0 else {
+                throw BackendMemoryAPIError.server(
+                    status: 400,
+                    message: "invalid_screenplay_outline_queue_sequence"
+                )
+            }
+        }
         guard entry.acts.count <= Self.maxActCount else {
             throw BackendMemoryAPIError.server(
                 status: 413,
@@ -567,8 +924,24 @@ actor ScreenplayOutlineMutationOutbox {
         _ lhs: ScreenplayOutlineMutationOutboxEntry,
         _ rhs: ScreenplayOutlineMutationOutboxEntry
     ) -> Bool {
+        if let lhsSequence = lhs.queueSequence,
+           let rhsSequence = rhs.queueSequence,
+           lhsSequence != rhsSequence {
+            return lhsSequence < rhsSequence
+        }
         if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
         return lhs.createdAt < rhs.createdAt
+    }
+
+    private func takeNextQueueSequence() throws -> UInt64 {
+        guard nextQueueSequence < UInt64.max else {
+            throw BackendMemoryAPIError.server(
+                status: 507,
+                message: "screenplay_outline_queue_sequence_exhausted"
+            )
+        }
+        defer { nextQueueSequence += 1 }
+        return nextQueueSequence
     }
 
     private func snapshotFor(
@@ -605,5 +978,87 @@ actor ScreenplayOutlineMutationOutbox {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String((clean.isEmpty ? "Queued for retry." : clean).prefix(280))
+    }
+
+    private func normalizedRecoveryOwnerScope(_ ownerUserIds: Set<String>) throws -> Set<String> {
+        let normalized = Set(ownerUserIds.compactMap { ownerUserId -> String? in
+            let clean = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? nil : clean
+        })
+        guard !normalized.isEmpty else {
+            throw ScreenplayOutlineMutationRecoveryError.ownerScopeRequired
+        }
+        return normalized
+    }
+
+    private func recoveryEntryIndex(
+        id: String,
+        projectId: String,
+        allowedOwners: Set<String>
+    ) throws -> Int {
+        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanID.isEmpty, !cleanProjectId.isEmpty,
+              let index = entries.firstIndex(where: { entry in
+                  entry.id == cleanID &&
+                      entry.projectId == cleanProjectId &&
+                      allowedOwners.contains(entry.ownerUserId)
+              }) else {
+            throw ScreenplayOutlineMutationRecoveryError.entryUnavailable
+        }
+        return index
+    }
+
+    private func publishRetryRequested(projectId: String) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .themScreenplayOutlineMutationOutboxRetryRequested,
+                object: nil,
+                userInfo: ["projectId": projectId]
+            )
+        }
+    }
+}
+
+nonisolated private struct ScreenplayOutlineMutationScopeKey: Hashable {
+    let projectId: String
+    let ownerUserId: String
+}
+
+nonisolated private struct ScreenplayOutlineMutationRecoveryExportEnvelope: Encodable {
+    let schemaVersion = 1
+    let exportedAt: TimeInterval
+    let projectId: String
+    let parkedHeadRequestId: String
+    let entries: [ScreenplayOutlineMutationRecoveryExportEntry]
+}
+
+nonisolated private struct ScreenplayOutlineMutationRecoveryExportEntry: Encodable {
+    let requestId: String
+    let expectedOutlineRevision: Int
+    let acts: [BackendScreenplayAct]
+    let scenes: [BackendScreenplayScene]
+    let beats: [BackendScreenplayBeat]
+    let source: String
+    let createdAt: TimeInterval
+    let updatedAt: TimeInterval
+    let status: ScreenplayOutlineMutationOutboxStatus
+    let retries: Int
+    let lastError: String
+    let parkedReason: ScreenplayOutlineMutationParkedReason?
+
+    init(_ entry: ScreenplayOutlineMutationOutboxEntry) {
+        requestId = entry.id
+        expectedOutlineRevision = entry.expectedOutlineRevision
+        acts = entry.acts
+        scenes = entry.scenes
+        beats = entry.beats
+        source = entry.source
+        createdAt = entry.createdAt
+        updatedAt = entry.updatedAt
+        status = entry.status
+        retries = entry.retries
+        lastError = entry.lastError
+        parkedReason = entry.parkedReason
     }
 }

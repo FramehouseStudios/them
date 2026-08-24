@@ -221,6 +221,48 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
     }
 
+    func test_outline_recovery_exposes_stale_chain_without_unsafe_retry() {
+        let app = launchApp(openDataControls: true, showOutlineRecovery: true)
+
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let recoverySection = app.otherElements["data.outline-recovery.section"]
+        if !recoverySection.waitForExistence(timeout: 5) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(recoverySection.waitForExistence(timeout: 5))
+        XCTAssertTrue(staticText(containing: "2 saved snapshots", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(staticText(containing: "server outline changed", in: app).waitForExistence(timeout: 5))
+
+        let inspect = app.buttons["data.outline-recovery.inspect.ui-stale-outline-head"]
+        let export = app.buttons["data.outline-recovery.export.ui-stale-outline-head"]
+        let discard = app.buttons["data.outline-recovery.discard.ui-stale-outline-head"]
+        XCTAssertTrue(inspect.exists)
+        XCTAssertTrue(export.exists)
+        XCTAssertTrue(discard.exists)
+        XCTAssertFalse(app.buttons["data.outline-recovery.retry.ui-stale-outline-head"].exists)
+
+        inspect.tap()
+        XCTAssertTrue(app.otherElements["data.outline-recovery.detail"].waitForExistence(timeout: 5))
+        let parkedSnapshot = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Parked snapshot"))
+            .firstMatch
+        XCTAssertTrue(parkedSnapshot.waitForExistence(timeout: 5))
+        parkedSnapshot.tap()
+        XCTAssertTrue(staticText(containing: "Recovered Act One", in: app).waitForExistence(timeout: 5))
+        let doneButtons = app.buttons.matching(NSPredicate(format: "label == %@", "Done"))
+        XCTAssertGreaterThan(doneButtons.count, 0)
+        doneButtons.element(boundBy: doneButtons.count - 1).tap()
+
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "cannot reappear")).firstMatch.exists)
+        XCTAssertTrue(alert.buttons["Discard 2 Changes"].exists)
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(recoverySection.exists)
+    }
+
     func test_realtime_network_faults_resolve_exactly_once() {
         assertRealtimeNetworkFault(
             stage: "speech",
@@ -1685,6 +1727,7 @@ final class V1SmokeUITests: XCTestCase {
         routeVoicePin: Bool = false,
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
+        showOutlineRecovery: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -1753,6 +1796,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showDraftConflict {
             arguments.append("--ui-show-draft-conflict")
+        }
+        if showOutlineRecovery {
+            arguments.append("--ui-outline-recovery-fixture")
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")

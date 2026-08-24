@@ -4,6 +4,9 @@ import Security
 nonisolated extension Notification.Name {
     static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
     static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
+    static let themBackendIdentityPartitionChanged = Notification.Name(
+        "io.them.them.backendIdentityPartitionChanged"
+    )
     static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
 }
 
@@ -3828,6 +3831,7 @@ nonisolated enum BackendAuthClient {
         expiryRaw: String?,
         baseURLRaw: String? = nil
     ) -> Bool {
+        let previousToken = sharedClientToken()
         let wroteToken = BackendCredentialMigration.writeString(
             token,
             account: clientTokenAccount,
@@ -3858,11 +3862,15 @@ nonisolated enum BackendAuthClient {
             } else {
                 UserDefaults.standard.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
             }
+            if sharedClientToken() != previousToken {
+                postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+            }
         }
         return wroteToken
     }
 
     static func clearSharedClientToken() {
+        let previousToken = sharedClientToken()
         BackendCredentialMigration.deleteString(
             account: clientTokenAccount,
             defaultsKey: "client_token",
@@ -3875,6 +3883,9 @@ nonisolated enum BackendAuthClient {
         )
         UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+        if previousToken != nil, sharedClientToken() == nil {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
     }
 
     static func sharedUserID() -> String? {
@@ -3889,7 +3900,8 @@ nonisolated enum BackendAuthClient {
 
     @discardableResult
     static func persistSharedUserID(_ userID: String) -> Bool {
-        BackendCredentialMigration.writeString(
+        let previousUserID = sharedUserID()
+        let wroteUserID = BackendCredentialMigration.writeString(
             userID,
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
@@ -3897,14 +3909,22 @@ nonisolated enum BackendAuthClient {
             deleteKeychain: deleteKeychainString,
             normalize: normalizedStoredUserID
         )
+        if wroteUserID, sharedUserID() != previousUserID {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
+        return wroteUserID
     }
 
     static func clearSharedUserID() {
+        let previousUserID = sharedUserID()
         BackendCredentialMigration.deleteString(
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
             deleteKeychain: deleteKeychainString
         )
+        if previousUserID != nil, sharedUserID() == nil {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
     }
 
     private static func isUsableConfigValue(_ raw: String) -> Bool {

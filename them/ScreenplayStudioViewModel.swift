@@ -1,7 +1,6 @@
 import SwiftUI
 import ScreenplayStudio
 import Combine
-import CryptoKit
 
 
 #if DEBUG || os(macOS)
@@ -2366,7 +2365,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         status: .parked,
                         retries: 0,
                         nextAttemptAt: 0,
-                        lastError: String(cleanError.prefix(280))
+                        lastError: String(cleanError.prefix(280)),
+                        parkedReason: .invalidLocalIntent
                     )
                 )
             } catch {
@@ -2504,7 +2504,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 latestOptimisticOutlineMutationByProject[projectId] ?? entry
             )
             let shouldContinue = await performOutlineMutation(entry)
-            if let optimistic = latestOptimisticOutlineMutationByProject[projectId] {
+            if shouldContinue,
+               let optimistic = latestOptimisticOutlineMutationByProject[projectId] {
                 applyOptimisticOutlineMutation(optimistic)
             }
             guard shouldContinue else { break }
@@ -2646,6 +2647,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 0,
                 error.response?.outlineRevision ?? error.response?.outline?.revision ?? outlineRevision
             )
+            latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
             do {
                 try await outlineMutationOutbox.markSuperseded(
                     id: entry.id,
@@ -2658,7 +2660,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 scheduleOutlineMutationRetry(after: 1)
                 return false
             }
-            latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
             recordOutlineMutationTerminalAcceptance(false, for: entry.id)
             errorText = "This outline change was already saved, then superseded by a newer revision."
             infoText = "Showing the newest server outline; the superseded change was not reapplied."
@@ -2675,20 +2676,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
 
         let message: String
+        let parkedReason: ScreenplayOutlineMutationParkedReason
         if error.statusCode == 401 {
             message = "Your sign-in could not be refreshed. The outline change is parked safely."
+            parkedReason = .authenticationRequired
         } else if error.statusCode == 409 && responseCode.contains("stale") {
             message = "The outline changed elsewhere. Your local change is parked for review."
+            parkedReason = .staleRevision
         } else if error.statusCode == 409 && responseCode.contains("request_id_reused") {
             message = "The outline request ID was reused with different content. The change is parked."
+            parkedReason = .requestIDReused
         } else if error.statusCode == 409 && responseCode.contains("revision_exhausted") {
             message = "The outline revision limit was reached. This change needs support before it can sync."
+            parkedReason = .revisionExhausted
         } else if error.statusCode == 413 {
             message = "This outline is too large to sync. The change is parked for review."
+            parkedReason = .payloadTooLarge
         } else {
             message = "The backend rejected this outline change. It is parked safely for review."
+            parkedReason = .permanentRejection
         }
-        return await parkOutlineMutation(entry, error: error.localizedDescription, message: message)
+        return await parkOutlineMutation(
+            entry,
+            error: error.localizedDescription,
+            reason: parkedReason,
+            message: message
+        )
     }
 
     private func handleOutlineMutationTransportError(
@@ -2721,6 +2734,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         return await parkOutlineMutation(
             entry,
             error: error.localizedDescription,
+            reason: .permanentRejection,
             message: "This outline change could not be sent and is parked safely for review."
         )
     }
@@ -2764,17 +2778,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func parkOutlineMutation(
         _ entry: ScreenplayOutlineMutationOutboxEntry,
         error: String,
+        reason: ScreenplayOutlineMutationParkedReason,
         message: String
     ) async -> Bool {
+        // A terminal response may include a newer canonical outline. Never let the
+        // rejected optimistic snapshot cover it while local terminal-state persistence recovers.
+        latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
         do {
-            try await outlineMutationOutbox.markParked(id: entry.id, error: error)
+            try await outlineMutationOutbox.markParked(
+                id: entry.id,
+                error: error,
+                reason: reason
+            )
         } catch {
             errorText = "The rejected outline change could not be parked locally: \(error.localizedDescription)"
             infoText = "The original request remains durable; its terminal state will be recovered locally."
             scheduleOutlineMutationRetry(after: 1)
             return false
         }
-        latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
         recordOutlineMutationTerminalAcceptance(false, for: entry.id)
         errorText = message
         infoText = "The canonical server outline is still open."
@@ -2897,23 +2918,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if ownerHeaders.usesDebugClientTokenOwner {
             let clientToken = (ownerHeaders.clientTokenOverride ?? BackendAuthClient.sharedClientToken() ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let partitionSeed = clientToken.isEmpty
-                ? "unresolved-client-owner:\(projectID.trimmingCharacters(in: .whitespacesAndNewlines))"
-                : clientToken
-            return "client:\(sha256Hex(partitionSeed))"
+            return ScreenplayOutlineMutationOwnerPartition.client(
+                token: clientToken,
+                fallbackProjectId: projectID
+            )
         }
-        let userId = (
+        return ScreenplayOutlineMutationOwnerPartition.user(
             BackendAuthClient.currentAuthSessionState().user?.userId
                 ?? BackendAuthClient.sharedUserID()
-                ?? "anonymous"
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        return "user:\(userId.isEmpty ? "anonymous" : userId)"
-    }
-
-    private func sha256Hex(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        )
     }
 
     private func canonicalizedOutlineCollections(
