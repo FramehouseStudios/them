@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct ScreenplayStudioFeatureSpineEditor: View {
     @Binding var logline: String
@@ -54,10 +55,10 @@ struct ScreenplayStudioFeatureSpineEditor: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                .font(.system(size: 12, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.captionStrong)
                 .foregroundStyle(Color.accentColor.opacity(0.82))
             Text("Feature spine")
-                .font(.system(size: 12, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.captionStrong)
                 .foregroundStyle(textColor.opacity(0.90))
             Spacer(minLength: 0)
             assistantPill("Act", value: actPosition.isEmpty ? "Unset" : actPosition)
@@ -68,7 +69,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
         VStack(alignment: .leading, spacing: 5) {
             fieldLabel("Unresolved setups")
             TextEditor(text: $unresolvedSetupsText)
-                .font(.system(size: 11, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(textColor.opacity(0.88))
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 72)
@@ -85,32 +86,32 @@ struct ScreenplayStudioFeatureSpineEditor: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "map")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
                     .foregroundStyle(Color.accentColor.opacity(0.78))
                 Text("Current sequence")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(IOThemTypography.UI.monoMicro)
                     .tracking(0.6)
                     .foregroundStyle(tertiaryTextColor)
                 Spacer(minLength: 0)
                 Text(guide.progressText)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.micro)
                     .foregroundStyle(secondaryTextColor)
             }
 
             Text("\(guide.currentAct) · \(guide.sequenceLabel) · \(guide.pageRangeText)")
-                .font(.system(size: 12, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.captionStrong)
                 .foregroundStyle(textColor.opacity(0.92))
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(guide.dueNow)
-                .font(.system(size: 11, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(secondaryTextColor)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Next scene")
                 Text(guide.nextScenePlan)
-                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.labelMedium)
                     .foregroundStyle(textColor.opacity(0.88))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -118,11 +119,11 @@ struct ScreenplayStudioFeatureSpineEditor: View {
             ForEach(Array(guide.nextMoves.enumerated()), id: \.offset) { _, move in
                 HStack(alignment: .top, spacing: 7) {
                     Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 9, weight: .semibold, design: .default))
+                        .font(IOThemTypography.UI.nano)
                         .foregroundStyle(Color.accentColor.opacity(0.68))
                         .padding(.top, 2)
                     Text(move)
-                        .font(.system(size: 10, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.microRegular)
                         .foregroundStyle(secondaryTextColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -149,7 +150,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
     private var saveButton: some View {
         Button(action: onSave) {
             Label(isSaving ? "Saving…" : "Save spine", systemImage: isSaving ? "arrow.clockwise" : "square.and.arrow.down")
-                .font(.system(size: 11, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.label)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
@@ -162,7 +163,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
             fieldLabel(title)
             TextField(title, text: text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(textColor.opacity(0.88))
                 .lineLimit(1...3)
                 .padding(.horizontal, 9)
@@ -173,7 +174,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
 
     private func fieldLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .font(IOThemTypography.UI.monoNano)
             .tracking(0.7)
             .foregroundStyle(tertiaryTextColor)
     }
@@ -190,10 +191,10 @@ struct ScreenplayStudioFeatureSpineEditor: View {
     private func assistantPill(_ label: String, value: String) -> some View {
         HStack(spacing: 6) {
             Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .foregroundStyle(tertiaryTextColor)
             Text(value)
-                .font(.system(size: 10, weight: .medium, design: .default))
+                .font(IOThemTypography.UI.microMedium)
                 .foregroundStyle(Color.accentColor.opacity(0.78))
         }
         .padding(.horizontal, 9)
@@ -212,7 +213,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
             onCommand(command, guide)
         } label: {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
         }
@@ -225,25 +226,25 @@ struct ScreenplayStudioFeatureSpineEditor: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.micro)
                     .foregroundStyle(Color.accentColor.opacity(0.78))
                 Text("Saved planner action")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(IOThemTypography.UI.monoNano)
                     .tracking(0.6)
                     .foregroundStyle(tertiaryTextColor)
                 Spacer(minLength: 0)
                 Text(pendingActionTimestampText)
-                    .font(.system(size: 9, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.nanoMedium)
                     .foregroundStyle(tertiaryTextColor)
             }
 
             Text(snapshot.displayText)
-                .font(.system(size: 11, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.label)
                 .foregroundStyle(textColor.opacity(0.92))
                 .lineLimit(2)
 
             Text("\(snapshot.currentAct) · \(snapshot.sequenceLabel) · \(snapshot.pageRangeText)")
-                .font(.system(size: 10, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.microRegular)
                 .foregroundStyle(secondaryTextColor)
                 .lineLimit(2)
 
@@ -276,7 +277,7 @@ struct ScreenplayStudioFeatureSpineEditor: View {
     ) -> some View {
         let button = Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .frame(maxWidth: .infinity)
         }
         .controlSize(.small)

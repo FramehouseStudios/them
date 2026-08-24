@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 import UniformTypeIdentifiers
 
 struct ScreenplayStudioSidebarModeTabs: View {
@@ -13,7 +14,7 @@ struct ScreenplayStudioSidebarModeTabs: View {
                     selection = section
                 } label: {
                     Text(section.title)
-                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .font(IOThemTypography.UI.label)
                         .foregroundStyle(isActive ? Color.white : secondaryTextColor)
                         .padding(.horizontal, isActive ? 10 : 0)
                         .padding(.vertical, isActive ? 6 : 0)
@@ -54,7 +55,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
             HStack(spacing: 8) {
                 TextField("New project title", text: $newProjectTitle)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(Color.white.opacity(0.94))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
@@ -76,7 +77,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
 
                     if projects.isEmpty && !isLoading {
                         Text("No screenplay projects yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .font(IOThemTypography.UI.caption)
                             .foregroundStyle(secondaryTextColor)
                             .padding(.top, 8)
                     }
@@ -93,7 +94,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
 
             if !errorText.isEmpty {
                 Text(errorText)
-                    .font(.system(size: 10, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.microRegular)
                     .foregroundStyle(Color.red.opacity(0.74))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -102,7 +103,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.micro)
             .tracking(0.7)
             .foregroundStyle(tertiaryTextColor)
     }
@@ -115,11 +116,11 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.title)
-                    .font(.system(size: 13, weight: isActive ? .semibold : .medium, design: .default))
+                    .font(isActive ? IOThemTypography.UI.calloutStrong : IOThemTypography.UI.calloutMedium)
                     .foregroundStyle(textColor.opacity(isActive ? 0.96 : 0.88))
                     .lineLimit(2)
                 Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(secondaryTextColor.opacity(isActive ? 0.92 : 0.82))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -214,7 +215,7 @@ struct ScreenplayStudioFilesSidebar: View {
 
             Toggle("Hidden", isOn: $showHidden)
                 .toggleStyle(.switch)
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.caption)
         }
     }
 
@@ -226,7 +227,7 @@ struct ScreenplayStudioFilesSidebar: View {
                         onNavigateTo(crumb)
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(0.70))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -245,7 +246,7 @@ struct ScreenplayStudioFilesSidebar: View {
                 }
                 if entries.isEmpty {
                     Text("No files in this folder.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.64))
                         .padding(.top, 4)
                 }
@@ -270,7 +271,7 @@ struct ScreenplayStudioFilesSidebar: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: entry.isDirectory ? "folder.fill" : "doc.text")
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(
                             entry.isDirectory
                             ? Color.yellow.opacity(0.9)
@@ -278,12 +279,12 @@ struct ScreenplayStudioFilesSidebar: View {
                         )
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.name)
-                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .font(IOThemTypography.UI.captionMedium)
                             .foregroundStyle(Color.herText.opacity(0.90))
                             .lineLimit(1)
                         if let modified = entry.modifiedAt {
                             Text(relativeTimestamp(modified))
-                                .font(.system(size: 9, weight: .regular, design: .default))
+                                .font(IOThemTypography.UI.nanoRegular)
                                 .foregroundStyle(Color.herText.opacity(0.58))
                         }
                     }
@@ -296,7 +297,7 @@ struct ScreenplayStudioFilesSidebar: View {
                 onRenameEntry(entry)
             } label: {
                 Image(systemName: "pencil")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
             }
             .buttonStyle(.bordered)
 
@@ -304,7 +305,7 @@ struct ScreenplayStudioFilesSidebar: View {
                 onDeleteEntry(entry)
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
             }
             .buttonStyle(.bordered)
         }
@@ -331,7 +332,7 @@ struct ScreenplayStudioFilesSidebar: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.micro)
             .tracking(0.7)
             .foregroundStyle(tertiaryTextColor)
     }

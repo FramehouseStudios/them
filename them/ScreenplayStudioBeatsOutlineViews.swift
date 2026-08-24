@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 import UniformTypeIdentifiers
 
 struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View {
@@ -13,10 +14,10 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Shape the story in bigger moves.")
-                    .font(.system(size: 13, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.calloutMedium)
                     .foregroundStyle(Color.herText.opacity(0.78))
                 Text("Keep the next turn of the script visible. Beats can stay loose while you ideate, or link directly to scenes and acts as the outline locks in.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -45,7 +46,7 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "flag.slash")
-                    .font(.system(size: 16, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.sectionTitle)
                     .foregroundStyle(Color.black.opacity(0.74).opacity(0.86))
                     .frame(width: 36, height: 36)
                     .background(
@@ -55,10 +56,10 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No beats yet")
-                        .font(.system(size: 16, weight: .semibold, design: .default))
+                        .font(IOThemTypography.UI.sectionTitle)
                         .foregroundStyle(Color.herText.opacity(0.92))
                     Text("Start with a turning point, reveal, reversal, or emotional shift. You can connect it to a scene now or let it stay free until the draft settles.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.68))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -66,17 +67,17 @@ struct ScreenplayStudioBeatsInspectorLayout<BeatMap: View, Composer: View>: View
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Good first beats")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.micro)
                     .foregroundStyle(Color.herText.opacity(0.46))
                     .textCase(.uppercase)
                 Text("Inciting incident")
-                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(Color.herText.opacity(0.80))
                 Text("False victory")
-                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(Color.herText.opacity(0.80))
                 Text("The choice that changes everything")
-                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(Color.herText.opacity(0.80))
             }
         }
@@ -208,12 +209,12 @@ struct ScreenplayStudioFeatureCompassCard: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(snapshot.structuralObligation)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .font(IOThemTypography.UI.captionStrong)
                         .foregroundStyle(Color.herText.opacity(0.82))
                         .fixedSize(horizontal: false, vertical: true)
                     if !snapshot.nextSceneDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(snapshot.nextSceneDetail)
-                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .font(IOThemTypography.UI.labelRegular)
                             .foregroundStyle(Color.herText.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -232,14 +233,14 @@ struct ScreenplayStudioFeatureCompassCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     inspectorSubsectionLabel("Accepted page batch")
                     Text(snapshot.acceptedBatchDetail)
-                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.labelRegular)
                         .foregroundStyle(Color.herText.opacity(0.62))
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 8) {
                         Button(action: onWriteNextPages) {
                             Label("Write Next Pages", systemImage: "doc.badge.plus")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .font(IOThemTypography.UI.label)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -247,7 +248,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
 
                         Button(action: onPlan) {
                             Label("Plan", systemImage: "list.bullet")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .font(IOThemTypography.UI.label)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -256,7 +257,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                     HStack(spacing: 8) {
                         Button(action: onDoctor) {
                             Label("Doctor", systemImage: "cross.case")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .font(IOThemTypography.UI.label)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -264,7 +265,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                         if snapshot.hasAcceptedBatch {
                             Button(action: onReviewBatch) {
                                 Label("Review Batch", systemImage: "text.magnifyingglass")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                                    .font(IOThemTypography.UI.label)
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -273,7 +274,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                         if canPolishLastBatch {
                             Button(action: onPolishLastBatch) {
                                 Label("Polish Batch", systemImage: "sparkles")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                                    .font(IOThemTypography.UI.label)
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -289,11 +290,11 @@ struct ScreenplayStudioFeatureCompassCard: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(move.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.captionStrong)
                     .foregroundStyle(Color.herText.opacity(0.80))
                     .fixedSize(horizontal: false, vertical: true)
                 Text(move.detail)
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(0.56))
                     .lineLimit(3)
             }
@@ -303,7 +304,7 @@ struct ScreenplayStudioFeatureCompassCard: View {
                 onWriteMove(move)
             } label: {
                 Label("Write", systemImage: "square.and.pencil")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -422,7 +423,7 @@ struct ScreenplayStudioBeatInspectorCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             Text(String(format: "%02d", index))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(IOThemTypography.UI.monoLabelStrong)
                 .foregroundStyle(Color.black.opacity(0.74).opacity(0.84))
                 .frame(width: 34, height: 34)
                 .background(
@@ -432,11 +433,11 @@ struct ScreenplayStudioBeatInspectorCard: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(beat.label)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.bodyStrong)
                     .foregroundStyle(Color.herText.opacity(0.92))
                 if let summary = beat.summary, !summary.isEmpty {
                     Text(summary)
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.70))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -474,7 +475,7 @@ struct ScreenplayStudioBeatInspectorCard: View {
                 .fill(provenance.tint)
                 .frame(width: 6, height: 6)
             Text(provenance.compactTitle)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .foregroundStyle(provenance.tint)
         }
         .padding(.horizontal, 10)
@@ -494,7 +495,7 @@ struct ScreenplayStudioBeatInspectorCard: View {
                 .frame(maxWidth: .infinity)
             if isDropTargeted {
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 10, weight: .bold, design: .default))
+                    .font(IOThemTypography.UI.microBold)
                     .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
                     .transition(.opacity.combined(with: .scale))
             }
@@ -523,11 +524,11 @@ struct ScreenplayStudioBeatInspectorCard: View {
     private func metaChip(title: String, value: String) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .foregroundStyle(Color.herText.opacity(0.48))
                 .textCase(.uppercase)
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(IOThemTypography.UI.monoLabel)
                 .foregroundStyle(Color.herText.opacity(0.82))
         }
         .padding(.horizontal, 10)
@@ -538,10 +539,10 @@ struct ScreenplayStudioBeatInspectorCard: View {
     private func provenanceHistoryView(_ history: ScreenplayStudioBeatProvenanceHistoryPresentation) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(history.createdText)
-                .font(.system(size: 10, weight: .medium, design: .default))
+                .font(IOThemTypography.UI.microMedium)
                 .foregroundStyle(Color.herText.opacity(0.52))
             Text(history.refreshedText)
-                .font(.system(size: 10, weight: .medium, design: .default))
+                .font(IOThemTypography.UI.microMedium)
                 .foregroundStyle(Color.herText.opacity(0.52))
         }
         .accessibilityElement(children: .combine)
@@ -556,7 +557,7 @@ struct ScreenplayStudioBeatInspectorCard: View {
     ) -> some View {
         Button(role: role, action: action) {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 11, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.label)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
@@ -606,7 +607,7 @@ struct ScreenplayStudioOutlineActCard<SceneRows: View>: View {
                 if sceneCount == 0 {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No scenes grouped into this act yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .font(IOThemTypography.UI.caption)
                             .foregroundStyle(Color.herText.opacity(0.58))
                         if isSceneDragActive {
                             sceneGroupDropZone(title: "Drop here to move this scene into \(act.title)")
@@ -618,7 +619,7 @@ struct ScreenplayStudioOutlineActCard<SceneRows: View>: View {
                             metaChip(title: "Scenes", value: "\(sceneCount)")
                             if let summary = act.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(summary)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
+                                    .font(IOThemTypography.UI.labelRegular)
                                     .foregroundStyle(Color.herText.opacity(0.52))
                                     .lineLimit(1)
                             }
@@ -692,12 +693,12 @@ struct ScreenplayStudioOutlineSceneRow: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .font(IOThemTypography.UI.captionStrong)
                             .foregroundStyle(Color.herText.opacity(0.82))
                             .lineLimit(1)
                         if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text(objective)
-                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .font(IOThemTypography.UI.labelRegular)
                                 .foregroundStyle(Color.herText.opacity(0.54))
                                 .lineLimit(2)
                         }
@@ -715,7 +716,7 @@ struct ScreenplayStudioOutlineSceneRow: View {
                         )
 
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
+                            .font(IOThemTypography.UI.label)
                             .foregroundStyle(Color.herText.opacity(0.38))
                     }
                 }
@@ -773,7 +774,7 @@ struct ScreenplayStudioOutlineLooseScenesCard<SceneRows: View>: View {
         intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
             if sceneCount > 0 {
                 Text("These scenes are on the board, but they still need an act home.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.58))
                 VStack(alignment: .leading, spacing: 8) {
                     sceneRows()
@@ -807,18 +808,18 @@ struct ScreenplayStudioOutlineFocusedSceneCard: View {
             if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Objective")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .font(IOThemTypography.UI.micro)
                         .foregroundStyle(Color.herText.opacity(0.46))
                         .textCase(.uppercase)
                     Text(objective)
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.caption)
                         .foregroundStyle(Color.herText.opacity(0.76))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let summary = scene.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(summary)
-                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.62))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -841,7 +842,7 @@ private func insertionMarker(isVisible: Bool) -> some View {
             .frame(maxWidth: .infinity)
         if isVisible {
             Image(systemName: "arrow.down")
-                .font(.system(size: 10, weight: .bold, design: .default))
+                .font(IOThemTypography.UI.microBold)
                 .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
                 .transition(.opacity.combined(with: .scale))
         }
@@ -862,9 +863,9 @@ private func inspectorReorderDropZone(
             .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
         HStack(spacing: 6) {
             Image(systemName: "arrow.down.to.line.compact")
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.label)
                 .lineLimit(1)
         }
         .foregroundStyle((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herText).opacity(isTargeted.wrappedValue ? 0.88 : 0.56))
@@ -900,7 +901,7 @@ private func reorderMenu(
             .disabled(moveDownDisabled)
     } label: {
         Image(systemName: "line.3.horizontal")
-            .font(.system(size: 11, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.label)
             .foregroundStyle(Color.herText.opacity(0.42))
             .frame(width: 28, height: 28)
             .background(
@@ -915,11 +916,11 @@ private func reorderMenu(
 private func metaChip(title: String, value: String) -> some View {
     HStack(spacing: 6) {
         Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.micro)
             .foregroundStyle(Color.herText.opacity(0.48))
             .textCase(.uppercase)
         Text(value)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(IOThemTypography.UI.monoLabel)
             .foregroundStyle(Color.herText.opacity(0.82))
     }
     .padding(.horizontal, 10)
@@ -979,7 +980,7 @@ struct ScreenplayStudioBeatQuickCaptureRow: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.calloutStrong)
                     .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
                     .frame(width: 28, height: 28)
                     .background(
@@ -990,11 +991,11 @@ struct ScreenplayStudioBeatQuickCaptureRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .font(IOThemTypography.UI.captionStrong)
                             .foregroundStyle(Color.herText.opacity(0.88))
                         if let shortcutHint, !shortcutHint.isEmpty {
                             Text(shortcutHint)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .font(IOThemTypography.UI.monoMicro)
                                 .foregroundStyle(Color.herText.opacity(0.46))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
@@ -1002,7 +1003,7 @@ struct ScreenplayStudioBeatQuickCaptureRow: View {
                         }
                     }
                     Text(subtitle)
-                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .font(IOThemTypography.UI.labelRegular)
                         .foregroundStyle(Color.herText.opacity(0.58))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1049,10 +1050,10 @@ struct ScreenplayStudioBeatQuickLinks: View {
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Text(target.title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
                     .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.78))
                 Text(target.subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(isActive ? 0.64 : 0.50))
                     .lineLimit(1)
             }
@@ -1165,17 +1166,17 @@ private func composerPickerButton(title: String, subtitle: String) -> some View 
     HStack(spacing: 10) {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.prominentCallout)
                 .foregroundStyle(Color.herText.opacity(0.90))
                 .lineLimit(1)
             Text(subtitle)
-                .font(.system(size: 11, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.50))
                 .lineLimit(2)
         }
         Spacer(minLength: 8)
         Image(systemName: "chevron.up.chevron.down")
-            .font(.system(size: 11, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.label)
             .foregroundStyle(Color.herText.opacity(0.42))
     }
     .padding(.horizontal, 14)
@@ -1301,7 +1302,7 @@ struct ScreenplayStudioBeatComposer: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 10) {
                 Text(isEditing ? "Refine the beat" : "Capture the next move")
-                    .font(.system(size: 16, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.sectionTitle)
                     .foregroundStyle(Color.herText.opacity(0.92))
 
                 Spacer(minLength: 0)
@@ -1315,7 +1316,7 @@ struct ScreenplayStudioBeatComposer: View {
 
             if isEditing {
                 Text("You’re editing an existing beat. Save will update it in place.")
-                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .font(IOThemTypography.UI.labelMedium)
                     .foregroundStyle(Color.herStudioActiveFill.opacity(0.88))
             }
 
@@ -1324,7 +1325,7 @@ struct ScreenplayStudioBeatComposer: View {
                     ? "Adjust the label, sharpen the summary, or reconnect the beat to a different scene or act."
                     : "Name the beat, describe the turn, then link it to a scene or act if you already know where it belongs."
             )
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(IOThemTypography.UI.caption)
             .foregroundStyle(Color.herText.opacity(0.64))
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -1333,7 +1334,7 @@ struct ScreenplayStudioBeatComposer: View {
     private var saveRow: some View {
         HStack(alignment: .center, spacing: 12) {
             Text("You can save this loose now and connect it more precisely later.")
-                .font(.system(size: 11, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(Color.herText.opacity(0.56))
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -1344,7 +1345,7 @@ struct ScreenplayStudioBeatComposer: View {
                     isEditing ? "Update Beat" : "Save Beat",
                     systemImage: isEditing ? "checkmark.circle.fill" : "plus.circle.fill"
                 )
-                .font(.system(size: 14, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.prominentCallout)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
@@ -1367,11 +1368,11 @@ struct ScreenplayStudioBeatComposer: View {
     private func fieldLabel(_ title: String, detail: String) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.label)
                 .foregroundStyle(Color.herText.opacity(0.74))
                 .textCase(.uppercase)
             Text(detail)
-                .font(.system(size: 11, weight: .medium, design: .default))
+                .font(IOThemTypography.UI.labelMedium)
                 .foregroundStyle(Color.herText.opacity(0.42))
         }
     }
@@ -1379,7 +1380,7 @@ struct ScreenplayStudioBeatComposer: View {
     private func textField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .medium, design: .default))
+            .font(IOThemTypography.UI.bodyMedium)
             .foregroundStyle(Color.herText.opacity(0.92))
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -1390,7 +1391,7 @@ struct ScreenplayStudioBeatComposer: View {
         TextField(placeholder, text: text, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(4...7)
-            .font(.system(size: 15, weight: .regular, design: .default))
+            .font(IOThemTypography.UI.body)
             .foregroundStyle(Color.herText.opacity(0.92))
             .padding(.horizontal, 14)
             .padding(.vertical, 12)

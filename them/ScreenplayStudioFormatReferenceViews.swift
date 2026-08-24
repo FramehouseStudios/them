@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct ScreenplayStudioLeadReferenceDisclosure: View {
     @Binding var isExpanded: Bool
@@ -7,21 +8,21 @@ struct ScreenplayStudioLeadReferenceDisclosure: View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Clean sluglines, lean action, concise dialogue, hard final beat.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.72))
                 Text("Normalize with Cmd-Shift-F when pasted or imported text drifts away from the house format.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(0.62))
             }
             .padding(.top, 4)
         } label: {
             HStack(spacing: 8) {
                 Text("Lead Reference")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.label)
                     .foregroundStyle(Color.herText.opacity(0.70))
                     .textCase(.uppercase)
                 Text("A Cup of Coffee")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .font(IOThemTypography.UI.captionStrong)
                     .foregroundStyle(Color.herText.opacity(0.86))
                 Spacer(minLength: 0)
             }
@@ -47,12 +48,12 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
                 formatBadge("1 page ~ 1 minute")
                 Spacer(minLength: 0)
                 Text("Normalize: Cmd-Shift-F")
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(0.60))
             }
 
             Text("From your PDF: use all-caps sluglines, keep action left-aligned and in present tense, center character names, place dialogue directly underneath, use parentheticals sparingly, and save transitions for moments like CUT TO: or FADE OUT.")
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.78))
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -95,7 +96,7 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
                 structureChip(title: "Act 3", pages: "pp. 90-110")
                 Spacer(minLength: 0)
                 Text("Write visually. Enter late. Leave early.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(Color.herText.opacity(0.62))
             }
         }
@@ -121,7 +122,7 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
                 Spacer(minLength: 0)
                 Text("TRANSITION = RIGHT")
             }
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(IOThemTypography.UI.monoMicro)
             .foregroundStyle(Color.herText.opacity(0.54))
 
             VStack(alignment: .leading, spacing: 0) {
@@ -149,7 +150,7 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
                     .padding(.trailing, metrics.transitionTrailing)
                     .padding(.top, metrics.transitionSpacingBefore)
             }
-            .font(.custom("Courier", size: 12))
+            .font(IOThemTypography.Screenplay.referenceText)
             .foregroundStyle(Color.black.opacity(0.84))
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -166,7 +167,7 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
 
     private func formatBadge(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(IOThemTypography.UI.monoMicro)
             .foregroundStyle(Color.herText.opacity(0.82))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -181,11 +182,11 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
     private func formatRuleRow(title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(IOThemTypography.UI.monoMicro)
                 .foregroundStyle(Color.herText.opacity(0.56))
                 .frame(width: 120, alignment: .leading)
             Text(detail)
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.80))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -194,10 +195,10 @@ struct ScreenplayStudioHollywoodFormatGuide: View {
     private func structureChip(title: String, pages: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.micro)
                 .foregroundStyle(Color.herText.opacity(0.84))
             Text(pages)
-                .font(.system(size: 10, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.microRegular)
                 .foregroundStyle(Color.herText.opacity(0.62))
         }
         .padding(.horizontal, 9)

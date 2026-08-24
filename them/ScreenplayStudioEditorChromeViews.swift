@@ -9,11 +9,11 @@ struct ScreenplayStudioPageMetadataItem: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title.uppercased())
-                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                .font(IOThemTypography.UI.monoBadge)
                 .tracking(0.7)
                 .foregroundStyle(Color.herText.opacity(0.40))
             Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(IOThemTypography.UI.monoLabelStrong)
                 .foregroundStyle(color)
                 .lineLimit(1)
         }
@@ -62,14 +62,14 @@ struct ScreenplayStudioPageEmptyPlaceholder: View {
                         ? "Start with a scene heading or the first visual beat."
                         : "Start typing, then anchor the draft once it has a title."
                     )
-                    .font(.custom("Courier", size: 12))
+                    .font(IOThemTypography.Screenplay.referenceText)
                     .foregroundStyle(Color.black.opacity(0.24))
                     .lineLimit(2)
                 }
                 .padding(.bottom, 22)
 
                 Text("INT. LOCATION - DAY")
-                    .font(.custom("Courier", size: 12))
+                    .font(IOThemTypography.Screenplay.referenceText)
                     .foregroundStyle(Color.black.opacity(0.15))
                     .padding(.bottom, metrics.sceneHeadingSpacingAfter + 8)
 
@@ -79,7 +79,7 @@ struct ScreenplayStudioPageEmptyPlaceholder: View {
                     .padding(.bottom, metrics.actionCueSpacingAfter + 16)
 
                 Text("CHARACTER")
-                    .font(.custom("Courier", size: 12))
+                    .font(IOThemTypography.Screenplay.referenceText)
                     .foregroundStyle(Color.black.opacity(0.12))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, metrics.characterLeading)
@@ -185,7 +185,7 @@ struct ScreenplayStudioElementModeBar: View {
             onSelect(element)
         } label: {
             Text(buttonLabel(element))
-                .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
+                .font(isActive ? IOThemTypography.UI.compactLabel : IOThemTypography.UI.compactLabelMedium)
                 .foregroundStyle(foreground)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)

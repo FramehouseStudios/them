@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
@@ -22,10 +23,10 @@ struct ScreenplayStudioRightPanelTabs: View {
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: tab.iconName)
-                            .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .default))
+                            .font(isActive ? IOThemTypography.UI.captionStrong : IOThemTypography.UI.captionMedium)
 
                         Text(tab.title)
-                            .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
+                            .font(isActive ? IOThemTypography.UI.compactLabel : IOThemTypography.UI.compactLabelMedium)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
                             .multilineTextAlignment(.center)
@@ -60,13 +61,13 @@ struct ScreenplayStudioRightPanelTabs: View {
 func directionOneMiniStat(_ label: String, value: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {
         Text(value)
-            .font(.system(size: 17, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.compactTitle)
             .foregroundStyle(Color.herText.opacity(0.90))
             .lineLimit(2)
             .minimumScaleFactor(0.74)
             .multilineTextAlignment(.leading)
         Text(label)
-            .font(.system(size: 10, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.micro)
             .foregroundStyle(Color.herText.opacity(0.42))
             .textCase(.uppercase)
     }
@@ -86,10 +87,10 @@ func directionOneMiniStat(_ label: String, value: String) -> some View {
 func inspectorPanelLead(title: String, detail: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
         Text(title)
-            .font(.system(size: 15, weight: .medium, design: .default))
+            .font(IOThemTypography.UI.bodyMedium)
             .foregroundStyle(Color.herText.opacity(0.84))
         Text(detail)
-            .font(.system(size: 12, weight: .regular, design: .default))
+            .font(IOThemTypography.UI.caption)
             .foregroundStyle(Color.herText.opacity(0.64))
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -103,7 +104,7 @@ func inspectorMessageCard(
 ) -> some View {
     HStack(alignment: .top, spacing: 12) {
         Image(systemName: icon)
-            .font(.system(size: 16, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.sectionTitle)
             .foregroundStyle(chromeText.opacity(0.86))
             .frame(width: 38, height: 38)
             .background(
@@ -113,10 +114,10 @@ func inspectorMessageCard(
 
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.sectionTitle)
                 .foregroundStyle(Color.herText.opacity(0.92))
             Text(detail)
-                .font(.system(size: 12, weight: .regular, design: .default))
+                .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.68))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -140,10 +141,10 @@ func intelligenceCollectionCard<Content: View>(
     VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.captionStrong)
                 .foregroundStyle(Color.herText.opacity(0.56))
             Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .default))
+                .font(IOThemTypography.UI.captionStrong)
                 .foregroundStyle(Color.herText.opacity(0.82))
         }
 
@@ -162,7 +163,7 @@ func intelligenceCollectionCard<Content: View>(
 
 func inspectorSubsectionLabel(_ title: String) -> some View {
     Text(title)
-        .font(.system(size: 12, weight: .semibold, design: .default))
+        .font(IOThemTypography.UI.captionStrong)
         .foregroundStyle(Color.herText.opacity(0.74))
         .textCase(.uppercase)
 }
@@ -173,7 +174,7 @@ func sectionCard<Content: View>(
 ) -> some View {
     VStack(alignment: .leading, spacing: 14) {
         Text(title)
-            .font(.system(size: 22, weight: .semibold, design: .default))
+            .font(IOThemTypography.UI.title)
             .foregroundStyle(Color.herText.opacity(0.90))
         content()
     }
