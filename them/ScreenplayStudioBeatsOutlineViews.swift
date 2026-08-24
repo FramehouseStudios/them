@@ -137,49 +137,278 @@ struct ScreenplayStudioOutlineInspectorLayout<Compass: View, StorySpine: View, F
     }
 }
 
-struct ScreenplayStudioBeatMapList<BeatRows: View>: View {
-    let isBeatDragActive: Bool
-    @Binding var isEndDropTargeted: Bool
-    @ViewBuilder let beatRows: () -> BeatRows
+struct ScreenplayStudioInspectorMoveAvailability: Equatable {
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+
+    static func position(_ index: Int, count: Int) -> ScreenplayStudioInspectorMoveAvailability {
+        guard index >= 0, index < count else {
+            return ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: false)
+        }
+        return ScreenplayStudioInspectorMoveAvailability(
+            canMoveUp: index > 0,
+            canMoveDown: index < count - 1
+        )
+    }
+}
+
+enum ScreenplayStudioInspectorAnchor {
+    static func beat(_ id: String) -> String {
+        "inspector-beat-\(id)"
+    }
+
+    static func act(_ id: String) -> String {
+        "inspector-act-\(id)"
+    }
+
+    static func scene(_ id: String) -> String {
+        "inspector-scene-\(id)"
+    }
+}
+
+struct ScreenplayStudioBeatCardPresentation: Identifiable {
+    var id: String { beat.id }
+
+    let beat: BackendScreenplayBeat
+    let index: Int
+    let sceneLabel: String?
+    let provenance: BeatProvenanceSource
+    let provenanceHistory: ScreenplayStudioBeatProvenanceHistoryPresentation?
+    let isSelected: Bool
+    let isSettled: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let linkButtonTitle: String
+    let canRefreshFromSelection: Bool
+    let canRefreshFromScene: Bool
+}
+
+struct ScreenplayStudioBeatCardActions {
+    let onSelect: (BackendScreenplayBeat) -> Void
+    let onBeginDrag: (BackendScreenplayBeat) -> Void
+    let onDropBefore: (BackendScreenplayBeat) -> Bool
+    let onMove: (BackendScreenplayBeat, InspectorReorderDirection) -> Void
+    let onEdit: (BackendScreenplayBeat) -> Void
+    let onDelete: (BackendScreenplayBeat) -> Void
+    let onLinkScene: (BackendScreenplayBeat) -> Void
+    let onPromoteToSceneGoal: (BackendScreenplayBeat) -> Void
+    let onRefreshFromSelection: (BackendScreenplayBeat) -> Void
+    let onRefreshFromScene: (BackendScreenplayBeat) -> Void
     let onDropAtEnd: () -> Bool
+}
+
+struct ScreenplayStudioBeatMapList: View {
+    let cards: [ScreenplayStudioBeatCardPresentation]
+    let isBeatDragActive: Bool
+    @Binding var dropTargetID: String
+    @Binding var isEndDropTargeted: Bool
+    let actions: ScreenplayStudioBeatCardActions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            beatRows()
+            ForEach(cards) { card in
+                ScreenplayStudioBeatInspectorCard(
+                    beat: card.beat,
+                    index: card.index,
+                    sceneLabel: card.sceneLabel,
+                    provenance: card.provenance,
+                    provenanceHistory: card.provenanceHistory,
+                    isSelected: card.isSelected,
+                    isSettled: card.isSettled,
+                    isDropTargeted: inspectorDropTargetBinding(for: card.id, target: $dropTargetID),
+                    canMoveUp: card.canMoveUp,
+                    canMoveDown: card.canMoveDown,
+                    linkButtonTitle: card.linkButtonTitle,
+                    canRefreshFromSelection: card.canRefreshFromSelection,
+                    canRefreshFromScene: card.canRefreshFromScene,
+                    onSelect: { actions.onSelect(card.beat) },
+                    onBeginDrag: { actions.onBeginDrag(card.beat) },
+                    onDrop: { actions.onDropBefore(card.beat) },
+                    onMoveUp: { actions.onMove(card.beat, .up) },
+                    onMoveDown: { actions.onMove(card.beat, .down) },
+                    onEdit: { actions.onEdit(card.beat) },
+                    onDelete: { actions.onDelete(card.beat) },
+                    onLinkScene: { actions.onLinkScene(card.beat) },
+                    onPromoteToSceneGoal: { actions.onPromoteToSceneGoal(card.beat) },
+                    onRefreshFromSelection: { actions.onRefreshFromSelection(card.beat) },
+                    onRefreshFromScene: { actions.onRefreshFromScene(card.beat) }
+                )
+            }
             if isBeatDragActive {
                 inspectorReorderDropZone(
                     title: "Drop here to move this beat to the end",
                     isTargeted: $isEndDropTargeted,
-                    onDrop: onDropAtEnd
+                    onDrop: actions.onDropAtEnd
                 )
             }
         }
     }
 }
 
-struct ScreenplayStudioOutlineStorySpine<ActCards: View, LooseScenes: View>: View {
-    let isActDragActive: Bool
-    let showsLooseScenes: Bool
-    @Binding var isActEndDropTargeted: Bool
-    @ViewBuilder let actCards: () -> ActCards
-    @ViewBuilder let looseScenes: () -> LooseScenes
+struct ScreenplayStudioOutlineActSection: Identifiable {
+    var id: String { act.id }
+
+    let act: BackendScreenplayAct
+    let scenes: [BackendScreenplayScene]
+}
+
+struct ScreenplayStudioOutlineRowsPresentation {
+    let actSections: [ScreenplayStudioOutlineActSection]
+    let looseScenes: [BackendScreenplayScene]
+}
+
+enum ScreenplayStudioOutlinePresentationPlanner {
+    static func make(
+        acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene]
+    ) -> ScreenplayStudioOutlineRowsPresentation {
+        let orderedActs = InspectorOrderSupport.sortedActs(acts)
+        let sections = orderedActs.map { act in
+            ScreenplayStudioOutlineActSection(
+                act: act,
+                scenes: InspectorOrderSupport.sortedScenes(
+                    scenes.filter {
+                        InspectorOrderSupport.normalizedID($0.actId) ==
+                            InspectorOrderSupport.normalizedID(act.id)
+                    }
+                )
+            )
+        }
+        let looseScenes = InspectorOrderSupport.sortedScenes(
+            scenes.filter { InspectorOrderSupport.normalizedID($0.actId) == nil }
+        )
+        return ScreenplayStudioOutlineRowsPresentation(
+            actSections: sections,
+            looseScenes: looseScenes
+        )
+    }
+}
+
+struct ScreenplayStudioOutlineStorySpineActions {
+    let onMoveAct: (BackendScreenplayAct, InspectorReorderDirection) -> Void
+    let onBeginActDrag: (BackendScreenplayAct) -> Void
+    let onDropActBefore: (BackendScreenplayAct) -> Bool
     let onDropActAtEnd: () -> Bool
+    let onSelectScene: (BackendScreenplayScene) -> Void
+    let onMoveScene: (BackendScreenplayScene, InspectorReorderDirection) -> Void
+    let onBeginSceneDrag: (BackendScreenplayScene) -> Void
+    let onDropSceneBefore: (BackendScreenplayScene) -> Bool
+    let onDropSceneAtEndOfAct: (BackendScreenplayAct) -> Bool
+    let onDropSceneAtEndOfLoose: () -> Bool
+}
+
+struct ScreenplayStudioOutlineStorySpine: View {
+    let acts: [BackendScreenplayAct]
+    let scenes: [BackendScreenplayScene]
+    let isActDragActive: Bool
+    let isSceneDragActive: Bool
+    let settledAnchorID: String?
+    let isSceneActive: (BackendScreenplayScene) -> Bool
+    @Binding var actDropTargetID: String
+    @Binding var sceneDropTargetID: String
+    @Binding var sceneGroupDropTargetID: String
+    @Binding var isActEndDropTargeted: Bool
+    let actions: ScreenplayStudioOutlineStorySpineActions
 
     var body: some View {
+        let presentation = ScreenplayStudioOutlinePresentationPlanner.make(acts: acts, scenes: scenes)
         VStack(alignment: .leading, spacing: 12) {
-            actCards()
+            ForEach(Array(presentation.actSections.enumerated()), id: \.element.id) { index, section in
+                actCard(
+                    section,
+                    availability: .position(index, count: presentation.actSections.count)
+                )
+            }
             if isActDragActive {
                 inspectorReorderDropZone(
                     title: "Drop here to move this act to the end",
                     isTargeted: $isActEndDropTargeted,
-                    onDrop: onDropActAtEnd
+                    onDrop: actions.onDropActAtEnd
                 )
             }
-            if showsLooseScenes {
-                looseScenes()
+            if !presentation.looseScenes.isEmpty || isSceneDragActive {
+                looseScenesCard(presentation.looseScenes)
             }
         }
     }
+
+    private func actCard(
+        _ section: ScreenplayStudioOutlineActSection,
+        availability: ScreenplayStudioInspectorMoveAvailability
+    ) -> some View {
+        ScreenplayStudioOutlineActCard(
+            act: section.act,
+            sceneCount: section.scenes.count,
+            isSceneDragActive: isSceneDragActive,
+            isSettled: settledAnchorID == ScreenplayStudioInspectorAnchor.act(section.id),
+            isDropTargeted: inspectorDropTargetBinding(for: section.id, target: $actDropTargetID),
+            isSceneGroupDropTargeted: inspectorDropTargetBinding(for: section.id, target: $sceneGroupDropTargetID),
+            canMoveUp: availability.canMoveUp,
+            canMoveDown: availability.canMoveDown,
+            sceneRows: {
+                ForEach(Array(section.scenes.enumerated()), id: \.element.id) { index, scene in
+                    sceneRow(
+                        scene,
+                        availability: .position(index, count: section.scenes.count)
+                    )
+                }
+            },
+            onMoveUp: { actions.onMoveAct(section.act, .up) },
+            onMoveDown: { actions.onMoveAct(section.act, .down) },
+            onBeginDrag: { actions.onBeginActDrag(section.act) },
+            onDrop: { actions.onDropActBefore(section.act) },
+            onSceneGroupDrop: { actions.onDropSceneAtEndOfAct(section.act) }
+        )
+    }
+
+    private func looseScenesCard(_ looseScenes: [BackendScreenplayScene]) -> some View {
+        ScreenplayStudioOutlineLooseScenesCard(
+            sceneCount: looseScenes.count,
+            isSceneDragActive: isSceneDragActive,
+            isDropTargeted: inspectorDropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID),
+            sceneRows: {
+                ForEach(Array(looseScenes.enumerated()), id: \.element.id) { index, scene in
+                    sceneRow(
+                        scene,
+                        availability: .position(index, count: looseScenes.count)
+                    )
+                }
+            },
+            onDrop: actions.onDropSceneAtEndOfLoose
+        )
+    }
+
+    private func sceneRow(
+        _ scene: BackendScreenplayScene,
+        availability: ScreenplayStudioInspectorMoveAvailability
+    ) -> some View {
+        ScreenplayStudioOutlineSceneRow(
+            scene: scene,
+            isActive: isSceneActive(scene),
+            isSettled: settledAnchorID == ScreenplayStudioInspectorAnchor.scene(scene.id),
+            isDropTargeted: inspectorDropTargetBinding(for: scene.id, target: $sceneDropTargetID),
+            canMoveUp: availability.canMoveUp,
+            canMoveDown: availability.canMoveDown,
+            onSelect: { actions.onSelectScene(scene) },
+            onMoveUp: { actions.onMoveScene(scene, .up) },
+            onMoveDown: { actions.onMoveScene(scene, .down) },
+            onBeginDrag: { actions.onBeginSceneDrag(scene) },
+            onDrop: { actions.onDropSceneBefore(scene) }
+        )
+    }
+}
+
+private func inspectorDropTargetBinding(for id: String, target: Binding<String>) -> Binding<Bool> {
+    Binding(
+        get: { target.wrappedValue == id },
+        set: { isTargeted in
+            if isTargeted {
+                target.wrappedValue = id
+            } else if target.wrappedValue == id {
+                target.wrappedValue = ""
+            }
+        }
+    )
 }
 
 struct ScreenplayStudioFeatureCompassCard: View {

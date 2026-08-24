@@ -4017,10 +4017,6 @@ Detail:
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
             let featureSnapshot = featureWorkflowSnapshot
-            let orderedActs = InspectorOrderSupport.sortedActs(vm.outline.acts)
-            let orphanScenes = InspectorOrderSupport.sortedScenes(
-                vm.outline.scenes.filter { InspectorOrderSupport.normalizedID($0.actId) == nil }
-            )
 
             ScreenplayStudioOutlineInspectorLayout(
                 actCount: vm.outline.acts.count,
@@ -4033,33 +4029,67 @@ Detail:
                 },
                 storySpine: {
                     ScreenplayStudioOutlineStorySpine(
+                        acts: vm.outline.acts,
+                        scenes: vm.outline.scenes,
                         isActDragActive: draggedActID != nil,
-                        showsLooseScenes: !orphanScenes.isEmpty || draggedSceneID != nil,
+                        isSceneDragActive: draggedSceneID != nil,
+                        settledAnchorID: inspectorSettledAnchorID,
+                        isSceneActive: { scene in
+                            isSceneInspectorRowActive(scene)
+                        },
+                        actDropTargetID: $actDropTargetID,
+                        sceneDropTargetID: $sceneDropTargetID,
+                        sceneGroupDropTargetID: $sceneGroupDropTargetID,
                         isActEndDropTargeted: $isActListDropTargeted,
-                        actCards: {
-                            ForEach(orderedActs, id: \.id) { act in
-                                outlineActInspectorCard(
-                                    act,
-                                    scenes: InspectorOrderSupport.sortedScenes(
-                                        vm.outline.scenes.filter {
-                                            InspectorOrderSupport.normalizedID($0.actId) ==
-                                                InspectorOrderSupport.normalizedID(act.id)
-                                        }
-                                    )
-                                )
+                        actions: ScreenplayStudioOutlineStorySpineActions(
+                            onMoveAct: { act, direction in
+                                Task { await vm.moveAct(act, direction: direction) }
+                            },
+                            onBeginActDrag: { act in
+                                draggedActID = act.id
+                            },
+                            onDropActBefore: { act in
+                                handleActDrop(before: act)
+                            },
+                            onDropActAtEnd: {
+                                guard let draggedActID else { return false }
+                                settleInspectorDrop(at: inspectorScrollAnchorID(forActID: draggedActID))
+                                Task { await vm.moveAct(id: draggedActID, before: nil) }
+                                self.draggedActID = nil
+                                actDropTargetID = ""
+                                return true
+                            },
+                            onSelectScene: { scene in
+                                revealSceneInInspector(scene)
+                            },
+                            onMoveScene: { scene, direction in
+                                Task { await vm.moveScene(scene, direction: direction) }
+                            },
+                            onBeginSceneDrag: { scene in
+                                draggedSceneID = scene.id
+                            },
+                            onDropSceneBefore: { scene in
+                                handleSceneDrop(before: scene)
+                            },
+                            onDropSceneAtEndOfAct: { act in
+                                guard let draggedSceneID else { return false }
+                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
+                                self.draggedSceneID = nil
+                                sceneDropTargetID = ""
+                                sceneGroupDropTargetID = ""
+                                return true
+                            },
+                            onDropSceneAtEndOfLoose: {
+                                guard let draggedSceneID else { return false }
+                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
+                                self.draggedSceneID = nil
+                                sceneDropTargetID = ""
+                                sceneGroupDropTargetID = ""
+                                return true
                             }
-                        },
-                        looseScenes: {
-                            outlineLooseScenesCard(orphanScenes)
-                        },
-                        onDropActAtEnd: {
-                            guard let draggedActID else { return false }
-                            settleInspectorDrop(at: inspectorScrollAnchorID(forActID: draggedActID))
-                            Task { await vm.moveAct(id: draggedActID, before: nil) }
-                            self.draggedActID = nil
-                            actDropTargetID = ""
-                            return true
-                        }
+                        )
                     )
                 },
                 focusedScene: {
@@ -6156,21 +6186,52 @@ private var projectsSidebarContent: some View {
             hasBeats: !vm.outline.beats.isEmpty,
             beatMap: {
                 ScreenplayStudioBeatMapList(
+                    cards: beatInspectorCardPresentations,
                     isBeatDragActive: draggedBeatID != nil,
+                    dropTargetID: $beatDropTargetID,
                     isEndDropTargeted: $isBeatListDropTargeted,
-                    beatRows: {
-                        ForEach(Array(sortedOutlineBeats.enumerated()), id: \.element.id) { index, beat in
-                            beatInspectorCard(beat, index: index + 1)
+                    actions: ScreenplayStudioBeatCardActions(
+                        onSelect: { beat in
+                            selectBeatInInspector(beat)
+                        },
+                        onBeginDrag: { beat in
+                            draggedBeatID = beat.id
+                            selectedBeatInspectorID = beat.id
+                        },
+                        onDropBefore: { beat in
+                            handleBeatDrop(before: beat)
+                        },
+                        onMove: { beat, direction in
+                            Task { await vm.moveBeat(beat, direction: direction) }
+                        },
+                        onEdit: { beat in
+                            beginEditingBeatFromInspector(beat)
+                        },
+                        onDelete: { beat in
+                            selectedBeatInspectorID = beat.id
+                            Task { await vm.deleteBeat(beat) }
+                        },
+                        onLinkScene: { beat in
+                            handleBeatLinkAction(beat)
+                        },
+                        onPromoteToSceneGoal: { beat in
+                            handlePromoteBeatToSceneGoal(beat)
+                        },
+                        onRefreshFromSelection: { beat in
+                            handleBeatRefreshFromSelection(beat)
+                        },
+                        onRefreshFromScene: { beat in
+                            handleBeatRefreshFromCurrentScene(beat)
+                        },
+                        onDropAtEnd: {
+                            guard let draggedBeatID else { return false }
+                            settleInspectorDrop(at: inspectorScrollAnchorID(forBeatID: draggedBeatID))
+                            Task { await vm.moveBeat(id: draggedBeatID, before: nil) }
+                            self.draggedBeatID = nil
+                            beatDropTargetID = ""
+                            return true
                         }
-                    },
-                    onDropAtEnd: {
-                        guard let draggedBeatID else { return false }
-                        settleInspectorDrop(at: inspectorScrollAnchorID(forBeatID: draggedBeatID))
-                        Task { await vm.moveBeat(id: draggedBeatID, before: nil) }
-                        self.draggedBeatID = nil
-                        beatDropTargetID = ""
-                        return true
-                    }
+                    )
                 )
             },
             composer: {
@@ -6197,62 +6258,28 @@ private var projectsSidebarContent: some View {
         ).count
     }
 
-    private func beatInspectorCard(_ beat: BackendScreenplayBeat, index: Int) -> some View {
-        let linkedScene = linkedScene(for: beat)
-        let provenance = beatProvenance(for: beat)
-        let isSelected = selectedBeatInspectorID == beat.id || vm.editingBeatID == beat.id
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forBeatID: beat.id)
-        let sceneLabel = linkedScene.map { compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
-        return ScreenplayStudioBeatInspectorCard(
-            beat: beat,
-            index: index,
-            sceneLabel: sceneLabel,
-            provenance: provenance,
-            provenanceHistory: beatProvenanceHistory(for: beat).map(beatProvenanceHistoryPresentation(_:)),
-            isSelected: isSelected,
-            isSettled: isSettled,
-            isDropTargeted: dropTargetBinding(for: beat.id, target: $beatDropTargetID),
-            canMoveUp: canMoveBeat(beat, direction: .up),
-            canMoveDown: canMoveBeat(beat, direction: .down),
-            linkButtonTitle: linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
-            canRefreshFromSelection: selectionQuickCaptureSeed != nil,
-            canRefreshFromScene: currentSceneQuickCaptureSeed != nil,
-            onSelect: {
-                selectBeatInInspector(beat)
-            },
-            onBeginDrag: {
-                draggedBeatID = beat.id
-                selectedBeatInspectorID = beat.id
-            },
-            onDrop: {
-                handleBeatDrop(before: beat)
-            },
-            onMoveUp: {
-                Task { await vm.moveBeat(beat, direction: .up) }
-            },
-            onMoveDown: {
-                Task { await vm.moveBeat(beat, direction: .down) }
-            },
-            onEdit: {
-                beginEditingBeatFromInspector(beat)
-            },
-            onDelete: {
-                selectedBeatInspectorID = beat.id
-                Task { await vm.deleteBeat(beat) }
-            },
-            onLinkScene: {
-                handleBeatLinkAction(beat)
-            },
-            onPromoteToSceneGoal: {
-                handlePromoteBeatToSceneGoal(beat)
-            },
-            onRefreshFromSelection: {
-                handleBeatRefreshFromSelection(beat)
-            },
-            onRefreshFromScene: {
-                handleBeatRefreshFromCurrentScene(beat)
-            }
-        )
+    private var beatInspectorCardPresentations: [ScreenplayStudioBeatCardPresentation] {
+        let beats = sortedOutlineBeats
+        return beats.enumerated().map { index, beat in
+            let linkedScene = linkedScene(for: beat)
+            let availability = ScreenplayStudioInspectorMoveAvailability.position(index, count: beats.count)
+            return ScreenplayStudioBeatCardPresentation(
+                beat: beat,
+                index: index + 1,
+                sceneLabel: linkedScene.map {
+                    compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title)
+                },
+                provenance: beatProvenance(for: beat),
+                provenanceHistory: beatProvenanceHistory(for: beat).map(beatProvenanceHistoryPresentation(_:)),
+                isSelected: selectedBeatInspectorID == beat.id || vm.editingBeatID == beat.id,
+                isSettled: inspectorSettledAnchorID == inspectorScrollAnchorID(forBeatID: beat.id),
+                canMoveUp: availability.canMoveUp,
+                canMoveDown: availability.canMoveDown,
+                linkButtonTitle: linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
+                canRefreshFromSelection: selectionQuickCaptureSeed != nil,
+                canRefreshFromScene: currentSceneQuickCaptureSeed != nil
+            )
+        }
     }
 
     private func beatProvenanceHistoryPresentation(
@@ -6301,102 +6328,8 @@ private var projectsSidebarContent: some View {
             }
         )
     }
-
-
-
-
-    private func outlineActInspectorCard(_ act: BackendScreenplayAct, scenes: [BackendScreenplayScene]) -> some View {
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forActID: act.id)
-        return ScreenplayStudioOutlineActCard(
-            act: act,
-            sceneCount: scenes.count,
-            isSceneDragActive: draggedSceneID != nil,
-            isSettled: isSettled,
-            isDropTargeted: dropTargetBinding(for: act.id, target: $actDropTargetID),
-            isSceneGroupDropTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID),
-            canMoveUp: canMoveAct(act, direction: .up),
-            canMoveDown: canMoveAct(act, direction: .down),
-            sceneRows: {
-                ForEach(scenes, id: \.id) { scene in
-                    outlineSceneInspectorRow(scene)
-                }
-            },
-            onMoveUp: {
-                Task { await vm.moveAct(act, direction: .up) }
-            },
-            onMoveDown: {
-                Task { await vm.moveAct(act, direction: .down) }
-            },
-            onBeginDrag: {
-                draggedActID = act.id
-            },
-            onDrop: {
-                handleActDrop(before: act)
-            },
-            onSceneGroupDrop: {
-                guard let draggedSceneID else { return false }
-                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
-                self.draggedSceneID = nil
-                sceneDropTargetID = ""
-                sceneGroupDropTargetID = ""
-                return true
-            }
-        )
-    }
-
-    private func outlineLooseScenesCard(_ scenes: [BackendScreenplayScene]) -> some View {
-        ScreenplayStudioOutlineLooseScenesCard(
-            sceneCount: scenes.count,
-            isSceneDragActive: draggedSceneID != nil,
-            isDropTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID),
-            sceneRows: {
-                ForEach(scenes, id: \.id) { scene in
-                    outlineSceneInspectorRow(scene)
-                }
-            },
-            onDrop: {
-                guard let draggedSceneID else { return false }
-                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
-                self.draggedSceneID = nil
-                sceneDropTargetID = ""
-                sceneGroupDropTargetID = ""
-                return true
-            }
-        )
-    }
-
     private func outlineFocusedSceneCard(_ scene: BackendScreenplayScene) -> some View {
         ScreenplayStudioOutlineFocusedSceneCard(scene: scene)
-    }
-
-    private func outlineSceneInspectorRow(_ scene: BackendScreenplayScene) -> some View {
-        let isActive = isSceneInspectorRowActive(scene)
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forSceneID: scene.id)
-        return ScreenplayStudioOutlineSceneRow(
-            scene: scene,
-            isActive: isActive,
-            isSettled: isSettled,
-            isDropTargeted: dropTargetBinding(for: scene.id, target: $sceneDropTargetID),
-            canMoveUp: canMoveScene(scene, direction: .up),
-            canMoveDown: canMoveScene(scene, direction: .down),
-            onSelect: {
-                revealSceneInInspector(scene)
-            },
-            onMoveUp: {
-                Task { await vm.moveScene(scene, direction: .up) }
-            },
-            onMoveDown: {
-                Task { await vm.moveScene(scene, direction: .down) }
-            },
-            onBeginDrag: {
-                draggedSceneID = scene.id
-            },
-            onDrop: {
-                handleSceneDrop(before: scene)
-            }
-        )
     }
 
     private var companionModePickerCard: some View {
@@ -6839,15 +6772,15 @@ private var projectsSidebarContent: some View {
     }
 
     private func inspectorScrollAnchorID(forBeatID beatID: String) -> String {
-        "inspector-beat-\(beatID)"
+        ScreenplayStudioInspectorAnchor.beat(beatID)
     }
 
     private func inspectorScrollAnchorID(forActID actID: String) -> String {
-        "inspector-act-\(actID)"
+        ScreenplayStudioInspectorAnchor.act(actID)
     }
 
     private func inspectorScrollAnchorID(forSceneID sceneID: String) -> String {
-        "inspector-scene-\(sceneID)"
+        ScreenplayStudioInspectorAnchor.scene(sceneID)
     }
 
     private func syncInspectorDropTargetScroll(proxy: ScrollViewProxy) {
@@ -7072,19 +7005,6 @@ private var projectsSidebarContent: some View {
         vm.refreshLiveDraftBridgeContext()
     }
 
-    private func dropTargetBinding(for id: String, target: Binding<String>) -> Binding<Bool> {
-        Binding(
-            get: { target.wrappedValue == id },
-            set: { isTargeted in
-                if isTargeted {
-                    target.wrappedValue = id
-                } else if target.wrappedValue == id {
-                    target.wrappedValue = ""
-                }
-            }
-        )
-    }
-
     private func handleBeatDrop(before beat: BackendScreenplayBeat) -> Bool {
         defer {
             draggedBeatID = nil
@@ -7145,36 +7065,6 @@ private var projectsSidebarContent: some View {
 
     private func preferredSceneForBeatAction(_ beat: BackendScreenplayBeat) -> BackendScreenplayScene? {
         currentSceneInspectorSelection ?? linkedScene(for: beat)
-    }
-
-    private func canMoveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) -> Bool {
-        guard let index = sortedOutlineBeats.firstIndex(where: { $0.id == beat.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < sortedOutlineBeats.count - 1
-        }
-    }
-
-    private func canMoveAct(_ act: BackendScreenplayAct, direction: InspectorReorderDirection) -> Bool {
-        guard let index = sortedOutlineActs.firstIndex(where: { $0.id == act.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < sortedOutlineActs.count - 1
-        }
-    }
-
-    private func canMoveScene(_ scene: BackendScreenplayScene, direction: InspectorReorderDirection) -> Bool {
-        let normalizedActID = InspectorOrderSupport.normalizedID(scene.actId)
-        let groupedScenes = InspectorOrderSupport.sortedScenes(
-            vm.outline.scenes.filter {
-                InspectorOrderSupport.normalizedID($0.actId) == normalizedActID
-            }
-        )
-        guard let index = groupedScenes.firstIndex(where: { $0.id == scene.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < groupedScenes.count - 1
-        }
     }
 
     private func handleBeatLinkAction(_ beat: BackendScreenplayBeat) {

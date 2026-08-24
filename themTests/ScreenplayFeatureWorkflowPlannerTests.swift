@@ -652,6 +652,133 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-b", to: .before("missing"), in: outline))
     }
 
+    func testStudioInspectorPresentationSupportPinsAnchorsAndMoveBoundaries() {
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(0, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: true)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(1, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: true, canMoveDown: true)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(2, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: true, canMoveDown: false)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(-1, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: false)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(3, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: false)
+        )
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.beat("beat-7"), "inspector-beat-beat-7")
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.act("act-2"), "inspector-act-act-2")
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.scene("scene-9"), "inspector-scene-scene-9")
+    }
+
+    func testStudioOutlinePresentationPlannerPreservesDeterministicGroupsAndLooseSemantics() {
+        let acts = [
+            BackendScreenplayAct(
+                id: "act-b",
+                title: "Act B",
+                summary: nil,
+                order: 1,
+                sceneIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayAct(
+                id: "act-a",
+                title: "Act A",
+                summary: nil,
+                order: 0,
+                sceneIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+        let scenes = [
+            BackendScreenplayScene(
+                id: "scene-a-late",
+                slugline: nil,
+                title: "A late",
+                objective: nil,
+                summary: nil,
+                actId: "act-a",
+                order: 2,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-unknown",
+                slugline: nil,
+                title: "Unknown",
+                objective: nil,
+                summary: nil,
+                actId: "act-missing",
+                order: 1,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-loose-late",
+                slugline: nil,
+                title: "Loose late",
+                objective: nil,
+                summary: nil,
+                actId: nil,
+                order: 4,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-a-first",
+                slugline: nil,
+                title: "A first",
+                objective: nil,
+                summary: nil,
+                actId: "  act-a  ",
+                order: 0,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-loose-first",
+                slugline: nil,
+                title: "Loose first",
+                objective: nil,
+                summary: nil,
+                actId: "  ",
+                order: 3,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+
+        let presentation = ScreenplayStudioOutlinePresentationPlanner.make(acts: acts, scenes: scenes)
+
+        XCTAssertEqual(presentation.actSections.map(\.id), ["act-a", "act-b"])
+        XCTAssertEqual(presentation.actSections[0].scenes.map(\.id), ["scene-a-first", "scene-a-late"])
+        XCTAssertTrue(presentation.actSections[1].scenes.isEmpty)
+        XCTAssertEqual(presentation.looseScenes.map(\.id), ["scene-loose-first", "scene-loose-late"])
+        XCTAssertFalse(
+            presentation.actSections.flatMap(\.scenes).contains(where: { $0.id == "scene-unknown" })
+        )
+        XCTAssertFalse(presentation.looseScenes.contains(where: { $0.id == "scene-unknown" }))
+    }
+
     func testSceneOrderMutationPlannerMovesDownAndReplaysBackUp() throws {
         let outline = outlineOrderFixture()
         let movedDown = try XCTUnwrap(
