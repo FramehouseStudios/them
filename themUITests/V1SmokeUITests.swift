@@ -237,6 +237,29 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(saveButton.isEnabled)
     }
 
+    func test_them_rail_routes_to_passive_overview_and_surface_mix() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let themTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(themTab.waitForExistence(timeout: 8))
+        themTab.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let intro = app.descendants(matching: .any)["studio.them.intro"]
+        for _ in 0..<8 where !intro.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(intro.waitForExistence(timeout: 4))
+
+        let surfaceMix = app.descendants(matching: .any)["studio.them.surface-mix"]
+        for _ in 0..<12 where !surfaceMix.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(surfaceMix.waitForExistence(timeout: 4))
+    }
+
     func test_memory_recall_includes_a_mentioned_character() {
         let app = launchApp(
             openStudio: true,

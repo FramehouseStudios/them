@@ -4245,14 +4245,27 @@ Detail:
     }
 
 private var directionOneThemPanel: some View {
-    let analytics = liveDraftBridge.companionAnalytics
-    let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
     let blockSignalHistoryTrend = BackendBlockSignalHistoryTrendState.make(history: vm.blockSignalHistory)
+    let presentation = ScreenplayStudioThemRailPresentationPlanner.make(
+        signalState: liveDraftBridge.companionSignalState,
+        analytics: liveDraftBridge.companionAnalytics,
+        isBlockSignalLoading: vm.isBlockSignalLoading,
+        blockSignalErrorText: vm.blockSignalErrorText,
+        blockSignalNudge: blockSignalNudge,
+        blockSignalHistory: blockSignalHistoryTrend
+    )
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
-    return VStack(alignment: .leading, spacing: 16) {
+    return ScreenplayStudioThemRailView(
+        presentation: presentation,
+        actions: ScreenplayStudioThemRailActions(
+            onRefreshMomentum: {
+                Task { await vm.refreshBlockSignal(source: "Manual check") }
+            }
+        )
+    ) {
         if liveDraftBridge.latestAppliedMemory.hasContent {
             studioAppliedMemoryBanner
         }
@@ -4266,88 +4279,7 @@ private var directionOneThemPanel: some View {
             vm.characterTraits != nil {
             directionOneCharacterTraitsCard(characterTraitCards)
         }
-
-        VStack(alignment: .leading, spacing: 6) {
-            Text("io.them")
-                .font(.system(size: 30, weight: .semibold, design: .serif))
-                .foregroundStyle(Color.herText.opacity(0.92))
-            Text("Keep io.them's instincts, memory, and craft signals together.")
-                .font(.system(size: 15, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.82))
-            Text("The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.60))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-
-        if signalState.hasContent {
-            intelligenceCollectionCard(title: "Live Intent", icon: "dot.radiowaves.left.and.right") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(signalState.presence.title.isEmpty ? "Creative Presence" : signalState.presence.title)
-                            .font(.system(size: 13, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.88))
-                        Spacer(minLength: 0)
-                        if !signalState.intent.label.isEmpty {
-                            Text(signalState.intent.label)
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.14))
-                                .clipShape(Capsule())
-                        }
-                    }
-
-                    if !signalState.presence.detail.isEmpty {
-                        Text(signalState.presence.detail)
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.72))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if let proactive = signalState.proactiveSuggestion,
-                       !proactive.prompt.isEmpty {
-                        Text(proactive.prompt)
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-
-        if vm.isBlockSignalLoading {
-            intelligenceCollectionCard(title: "Momentum", icon: "hourglass") {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Checking writing momentum without interrupting the page.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        } else if !vm.blockSignalErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            intelligenceCollectionCard(title: "Momentum", icon: "exclamationmark.triangle") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(vm.blockSignalErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button {
-                        Task { await vm.refreshBlockSignal(source: "Manual check") }
-                    } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-        } else if blockSignalNudge.shouldRender || blockSignalHistoryTrend.shouldRender {
-            directionOneBlockSignalNudgeCard(blockSignalNudge, history: blockSignalHistoryTrend)
-        }
-
+    } trailingContent: {
         if vm.isCraftTwistLoading ||
             !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             vm.craftTwists != nil {
@@ -4355,30 +4287,7 @@ private var directionOneThemPanel: some View {
         }
 
         directionOneThemCollaboratorSection
-
-        intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
-            HStack(spacing: 8) {
-                directionOneMiniStat("Home", value: "\(analytics.homeTurns)")
-                directionOneMiniStat("Studio", value: "\(analytics.studioTurns)")
-                directionOneMiniStat("Voice", value: "\(analytics.voiceTurns)")
-                directionOneMiniStat("Typed", value: "\(analytics.typedTurns)")
-            }
-
-            Text("Companion turns stay attached to the same creative lane, whether they start on the page, in voice, or in the command bar.")
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.54))
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
-    .padding(18)
-    .background(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(Color.herShellPanelSoft.opacity(0.96))
-    )
-    .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
-    )
     .task {
         if !IOThemRuntime.isRunningUITests {
             await vm.refreshCharacterTraits(source: "io.them rail")
@@ -4428,114 +4337,6 @@ private func refreshStudioCreativeInstincts(
         reportErrors: reportErrors
     )
 }
-
-    private func directionOneBlockSignalNudgeCard(
-        _ state: BackendBlockSignalNudgeState,
-        history: BackendBlockSignalHistoryTrendState
-    ) -> some View {
-        let title = state.shouldRender ? state.title : history.title
-        let icon = state.shouldRender ? (state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") : "chart.xyaxis.line"
-
-        return intelligenceCollectionCard(title: title, icon: icon) {
-            VStack(alignment: .leading, spacing: 10) {
-                if state.shouldRender {
-                    HStack(spacing: 8) {
-                        Text(state.scoreLabel)
-                            .font(.system(size: 18, weight: .semibold, design: .serif))
-                            .foregroundStyle(blockSignalTint(state.level))
-                        if !state.topSignalLabel.isEmpty {
-                            Text(state.topSignalLabel)
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.62))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.16))
-                                .clipShape(Capsule())
-                        }
-                        Spacer(minLength: 0)
-                        Button {
-                            Task { await vm.refreshBlockSignal(source: "Manual check") }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Refresh momentum signal")
-                    }
-
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color.herShellStroke.opacity(0.20))
-                            Capsule()
-                                .fill(blockSignalTint(state.level).opacity(0.58))
-                                .frame(width: max(8, geometry.size.width * state.progress))
-                        }
-                    }
-                    .frame(height: 5)
-
-                    Text(state.summary)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.78))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(state.detailLabel)
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    HStack(spacing: 8) {
-                        Text(history.trendLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(blockSignalTint(history.latestLevel))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Button {
-                            Task { await vm.refreshBlockSignal(source: "Manual check") }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Refresh momentum history")
-                    }
-                }
-
-                if history.shouldRender {
-                    directionOneBlockSignalHistorySparkline(history)
-                }
-            }
-        }
-    }
-
-    private func directionOneBlockSignalHistorySparkline(_ history: BackendBlockSignalHistoryTrendState) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(Array(history.sparklineScores.enumerated()), id: \.offset) { _, score in
-                    Capsule()
-                        .fill(blockSignalTint(history.latestLevel).opacity(0.30 + (0.42 * score)))
-                        .frame(width: 5, height: CGFloat(max(5, 26 * score)))
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(height: 28)
-
-            HStack(spacing: 8) {
-                Text(history.countLabel)
-                Text(history.levelMixLabel)
-                Spacer(minLength: 0)
-            }
-            .font(.system(size: 10, weight: .medium, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.48))
-        }
-    }
-
-    private func blockSignalTint(_ level: BackendBlockSignalLevel) -> Color {
-        switch level {
-        case .high: return Color.red.opacity(0.74)
-        case .medium: return Color.orange.opacity(0.76)
-        case .low, .unknown: return Color.green.opacity(0.66)
-        }
-    }
 
     private func directionOneCharacterTraitsCard(_ cards: [BackendCharacterTraitCardState]) -> some View {
         intelligenceCollectionCard(title: "Character Memory", icon: "person.2") {

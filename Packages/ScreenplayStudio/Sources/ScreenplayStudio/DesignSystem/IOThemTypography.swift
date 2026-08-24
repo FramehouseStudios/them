@@ -3,7 +3,9 @@ import SwiftUI
 public enum IOThemTypography {
     public enum UI {
         public static let largeTitle = Font.system(size: 34, weight: .semibold, design: .default)
+        public static let editorialTitle = Font.system(size: 30, weight: .semibold, design: .serif)
         public static let title = Font.system(size: 22, weight: .semibold, design: .default)
+        public static let editorialMetric = Font.system(size: 18, weight: .semibold, design: .serif)
         public static let compactTitle = Font.system(size: 17, weight: .semibold, design: .default)
         public static let sectionTitle = Font.system(size: 16, weight: .semibold, design: .default)
         public static let body = Font.system(size: 15, weight: .regular, design: .default)
