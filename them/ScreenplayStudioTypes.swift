@@ -388,14 +388,6 @@ extension ScreenplayStudioScreen {
         var name: String { url.lastPathComponent }
     }
 
-    enum DraftStatusChipProminence {
-        case accent
-        case success
-        case warning
-        case danger
-        case muted
-    }
-
     struct VoicePinTurn: Identifiable, Equatable {
         enum Source {
             case voice

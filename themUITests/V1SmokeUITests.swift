@@ -223,6 +223,20 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_saved_panel_routes_to_passive_presentation_and_exposes_accessible_actions() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let savedTab = app.buttons["studio.right-panel.saved"]
+        XCTAssertTrue(savedTab.waitForExistence(timeout: 8))
+        savedTab.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4))
+        let saveButton = app.buttons["studio.saved.save"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(saveButton.isEnabled)
+    }
+
     func test_memory_recall_includes_a_mentioned_character() {
         let app = launchApp(
             openStudio: true,

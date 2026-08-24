@@ -46,6 +46,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("studio.right-panel.\(tab.rawValue)")
             }
         }
         .padding(6)

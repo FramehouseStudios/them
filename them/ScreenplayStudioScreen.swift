@@ -4839,126 +4839,38 @@ private func refreshStudioCreativeInstincts(
     }
 
     private var directionOneSavedPanel: some View {
-        let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let latestVersionTag = latestVersionID.isEmpty ? "" : "Version \(String(latestVersionID.suffix(6)).uppercased())"
-
-        return sectionCard(title: "Saved") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Button {
-                        triggerStudioManualSave(revealSavedTab: false)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                            Text(vm.isSaving ? "Saving…" : "Save Script")
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                        }
-                        .foregroundStyle(Color.herText.opacity(0.88))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.herStudioActiveFill.opacity(0.18))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(vm.isSaving || !hasDraft)
-
-                    draftStatusChip(vm.autosaveStatusText, prominence: .muted)
-
-                    if !latestVersionTag.isEmpty {
-                        draftStatusChip(latestVersionTag, prominence: .muted)
-                    }
-                }
-
-                Text("Command+S saves the current script here and keeps recent versions inside Studio.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-
-                if !studioBackgroundSyncNoticeText.isEmpty {
-                    HStack(spacing: 8) {
-                        Label(studioBackgroundSyncNoticeText, systemImage: "icloud.slash")
-                            .font(.system(size: 11, weight: .medium, design: .default))
-                            .foregroundStyle(Color.orange.opacity(0.82))
-                            .lineLimit(2)
-                        Spacer(minLength: 0)
-                        Button {
-                            retryStudioBackgroundPersistence()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Retry Studio sync")
-                        .help("Retry Studio sync")
-                    }
-                    .accessibilityIdentifier("studio.background-sync.notice")
-                }
-
-                Divider()
-                    .overlay(Color.herShellStroke.opacity(0.18))
-
-                if vm.selectedProject == nil {
-                    Text("Select or create a project to keep saved screenplay versions here.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                } else if snapshotVersions.isEmpty {
-                    Text("No saved versions yet. Press Command+S or use Save Script to create the first one.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recent saves")
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.40))
-                            .textCase(.uppercase)
-
-                        ForEach(Array(snapshotVersions.enumerated()), id: \.element.id) { index, version in
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        Text(version.phase?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Draft")
-                                            .font(.system(size: 12, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.88))
-                                        if index == 0 {
-                                            draftStatusChip("Latest", prominence: .success)
-                                        }
-                                    }
-
-                                    HStack(spacing: 6) {
-                                        if let updated = dateFromTimestamp(version.updatedAt ?? version.createdAt) {
-                                            Text(relativeTimestamp(updated))
-                                                .font(.system(size: 11, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.62))
-                                        }
-                                        if let notes = version.notes,
-                                           !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            Text(notes)
-                                                .font(.system(size: 11, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.62))
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                }
-
-                                Spacer(minLength: 0)
-
-                                Button("Restore") {
-                                    vm.loadSnapshot(version)
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled((version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.white.opacity(0.10))
-                            )
-                        }
-                    }
-                }
-            }
+        sectionCard(title: "Saved") {
+            ScreenplayStudioSavedPanel(
+                presentation: savedPanelPresentation,
+                actions: savedPanelActions
+            )
         }
+    }
+
+    private var savedPanelPresentation: ScreenplayStudioSavedPanelPresentation {
+        ScreenplayStudioSavedPanelPresentation(
+            isSaving: vm.isSaving,
+            hasDraft: !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            autosaveStatusText: vm.autosaveStatusText,
+            latestVersionID: vm.latestVersionID,
+            backgroundSyncNoticeText: studioBackgroundSyncNoticeText,
+            hasSelectedProject: vm.selectedProject != nil,
+            snapshotVersions: draftSnapshotPresentations
+        )
+    }
+
+    private var savedPanelActions: ScreenplayStudioSavedPanelActions {
+        ScreenplayStudioSavedPanelActions(
+            onSave: {
+                triggerStudioManualSave(revealSavedTab: false)
+            },
+            onRetryBackgroundSync: {
+                retryStudioBackgroundPersistence()
+            },
+            onRestore: { version in
+                vm.loadSnapshot(version)
+            }
+        )
     }
 
 
@@ -5755,51 +5667,6 @@ private var projectsSidebarContent: some View {
                 vm.loadSnapshot(version)
             }
         )
-    }
-
-    private func draftStatusChip(_ title: String, prominence: DraftStatusChipProminence) -> some View {
-        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fill: Color
-        let stroke: Color
-        let text: Color
-
-        switch prominence {
-        case .accent:
-            fill = Color.herStudioActiveFill
-            stroke = Color.herStudioActiveStroke
-            text = Color.herText.opacity(0.92)
-        case .success:
-            fill = Color.green.opacity(0.14)
-            stroke = Color.green.opacity(0.34)
-            text = Color.green.opacity(0.86)
-        case .warning:
-            fill = Color.orange.opacity(0.16)
-            stroke = Color.orange.opacity(0.34)
-            text = Color.orange.opacity(0.90)
-        case .danger:
-            fill = Color.red.opacity(0.14)
-            stroke = Color.red.opacity(0.32)
-            text = Color.red.opacity(0.88)
-        case .muted:
-            fill = Color.herShellPanelSoft.opacity(0.94)
-            stroke = Color.herShellStroke.opacity(0.22)
-            text = Color.herText.opacity(0.74)
-        }
-
-        return Text(clean)
-            .font(.system(size: 12, weight: .semibold, design: .default))
-            .foregroundStyle(text)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(fill)
-            )
-            .overlay(
-                Capsule()
-                    .stroke(stroke, lineWidth: 1)
-            )
     }
 
 
