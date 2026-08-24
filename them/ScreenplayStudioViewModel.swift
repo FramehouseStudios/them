@@ -1,6 +1,7 @@
 import SwiftUI
 import ScreenplayStudio
 import Combine
+import CryptoKit
 
 
 #if DEBUG || os(macOS)
@@ -1411,6 +1412,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let archetypes: BackendCharacterArchetypesResponse?
     }
 
+    private struct CanonicalOutlineCollections {
+        let acts: [BackendScreenplayAct]
+        let scenes: [BackendScreenplayScene]
+        let beats: [BackendScreenplayBeat]
+    }
+
+    private struct OutlineMutationValidationError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? { message }
+    }
+
     struct LocalDraftRecoveryCandidate: Equatable {
         let projectId: String
         let draft: String
@@ -1436,6 +1449,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var selectedProjectID: String = ""
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
+    @Published var outlineRevision: Int = 0
     @Published var pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
 
     @Published var craftFrameworks: [ScreenplayCraftFrameworkReference] = []
@@ -1527,6 +1541,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     #else
     private static let localPDFExportSupported = false
     #endif
+    private static let outlineMutationRetryBackoff: [TimeInterval] = [2, 5, 15, 60, 300]
 
     @Published var newProjectTitle: String = ""
     @Published var featureLogline: String = ""
@@ -1599,6 +1614,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var conflictState: SaveConflictState?
     @Published var queuedDraftSaveCount: Int = 0
     @Published var parkedDraftSaveCount: Int = 0
+    @Published var queuedOutlineMutationCount: Int = 0
+    @Published var parkedOutlineMutationCount: Int = 0
+    @Published private(set) var isOutlineMutationDrainInFlight: Bool = false
 
     private var draftDebounceCancellable: AnyCancellable?
     private var bridgePreferredVersionCancellable: AnyCancellable?
@@ -1608,12 +1626,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
+    private var outlineRevisionProjectID = ""
     private var isCrossDeviceRefreshInFlight = false
     private var isDraftSaveInFlight = false
+    private var outlineMutationRetryTask: Task<Void, Never>?
+    private var outlineMutationDrainCoordinator = ScreenplayOutlineMutationDrainCoordinator()
+    private var outlineMutationTerminalAcceptance: [String: Bool] = [:]
+    private var outlineMutationAwaitedIDs: Set<String> = []
+    private var latestOptimisticOutlineMutationByProject: [String: ScreenplayOutlineMutationOutboxEntry] = [:]
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let draftSaveOutbox = ScreenplayDraftSaveOutbox.shared
+    private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
     private var clientTokenOwnedProjectIDs: Set<String> = []
@@ -1637,13 +1662,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             await self.draftSaveOutbox.startNetworkMonitoring()
+            await self.outlineMutationOutbox.startNetworkMonitoring()
             await self.refreshDraftSaveOutboxStatus()
+            await self.refreshOutlineMutationOutboxStatus()
         }
     }
 
     deinit {
         draftDebounceCancellable?.cancel()
         bridgePreferredVersionCancellable?.cancel()
+        outlineMutationRetryTask?.cancel()
     }
 
     func load() async {
@@ -1653,6 +1681,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             selectedProjectID = ""
             selectedProject = nil
             outline = .empty
+            outlineRevision = 0
+            outlineRevisionProjectID = ""
             clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
             return
@@ -1686,6 +1716,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             selectedProject = nil
             pendingScreenplayQuestion = nil
             outline = .empty
+            outlineRevision = 0
+            outlineRevisionProjectID = ""
             clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
         }
@@ -1718,6 +1750,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         clearTransientProjectStateForSelectionChange(to: projectID)
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
+        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) ==
+                projectID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return
+        }
         await persistActiveProjectSelection(projectID)
         await refreshPendingScreenplayQuestion()
     }
@@ -1960,34 +1996,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func pushOutlineSnapshot() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: outline.acts,
-                scenes: outline.scenes,
-                beats: outline.beats,
-                merge: true,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            infoText = "Outline synced."
-        } catch {
-            errorText = error.localizedDescription
-        }
+        _ = await persistOutlineMutation(
+            acts: outline.acts,
+            scenes: outline.scenes,
+            beats: outline.beats,
+            successMessage: "Outline synced.",
+            source: "studio_outline_sync"
+        )
     }
 
     func addScene() async {
@@ -2019,13 +2034,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 scene: draft,
                 title: project.title
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             newSceneSlugline = ""
             newSceneTitle = ""
             newSceneObjective = ""
@@ -2059,14 +2074,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 scene: draft,
                 title: project.title
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             if let scene = result.payload.scene ??
                 result.payload.outline?.scenes.last(where: { ($0.slugline ?? "").caseInsensitiveCompare(slugline) == .orderedSame }) {
                 beginEditingScene(scene)
@@ -2130,14 +2144,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 scene: draft,
                 title: project.title
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             infoText = "Scene details saved."
             cancelEditingScene()
         } catch {
@@ -2176,13 +2189,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 beat: draft,
                 title: project.title
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             newBeatLabel = ""
             newBeatSummary = ""
             newBeatSceneID = ""
@@ -2211,14 +2224,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func deleteBeat(_ beat: BackendScreenplayBeat) async {
-        guard let project = selectedProject else {
+        guard selectedProject != nil else {
             errorText = "Select a project first."
             return
         }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
 
         let updatedScenes = outline.scenes.map { scene in
             let filteredBeatIDs = (scene.beatIds ?? []).filter { $0 != beat.id }
@@ -2238,92 +2247,791 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let updatedBeats = outline.beats.filter { $0.id != beat.id }
 
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: outline.acts,
-                scenes: updatedScenes,
-                beats: updatedBeats,
-                merge: false,
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: outline.acts.count,
-                    sceneCount: updatedScenes.count,
-                    beatCount: updatedBeats.count,
-                    acts: outline.acts,
-                    scenes: updatedScenes,
-                    beats: updatedBeats
-                )
-            }
+        let accepted = await persistOutlineMutation(
+            acts: outline.acts,
+            scenes: updatedScenes,
+            beats: updatedBeats,
+            successMessage: "Beat removed.",
+            source: "studio_delete_beat"
+        )
+        if accepted {
             if editingBeatID == beat.id {
                 cancelEditingBeat()
             }
-            infoText = "Beat removed."
-        } catch {
-            errorText = error.localizedDescription
         }
     }
 
-    private func persistOutlineMutation(
+    @discardableResult
+    func persistOutlineMutation(
         acts: [BackendScreenplayAct],
         scenes: [BackendScreenplayScene],
         beats: [BackendScreenplayBeat],
-        successMessage: String
+        successMessage: String,
+        source: String
     ) async -> Bool {
-        guard let project = selectedProject else {
+        guard let project = selectedProject,
+              project.id == selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) else {
             errorText = "Select a project first."
             return false
         }
 
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: acts,
-                scenes: scenes,
-                beats: beats,
-                merge: false,
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
+        let ownerUserId = outlineMutationOwnerPartitionID(forProjectID: project.id)
+        let visibleOutlineBeforeQueueRestore = outline
+        if let latestQueuedEntry = await restoreLatestQueuedOutlineSnapshot(
+            projectId: project.id,
+            ownerUserId: ownerUserId
+        ) {
+            let visibleWasLatestQueuedSnapshot = visibleOutlineBeforeQueueRestore.acts == latestQueuedEntry.acts &&
+                visibleOutlineBeforeQueueRestore.scenes == latestQueuedEntry.scenes &&
+                visibleOutlineBeforeQueueRestore.beats == latestQueuedEntry.beats
+            let requestedSnapshotIsLatestQueuedSnapshot = acts == latestQueuedEntry.acts &&
+                scenes == latestQueuedEntry.scenes &&
+                beats == latestQueuedEntry.beats
+            guard visibleWasLatestQueuedSnapshot || requestedSnapshotIsLatestQueuedSnapshot else {
+                errorText = "A newer outline change was restored from the local queue. Review it, then apply this edit again."
+                infoText = "Your queued outline was preserved without being overwritten."
+                return false
             }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: acts.count,
-                    sceneCount: scenes.count,
-                    beatCount: beats.count,
-                    acts: acts,
-                    scenes: scenes,
-                    beats: beats
-                )
-            }
-            infoText = successMessage
-            return true
-        } catch {
-            errorText = error.localizedDescription
+        }
+        let existingQueue = await outlineMutationOutbox.snapshot(
+            ownerUserId: ownerUserId,
+            projectId: project.id
+        )
+        guard existingQueue.parkedCount == 0 else {
+            parkedOutlineMutationCount = existingQueue.parkedCount
+            queuedOutlineMutationCount = existingQueue.activeCount
+            errorText = "Resolve the parked outline change before adding another mutation."
+            infoText = "Your current outline remains open without overwriting the parked change."
             return false
         }
+        let entryID = UUID().uuidString.lowercased()
+        let now = Date().timeIntervalSince1970
+        let rawEntry = ScreenplayOutlineMutationOutboxEntry(
+            id: entryID,
+            projectId: project.id,
+            ownerUserId: ownerUserId,
+            expectedOutlineRevision: max(0, outlineRevision),
+            acts: acts,
+            scenes: scenes,
+            beats: beats,
+            source: source,
+            createdAt: now,
+            updatedAt: now,
+            status: .pending,
+            retries: 0,
+            nextAttemptAt: now,
+            lastError: ""
+        )
+
+        let entry: ScreenplayOutlineMutationOutboxEntry
+        do {
+            let canonical = try canonicalizedOutlineCollections(
+                acts: acts,
+                scenes: scenes,
+                beats: beats
+            )
+            entry = ScreenplayOutlineMutationOutboxEntry(
+                id: rawEntry.id,
+                projectId: rawEntry.projectId,
+                ownerUserId: rawEntry.ownerUserId,
+                expectedOutlineRevision: rawEntry.expectedOutlineRevision,
+                acts: canonical.acts,
+                scenes: canonical.scenes,
+                beats: canonical.beats,
+                source: rawEntry.source,
+                createdAt: rawEntry.createdAt,
+                updatedAt: rawEntry.updatedAt,
+                status: rawEntry.status,
+                retries: rawEntry.retries,
+                nextAttemptAt: rawEntry.nextAttemptAt,
+                lastError: rawEntry.lastError
+            )
+        } catch {
+            do {
+                let cleanError = error.localizedDescription
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                try await outlineMutationOutbox.enqueue(
+                    ScreenplayOutlineMutationOutboxEntry(
+                        id: rawEntry.id,
+                        projectId: rawEntry.projectId,
+                        ownerUserId: rawEntry.ownerUserId,
+                        expectedOutlineRevision: rawEntry.expectedOutlineRevision,
+                        acts: rawEntry.acts,
+                        scenes: rawEntry.scenes,
+                        beats: rawEntry.beats,
+                        source: rawEntry.source,
+                        createdAt: rawEntry.createdAt,
+                        updatedAt: Date().timeIntervalSince1970,
+                        status: .parked,
+                        retries: 0,
+                        nextAttemptAt: 0,
+                        lastError: String(cleanError.prefix(280))
+                    )
+                )
+            } catch {
+                errorText = "The outline change is invalid and could not be parked safely: \(error.localizedDescription)"
+                await refreshOutlineMutationOutboxStatus()
+                return false
+            }
+            errorText = error.localizedDescription
+            infoText = "This outline change needs attention before it can sync."
+            await refreshOutlineMutationOutboxStatus()
+            return false
+        }
+
+        outlineMutationAwaitedIDs.insert(entry.id)
+        do {
+            try await outlineMutationOutbox.enqueue(entry)
+        } catch {
+            outlineMutationAwaitedIDs.remove(entry.id)
+            errorText = "The outline change could not be saved locally: \(error.localizedDescription)"
+            await refreshOutlineMutationOutboxStatus()
+            return false
+        }
+
+        latestOptimisticOutlineMutationByProject[entry.projectId] = entry
+        applyOptimisticOutlineMutation(entry)
+        errorText = ""
+        infoText = successMessage
+        await refreshOutlineMutationOutboxStatus()
+        await resumeQueuedOutlineMutationsIfNeeded()
+
+        if let accepted = outlineMutationTerminalAcceptance.removeValue(forKey: entry.id) {
+            outlineMutationAwaitedIDs.remove(entry.id)
+            return accepted
+        }
+        do {
+            let accepted = try await outlineMutationOutbox.status(id: entry.id) != .parked
+            outlineMutationAwaitedIDs.remove(entry.id)
+            return accepted
+        } catch {
+            outlineMutationAwaitedIDs.remove(entry.id)
+            errorText = "The outline was saved locally, but its queue status could not be read: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func refreshOutlineMutationOutboxStatus() async {
+        let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshot = await outlineMutationOutbox.snapshot(
+            ownerUserId: outlineMutationOwnerPartitionID(forProjectID: projectId),
+            projectId: projectId.isEmpty ? nil : projectId
+        )
+        queuedOutlineMutationCount = snapshot.activeCount
+        parkedOutlineMutationCount = snapshot.parkedCount
+    }
+
+    func reconnectAndResumeQueuedOutlineMutations() async {
+        await refreshOutlineMutationOutboxStatus()
+        await resumeQueuedOutlineMutationsIfNeeded()
+    }
+
+    func resumeQueuedOutlineMutationsIfNeeded(force: Bool = false) async {
+        guard outlineMutationDrainCoordinator.begin(force: force) else { return }
+        isOutlineMutationDrainInFlight = true
+        let projectId = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer {
+            let followUp = outlineMutationDrainCoordinator.finish(
+                drainedProjectID: projectId,
+                selectedProjectID: selectedProjectID
+            )
+            isOutlineMutationDrainInFlight = outlineMutationDrainCoordinator.isInFlight
+            if followUp.shouldRun {
+                Task { @MainActor [weak self] in
+                    await self?.resumeQueuedOutlineMutationsIfNeeded(force: followUp.force)
+                }
+            }
+        }
+        guard !projectId.isEmpty else {
+            await refreshOutlineMutationOutboxStatus()
+            return
+        }
+        let ownerUserId = outlineMutationOwnerPartitionID(forProjectID: projectId)
+
+        do {
+            _ = try await outlineMutationOutbox.recoverOrphanedInflight(
+                projectId: projectId,
+                ownerUserId: ownerUserId,
+                error: "Recovering an interrupted outline request before retry."
+            )
+        } catch {
+            errorText = "The local outline queue could not recover an interrupted request: \(error.localizedDescription)"
+            infoText = "The same request remains queued and will retry without changing its request ID."
+            scheduleOutlineMutationRetry(after: 1)
+            await refreshOutlineMutationOutboxStatus()
+            return
+        }
+
+        _ = await restoreLatestQueuedOutlineSnapshot(
+            projectId: projectId,
+            ownerUserId: ownerUserId
+        )
+
+        var completedCount = 0
+        while completedCount < 8 {
+            let entry: ScreenplayOutlineMutationOutboxEntry?
+            do {
+                entry = try await outlineMutationOutbox.beginNext(
+                    projectId: projectId,
+                    ownerUserId: ownerUserId,
+                    force: force && completedCount == 0
+                )
+            } catch {
+                errorText = "The local outline queue could not be read: \(error.localizedDescription)"
+                scheduleOutlineMutationRetry(after: 1)
+                break
+            }
+            guard let entry else {
+                do {
+                    if let head = try await outlineMutationOutbox.headEntry(
+                        projectId: projectId,
+                        ownerUserId: ownerUserId
+                    ), head.status == .pending {
+                        let remainingDelay = max(
+                            0.1,
+                            head.nextAttemptAt - Date().timeIntervalSince1970
+                        )
+                        scheduleOutlineMutationRetry(after: remainingDelay)
+                    }
+                } catch {
+                    errorText = "The outline retry deadline could not be read: \(error.localizedDescription)"
+                }
+                break
+            }
+
+            applyOptimisticOutlineMutation(
+                latestOptimisticOutlineMutationByProject[projectId] ?? entry
+            )
+            let shouldContinue = await performOutlineMutation(entry)
+            if let optimistic = latestOptimisticOutlineMutationByProject[projectId] {
+                applyOptimisticOutlineMutation(optimistic)
+            }
+            guard shouldContinue else { break }
+            completedCount += 1
+        }
+        if completedCount >= 8 {
+            do {
+                if let head = try await outlineMutationOutbox.headEntry(
+                    projectId: projectId,
+                    ownerUserId: ownerUserId
+                ), head.status == .pending {
+                    scheduleOutlineMutationRetry(
+                        after: max(0.1, head.nextAttemptAt - Date().timeIntervalSince1970)
+                    )
+                }
+            } catch {
+                errorText = "The next outline queue item could not be scheduled: \(error.localizedDescription)"
+            }
+        }
+        await refreshOutlineMutationOutboxStatus()
+    }
+
+    @discardableResult
+    private func restoreLatestQueuedOutlineSnapshot(
+        projectId: String,
+        ownerUserId: String
+    ) async -> ScreenplayOutlineMutationOutboxEntry? {
+        do {
+            guard let entry = try await outlineMutationOutbox.latestActiveEntry(
+                projectId: projectId,
+                ownerUserId: ownerUserId
+            ) else {
+                latestOptimisticOutlineMutationByProject.removeValue(forKey: projectId)
+                return nil
+            }
+            latestOptimisticOutlineMutationByProject[projectId] = entry
+            applyOptimisticOutlineMutation(entry)
+            return entry
+        } catch {
+            errorText = "The latest queued outline could not be restored: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: String) async {
+        let normalizedProjectID = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectID.isEmpty else { return }
+        _ = await restoreLatestQueuedOutlineSnapshot(
+            projectId: normalizedProjectID,
+            ownerUserId: outlineMutationOwnerPartitionID(forProjectID: normalizedProjectID)
+        )
+    }
+
+    private func performOutlineMutation(_ entry: ScreenplayOutlineMutationOutboxEntry) async -> Bool {
+        isSaving = true
+        defer { isSaving = false }
+        var didAttemptAuthRefresh = false
+
+        while true {
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: entry.projectId)
+            do {
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
+                    projectId: entry.projectId,
+                    acts: entry.acts,
+                    scenes: entry.scenes,
+                    beats: entry.beats,
+                    expectedOutlineRevision: entry.expectedOutlineRevision,
+                    clientRequestId: entry.id,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+                let response = result.payload
+                guard let committedRevision = ScreenplayOutlineMutationAcknowledgement
+                    .committedRevision(response: response, entry: entry) else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+
+                adoptCanonicalOutlineMutationResponse(response, projectId: entry.projectId)
+                do {
+                    try await outlineMutationOutbox.markSucceeded(
+                        id: entry.id,
+                        committedRevision: committedRevision
+                    )
+                } catch {
+                    errorText = "The outline was accepted, but its local queue acknowledgement could not be saved: \(error.localizedDescription)"
+                    infoText = "The same request remains queued and will replay safely without changing its request ID."
+                    scheduleOutlineMutationRetry(after: 1)
+                    await refreshOutlineMutationOutboxStatus()
+                    return false
+                }
+                recordOutlineMutationTerminalAcceptance(true, for: entry.id)
+                if latestOptimisticOutlineMutationByProject[entry.projectId]?.id == entry.id {
+                    latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
+                }
+                errorText = ""
+                return true
+            } catch let error as BackendScreenplayOutlineMutationHTTPError {
+                if error.statusCode == 401, !didAttemptAuthRefresh {
+                    didAttemptAuthRefresh = true
+                    do {
+                        let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+                        if refreshed.isAuthenticated {
+                            continue
+                        }
+                    } catch {
+                        // The original 401 is the durable mutation outcome that must be parked.
+                    }
+                }
+                return await handleOutlineMutationHTTPError(error, entry: entry)
+            } catch {
+                return await handleOutlineMutationTransportError(error, entry: entry)
+            }
+        }
+    }
+
+    private func handleOutlineMutationHTTPError(
+        _ error: BackendScreenplayOutlineMutationHTTPError,
+        entry: ScreenplayOutlineMutationOutboxEntry
+    ) async -> Bool {
+        if let response = error.response {
+            adoptCanonicalOutlineMutationResponse(response, projectId: entry.projectId)
+        }
+        let responseCode = [error.response?.status, error.response?.error]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+
+        if error.statusCode == 425 {
+            let retryAfter = TimeInterval(max(0, error.retryAfterMs ?? 1_000)) / 1_000
+            return await markOutlineMutationRetryable(
+                entry,
+                error: error.localizedDescription,
+                retryAfter: retryAfter
+            )
+        }
+        if error.statusCode == 409,
+           responseCode.contains("replayed_superseded") || responseCode.contains("replayed-superseded") {
+            let currentRevision = max(
+                0,
+                error.response?.outlineRevision ?? error.response?.outline?.revision ?? outlineRevision
+            )
+            do {
+                try await outlineMutationOutbox.markSuperseded(
+                    id: entry.id,
+                    currentRevision: currentRevision,
+                    error: error.localizedDescription
+                )
+            } catch {
+                errorText = "The superseded outline change could not be acknowledged locally: \(error.localizedDescription)"
+                infoText = "The same request remains queued and will replay safely without changing its request ID."
+                scheduleOutlineMutationRetry(after: 1)
+                return false
+            }
+            latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
+            recordOutlineMutationTerminalAcceptance(false, for: entry.id)
+            errorText = "This outline change was already saved, then superseded by a newer revision."
+            infoText = "Showing the newest server outline; the superseded change was not reapplied."
+            await refreshOutlineMutationOutboxStatus()
+            return false
+        }
+        if error.statusCode == 408 || error.statusCode == 429 || (500...599).contains(error.statusCode) {
+            let retryAfter = error.retryAfterMs.map { TimeInterval(max(0, $0)) / 1_000 }
+            return await markOutlineMutationRetryable(
+                entry,
+                error: error.localizedDescription,
+                retryAfter: retryAfter
+            )
+        }
+
+        let message: String
+        if error.statusCode == 401 {
+            message = "Your sign-in could not be refreshed. The outline change is parked safely."
+        } else if error.statusCode == 409 && responseCode.contains("stale") {
+            message = "The outline changed elsewhere. Your local change is parked for review."
+        } else if error.statusCode == 409 && responseCode.contains("request_id_reused") {
+            message = "The outline request ID was reused with different content. The change is parked."
+        } else if error.statusCode == 409 && responseCode.contains("revision_exhausted") {
+            message = "The outline revision limit was reached. This change needs support before it can sync."
+        } else if error.statusCode == 413 {
+            message = "This outline is too large to sync. The change is parked for review."
+        } else {
+            message = "The backend rejected this outline change. It is parked safely for review."
+        }
+        return await parkOutlineMutation(entry, error: error.localizedDescription, message: message)
+    }
+
+    private func handleOutlineMutationTransportError(
+        _ error: Error,
+        entry: ScreenplayOutlineMutationOutboxEntry
+    ) async -> Bool {
+        let shouldRetry: Bool
+        if error is URLError || error is DecodingError {
+            shouldRetry = true
+        } else if let apiError = error as? BackendMemoryAPIError {
+            switch apiError {
+            case .invalidResponse:
+                shouldRetry = true
+            case .invalidBaseURL:
+                shouldRetry = false
+            case .server(let status, _):
+                shouldRetry = status == 408 || status == 425 || status == 429 || (500...599).contains(status)
+            }
+        } else {
+            shouldRetry = false
+        }
+
+        if shouldRetry {
+            return await markOutlineMutationRetryable(
+                entry,
+                error: error.localizedDescription,
+                retryAfter: nil
+            )
+        }
+        return await parkOutlineMutation(
+            entry,
+            error: error.localizedDescription,
+            message: "This outline change could not be sent and is parked safely for review."
+        )
+    }
+
+    private func markOutlineMutationRetryable(
+        _ entry: ScreenplayOutlineMutationOutboxEntry,
+        error: String,
+        retryAfter: TimeInterval?
+    ) async -> Bool {
+        do {
+            try await outlineMutationOutbox.markRetryable(
+                id: entry.id,
+                error: error,
+                retryAfter: retryAfter
+            )
+            let status = try await outlineMutationOutbox.status(id: entry.id)
+            await refreshOutlineMutationOutboxStatus()
+            if status == .parked {
+                latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
+                recordOutlineMutationTerminalAcceptance(false, for: entry.id)
+                errorText = "Outline sync stopped after repeated failures. The change is parked safely."
+                infoText = "Review the parked outline change after reconnecting."
+                return false
+            }
+
+            let backoff = Self.outlineMutationRetryBackoff[
+                min(entry.retries, Self.outlineMutationRetryBackoff.count - 1)
+            ]
+            scheduleOutlineMutationRetry(after: max(backoff, retryAfter ?? 0))
+            errorText = ""
+            infoText = "Your outline change is saved locally and will retry automatically."
+            return false
+        } catch {
+            errorText = "The outline retry could not be secured locally: \(error.localizedDescription)"
+            infoText = "The original request remains durable and will be recovered with the same request ID."
+            scheduleOutlineMutationRetry(after: 1)
+            return false
+        }
+    }
+
+    private func parkOutlineMutation(
+        _ entry: ScreenplayOutlineMutationOutboxEntry,
+        error: String,
+        message: String
+    ) async -> Bool {
+        do {
+            try await outlineMutationOutbox.markParked(id: entry.id, error: error)
+        } catch {
+            errorText = "The rejected outline change could not be parked locally: \(error.localizedDescription)"
+            infoText = "The original request remains durable; its terminal state will be recovered locally."
+            scheduleOutlineMutationRetry(after: 1)
+            return false
+        }
+        latestOptimisticOutlineMutationByProject.removeValue(forKey: entry.projectId)
+        recordOutlineMutationTerminalAcceptance(false, for: entry.id)
+        errorText = message
+        infoText = "The canonical server outline is still open."
+        await refreshOutlineMutationOutboxStatus()
+        return false
+    }
+
+    private func scheduleOutlineMutationRetry(after delay: TimeInterval) {
+        outlineMutationRetryTask?.cancel()
+        let boundedDelay = min(1_800, max(0.1, delay + 0.05))
+        outlineMutationRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(boundedDelay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            await self.resumeQueuedOutlineMutationsIfNeeded()
+        }
+    }
+
+    private func recordOutlineMutationTerminalAcceptance(_ accepted: Bool, for id: String) {
+        guard outlineMutationAwaitedIDs.contains(id) else { return }
+        outlineMutationTerminalAcceptance[id] = accepted
+    }
+
+    private func applyOptimisticOutlineMutation(_ entry: ScreenplayOutlineMutationOutboxEntry) {
+        guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == entry.projectId else { return }
+        outline = BackendScreenplayOutline(
+            revision: entry.expectedOutlineRevision,
+            updatedAt: Date().timeIntervalSince1970 * 1_000,
+            actCount: entry.acts.count,
+            sceneCount: entry.scenes.count,
+            beatCount: entry.beats.count,
+            acts: entry.acts,
+            scenes: entry.scenes,
+            beats: entry.beats
+        )
+        reconcileSceneSessionState(with: outline)
+        syncLiveDraftBridgeProjectContext()
+    }
+
+    private func adoptCanonicalOutlineMutationResponse(
+        _ response: BackendScreenplayOutlineMutationResponse,
+        projectId: String
+    ) {
+        guard response.projectId == nil || response.projectId == projectId else { return }
+        adoptCanonicalOutlineState(
+            response.outlineRevision ?? response.committedRevision,
+            outline: response.outline,
+            project: response.project,
+            projectId: projectId
+        )
+    }
+
+    @discardableResult
+    func adoptCanonicalOutlineState(
+        _ responseRevision: Int?,
+        outline responseOutline: BackendScreenplayOutline?,
+        project responseProject: BackendScreenplayProjectSummary?,
+        projectId: String
+    ) -> Bool {
+        let normalizedProjectID = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let responseProject, responseProject.id != normalizedProjectID {
+            return false
+        }
+        let canonicalRevision = [responseRevision, responseOutline?.revision, responseProject?.outlineRevision]
+            .compactMap { $0 }
+            .first(where: { $0 >= 0 })
+        let isSelectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedProjectID
+        if isSelectedProject,
+           outlineRevisionProjectID == normalizedProjectID,
+           let canonicalRevision,
+           canonicalRevision < outlineRevision {
+            return false
+        }
+        if isSelectedProject, responseOutline != nil, canonicalRevision == nil, outlineRevision > 0 {
+            return false
+        }
+
+        if let project = responseProject {
+            upsertProject(project)
+            if isSelectedProject {
+                selectedProject = project
+            }
+        }
+        guard isSelectedProject else { return true }
+        if let nextOutline = responseOutline {
+            outline = nextOutline
+            reconcileSceneSessionState(with: nextOutline)
+        }
+        adoptOutlineMutationRevision(
+            canonicalRevision,
+            outline: responseOutline,
+            project: responseProject,
+            projectId: normalizedProjectID
+        )
+        syncLiveDraftBridgeProjectContext()
+        return true
+    }
+
+    func adoptOutlineMutationRevision(
+        _ responseRevision: Int?,
+        outline responseOutline: BackendScreenplayOutline?,
+        project responseProject: BackendScreenplayProjectSummary?,
+        projectId: String? = nil
+    ) {
+        let resolvedProjectID = (projectId ?? responseProject?.id ?? selectedProjectID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if resolvedProjectID != outlineRevisionProjectID {
+            outlineRevisionProjectID = resolvedProjectID
+            outlineRevision = 0
+        }
+        let revision = [responseRevision, responseOutline?.revision, responseProject?.outlineRevision]
+            .compactMap { $0 }
+            .first(where: { $0 >= 0 })
+        if let revision {
+            outlineRevision = max(outlineRevision, revision)
+        }
+    }
+
+    private func outlineMutationOwnerPartitionID(forProjectID projectID: String) -> String {
+        let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectID)
+        if ownerHeaders.usesDebugClientTokenOwner {
+            let clientToken = (ownerHeaders.clientTokenOverride ?? BackendAuthClient.sharedClientToken() ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let partitionSeed = clientToken.isEmpty
+                ? "unresolved-client-owner:\(projectID.trimmingCharacters(in: .whitespacesAndNewlines))"
+                : clientToken
+            return "client:\(sha256Hex(partitionSeed))"
+        }
+        let userId = (
+            BackendAuthClient.currentAuthSessionState().user?.userId
+                ?? BackendAuthClient.sharedUserID()
+                ?? "anonymous"
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return "user:\(userId.isEmpty ? "anonymous" : userId)"
+    }
+
+    private func sha256Hex(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func canonicalizedOutlineCollections(
+        acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene],
+        beats: [BackendScreenplayBeat]
+    ) throws -> CanonicalOutlineCollections {
+        let actIDs = try stableOutlineEntityIDs(acts.map(\.id), entityName: "act")
+        let sceneIDs = try stableOutlineEntityIDs(scenes.map(\.id), entityName: "scene")
+        _ = try stableOutlineEntityIDs(beats.map(\.id), entityName: "beat")
+
+        var sceneActByID: [String: String] = [:]
+        for scene in scenes {
+            if let actId = try stableOutlineReference(scene.actId, field: "scene.actId") {
+                guard actIDs.contains(actId) else {
+                    throw OutlineMutationValidationError(
+                        message: "Scene \(scene.id) references an act that is no longer in this outline."
+                    )
+                }
+                sceneActByID[scene.id] = actId
+            }
+        }
+
+        var beatSceneByID: [String: String] = [:]
+        for beat in beats {
+            let sceneId = try stableOutlineReference(beat.sceneId, field: "beat.sceneId")
+            let actId = try stableOutlineReference(beat.actId, field: "beat.actId")
+            if let sceneId {
+                guard sceneIDs.contains(sceneId) else {
+                    throw OutlineMutationValidationError(
+                        message: "Beat \(beat.id) references a scene that is no longer in this outline."
+                    )
+                }
+                beatSceneByID[beat.id] = sceneId
+            }
+            if let actId {
+                guard actIDs.contains(actId) else {
+                    throw OutlineMutationValidationError(
+                        message: "Beat \(beat.id) references an act that is no longer in this outline."
+                    )
+                }
+            }
+            if let sceneId,
+               let actId,
+               let sceneActId = sceneActByID[sceneId],
+               sceneActId != actId {
+                throw OutlineMutationValidationError(
+                    message: "Beat \(beat.id) and its scene reference different acts."
+                )
+            }
+        }
+
+        let canonicalActs = acts.map { act in
+            BackendScreenplayAct(
+                id: act.id,
+                title: act.title,
+                summary: act.summary,
+                order: act.order,
+                sceneIds: scenes.compactMap { sceneActByID[$0.id] == act.id ? $0.id : nil },
+                createdAt: act.createdAt,
+                updatedAt: act.updatedAt
+            )
+        }
+        let canonicalScenes = scenes.map { scene in
+            BackendScreenplayScene(
+                id: scene.id,
+                slugline: scene.slugline,
+                title: scene.title,
+                objective: scene.objective,
+                summary: scene.summary,
+                actId: scene.actId,
+                order: scene.order,
+                status: scene.status,
+                beatIds: beats.compactMap { beatSceneByID[$0.id] == scene.id ? $0.id : nil },
+                createdAt: scene.createdAt,
+                updatedAt: scene.updatedAt
+            )
+        }
+        return CanonicalOutlineCollections(acts: canonicalActs, scenes: canonicalScenes, beats: beats)
+    }
+
+    private func stableOutlineEntityIDs(
+        _ ids: [String],
+        entityName: String
+    ) throws -> Set<String> {
+        var result = Set<String>()
+        for id in ids {
+            guard isStableOutlineIdentifier(id) else {
+                throw OutlineMutationValidationError(
+                    message: "Every outline \(entityName) needs a stable ID of 64 characters or fewer."
+                )
+            }
+            guard result.insert(id).inserted else {
+                throw OutlineMutationValidationError(
+                    message: "Outline \(entityName) IDs must be unique."
+                )
+            }
+        }
+        return result
+    }
+
+    private func stableOutlineReference(_ value: String?, field: String) throws -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard isStableOutlineIdentifier(value) else {
+            throw OutlineMutationValidationError(
+                message: "The \(field) reference is not a stable outline ID."
+            )
+        }
+        return value
+    }
+
+    private func isStableOutlineIdentifier(_ value: String) -> Bool {
+        let normalizedWhitespace = value
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return !value.isEmpty && value.count <= 64 && normalizedWhitespace == value
     }
 
     func moveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) async {
@@ -2351,7 +3059,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             acts: updatedActs,
             scenes: mutation.scenes,
             beats: mutation.beats,
-            successMessage: "Reordered beats."
+            successMessage: "Reordered beats.",
+            source: "studio_reorder_beats"
         )
     }
 
@@ -2379,7 +3088,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             acts: mutation.acts,
             scenes: outline.scenes,
             beats: outline.beats,
-            successMessage: "Reordered outline sections."
+            successMessage: "Reordered outline sections.",
+            source: "studio_reorder_acts"
         )
     }
 
@@ -2412,7 +3122,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             acts: mutation.acts,
             scenes: mutation.scenes,
             beats: mutation.beats,
-            successMessage: "Reordered scenes in the outline."
+            successMessage: "Reordered scenes in the outline.",
+            source: "studio_reorder_scenes"
         )
     }
 
@@ -2441,14 +3152,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 title: project.title,
                 phase: project.lastPhase
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             if editingBeatID == beat.id {
                 newBeatSceneID = scene.id
                 newBeatActID = (scene.actId ?? beat.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2495,14 +3205,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 title: project.title,
                 phase: project.lastPhase
             )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
+            adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             infoText = "Promoted \(beat.label) into the goal for \(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)."
         } catch {
             errorText = error.localizedDescription
@@ -2511,7 +3220,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     @discardableResult
     func applyDevelopmentReplyToOutline(prompt: String, reply: String) async -> Bool {
-        guard let project = selectedProject else {
+        guard selectedProject != nil else {
             errorText = "Select a project first."
             return false
         }
@@ -2540,51 +3249,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return false
         }
 
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: mergedActsResult.acts,
-                scenes: outline.scenes,
-                beats: mergedBeats,
-                merge: true,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: mergedActsResult.acts.count,
-                    sceneCount: outline.scenes.count,
-                    beatCount: mergedBeats.count,
-                    acts: mergedActsResult.acts,
-                    scenes: outline.scenes,
-                    beats: mergedBeats
-                )
-            }
-
-            var parts: [String] = []
-            if addedActCount > 0 {
-                parts.append("\(addedActCount) act\(addedActCount == 1 ? "" : "s")")
-            }
-            if addedBeatCount > 0 {
-                parts.append("\(addedBeatCount) beat\(addedBeatCount == 1 ? "" : "s")")
-            }
-            infoText = "Applied to Outline: " + parts.joined(separator: " and ") + "."
-            return true
-        } catch {
-            errorText = error.localizedDescription
-            return false
+        var parts: [String] = []
+        if addedActCount > 0 {
+            parts.append("\(addedActCount) act\(addedActCount == 1 ? "" : "s")")
         }
+        if addedBeatCount > 0 {
+            parts.append("\(addedBeatCount) beat\(addedBeatCount == 1 ? "" : "s")")
+        }
+        return await persistOutlineMutation(
+            acts: mergedActsResult.acts,
+            scenes: outline.scenes,
+            beats: mergedBeats,
+            successMessage: "Applied to Outline: " + parts.joined(separator: " and ") + ".",
+            source: "studio_development_import"
+        )
     }
 
     private struct ParsedDevelopmentOutline {
@@ -4127,6 +4805,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !id.isEmpty else {
             selectedProject = nil
             outline = .empty
+            outlineRevision = 0
+            outlineRevisionProjectID = ""
             reconcileSceneSessionState(with: outline)
             resetCraftReportForProjectChange()
             applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
@@ -4137,7 +4817,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
+            await refreshOutlineMutationOutboxStatus()
             return
+        }
+        if outlineRevisionProjectID != id {
+            outlineRevisionProjectID = id
+            outlineRevision = 0
+            outline = .empty
         }
         do {
             let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4167,6 +4853,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 loadedWithClientTokenOwner: detailLoadedWithClientTokenOwner,
                 clientToken: ownerHeaders.clientTokenOverride
             )
+            guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                return
+            }
             let detailStateVersion = detailResult.payload.stateVersion?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !detailStateVersion.isEmpty {
@@ -4180,6 +4869,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
                 clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
+            guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                return
+            }
             if let project = detailResult.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
@@ -4195,7 +4887,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
             }
-            outline = outlineResult?.payload.outline ?? detailResult.payload.project?.outline ?? .empty
+            adoptCanonicalOutlineState(
+                outlineResult?.payload.outlineRevision,
+                outline: outlineResult?.payload.outline ?? detailResult.payload.project?.outline,
+                project: outlineResult?.payload.project ?? detailResult.payload.project,
+                projectId: id
+            )
             reconcileSceneSessionState(with: outline)
             errorText = ""
             let refreshedVersion = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4210,10 +4907,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             Task { [weak self] in
                 await self?.refreshCollaborationData()
             }
+            await refreshOutlineMutationOutboxStatus()
+            await resumeQueuedOutlineMutationsIfNeeded()
         } catch {
+            guard selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id else {
+                return
+            }
             clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
-            outline = .empty
             reconcileSceneSessionState(with: outline)
             if reportErrors {
                 errorText = error.localizedDescription
@@ -4222,6 +4923,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 clearFeatureSpineFields()
             }
             syncLiveDraftBridgeProjectContext()
+            adoptOutlineMutationRevision(
+                selectedProject?.outlineRevision,
+                outline: selectedProject?.outline,
+                project: selectedProject,
+                projectId: id
+            )
+            await refreshOutlineMutationOutboxStatus()
+            await resumeQueuedOutlineMutationsIfNeeded()
         }
     }
 

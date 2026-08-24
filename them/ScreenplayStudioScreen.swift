@@ -375,6 +375,16 @@ struct ScreenplayStudioScreen: View {
             ) { _ in
                 Task { await vm.reconnectAndResumeQueuedDraftSaves() }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayOutlineMutationOutboxUpdated)
+            ) { _ in
+                Task { await vm.refreshOutlineMutationOutboxStatus() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayOutlineMutationOutboxRetryRequested)
+            ) { _ in
+                Task { await vm.reconnectAndResumeQueuedOutlineMutations() }
+            }
             .overlay(alignment: .topLeading) {
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests {
@@ -436,6 +446,10 @@ struct ScreenplayStudioScreen: View {
             "is_saving": vm.isSaving,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "outline_revision": vm.outlineRevision,
+            "queued_outline_mutation_count": vm.queuedOutlineMutationCount,
+            "parked_outline_mutation_count": vm.parkedOutlineMutationCount,
+            "outline_mutation_drain_inflight": vm.isOutlineMutationDrainInFlight,
             "autosave_status_text": vm.autosaveStatusText,
             "info_text": vm.infoText,
             "error_text": vm.errorText,
@@ -1429,13 +1443,13 @@ Replace is best when this file should become the script you edit. Append is safe
             return
         }
 
-        if let nextProject = result.payload.project {
-            vm.applyProjectMetadataUpdate(nextProject)
-        }
-        if let nextOutline = result.payload.outline {
-            vm.outline = nextOutline
-        }
-        vm.refreshLiveDraftBridgeContext()
+        vm.adoptCanonicalOutlineState(
+            result.payload.outlineRevision,
+            outline: result.payload.outline,
+            project: result.payload.project,
+            projectId: project.id
+        )
+        await vm.reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
         let scenePhrase = binding?.outlineSceneTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? binding?.outlineSceneTitle ?? ""
             : (selection.sceneLabel ?? currentScene?.shortLabel ?? "")
@@ -3484,13 +3498,13 @@ private var directionOneScriptEditor: some View {
                 title: project.title,
                 phase: project.lastPhase
             )
-            if let nextProject = result.payload.project {
-                vm.applyProjectMetadataUpdate(nextProject)
-            }
-            if let nextOutline = result.payload.outline {
-                vm.outline = nextOutline
-            }
-            vm.refreshLiveDraftBridgeContext()
+            vm.adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await vm.reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             selectedInspectorSection = .scenes
             highlightedSceneInspectorKey = normalizedSceneNavigatorKey(binding.draftSlugline)
             liveDraftBridge.jumpToLine(binding.draftLine)
@@ -3831,25 +3845,24 @@ Detail:
                 studioDiffAcknowledgedKeys: snapshot.project.studioDiffAcknowledged?.keys,
                 studioDiffAcknowledgedEntries: snapshot.project.studioDiffAcknowledged?.entries
             )
-            let outlineResult = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: snapshot.project.id,
-                acts: snapshot.outline.acts,
-                scenes: snapshot.outline.scenes,
-                beats: snapshot.outline.beats,
-                merge: false,
-                title: snapshot.project.title,
-                phase: snapshot.project.lastPhase
-            )
-
-            if let nextProject = outlineResult.payload.project ?? projectResult.payload.project {
+            if let nextProject = projectResult.payload.project {
                 vm.applyProjectMetadataUpdate(nextProject)
             } else {
                 vm.applyProjectMetadataUpdate(snapshot.project)
             }
-            if let nextOutline = outlineResult.payload.outline {
-                vm.outline = nextOutline
-            } else {
-                vm.outline = snapshot.outline
+            let accepted = await vm.persistOutlineMutation(
+                acts: snapshot.outline.acts,
+                scenes: snapshot.outline.scenes,
+                beats: snapshot.outline.beats,
+                successMessage: snapshot.appliedFixIDs.count == 1
+                    ? "Rolled back 1 suggested fix."
+                    : "Rolled back \(snapshot.appliedFixIDs.count) suggested fixes.",
+                source: "studio_intelligence_rollback"
+            )
+            guard accepted else {
+                vm.errorText = "The project details rolled back, but the outline rollback could not be accepted safely."
+                vm.infoText = "Partial rollback saved. The outline change is parked for review, and this fix batch remains available to retry."
+                return 0
             }
 
             queuedIntelligenceFixes = snapshot.queuedFixesBefore

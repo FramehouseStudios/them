@@ -2028,7 +2028,8 @@ nonisolated struct BackendScreenplayBeat: Codable, Hashable {
     let updatedAt: TimeInterval?
 }
 
-nonisolated struct BackendScreenplayOutline: Decodable, Hashable {
+nonisolated struct BackendScreenplayOutline: Codable, Hashable {
+    let revision: Int?
     let updatedAt: TimeInterval?
     let actCount: Int?
     let sceneCount: Int?
@@ -2036,6 +2037,26 @@ nonisolated struct BackendScreenplayOutline: Decodable, Hashable {
     let acts: [BackendScreenplayAct]
     let scenes: [BackendScreenplayScene]
     let beats: [BackendScreenplayBeat]
+
+    init(
+        revision: Int? = nil,
+        updatedAt: TimeInterval?,
+        actCount: Int?,
+        sceneCount: Int?,
+        beatCount: Int?,
+        acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene],
+        beats: [BackendScreenplayBeat]
+    ) {
+        self.revision = revision
+        self.updatedAt = updatedAt
+        self.actCount = actCount
+        self.sceneCount = sceneCount
+        self.beatCount = beatCount
+        self.acts = acts
+        self.scenes = scenes
+        self.beats = beats
+    }
 }
 
 nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
@@ -2071,6 +2092,7 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let sceneCount: Int?
     let beatCount: Int?
     let outlineUpdatedAt: TimeInterval?
+    var outlineRevision: Int? = nil
     let collaboratorCount: Int?
     let approvedEmails: [String]?
     let commentCount: Int?
@@ -2222,6 +2244,7 @@ nonisolated struct BackendScreenplayOutlineResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let projectId: String?
+    let outlineRevision: Int?
     let outline: BackendScreenplayOutline?
     let project: BackendScreenplayProjectSummary?
 }
@@ -2229,6 +2252,14 @@ nonisolated struct BackendScreenplayOutlineResponse: Decodable {
 nonisolated struct BackendScreenplayOutlineMutationResponse: Decodable {
     let stage: String?
     let status: String?
+    let error: String?
+    let replayed: Bool?
+    let conflict: Bool?
+    let clientRequestId: String?
+    let expectedOutlineRevision: Int?
+    let outlineRevision: Int?
+    let committedRevision: Int?
+    let retryAfterMs: Int?
     let createdProject: Bool?
     let projectId: String?
     let project: BackendScreenplayProjectSummary?
@@ -2252,6 +2283,7 @@ nonisolated struct BackendScreenplaySceneMutationResponse: Decodable {
     let status: String?
     let projectId: String?
     let sceneId: String?
+    let outlineRevision: Int?
     let scene: BackendScreenplayScene?
     let project: BackendScreenplayProjectSummary?
     let outline: BackendScreenplayOutline?
@@ -2271,6 +2303,7 @@ nonisolated struct BackendScreenplayBeatMutationResponse: Decodable {
     let status: String?
     let projectId: String?
     let beatId: String?
+    let outlineRevision: Int?
     let beat: BackendScreenplayBeat?
     let project: BackendScreenplayProjectSummary?
     let outline: BackendScreenplayOutline?
@@ -2834,6 +2867,17 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
     }
 
     var isCreativeMemoryConflict: Bool { isCrossDeviceMemoryConflict }
+}
+
+nonisolated struct BackendScreenplayOutlineMutationHTTPError: LocalizedError {
+    let statusCode: Int
+    let response: BackendScreenplayOutlineMutationResponse?
+    let retryAfterMs: Int?
+
+    var errorDescription: String? {
+        let message = response?.error ?? response?.status ?? "screenplay_outline_request_failed"
+        return "Backend error \(statusCode): \(message)"
+    }
 }
 
 nonisolated enum BackendCredentialMigration {
@@ -5247,39 +5291,57 @@ actor BackendMemoryAPI {
         acts: [BackendScreenplayAct],
         scenes: [BackendScreenplayScene],
         beats: [BackendScreenplayBeat],
-        merge: Bool = true,
-        title: String? = nil,
-        phase: String? = nil
+        expectedOutlineRevision: Int,
+        clientRequestId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayOutlineMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
+        let normalizedClientRequestId = clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedClientRequestId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "client_request_id_required")
+        }
+        guard normalizedClientRequestId.count <= 96 else {
+            throw BackendMemoryAPIError.server(status: 400, message: "client_request_id_too_long")
+        }
+        guard expectedOutlineRevision >= 0 else {
+            throw BackendMemoryAPIError.server(status: 400, message: "expected_outline_revision_invalid")
+        }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline")
-        var payload: [String: Any] = [
-            "merge": merge,
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
+        let payload: [String: Any] = [
+            "client_request_id": normalizedClientRequestId,
+            "expected_outline_revision": expectedOutlineRevision,
             "acts": acts.map(screenplayActPayload),
             "scenes": scenes.map(screenplayScenePayload),
             "beats": beats.map(screenplayBeatPayload),
         ]
-        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["title"] = title
-        }
-        if let phase, !phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["phase"] = phase
-        }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
-        guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
-        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard (200...299).contains(http.statusCode) else {
+            let parsed = try? decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
+            let retryAfterMs = parsed?.retryAfterMs ?? Self.retryAfterMilliseconds(from: http)
+            throw BackendScreenplayOutlineMutationHTTPError(
+                statusCode: http.statusCode,
+                response: parsed,
+                retryAfterMs: retryAfterMs
+            )
+        }
         let parsed = try decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
@@ -5295,6 +5357,18 @@ actor BackendMemoryAPI {
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    private static func retryAfterMilliseconds(from response: HTTPURLResponse) -> Int? {
+        guard let rawValue = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let seconds = TimeInterval(rawValue),
+              seconds.isFinite,
+              seconds >= 0 else {
+            return nil
+        }
+        let boundedSeconds = min(seconds, 1_800)
+        return Int((boundedSeconds * 1_000).rounded(.up))
     }
 
     func upsertScreenplayScene(
