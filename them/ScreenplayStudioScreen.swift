@@ -4257,6 +4257,23 @@ private var directionOneThemPanel: some View {
     )
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
+    let characterMemoryPresentation = ScreenplayStudioCharacterMemoryPresentationPlanner.make(
+        isLoading: vm.isCharacterTraitsLoading,
+        errorText: vm.characterTraitsErrorText,
+        hasResponse: vm.characterTraits != nil,
+        cards: characterTraitCards
+    )
+    let reversalCardsPresentation = ScreenplayStudioReversalCardsPresentationPlanner.make(
+        beatLabel: vm.craftTwistBeatLabel,
+        acceptedErrorText: vm.acceptedCraftTwistErrorText,
+        acceptedCount: vm.acceptedCraftTwists.count,
+        isLoading: vm.isCraftTwistLoading,
+        errorText: vm.craftTwistErrorText,
+        hasResponse: vm.craftTwists != nil,
+        cards: twistCards,
+        isMutating: vm.isAcceptedCraftTwistMutating,
+        hasSelectedProject: vm.selectedProject != nil
+    )
 
     return ScreenplayStudioThemRailView(
         presentation: presentation,
@@ -4274,17 +4291,32 @@ private var directionOneThemPanel: some View {
         directionOneCompactComposerSection
         directionOneCreativeInstinctsCard
 
-        if vm.isCharacterTraitsLoading ||
-            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            vm.characterTraits != nil {
-            directionOneCharacterTraitsCard(characterTraitCards)
-        }
+        ScreenplayStudioCharacterMemoryView(
+            presentation: characterMemoryPresentation,
+            actions: ScreenplayStudioCharacterMemoryActions(
+                onRefresh: {
+                    Task { await vm.refreshCharacterTraits(source: "Manual check") }
+                }
+            )
+        )
     } trailingContent: {
-        if vm.isCraftTwistLoading ||
-            !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            vm.craftTwists != nil {
-            directionOneTwistCardsCard(twistCards)
-        }
+        ScreenplayStudioReversalCardsView(
+            presentation: reversalCardsPresentation,
+            actions: ScreenplayStudioReversalCardsActions(
+                onRefresh: {
+                    Task {
+                        await vm.refreshCraftTwists(source: "Manual check")
+                        await vm.refreshAcceptedCraftTwists(source: "Manual check")
+                    }
+                },
+                onKeep: { card in
+                    Task { await vm.acceptCraftTwist(card) }
+                },
+                onDismiss: { card in
+                    Task { await vm.dismissAcceptedCraftTwist(card) }
+                }
+            )
+        )
 
         directionOneThemCollaboratorSection
     }
@@ -4337,307 +4369,6 @@ private func refreshStudioCreativeInstincts(
         reportErrors: reportErrors
     )
 }
-
-    private func directionOneCharacterTraitsCard(_ cards: [BackendCharacterTraitCardState]) -> some View {
-        intelligenceCollectionCard(title: "Character Memory", icon: "person.2") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text("Voice inventory")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.78))
-                    Spacer(minLength: 0)
-                    Button {
-                        Task { await vm.refreshCharacterTraits(source: "Manual check") }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh character memory")
-                }
-
-                if vm.isCharacterTraitsLoading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Reading the character voice library.")
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.70))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else if !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.characterTraitsErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if cards.isEmpty {
-                    Text("No character traits saved yet. Dialogue and rendered character cues will teach io.them who belongs in the draft.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.66))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(cards) { card in
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 8) {
-                                Text(card.name)
-                                    .font(.system(size: 13, weight: .semibold, design: .serif))
-                                    .foregroundStyle(Color.herText.opacity(0.88))
-                                if card.hasTraits {
-                                    Text("learned")
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.54))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.14))
-                                        .clipShape(Capsule())
-                                }
-                                if card.hasArchetype {
-                                    Text(card.archetypeLabel)
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.herStudioActiveFill.opacity(0.14))
-                                        .clipShape(Capsule())
-                                }
-                                Spacer(minLength: 0)
-                            }
-
-                            Text(card.summary)
-                                .font(.system(size: 12, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            if !card.fieldProvenance.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(Array(card.fieldProvenance.prefix(4).enumerated()), id: \.offset) { index, row in
-                                        if index > 0 {
-                                            Divider().overlay(Color.herText.opacity(0.10))
-                                        }
-                                        studioLearnedFieldRow(row, characterKey: card.accessibilityKey)
-                                    }
-                                }
-                            }
-
-                            if card.hasArchetype && !card.archetypeSummary.isEmpty {
-                                Text(card.archetypeScoreLabel.isEmpty ? card.archetypeSummary : "\(card.archetypeSummary) - \(card.archetypeScoreLabel)")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.62))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            if !card.chips.isEmpty {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ForEach(card.chips, id: \.self) { chip in
-                                        Text(chip)
-                                            .font(.system(size: 10, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.62))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.herStudioActiveFill.opacity(0.14))
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                            }
-
-                            Text(card.detail)
-                                .font(.system(size: 10, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.46))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(10)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-
-    private func studioLearnedFieldRow(
-        _ row: BackendLearnedFieldProvenance,
-        characterKey: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(row.fieldLabel)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-                Spacer(minLength: 6)
-                HStack(spacing: 4) {
-                    Image(
-                        systemName: row.isCorrected
-                            ? "arrow.triangle.2.circlepath"
-                            : "checkmark.circle"
-                    )
-                    .accessibilityHidden(true)
-                    Text(row.statusLabel)
-                        .accessibilityIdentifier(
-                            "studio.learned-field.\(characterKey).\(row.accessibilityKey).status"
-                        )
-                }
-                .font(.system(size: 9, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.62))
-            }
-
-            Text(row.value)
-                .font(.system(size: 11, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.82))
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(
-                    "studio.learned-field.\(characterKey).\(row.accessibilityKey).value"
-                )
-
-            Text(row.sourceLabel)
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.48))
-                .accessibilityIdentifier(
-                    "studio.learned-field.\(characterKey).\(row.accessibilityKey).source"
-                )
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(
-            "studio.learned-field.\(characterKey).\(row.accessibilityKey)"
-        )
-    }
-
-    private func directionOneTwistCardsCard(_ cards: [ScreenplayCraftTwistCardState]) -> some View {
-        intelligenceCollectionCard(title: "Reversal Cards", icon: "sparkles") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(vm.craftTwistBeatLabel.isEmpty ? "Beat-aware twist pass" : vm.craftTwistBeatLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.78))
-                        Text("Derived from the current craft framework.")
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.48))
-                    }
-                    Spacer(minLength: 0)
-                    Button {
-                        Task {
-                            await vm.refreshCraftTwists(source: "Manual check")
-                            await vm.refreshAcceptedCraftTwists(source: "Manual check")
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh reversal cards")
-                }
-
-                if !vm.acceptedCraftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.acceptedCraftTwistErrorText)
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.56))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if !vm.acceptedCraftTwists.isEmpty {
-                    Text("\(vm.acceptedCraftTwists.count) kept reversal\(vm.acceptedCraftTwists.count == 1 ? "" : "s") linked to this project.")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.56))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if vm.isCraftTwistLoading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Asking the twist engine for reversible pressure.")
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.70))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else if !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.craftTwistErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if cards.isEmpty {
-                    Text("No reversal cards yet. Run craft analysis or refresh once the draft has a major turn to pressure-test.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.66))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(cards) { card in
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 8) {
-                                Text(card.label)
-                                    .font(.system(size: 13, weight: .semibold, design: .serif))
-                                    .foregroundStyle(Color.herText.opacity(0.88))
-                                Text(card.severityLabel)
-                                    .font(.system(size: 9, weight: .semibold, design: .default))
-                                    .foregroundStyle(twistSeverityTint(card.severity))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(twistSeverityTint(card.severity).opacity(0.12))
-                                    .clipShape(Capsule())
-                                if card.isAccepted {
-                                    Text("Kept")
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.78))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.16))
-                                        .clipShape(Capsule())
-                                }
-                                Spacer(minLength: 0)
-                            }
-
-                            Text(card.hook)
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.76))
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            if !card.rationale.isEmpty {
-                                Text(card.rationale)
-                                    .font(.system(size: 10, weight: .medium, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.48))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            HStack(spacing: 8) {
-                                Button {
-                                    Task { await vm.acceptCraftTwist(card) }
-                                } label: {
-                                    Label(card.isAccepted ? "Kept" : "Keep", systemImage: card.isAccepted ? "checkmark.circle.fill" : "pin")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(vm.isAcceptedCraftTwistMutating || card.isAccepted || vm.selectedProject == nil)
-
-                                Button {
-                                    Task { await vm.dismissAcceptedCraftTwist(card) }
-                                } label: {
-                                    Label("Dismiss", systemImage: "xmark.circle")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(vm.isAcceptedCraftTwistMutating || vm.selectedProject == nil)
-
-                                if vm.isAcceptedCraftTwistMutating {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        .padding(10)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-
-    private func twistSeverityTint(_ severity: String) -> Color {
-        switch severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "high": return Color.red.opacity(0.76)
-        case "medium": return Color.orange.opacity(0.76)
-        default: return Color.herText.opacity(0.58)
-        }
-    }
 
     private var directionOneSavedPanel: some View {
         sectionCard(title: "Saved") {
@@ -14740,6 +14471,38 @@ Look at the city.
         vm.outline = outline
         vm.latestVersionID = "debug-version"
         vm.fountainDraft = sampleDraft
+        vm.characterTraits = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "ui-structural",
+            characters: [
+                BackendCharacterTraitRecord(name: "LUCY", traits: nil)
+            ],
+            error: nil
+        )
+        vm.characterArchetypes = nil
+        vm.isCharacterTraitsLoading = false
+        vm.characterTraitsErrorText = ""
+        vm.craftTwists = ScreenplayCraftTwistSuggestResponse(
+            schemaVersion: 1,
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            source: "ui-structural",
+            twists: [
+                ScreenplayCraftTwistSuggestion(
+                    id: "ui-twist-midpoint",
+                    label: "False Victory",
+                    hook: "The clean handoff exposes the missing scene.",
+                    severity: "medium",
+                    rationale: "Turns structural confidence into fresh pressure."
+                )
+            ]
+        )
+        vm.isCraftTwistLoading = false
+        vm.craftTwistErrorText = ""
+        vm.craftTwistBeatLabel = "Midpoint"
+        vm.acceptedCraftTwists = []
+        vm.isAcceptedCraftTwistMutating = false
+        vm.acceptedCraftTwistErrorText = ""
         liveDraftBridge.draftText = sampleDraft
         liveDraftBridge.preferredProjectID = project.id
         liveDraftBridge.preferredVersionID = "debug-version"

@@ -15,6 +15,7 @@ public enum IOThemTypography {
         public static let callout = Font.system(size: 13, weight: .regular, design: .default)
         public static let calloutMedium = Font.system(size: 13, weight: .medium, design: .default)
         public static let calloutStrong = Font.system(size: 13, weight: .semibold, design: .default)
+        public static let editorialCallout = Font.system(size: 13, weight: .semibold, design: .serif)
         public static let caption = Font.system(size: 12, weight: .regular, design: .default)
         public static let captionMedium = Font.system(size: 12, weight: .medium, design: .default)
         public static let captionStrong = Font.system(size: 12, weight: .semibold, design: .default)

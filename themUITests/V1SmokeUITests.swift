@@ -247,11 +247,34 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+
+        let characterMemory = app.descendants(matching: .any)["studio.them.character-memory"]
+        for _ in 0..<12 where !characterMemory.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(characterMemory.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["studio.them.character-memory.refresh"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["studio.them.character-memory.card.lucy-0"].exists
+        )
+
         let intro = app.descendants(matching: .any)["studio.them.intro"]
         for _ in 0..<8 where !intro.exists {
             drawer.swipeUp()
         }
         XCTAssertTrue(intro.waitForExistence(timeout: 4))
+
+        let reversalCards = app.descendants(matching: .any)["studio.them.reversal-cards"]
+        for _ in 0..<12 where !reversalCards.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(reversalCards.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["studio.them.reversal-cards.refresh"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["studio.them.reversal-card.ui-twist-midpoint"].exists
+        )
+        XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.keep"].exists)
+        XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
         let surfaceMix = app.descendants(matching: .any)["studio.them.surface-mix"]
         for _ in 0..<12 where !surfaceMix.exists {
