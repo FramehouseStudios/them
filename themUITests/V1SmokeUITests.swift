@@ -201,6 +201,28 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
     }
 
+    func test_draft_tools_tabs_route_to_each_presentation_pane() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let pagesTab = app.buttons["studio.draft.tools.pages"]
+        let revisionsTab = app.buttons["studio.draft.tools.revisions"]
+        let snapshotsTab = app.buttons["studio.draft.tools.snapshots"]
+        XCTAssertTrue(pagesTab.waitForExistence(timeout: 8))
+        XCTAssertTrue(revisionsTab.exists)
+        XCTAssertTrue(snapshotsTab.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
+
+        revisionsTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["studio.draft.revision-tools"].waitForExistence(timeout: 4))
+
+        snapshotsTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["studio.draft.snapshot-tools"].waitForExistence(timeout: 4))
+
+        pagesTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
+    }
+
     func test_memory_recall_includes_a_mentioned_character() {
         let app = launchApp(
             openStudio: true,

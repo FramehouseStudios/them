@@ -33,9 +33,11 @@ public enum IOThemTypography {
         public static let monoCaptionLight = Font.system(size: 12, weight: .light, design: .monospaced)
         public static let monoLabel = Font.system(size: 11, weight: .medium, design: .monospaced)
         public static let monoLabelStrong = Font.system(size: 11, weight: .semibold, design: .monospaced)
+        public static let monoMicroRegular = Font.system(size: 10, weight: .regular, design: .monospaced)
         public static let monoMicro = Font.system(size: 10, weight: .semibold, design: .monospaced)
         public static let monoNano = Font.system(size: 9, weight: .semibold, design: .monospaced)
         public static let monoBadge = Font.system(size: 8.5, weight: .semibold, design: .monospaced)
+        public static let monoThumbnail = Font.system(size: 7.2, weight: .regular, design: .monospaced)
     }
 
     public enum Screenplay {

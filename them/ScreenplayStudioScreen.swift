@@ -2997,10 +2997,14 @@ private var directionOneScriptEditor: some View {
         let pageWidth = StudioResponsiveLayout.pageWidth(editorWidth: size.width)
         let pageMinHeight = max(size.height - (verticalBreathingRoom * 1.5), 660)
         let pageMaxHeight = max(size.height - 34, 940)
+        let integrityIssues = screenplayIntegrityIssues
 
         return VStack(spacing: 14) {
-            if !screenplayIntegrityIssues.isEmpty {
-                pageIntegrityBanner
+            if !integrityIssues.isEmpty {
+                ScreenplayStudioPageIntegrityBanner(
+                    issues: integrityIssues,
+                    actions: draftIntegrityActions
+                )
                     .frame(width: pageWidth)
                     .frame(maxWidth: .infinity)
             }
@@ -5617,502 +5621,141 @@ private var projectsSidebarContent: some View {
 
 
     private var draftToolsCard: some View {
-        sectionCard(title: "Document") {
-            VStack(alignment: .leading, spacing: 16) {
-                draftDocumentControlsSection
+        ScreenplayStudioDraftToolsCard(
+            selectedSection: $selectedDraftToolsSection,
+            autosaveEnabled: $vm.autosaveEnabled,
+            linesPerPage: $vm.linesPerPage,
+            revisionColor: $vm.revisionColor,
+            snapshotLabel: $vm.snapshotLabel,
+            presentation: draftToolsPresentation,
+            actions: draftToolsActions
+        )
+    }
 
-                if !screenplayIntegrityIssues.isEmpty {
-                    draftIntegrityWarningSection
-                }
+    private var draftToolsPresentation: ScreenplayStudioDraftToolsPresentation {
+        let isDraftEmpty = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return ScreenplayStudioDraftToolsPresentation(
+            document: ScreenplayStudioDraftDocumentPresentation(
+                isSaving: vm.isSaving,
+                exportItems: vm.screenplayExportMenuItems,
+                autosaveStatusText: vm.autosaveStatusText,
+                exportFormatsErrorText: vm.screenplayExportFormatsErrorText,
+                pdfUnavailableText: vm.screenplayExportPDFUnavailableText
+            ),
+            integrityIssues: screenplayIntegrityIssues,
+            formatLint: ScreenplayStudioDraftFormatPresentation(
+                cards: vm.formatLintCards,
+                isLoading: vm.isFormatLinting,
+                errorText: vm.formatLintErrorText,
+                sourceText: vm.formatLintSourceText
+            ),
+            pages: ScreenplayStudioDraftPagesPresentation(
+                isRefreshing: vm.isPaginationRefreshing,
+                isDraftEmpty: isDraftEmpty,
+                errorText: vm.paginationErrorText,
+                pages: draftPaginationPagePresentations
+            ),
+            revisions: ScreenplayStudioDraftRevisionPresentation(
+                isRefreshing: vm.isRevisionRefreshing,
+                isDraftEmpty: isDraftEmpty,
+                errorText: vm.revisionErrorText,
+                summary: vm.revisionSummary,
+                ranges: vm.revisionRanges
+            ),
+            snapshots: ScreenplayStudioDraftSnapshotsPresentation(
+                versions: draftSnapshotPresentations
+            )
+        )
+    }
 
-                if shouldShowDraftFormatLintSection {
-                    draftFormatLintWarningSection
-                }
-
-                draftToolsTabs
-
-                draftToolsContent
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.black.opacity(0.24))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-            }
+    private var draftPaginationPagePresentations: [ScreenplayStudioPaginationPagePresentation] {
+        vm.paginationPages.map { page in
+            ScreenplayStudioPaginationPagePresentation(
+                page: page,
+                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                    for: page,
+                    draft: vm.fountainDraft
+                ),
+                isActive: ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(
+                    page,
+                    cursorLine: liveDraftBridge.currentCursorLine
+                )
+            )
         }
     }
 
-    private var shouldShowDraftFormatLintSection: Bool {
-        vm.isFormatLinting
-            || !vm.formatLintCards.isEmpty
-            || !vm.formatLintErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var draftSnapshotPresentations: [ScreenplayStudioSnapshotPresentation] {
+        snapshotVersions.map { version in
+            ScreenplayStudioSnapshotPresentation(
+                version: version,
+                phaseTitle: ScreenplayStudioDraftToolsPresentationPlanner.snapshotPhaseTitle(version),
+                relativeTimestampText: dateFromTimestamp(version.updatedAt ?? version.createdAt).map {
+                    relativeTimestamp($0)
+                },
+                notes: ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(version),
+                canRestore: ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(version)
+            )
+        }
     }
 
-    private var draftFormatLintWarningSection: some View {
-        ScreenplayFormatLintCardListView(
-            title: "Format warnings",
-            cards: vm.formatLintCards,
-            isLoading: vm.isFormatLinting,
-            errorText: vm.formatLintErrorText,
-            sourceText: vm.formatLintSourceText,
-            maxVisible: 3,
-            onRefresh: {
+    private var draftIntegrityActions: ScreenplayStudioDraftIntegrityActions {
+        ScreenplayStudioDraftIntegrityActions(
+            onOpenInspector: {
+                openDraftInspector()
+            },
+            onReview: { issue in
+                reviewScreenplayIntegrityIssue(issue)
+            },
+            onMoveToPin: { issue in
+                convertScreenplayIntegrityIssueToPin(issue)
+            },
+            onRemove: { issue in
+                removeScreenplayIntegrityIssue(issue)
+            },
+            onMoveAllToPin: {
+                convertAllScreenplayIntegrityIssuesToPin()
+            }
+        )
+    }
+
+    private var draftToolsActions: ScreenplayStudioDraftToolsActions {
+        ScreenplayStudioDraftToolsActions(
+            onSaveNow: {
+                triggerStudioManualSave(revealSavedTab: false)
+            },
+            onImport: {
+                importDraftDocument()
+            },
+            onExport: { format in
+                Task { await exportCurrentDraft(format: format) }
+            },
+            onRefreshExportFormats: {
+                Task { await vm.refreshScreenplayExportFormats() }
+            },
+            onOpenGoogleDocs: {
+                openInGoogleDocs(draft: vm.fountainDraft)
+            },
+            onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Document") }
+            },
+            integrity: draftIntegrityActions,
+            onRefreshPagination: {
+                Task { await vm.refreshPagination(source: "Manual retry") }
+            },
+            onJumpToPage: { page in
+                jumpToPaginationPage(page)
+            },
+            onRefreshRevision: {
+                Task { await vm.refreshRevisionColor(source: "Manual retry") }
+            },
+            onCreateSnapshot: {
+                Task { await vm.createRevisionSnapshot() }
+            },
+            onRestoreSnapshot: { version in
+                vm.loadSnapshot(version)
             }
         )
     }
-
-    private var draftDocumentControlsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Document Controls")
-                Text("Save, import, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    triggerStudioManualSave(revealSavedTab: false)
-                } label: {
-                    Label(vm.isSaving ? "Saving…" : "Save Now", systemImage: vm.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(vm.isSaving)
-
-                Button {
-                    importDraftDocument()
-                } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.bordered)
-
-                Menu {
-                    ForEach(vm.screenplayExportMenuItems) { item in
-                        Button(item.title) {
-                            Task { await exportCurrentDraft(format: item.format) }
-                        }
-                        .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
-                        .disabled(!item.isEnabled)
-                    }
-                    Divider()
-                    Button("Refresh Formats") {
-                        Task { await vm.refreshScreenplayExportFormats() }
-                    }
-                    Button("Open in Google Docs") {
-                        openInGoogleDocs(draft: vm.fountainDraft)
-                    }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.export.menu")
-
-                Spacer(minLength: 0)
-
-                Toggle("Autosave", isOn: $vm.autosaveEnabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.70))
-            }
-
-            Text(vm.autosaveStatusText.isEmpty ? "Document controls live here. Analysis stays in the other rail tabs so the page can stay focused on writing." : vm.autosaveStatusText)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.66))
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            if !vm.screenplayExportFormatsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(vm.screenplayExportFormatsErrorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.orange.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if !vm.screenplayExportPDFUnavailableText.isEmpty {
-                Text(vm.screenplayExportPDFUnavailableText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.28))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-    }
-
-    private var draftIntegrityWarningSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            draftIntegrityWarningHeader
-
-            Text("Companion-style or conversational prose is sitting on the screenplay page. Review or remove it before it gets baked into the script.")
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.68))
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(screenplayIntegrityIssues.prefix(4))) { issue in
-                    draftIntegrityIssueRow(issue)
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.orange.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
-
-    private var draftIntegrityWarningHeader: some View {
-        let issueCount = screenplayIntegrityIssues.count
-        return HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-            Text(issueCount == 1 ? "1 non-screenplay block detected" : "\(issueCount) non-screenplay blocks detected")
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.88))
-            Spacer(minLength: 0)
-            if issueCount > 1 {
-                Button("Move all to Pin") {
-                    convertAllScreenplayIntegrityIssuesToPin()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            Text("Review")
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(Capsule())
-        }
-    }
-
-    private func draftIntegrityIssueRow(_ issue: ScreenplayPageIntegrityIssue) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(issue.preview)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.80))
-                .lineLimit(3)
-
-            Text("Lines \(issue.startLine)-\(issue.endLine) · \(issue.reason)")
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.58))
-
-            HStack(spacing: 8) {
-                Button("Jump") {
-                    reviewScreenplayIntegrityIssue(issue)
-                }
-                .buttonStyle(.bordered)
-
-                Button("Move to Pin") {
-                    convertScreenplayIntegrityIssueToPin(issue)
-                }
-                .buttonStyle(.bordered)
-
-                Button("Remove") {
-                    removeScreenplayIntegrityIssue(issue)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange.opacity(0.28))
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
-
-    private var pageIntegrityBanner: some View {
-        let issueCount = screenplayIntegrityIssues.count
-        let primaryIssue = primaryScreenplayIntegrityIssue
-
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(issueCount == 1 ? "1 non-screenplay block detected" : "\(issueCount) non-screenplay blocks detected")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.88))
-
-                if let primaryIssue {
-                    Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .lineLimit(2)
-                } else {
-                    Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                Button("Review") {
-                    if let primaryIssue {
-                        reviewScreenplayIntegrityIssue(primaryIssue)
-                    } else {
-                        openDraftInspector()
-                    }
-                }
-                .buttonStyle(.bordered)
-
-                if issueCount > 1 {
-                    Button("Move all to Pin") {
-                        convertAllScreenplayIntegrityIssuesToPin()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if let primaryIssue {
-                    Button("Move to Pin") {
-                        convertScreenplayIntegrityIssueToPin(primaryIssue)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Remove") {
-                        removeScreenplayIntegrityIssue(primaryIssue)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange.opacity(0.28))
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
-
-    private var draftToolsTabs: some View {
-        HStack(spacing: 8) {
-            ForEach(DraftToolsSection.allCases) { section in
-                draftToolsSectionButton(section)
-            }
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.20))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-    }
-
-    private func draftToolsSectionButton(_ section: DraftToolsSection) -> some View {
-        let isActive = selectedDraftToolsSection == section
-        return Button {
-            selectedDraftToolsSection = section
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: section.iconName)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                Text(section.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.70))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.76) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        isActive ? Color.herStudioActiveStroke.opacity(0.90) : Color.clear,
-                        lineWidth: isActive ? 1.3 : 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private var draftToolsContent: some View {
-        switch selectedDraftToolsSection {
-        case .pages:
-            draftPageToolsContent
-        case .revisions:
-            draftRevisionToolsContent
-        case .snapshots:
-            draftSnapshotToolsContent
-        }
-    }
-
-    private var draftPageToolsContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Pages")
-                Text("Use the page browser to jump the cursor without losing the visual rhythm of the draft.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-            }
-
-            HStack(spacing: 10) {
-                Stepper("Lines/Page \(vm.linesPerPage)", value: $vm.linesPerPage, in: 24...90)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.76))
-                Spacer()
-                if vm.isPaginationRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Button {
-                    Task { await vm.refreshPagination(source: "Manual retry") }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(
-                    vm.isPaginationRefreshing ||
-                    vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-                .accessibilityLabel("Refresh pagination")
-                .help("Refresh pagination")
-            }
-
-            paginationStrip
-        }
-    }
-
-    private var draftRevisionToolsContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            inspectorSubsectionLabel("Revision Color")
-
-            HStack(spacing: 8) {
-                Picker("Revision", selection: $vm.revisionColor) {
-                    Text("Blue").tag("blue")
-                    Text("Pink").tag("pink")
-                    Text("Yellow").tag("yellow")
-                    Text("Green").tag("green")
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
-                Spacer()
-                if vm.isRevisionRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Button {
-                    Task { await vm.refreshRevisionColor(source: "Manual retry") }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(
-                    vm.isRevisionRefreshing ||
-                    vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-                .accessibilityLabel("Refresh revision colors")
-                .help("Refresh revision colors")
-            }
-
-            if !vm.revisionErrorText.isEmpty {
-                Text(vm.revisionErrorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.red.opacity(0.82))
-            }
-
-            revisionSummaryView
-        }
-    }
-
-    private var draftSnapshotToolsContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            inspectorSubsectionLabel("Revision Snapshots")
-
-            HStack(spacing: 8) {
-                TextField("Snapshot note (optional)", text: $vm.snapshotLabel)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 260)
-                Button("Create Snapshot") {
-                    Task { await vm.createRevisionSnapshot() }
-                }
-                .buttonStyle(.borderedProminent)
-                Spacer()
-            }
-
-            if snapshotVersions.isEmpty {
-                Text("No snapshots yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(snapshotVersions, id: \.id) { version in
-                        HStack(spacing: 8) {
-                            Text(version.phase?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Draft")
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.88))
-                            if let updated = dateFromTimestamp(version.updatedAt ?? version.createdAt) {
-                                Text(relativeTimestamp(updated))
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.66))
-                            }
-                            if let notes = version.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(notes)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.66))
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Button("Restore") {
-                                vm.loadSnapshot(version)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled((version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.white.opacity(0.12))
-                        )
-                    }
-                }
-            }
-        }
-    }
-
 
     private func draftStatusChip(_ title: String, prominence: DraftStatusChipProminence) -> some View {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -17565,13 +17208,9 @@ Look at the city.
 
 
     private var snapshotVersions: [BackendScreenplayVersion] {
-        let versions = vm.selectedProject?.versions ?? []
-        return versions
-            .sorted { lhs, rhs in
-                (lhs.updatedAt ?? lhs.createdAt ?? 0) > (rhs.updatedAt ?? rhs.createdAt ?? 0)
-            }
-            .prefix(10)
-            .map { $0 }
+        ScreenplayStudioDraftToolsPresentationPlanner.orderedSnapshotVersions(
+            vm.selectedProject?.versions ?? []
+        )
     }
 
     private var screenplayIntegrityIssues: [ScreenplayPageIntegrityIssue] {
@@ -17798,193 +17437,10 @@ Look at the city.
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func paginationThumbnailLines(for page: BackendScreenplayPaginationPage, maxLines: Int = 12) -> [String] {
-        let previewLines = (page.preview ?? "")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if !previewLines.isEmpty {
-            let clippedPreview = previewLines.prefix(maxLines).map { String($0.prefix(36)) }
-            if clippedPreview.count >= maxLines {
-                return clippedPreview
-            }
-            return clippedPreview + Array(repeating: "", count: max(0, maxLines - clippedPreview.count))
-        }
-
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let allLines = normalized.components(separatedBy: "\n")
-        let startIndex = max(0, min(page.startLine - 1, allLines.count))
-        let endIndex = max(startIndex, min(page.endLine, allLines.count))
-        let pageLines = Array(allLines[startIndex..<endIndex])
-        let clipped = pageLines.prefix(maxLines).map { String($0.prefix(40)) }
-        if clipped.count >= maxLines {
-            return clipped
-        }
-        return clipped + Array(repeating: "", count: max(0, maxLines - clipped.count))
-    }
-
-    private func isPaginationPageActive(_ page: BackendScreenplayPaginationPage) -> Bool {
-        (page.startLine...page.endLine).contains(liveDraftBridge.currentCursorLine)
-    }
-
     private func jumpToPaginationPage(_ page: BackendScreenplayPaginationPage) {
         liveDraftBridge.jumpToLine(page.startLine)
         liveDraftBridge.highlightLineRange(startLine: page.startLine, endLine: page.endLine)
     }
-
-    private var paginationStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !vm.paginationErrorText.isEmpty {
-                Text(vm.paginationErrorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.red.opacity(0.82))
-            }
-            if vm.paginationPages.isEmpty {
-                Text("Pagination updates after draft text is present.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(vm.paginationPages, id: \.page) { page in
-                        let isActive = isPaginationPageActive(page)
-                        Button {
-                            jumpToPaginationPage(page)
-                        } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                ZStack(alignment: .topLeading) {
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color.white.opacity(0.98))
-                                        .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        ForEach(Array(paginationThumbnailLines(for: page, maxLines: 8).enumerated()), id: \.offset) { _, line in
-                                            Text(line.isEmpty ? " " : line)
-                                                .font(.system(size: 7.2, weight: .regular, design: .monospaced))
-                                                .foregroundStyle(Color.black.opacity(line.isEmpty ? 0.08 : 0.72))
-                                                .lineLimit(1)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 10)
-                                }
-                                .frame(width: 112, height: 148)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(
-                                            isActive ? Color.herStudioActiveStroke.opacity(0.82) : Color.herShellStroke.opacity(0.20),
-                                            lineWidth: isActive ? 1.4 : 1
-                                        )
-                                )
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(spacing: 6) {
-                                        Text("Page \(page.page)")
-                                            .font(.system(size: 12, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.90))
-                                        Spacer(minLength: 0)
-                                        if let estMinutes = page.estMinutes, estMinutes > 0 {
-                                            Text(String(format: "%.1fm", estMinutes))
-                                                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                                .foregroundStyle(Color.herText.opacity(0.48))
-                                        }
-                                    }
-
-                                    Text("Lines \(page.startLine)-\(page.endLine)")
-                                        .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                        .foregroundStyle(Color.herText.opacity(0.56))
-
-                                    Text(isActive ? "Current cursor page" : "Jump to this page")
-                                        .font(.system(size: 11, weight: .medium, design: .default))
-                                        .foregroundStyle(isActive ? Color.herStudioActiveStroke.opacity(0.90) : Color.herText.opacity(0.62))
-
-                                    Text("Thumbnail browser")
-                                        .font(.system(size: 10, weight: .medium, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.44))
-                                        .textCase(.uppercase)
-                                        .tracking(0.5)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(11)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.14) : Color.black.opacity(0.18))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(
-                                        isActive ? Color.herStudioActiveStroke.opacity(0.34) : Color.herShellStroke.opacity(0.14),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var revisionSummaryView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let summary = vm.revisionSummary {
-                HStack(spacing: 8) {
-                    metricChip("Revised", value: "\(summary.revised)")
-                    metricChip("Added", value: "\(summary.added)")
-                    metricChip("Moved", value: "\(summary.moved)")
-                    metricChip("Removed", value: "\(summary.removed)")
-                }
-            }
-            if vm.revisionRanges.isEmpty {
-                Text("Revision ranges appear after a saved baseline exists.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(vm.revisionRanges.prefix(6).enumerated()), id: \.offset) { _, range in
-                        HStack(spacing: 8) {
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(revisionFillColor(range.color))
-                                .frame(width: 14, height: 8)
-                            Text("\(range.status.capitalized) lines \(range.startLine)-\(range.endLine)")
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func revisionFillColor(_ key: String) -> Color {
-        switch key.lowercased() {
-        case "blue":
-            return Color.blue.opacity(0.75)
-        case "pink":
-            return Color.pink.opacity(0.82)
-        case "yellow":
-            return Color.yellow.opacity(0.86)
-        case "green":
-            return Color.green.opacity(0.82)
-        case "goldenrod":
-            return Color.orange.opacity(0.84)
-        case "salmon":
-            return Color.red.opacity(0.75)
-        case "cherry":
-            return Color.red.opacity(0.90)
-        case "buff", "tan":
-            return Color.brown.opacity(0.72)
-        default:
-            return Color.white.opacity(0.40)
-        }
-    }
-
-
 
     @MainActor
     private func exportCurrentDraft(format: String) async {
@@ -18118,25 +17574,6 @@ Look at the city.
         }
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     }
-
-
-    private func metricChip(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.70))
-            Text(value)
-                .font(.system(size: 14, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.95))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.16))
-        )
-    }
-
 
 
     @MainActor
