@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 
 import { apiRequest, startBackend } from "./helpers/backend_test_server.mjs";
@@ -40,6 +42,25 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
     const otherProjectId = String(otherCreated.json?.project_id || otherCreated.json?.project?.id || "");
     assert.ok(otherProjectId, "other user's screenplay project should be created");
 
+    const paginatedExportKey = "zzzz-account-export-pagination-target";
+    const craftReportsDomainPath = path.join(
+      server.dataDir,
+      "persistence",
+      "craft_reports.json"
+    );
+    fs.mkdirSync(path.dirname(craftReportsDomainPath), { recursive: true });
+    const craftReportRows = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [
+        `filler-${String(index).padStart(5, "0")}`,
+        { userId: "unrelated-user" },
+      ])
+    );
+    craftReportRows[paginatedExportKey] = {
+      userId,
+      marker: "owned-row-after-first-page",
+    };
+    fs.writeFileSync(craftReportsDomainPath, JSON.stringify(craftReportRows));
+
     const exported = await apiRequest(server, "/account/export", {
       headers: { Authorization: "Bearer " + token },
     });
@@ -58,6 +79,13 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
     assert.ok(
       screenplayRows.every((row) => !JSON.stringify(row).includes(otherProjectId)),
       "account export must not include another user's screenplay project"
+    );
+    const exportedCraftReports = exported.json?.domains?.craft_reports || [];
+    assert.ok(
+      exportedCraftReports.some((row) => (
+        row.key === paginatedExportKey && row.value?.marker === "owned-row-after-first-page"
+      )),
+      "account export should include owned rows after the adapter's first 10,000-row page"
     );
 
     const deniedDelete = await apiRequest(server, "/account", {

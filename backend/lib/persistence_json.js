@@ -140,12 +140,15 @@ function createJsonPersistence({ jsonRoot } = {}) {
       });
     },
 
-    async list({ domain, prefix = "", limit = 1000 }) {
+    async list({ domain, prefix = "", afterKey = "", limit = 1000 }) {
       assertDomain(domain);
       const all = readDomainFile(root, domain);
       const cap = Math.max(1, Math.min(10_000, Math.floor(Number(limit) || 1000)));
       const keys = Object.keys(all)
-        .filter((k) => (prefix ? k.startsWith(prefix) : true))
+        .filter((k) => (
+          (prefix ? k.startsWith(prefix) : true)
+          && (afterKey ? k > afterKey : true)
+        ))
         .sort()
         .slice(0, cap);
       return keys.map((k) => ({ key: k, value: all[k] }));

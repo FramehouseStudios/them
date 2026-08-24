@@ -10,6 +10,7 @@ import { mountScreenplayCompanionRoutes } from "../lib/screenplay_companion_rout
 
 function defaultOwner() {
   return {
+    ownerKey: "companion-owner",
     activeProjectId: "p1",
     projects: [],
     companionState: null,
@@ -21,6 +22,12 @@ function defaultDeps(overrides = {}) {
   return {
     getOrCreateScreenplayOwnerRecord: () => owner,
     markScreenplayOwnerDirty: (_o, _now) => {},
+    refreshScreenplayOwnerRecord: async () => ({
+      ok: true,
+      owner,
+      authoritative: true,
+      persistenceKind: "test",
+    }),
     normalizeStoredScreenplayCompanionState: (raw) => {
       const r = raw || {};
       return {
@@ -102,6 +109,7 @@ test("[screenplay-companion-routes] mount fails when required deps are missing",
   const required = [
     "getOrCreateScreenplayOwnerRecord",
     "markScreenplayOwnerDirty",
+    "refreshScreenplayOwnerRecord",
     "normalizeStoredScreenplayCompanionState",
     "toScreenplayCompanionStatePayload",
     "buildScreenplayEnvelope",
@@ -139,6 +147,46 @@ test("[screenplay-companion-routes] GET /companion/state returns normalized stat
   });
 });
 
+test("[screenplay-companion-routes] GET /companion/state refreshes canonical multi-instance state", async () => {
+  const deps = defaultDeps();
+  const freshOwner = structuredClone(deps._owner);
+  freshOwner.companionState = {
+    mode_raw: "writing",
+    recent_turns: [],
+    analytics: {},
+    signals: {},
+  };
+  deps.refreshScreenplayOwnerRecord = async () => ({
+    ok: true,
+    owner: freshOwner,
+    authoritative: true,
+    persistenceKind: "postgres",
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await get(baseURL, "/screenplay/companion/state");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.companion_mode_raw, "writing");
+  });
+});
+
+test("[screenplay-companion-routes] canonical read failures return 503 instead of stale state", async () => {
+  const deps = defaultDeps({
+    refreshScreenplayOwnerRecord: async () => ({
+      ok: false,
+      persistenceKind: "postgres",
+    }),
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await get(baseURL, "/screenplay/companion/state");
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.equal(r.body.persistence, "postgres");
+    assert.equal(r.headers.get("cache-control"), "no-store");
+  });
+});
+
 test("[screenplay-companion-routes] POST /companion/state persists + responds 'saved'", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/companion/state", {
@@ -149,6 +197,93 @@ test("[screenplay-companion-routes] POST /companion/state persists + responds 's
     assert.equal(r.body.status, "saved");
     assert.equal(r.body.companion_mode_raw, "writing");
     assert.equal(r.body.companion_recent_turns.length, 2);
+  });
+});
+
+test("[screenplay-companion-routes] POST /companion/state waits for durable persistence", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: () => {
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    let responseSettled = false;
+    const responsePromise = postJson(baseURL, "/screenplay/companion/state", {
+      mode_raw: "writing",
+    }).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+    await persistenceStarted;
+    assert.equal(responseSettled, false);
+    releasePersistence({ ok: true });
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+  });
+});
+
+test("[screenplay-companion-routes] POST /companion/state responds with its committed snapshot", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  let committedOwner = null;
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: (owner) => {
+      committedOwner = structuredClone(owner);
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const responsePromise = postJson(baseURL, "/screenplay/companion/state", {
+      mode_raw: "writing",
+    });
+    await persistenceStarted;
+    deps._owner.companionState.mode_raw = "concurrent-change";
+    releasePersistence({ ok: true, owner: committedOwner });
+
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal(response.body.companion_mode_raw, "writing");
+  });
+});
+
+test("[screenplay-companion-routes] POST /companion/state returns 503 on durable failure", async () => {
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: () => ({
+      ok: true,
+      persistenceKind: "postgres",
+      persistencePromise: Promise.resolve({
+        ok: false,
+        persistenceKind: "postgres",
+        persistenceFailureCount: 1,
+      }),
+    }),
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/companion/state", {
+      mode_raw: "writing",
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error, "screenplay_persistence_failed");
+    assert.equal(response.body.persistence, "postgres");
   });
 });
 

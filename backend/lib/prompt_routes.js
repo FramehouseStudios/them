@@ -898,6 +898,7 @@ function mountPromptRoutes(app, {
   getOrCreateScreenplayOwnerRecord = null,
   getScreenplayProjectRecord = null,
   getLatestScreenplayVersion = null,
+  refreshScreenplayOwnerRecord = null,
 } = {}) {
   app.post("/screenplay/prompt/build", express.json({ limit: "256kb" }), async (req, res) => {
     const persona = trimToString(
@@ -934,6 +935,34 @@ function mountPromptRoutes(app, {
       })
       : null;
     const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
+    if (
+      sanitizedSessionContext?.projectId
+      && typeof getOrCreateScreenplayOwnerRecord === "function"
+      && typeof refreshScreenplayOwnerRecord === "function"
+    ) {
+      let cachedOwner = null;
+      try {
+        cachedOwner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+      } catch {
+        cachedOwner = null;
+      }
+      if (cachedOwner?.ownerKey) {
+        let refreshed;
+        try {
+          refreshed = await refreshScreenplayOwnerRecord(cachedOwner.ownerKey);
+        } catch (error) {
+          refreshed = { ok: false, error };
+        }
+        if (!refreshed?.ok) {
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(503).json({
+            stage: "screenplay_prompt_build",
+            error: "screenplay_persistence_failed",
+            persistence: refreshed?.persistenceKind || "unknown",
+          });
+        }
+      }
+    }
     const projectHydration = hydrateSessionContextFromProject(req, sanitizedSessionContext, {
       getOrCreateScreenplayOwnerRecord,
       getScreenplayProjectRecord,

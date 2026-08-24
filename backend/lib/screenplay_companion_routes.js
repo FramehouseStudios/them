@@ -47,6 +47,7 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     // Owner / state
     getOrCreateScreenplayOwnerRecord,
     markScreenplayOwnerDirty,
+    refreshScreenplayOwnerRecord,
     normalizeStoredScreenplayCompanionState,
     toScreenplayCompanionStatePayload,
     // Envelope + headers
@@ -67,6 +68,7 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
   const requiredFns = {
     getOrCreateScreenplayOwnerRecord,
     markScreenplayOwnerDirty,
+    refreshScreenplayOwnerRecord,
     normalizeStoredScreenplayCompanionState,
     toScreenplayCompanionStatePayload,
     buildScreenplayEnvelope,
@@ -87,8 +89,65 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     }
   }
 
-  app.get("/screenplay/companion/state", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  async function persistCompanionOwnerOrFail(res, owner, now) {
+    const result = markScreenplayOwnerDirty(owner, now);
+    if (result === false || result?.ok === false) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(503).json({
+        stage: "screenplay_companion_state",
+        error: "screenplay_persistence_failed",
+      });
+      return null;
+    }
+    let committedOwner = result?.owner || owner;
+    if (result?.persistencePromise) {
+      const persisted = await result.persistencePromise;
+      if (persisted?.ok === false) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(503).json({
+          stage: "screenplay_companion_state",
+          error: "screenplay_persistence_failed",
+          persistence: persisted.persistenceKind || result.persistenceKind || "unknown",
+          persistence_failure_count: persisted.persistenceFailureCount || 1,
+        });
+        return null;
+      }
+      committedOwner = persisted?.owner || committedOwner;
+    }
+    return committedOwner;
+  }
+
+  async function getFreshCompanionOwner(req, res) {
+    const cachedOwner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    let refreshed;
+    try {
+      refreshed = await refreshScreenplayOwnerRecord(cachedOwner.ownerKey);
+    } catch (error) {
+      refreshed = { ok: false, error };
+    }
+    if (!refreshed?.ok) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(503).json({
+        stage: "screenplay_companion_state",
+        error: "screenplay_persistence_failed",
+        persistence: refreshed?.persistenceKind || "unknown",
+      });
+      return null;
+    }
+    if (!refreshed.owner) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(404).json({
+        stage: "screenplay_companion_state",
+        error: "screenplay_owner_not_found",
+      });
+      return null;
+    }
+    return refreshed.owner;
+  }
+
+  app.get("/screenplay/companion/state", async (req, res) => {
+    const owner = await getFreshCompanionOwner(req, res);
+    if (!owner) return;
     owner.companionState = normalizeStoredScreenplayCompanionState(owner.companionState);
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
@@ -100,8 +159,9 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/companion/state", express.json({ limit: "256kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/companion/state", express.json({ limit: "256kb" }), async (req, res) => {
+    const owner = await getFreshCompanionOwner(req, res);
+    if (!owner) return;
     const now = Date.now();
     const existingCompanionState = normalizeStoredScreenplayCompanionState(owner.companionState);
     const nextCompanionState = normalizeStoredScreenplayCompanionState({
@@ -120,14 +180,16 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
     if (!owner.companionState.analytics.updatedAt || owner.companionState.analytics.updatedAt <= 0) {
       owner.companionState.analytics.updatedAt = now;
     }
-    markScreenplayOwnerDirty(owner, now);
-    applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
-    return res.status(200).json(buildScreenplayEnvelope(req, owner, {
+    const committedOwner = await persistCompanionOwnerOrFail(res, owner, now);
+    if (!committedOwner) return;
+    const committedState = normalizeStoredScreenplayCompanionState(committedOwner.companionState);
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+    return res.status(200).json(buildScreenplayEnvelope(req, committedOwner, {
       stage: "screenplay_companion_state",
       status: "saved",
       source: "screenplay_store",
       source_ip: normalizeClientIp(clientIp(req)),
-      ...toScreenplayCompanionStatePayload(owner.companionState),
+      ...toScreenplayCompanionStatePayload(committedState),
     }));
   });
 

@@ -15,7 +15,10 @@ import {
   assertKey,
 } from "../lib/persistence_adapter.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
-import { createPostgresPersistence } from "../lib/persistence_postgres.js";
+import {
+  buildPostgresPoolConfig,
+  createPostgresPersistence,
+} from "../lib/persistence_postgres.js";
 
 // ---------- in-memory pg-shaped mock ----------
 
@@ -69,6 +72,20 @@ function createPgMock() {
         const had = tbl.delete(params[0]);
         return { rowCount: had ? 1 : 0 };
       }
+      // LIST with prefix + cursor
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 AND key > \$2 ORDER BY key ASC LIMIT \$3$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const rawPrefix = String(params[0]).replace(/%$/, "");
+        const afterKey = String(params[1]);
+        const cap = Number(params[2]);
+        const rows = [...tbl.entries()]
+          .filter(([k]) => k.startsWith(rawPrefix) && k > afterKey)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, cap)
+          .map(([key, { value }]) => ({ key, value }));
+        return { rows };
+      }
       // LIST with prefix
       m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 ORDER BY key ASC LIMIT \$2$/i);
       if (m) {
@@ -77,6 +94,19 @@ function createPgMock() {
         const cap = Number(params[1]);
         const rows = [...tbl.entries()]
           .filter(([k]) => k.startsWith(rawPrefix))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, cap)
+          .map(([key, { value }]) => ({ key, value }));
+        return { rows };
+      }
+      // LIST with cursor
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key > \$1 ORDER BY key ASC LIMIT \$2$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const afterKey = String(params[0]);
+        const cap = Number(params[1]);
+        const rows = [...tbl.entries()]
+          .filter(([k]) => k > afterKey)
           .sort(([a], [b]) => a.localeCompare(b))
           .slice(0, cap)
           .map(([key, { value }]) => ({ key, value }));
@@ -125,6 +155,27 @@ function makeImplementations() {
     },
   ];
 }
+
+test("[postgres] pool deadlines bound acquisition, server execution, and client reads", () => {
+  const defaults = buildPostgresPoolConfig({ databaseUrl: "postgres://example/test" });
+  assert.equal(defaults.connectionString, "postgres://example/test");
+  assert.equal(defaults.connectionTimeoutMillis, 1_000);
+  assert.equal(defaults.statement_timeout, 3_000);
+  assert.equal(defaults.query_timeout, 3_500);
+  assert.ok(defaults.statement_timeout < defaults.query_timeout);
+  assert.ok(defaults.connectionTimeoutMillis + defaults.query_timeout < 5_000);
+
+  const clamped = buildPostgresPoolConfig({
+    databaseUrl: "postgres://example/test",
+    connectionTimeoutMs: -1,
+    statementTimeoutMs: 40_000,
+    queryTimeoutMs: 1,
+  });
+  assert.equal(clamped.connectionTimeoutMillis, 1_000);
+  assert.equal(clamped.statement_timeout, 29_000);
+  assert.equal(clamped.query_timeout, 29_100);
+  assert.ok(clamped.statement_timeout < clamped.query_timeout);
+});
 
 // ---------- contract tests, run against both impls ----------
 
@@ -204,6 +255,14 @@ for (const impl of makeImplementations()) {
       assert.deepEqual(userOnly.map((r) => r.key), ["byUserId:alpha", "byUserId:zebra"]);
       const all = await p.list({ domain: "user_memory" });
       assert.equal(all.length, 3);
+      const afterFirst = await p.list({ domain: "user_memory", afterKey: all[0].key });
+      assert.deepEqual(afterFirst.map((r) => r.key), all.slice(1).map((r) => r.key));
+      const prefixedAfterFirst = await p.list({
+        domain: "user_memory",
+        prefix: "byUserId:",
+        afterKey: "byUserId:alpha",
+      });
+      assert.deepEqual(prefixedAfterFirst.map((r) => r.key), ["byUserId:zebra"]);
     } finally {
       await p.close();
     }

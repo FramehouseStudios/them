@@ -144,6 +144,7 @@ import {
 import { probeSupplierShape, probeSupplierLive, createSupplierHealthCache } from "./lib/realtime_supplier_health.js";
 import { mintWithFailover } from "./lib/realtime_supplier_failover.js";
 import {
+  commitScreenplayOwnerMutation,
   configureScreenplayStore,
   ensureScreenplayOutline,
   getLatestScreenplayVersion,
@@ -153,9 +154,15 @@ import {
   loadScreenplayStoreFromAdapter,
   markScreenplayOwnerDirty,
   recalculateScreenplayProject,
+  refreshScreenplayOwnerRecord,
   saveScreenplayStore,
   screenplayStoreByOwner,
+  tombstoneScreenplayOwnerRecord,
 } from "./lib/screenplay_store.js";
+import {
+  normalizeOutlineMutationReceipts,
+  normalizeOutlineRevision,
+} from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
@@ -180,7 +187,11 @@ import {
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
-import { createAccountPurgeWorker, purgePersistenceRowsForUser } from "./lib/account_purge_worker.js";
+import {
+  createAccountPurgeWorker,
+  listPersistenceRowsPaginated,
+  purgePersistenceRowsForUser,
+} from "./lib/account_purge_worker.js";
 import {
   createTalkRateLimitGuard,
   createTalkIdempotencyGuard,
@@ -4811,6 +4822,10 @@ configureScreenplayStore({
   normalizeStoredScreenplayCompanionState,
   normalizeStoredScreenplayOwner,
   resolveScreenplayOwnerKey,
+  screenplayPersistenceTimeoutMs: parsePositiveInt(
+    process.env.SCREENPLAY_PERSISTENCE_TIMEOUT_MS,
+    5_000
+  ),
   writeJsonFileAtomic,
   persistence: sharedPersistence,
 });
@@ -5009,13 +5024,15 @@ async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAIN
   const normalizedUserId = String(userId || "").trim();
   const payload = {};
   for (const domain of domains) {
-    const rows = await sharedPersistence.list({ domain, limit: 10_000 });
-    payload[domain] = rows
-      .filter((row) => persistenceRowBelongsToUser(row, normalizedUserId))
-      .map((row) => ({
-        key: row.key,
-        value: row.value,
-      }));
+    const rows = await listPersistenceRowsPaginated({
+      persistence: sharedPersistence,
+      domain,
+      includeRow: (row) => persistenceRowBelongsToUser(row, normalizedUserId),
+    });
+    payload[domain] = rows.map((row) => ({
+      key: row.key,
+      value: row.value,
+    }));
   }
   return { domains: payload };
 }
@@ -5023,10 +5040,34 @@ async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAIN
 async function purgeAuthenticatedUserData(userId) {
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) throw new Error("account purge requires userId");
+  // Crossing the hard-delete deadline is irreversible. Remove the identity
+  // first so no new authenticated writer can race the bounded data sweeps;
+  // the lifecycle job remains retryable if any later storage step fails.
+  const authResult = await deleteUserById(normalizedUserId);
+  if (!authResult?.ok) throw new Error(authResult?.reason || "account auth deletion failed");
+  const screenplayRows = await listPersistenceRowsPaginated({
+    persistence: sharedPersistence,
+    domain: "screenplay",
+    includeRow: (row) => persistenceRowBelongsToUser(row, normalizedUserId),
+  });
+  const screenplayOwnerKeys = new Set(screenplayRows.map((row) => String(row?.key || "").trim()));
+  screenplayOwnerKeys.add(normalizeScreenplayOwnerValue(normalizedUserId, "user"));
+  for (const [ownerKey, owner] of screenplayStoreByOwner.entries()) {
+    if (persistenceRowBelongsToUser({ key: ownerKey, value: owner }, normalizedUserId)) {
+      screenplayOwnerKeys.add(ownerKey);
+    }
+  }
+  for (const ownerKey of screenplayOwnerKeys) {
+    if (!ownerKey) continue;
+    const screenplayDeletion = await tombstoneScreenplayOwnerRecord(ownerKey, Date.now());
+    if (!screenplayDeletion?.ok || !screenplayDeletion?.tombstoned) {
+      throw new Error("account purge failed to fence screenplay deletion");
+    }
+  }
   const persistenceResult = await purgePersistenceRowsForUser({
     persistence: sharedPersistence,
     userId: normalizedUserId,
-    domains: EXPORTABLE_DOMAINS,
+    domains: EXPORTABLE_DOMAINS.filter((domain) => domain !== "screenplay"),
     rowBelongsToUser: persistenceRowBelongsToUser,
   });
 
@@ -5045,20 +5086,8 @@ async function purgeAuthenticatedUserData(userId) {
     if (!memoryPersistence?.ok) throw new Error("account purge failed to persist user memory deletion");
   }
 
-  for (const [ownerKey, owner] of screenplayStoreByOwner.entries()) {
-    if (persistenceRowBelongsToUser({ key: ownerKey, value: owner }, normalizedUserId)) {
-      screenplayStoreByOwner.delete(ownerKey);
-    }
-  }
-  const screenplaySave = saveScreenplayStore(Date.now());
-  if (!screenplaySave?.fileOk) throw new Error("account purge failed to rewrite screenplay mirror");
-  if (screenplaySave.persistencePromise) {
-    const screenplayPersistence = await screenplaySave.persistencePromise;
-    if (!screenplayPersistence?.ok) throw new Error("account purge failed to persist screenplay deletion");
-  }
+  persistenceResult.deletedRows += screenplayRows.length;
 
-  const authResult = await deleteUserById(normalizedUserId);
-  if (!authResult?.ok) throw new Error(authResult?.reason || "account auth deletion failed");
   return {
     userId: normalizedUserId,
     deletedRows: persistenceResult.deletedRows,
@@ -5106,12 +5135,20 @@ const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryB
 if (!memoryLoadedFromAdapter) {
   loadUserMemoryStore(userMemoryByIp, userMemoryByClientToken);
 }
-// T07b: prefer adapter when it has data; fall back to the legacy JSON file.
-// During the migration window, both paths coexist. Once Postgres is canonical
-// and stable, the JSON load can be retired in a follow-up PR.
-const loadedFromAdapter = await loadScreenplayStoreFromAdapter(screenplayStoreByOwner);
-if (!loadedFromAdapter) {
-  loadScreenplayStore(screenplayStoreByOwner);
+// T07b migration recovery: load the complete legacy snapshot first, then let
+// adapter rows override matching owners. The adapter may contain only the
+// owners written since dual-write began, so clearing the file-backed owners
+// when any adapter row exists can hide unrelated projects after a restart.
+loadScreenplayStore(screenplayStoreByOwner);
+const screenplayAdapterStateLoaded = await loadScreenplayStoreFromAdapter(screenplayStoreByOwner);
+if (screenplayAdapterStateLoaded) {
+  const screenplayMirrorSync = saveScreenplayStore(Date.now(), {
+    persistAdapter: false,
+    preferPersistedOwners: true,
+  });
+  if (!screenplayMirrorSync?.fileOk) {
+    console.error("[screenplay_store] failed to persist adapter provenance in migration mirror");
+  }
 }
 console.log(
   `[user_memory] loaded records=${userMemoryByIp.size} users=${userMemoryByUserId.size} token_aliases=${userMemoryByClientToken.size}`
@@ -9590,6 +9627,7 @@ function scoreScreenplayDraft(draft) {
 
 function createEmptyScreenplayOutline() {
   return {
+    revision: 0,
     updatedAt: 0,
     acts: [],
     scenes: [],
@@ -10128,8 +10166,8 @@ function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
     id,
     title,
     summary: normalizeSnippet(entry.summary, 220),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
-    sceneIds: normalizeScreenplayStringList(entry.sceneIds, 128, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
+    sceneIds: normalizeScreenplayStringList(entry.sceneIds ?? entry.scene_ids, 128, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -10144,10 +10182,10 @@ function normalizeStoredScreenplayScene(entry, orderFallback = 0) {
     title: normalizeSnippet(entry.title, 140) || "Scene",
     objective: normalizeSnippet(entry.objective, 220),
     summary: normalizeSnippet(entry.summary, 320),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
-    beatIds: normalizeScreenplayStringList(entry.beatIds, 256, 64),
+    beatIds: normalizeScreenplayStringList(entry.beatIds ?? entry.beat_ids, 256, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -10160,9 +10198,9 @@ function normalizeStoredScreenplayBeat(entry, orderFallback = 0) {
     id,
     label: normalizeSnippet(entry.label, 140) || "Beat",
     summary: normalizeSnippet(entry.summary, 280),
-    sceneId: normalizeSnippet(entry.sceneId, 64),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    sceneId: normalizeSnippet(entry.sceneId ?? entry.scene_id, 64),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
@@ -10238,6 +10276,7 @@ function normalizeStoredScreenplayOutline(entry) {
   const orderedScenes = [...scenes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   const orderedBeats = [...beats].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   return {
+    revision: normalizeOutlineRevision(raw.revision ?? raw.outlineRevision ?? raw.outline_revision),
     updatedAt: Math.max(0, Number(raw.updatedAt || 0)),
     acts: acts.map((act) => ({
       ...act,
@@ -10271,6 +10310,10 @@ function normalizeStoredScreenplayProject(entry) {
     }
   );
   const outline = normalizeStoredScreenplayOutline(entry.outline);
+  const outlineRevision = normalizeOutlineRevision(
+    entry.outlineRevision ?? entry.outline_revision ?? outline.revision
+  );
+  outline.revision = outlineRevision;
   const versions = Array.isArray(entry.versions)
     ? entry.versions.map(normalizeStoredScreenplayVersion).filter(Boolean)
     : [];
@@ -10317,6 +10360,10 @@ function normalizeStoredScreenplayProject(entry) {
     studioDiffAcknowledgedKeys: diffAcknowledged.keys,
     studioDiffAcknowledgedEntries: diffAcknowledged.entries,
     studioAskNoteHistory,
+    outlineRevision,
+    outlineMutationReceipts: normalizeOutlineMutationReceipts(
+      entry.outlineMutationReceipts ?? entry.outline_mutation_receipts
+    ),
     outline,
     versions,
     collaborators,
@@ -10394,7 +10441,7 @@ function toScreenplayActPayload(act) {
     id: act.id,
     title: act.title,
     summary: act.summary || "",
-    order: Math.max(0, Number(act.order || 0)),
+    order: normalizeOutlineRevision(act.order),
     scene_ids: Array.isArray(act.sceneIds) ? act.sceneIds : [],
     created_at: Math.max(0, Number(act.createdAt || 0)),
     updated_at: Math.max(0, Number(act.updatedAt || act.createdAt || 0)),
@@ -10409,7 +10456,7 @@ function toScreenplayScenePayload(scene) {
     objective: scene.objective || "",
     summary: scene.summary || "",
     act_id: scene.actId || "",
-    order: Math.max(0, Number(scene.order || 0)),
+    order: normalizeOutlineRevision(scene.order),
     status: scene.status || "open",
     beat_ids: Array.isArray(scene.beatIds) ? scene.beatIds : [],
     created_at: Math.max(0, Number(scene.createdAt || 0)),
@@ -10424,7 +10471,7 @@ function toScreenplayBeatPayload(beat) {
     summary: beat.summary || "",
     scene_id: beat.sceneId || "",
     act_id: beat.actId || "",
-    order: Math.max(0, Number(beat.order || 0)),
+    order: normalizeOutlineRevision(beat.order),
     status: beat.status || "open",
     created_at: Math.max(0, Number(beat.createdAt || 0)),
     updated_at: Math.max(0, Number(beat.updatedAt || beat.createdAt || 0)),
@@ -10434,6 +10481,7 @@ function toScreenplayBeatPayload(beat) {
 function toScreenplayOutlinePayload(outline) {
   const safeOutline = normalizeStoredScreenplayOutline(outline);
   return {
+    revision: normalizeOutlineRevision(safeOutline.revision),
     updated_at: Math.max(0, Number(safeOutline.updatedAt || 0)),
     act_count: safeOutline.acts.length,
     scene_count: safeOutline.scenes.length,
@@ -10598,6 +10646,7 @@ function toScreenplayProjectPayload(project, options = {}) {
     act_count: Math.max(0, Number(safeProject.actCount || 0)),
     scene_count: Math.max(0, Number(safeProject.sceneCount || 0)),
     beat_count: Math.max(0, Number(safeProject.beatCount || 0)),
+    outline_revision: normalizeOutlineRevision(safeProject.outlineRevision),
     outline_updated_at: Math.max(0, Number(safeProject.outlineUpdatedAt || 0)),
     collaborator_count: Math.max(0, Number(safeProject.collaboratorCount || 0)),
     approved_emails: safeProject.approvedEmails || [],
@@ -10639,6 +10688,9 @@ function buildScreenplayStateVersion(ownerRecord) {
           versionCount: Array.isArray(project.versions) ? project.versions.length : 0,
           commentCount: Array.isArray(project.comments) ? project.comments.length : 0,
           collaboratorCount: Array.isArray(project.collaborators) ? project.collaborators.length : 0,
+          outlineRevision: normalizeOutlineRevision(
+            project.outlineRevision ?? project.outline?.revision
+          ),
         }))
       : [],
   };
@@ -31840,28 +31892,29 @@ function normalizeScreenplayPhaseValue(value) {
 
 function reconcileScreenplayOutline(outline, now = Date.now()) {
   const safeOutline = outline && typeof outline === "object" ? outline : createEmptyScreenplayOutline();
+  safeOutline.revision = normalizeOutlineRevision(safeOutline.revision);
   safeOutline.acts = (Array.isArray(safeOutline.acts) ? safeOutline.acts : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((act, index) => ({
       ...act,
-      order: Math.max(0, Number(act.order ?? index)),
+      order: normalizeOutlineRevision(act.order, index),
       updatedAt: Math.max(0, Number(act.updatedAt || act.createdAt || now)),
       createdAt: Math.max(0, Number(act.createdAt || act.updatedAt || now)),
     }));
   safeOutline.scenes = (Array.isArray(safeOutline.scenes) ? safeOutline.scenes : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((scene, index) => ({
       ...scene,
-      order: Math.max(0, Number(scene.order ?? index)),
+      order: normalizeOutlineRevision(scene.order, index),
       beatIds: Array.isArray(scene.beatIds) ? scene.beatIds : [],
       updatedAt: Math.max(0, Number(scene.updatedAt || scene.createdAt || now)),
       createdAt: Math.max(0, Number(scene.createdAt || scene.updatedAt || now)),
     }));
   safeOutline.beats = (Array.isArray(safeOutline.beats) ? safeOutline.beats : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((beat, index) => ({
       ...beat,
-      order: Math.max(0, Number(beat.order ?? index)),
+      order: normalizeOutlineRevision(beat.order, index),
       updatedAt: Math.max(0, Number(beat.updatedAt || beat.createdAt || now)),
       createdAt: Math.max(0, Number(beat.createdAt || beat.updatedAt || now)),
     }));
@@ -31914,6 +31967,7 @@ function parseScreenplayOutlineInput(body, now = Date.now()) {
 
 function upsertScreenplaySceneRecord(project, sceneInput, now = Date.now()) {
   const outline = ensureScreenplayOutline(project);
+  const currentRevision = normalizeOutlineRevision(project.outlineRevision ?? outline.revision);
   const normalized = normalizeStoredScreenplayScene(
     {
       ...sceneInput,
@@ -31937,12 +31991,15 @@ function upsertScreenplaySceneRecord(project, sceneInput, now = Date.now()) {
   }
   outline.updatedAt = now;
   project.outline = reconcileScreenplayOutline(outline, now);
+  project.outline.revision = Math.min(Number.MAX_SAFE_INTEGER, currentRevision + 1);
+  project.outlineRevision = project.outline.revision;
   project.updatedAt = now;
   return project.outline.scenes.find((scene) => scene.id === normalized.id) || normalized;
 }
 
 function upsertScreenplayBeatRecord(project, beatInput, now = Date.now()) {
   const outline = ensureScreenplayOutline(project);
+  const currentRevision = normalizeOutlineRevision(project.outlineRevision ?? outline.revision);
   const normalized = normalizeStoredScreenplayBeat(
     {
       ...beatInput,
@@ -31966,6 +32023,8 @@ function upsertScreenplayBeatRecord(project, beatInput, now = Date.now()) {
   }
   outline.updatedAt = now;
   project.outline = reconcileScreenplayOutline(outline, now);
+  project.outline.revision = Math.min(Number.MAX_SAFE_INTEGER, currentRevision + 1);
+  project.outlineRevision = project.outline.revision;
   project.updatedAt = now;
   return project.outline.beats.find((beat) => beat.id === normalized.id) || normalized;
 }
@@ -32052,9 +32111,11 @@ function escapeXmlText(value) {
 // are passed as deps so the route file is independently testable.
 // See docs/specs/T-decompose-backend-index.md.
 mountScreenplayProjectsRoutes(app, {
+  commitScreenplayOwnerMutation,
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,
   markScreenplayOwnerDirty,
+  refreshScreenplayOwnerRecord,
   createScreenplayId,
   createEmptyScreenplayOutline,
   parseScreenplayOutlineInput,
@@ -32097,6 +32158,7 @@ mountScreenplayProjectsRoutes(app, {
 mountScreenplayCompanionRoutes(app, {
   getOrCreateScreenplayOwnerRecord,
   markScreenplayOwnerDirty,
+  refreshScreenplayOwnerRecord,
   normalizeStoredScreenplayCompanionState,
   toScreenplayCompanionStatePayload,
   buildScreenplayEnvelope,
@@ -32589,7 +32651,19 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     sanitizedRestoredMemory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const sessionScreenplayOwner = screenplayStoreByOwner.get(resolveScreenplayOwnerKey(req)) || null;
+  let sessionScreenplayOwner = null;
+  try {
+    const refreshedScreenplayOwner = await refreshScreenplayOwnerRecord(resolveScreenplayOwnerKey(req));
+    if (refreshedScreenplayOwner?.ok) {
+      sessionScreenplayOwner = refreshedScreenplayOwner.owner || null;
+    } else {
+      console.warn("[session] canonical screenplay refresh failed; omitting cached screenplay state");
+    }
+  } catch (error) {
+    console.warn(
+      `[session] canonical screenplay refresh failed; omitting cached screenplay state: ${String(error?.message || error)}`
+    );
+  }
   const sessionActiveProjectId = normalizeSnippet(sessionScreenplayOwner?.activeProjectId, 64);
   const sessionActiveProject = Array.isArray(sessionScreenplayOwner?.projects)
     ? sessionScreenplayOwner.projects.find((project) => project?.id === sessionActiveProjectId) || null
@@ -33340,6 +33414,7 @@ mountPromptRoutes(app, {
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,
   getLatestScreenplayVersion,
+  refreshScreenplayOwnerRecord,
 });
 // T-screenplay-import-fountain: POST /screenplay/import/fountain.
 // Reverse of T-fountain-export-endpoint. Parses Fountain text into
@@ -33471,19 +33546,68 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ stage: "server", error: "Internal server error." });
 });
 
-let didCloseScaleBackplane = false;
-async function closeScaleBackplaneOnce() {
-  if (didCloseScaleBackplane) return;
-  didCloseScaleBackplane = true;
-  try {
-    await scaleBackplane.close();
-  } catch (_) {
-    // no-op
+let backendHttpServer = null;
+let outboxWorkerTimer = null;
+let scaleBackplaneClosePromise = null;
+let gracefulShutdownPromise = null;
+
+function closeScaleBackplaneOnce() {
+  if (!scaleBackplaneClosePromise) {
+    scaleBackplaneClosePromise = Promise.resolve()
+      .then(() => scaleBackplane.close())
+      .catch(() => {});
   }
+  return scaleBackplaneClosePromise;
 }
-process.on("SIGINT", () => { void closeScaleBackplaneOnce(); });
-process.on("SIGTERM", () => { void closeScaleBackplaneOnce(); });
-process.on("exit", () => { void closeScaleBackplaneOnce(); });
+
+function closeBackendHttpServerOnce() {
+  const server = backendHttpServer;
+  backendHttpServer = null;
+  if (!server) return Promise.resolve();
+  server.closeIdleConnections?.();
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+function gracefulShutdown(signal = "shutdown") {
+  if (gracefulShutdownPromise) return gracefulShutdownPromise;
+  gracefulShutdownPromise = (async () => {
+    console.log(`[shutdown] ${signal} received; draining backend`);
+    if (outboxWorkerTimer) {
+      clearInterval(outboxWorkerTimer);
+      outboxWorkerTimer = null;
+    }
+    let deadlineTimer = null;
+    const deadline = new Promise((resolve) => {
+      deadlineTimer = setTimeout(() => resolve("timeout"), 8_000);
+    });
+    const cleanup = (async () => {
+      await closeBackendHttpServerOnce();
+      await outboxSnapshotter.stop();
+      await Promise.allSettled([
+        closeScaleBackplaneOnce(),
+        Promise.resolve().then(() => sharedPersistence.close?.()),
+      ]);
+      return "closed";
+    })();
+    const status = await Promise.race([cleanup, deadline]);
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (status === "timeout") {
+      console.error("[shutdown] graceful shutdown timed out after 8000ms");
+    }
+    return status;
+  })();
+  return gracefulShutdownPromise;
+}
+
+function handleTerminationSignal(signal) {
+  void gracefulShutdown(signal).then((status) => {
+    process.exit(status === "closed" ? 0 : 1);
+  });
+}
+process.once("SIGINT", () => handleTerminationSignal("SIGINT"));
+process.once("SIGTERM", () => handleTerminationSignal("SIGTERM"));
 
 if (SHOULD_START_SERVER) {
   // Production env guard: refuse to boot a prod server without the secrets
@@ -33498,18 +33622,19 @@ if (SHOULD_START_SERVER) {
   const onListening = () => {
     console.log(`Backend listening on http://${HOST || "localhost"}:${PORT}`);
     if (OUTBOX_ENABLED && OUTBOX_WORKER_ENABLED) {
-      setInterval(() => {
+      outboxWorkerTimer = setInterval(() => {
         void runOutboxWorkerTick();
       }, Math.max(1_000, OUTBOX_WORKER_INTERVAL_MS));
+      outboxWorkerTimer.unref?.();
     }
     setTimeout(() => {
       void warmupKnowledgeEmbeddingsOnBoot({ rid: "knowledge_warmup_boot" });
     }, Math.max(0, KNOWLEDGE_RAG_WARMUP_DELAY_MS));
   };
   if (HOST) {
-    app.listen(PORT, HOST, onListening);
+    backendHttpServer = app.listen(PORT, HOST, onListening);
   } else {
-    app.listen(PORT, onListening);
+    backendHttpServer = app.listen(PORT, onListening);
   }
 }
 

@@ -407,6 +407,80 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
   );
 });
 
+test("POST /screenplay/prompt/build refreshes canonical screenplay state before project hydration", async () => {
+  const owner = {
+    ownerKey: "owner:prompt-refresh",
+    projects: [{
+      id: "prompt-refresh-project",
+      title: "Cached project",
+      outline: {
+        acts: [],
+        scenes: [{ id: "scene-cached", heading: "INT. STALE ROOM - DAY" }],
+        beats: [],
+      },
+      versions: [],
+    }],
+  };
+  let refreshCalls = 0;
+
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "Write from the canonical project.",
+        session_context: { project_id: "prompt-refresh-project" },
+      });
+
+      assert.equal(status, 200);
+      assert.equal(refreshCalls, 1);
+      assert.equal(body.session_context_hydrated, true);
+      assert.ok(body.prompt.includes("scene: EXT. FRESH STREET - NIGHT"));
+      assert.ok(!body.prompt.includes("INT. STALE ROOM - DAY"));
+    },
+    {
+      promptRouteDeps: {
+        getOrCreateScreenplayOwnerRecord: () => owner,
+        getScreenplayProjectRecord: (record, projectId) => {
+          return record.projects.find((project) => project.id === projectId) || null;
+        },
+        refreshScreenplayOwnerRecord: async () => {
+          refreshCalls += 1;
+          owner.projects[0].title = "Fresh project";
+          owner.projects[0].outline.scenes = [{
+            id: "scene-fresh",
+            heading: "EXT. FRESH STREET - NIGHT",
+          }];
+          return { ok: true, owner, authoritative: true, persistenceKind: "postgres" };
+        },
+      },
+    }
+  );
+});
+
+test("POST /screenplay/prompt/build returns 503 when canonical project refresh fails", async () => {
+  const owner = { ownerKey: "owner:prompt-refresh-fail", projects: [] };
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "Do not use stale context.",
+        session_context: { project_id: "unavailable-project" },
+      });
+      assert.equal(status, 503);
+      assert.equal(body.error, "screenplay_persistence_failed");
+      assert.equal(body.persistence, "postgres");
+    },
+    {
+      promptRouteDeps: {
+        getOrCreateScreenplayOwnerRecord: () => owner,
+        getScreenplayProjectRecord: () => null,
+        refreshScreenplayOwnerRecord: async () => ({
+          ok: false,
+          persistenceKind: "postgres",
+        }),
+      },
+    }
+  );
+});
+
 test("POST /screenplay/prompt/build hydrates missing feature context from persistent screenplay memory", async () => {
   await withTestServer(
     async ({ baseURL }) => {

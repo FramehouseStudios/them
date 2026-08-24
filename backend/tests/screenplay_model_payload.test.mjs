@@ -158,3 +158,82 @@ test("[screenplay-model-payload] outline payload removes orphan scene and beat r
   assert.equal(orphanBeat?.scene_id, "");
   assert.equal(orphanBeat?.act_id, "");
 });
+
+test("[screenplay-model-payload] normalizes outline revision while keeping mutation receipts private", () => {
+  const {
+    normalizeStoredScreenplayProject,
+    toScreenplayOutlinePayload,
+    toScreenplayProjectPayload,
+  } = services();
+  const normalized = normalizeStoredScreenplayProject({
+    id: "project-outline-revision",
+    title: "Revision Contract",
+    outline_revision: "9",
+    outline_mutation_receipts: [
+      {
+        request_id: "outline-save-009",
+        request_hash: "HASH-009",
+        base_revision: 8,
+        committed_revision: 9,
+        committed_at: 1009,
+      },
+    ],
+    outline: {
+      revision: 3,
+      acts: [],
+      scenes: [],
+      beats: [],
+    },
+  });
+  const projectPayload = toScreenplayProjectPayload(normalized);
+  const outlinePayload = toScreenplayOutlinePayload(normalized.outline);
+
+  assert.equal(normalized.outlineRevision, 9);
+  assert.equal(normalized.outline.revision, 9);
+  assert.equal(normalized.outlineMutationReceipts[0].requestHash, "hash-009");
+  assert.equal(projectPayload.outline_revision, 9);
+  assert.equal(projectPayload.outline.revision, 9);
+  assert.equal(outlinePayload.revision, 9);
+  assert.equal(Object.hasOwn(projectPayload, "outline_mutation_receipts"), false);
+  assert.equal(Object.hasOwn(projectPayload, "outlineMutationReceipts"), false);
+});
+
+test("[screenplay-model-payload] accepts its own snake-case relationship payload", () => {
+  const { toScreenplayOutlinePayload } = services();
+  const first = toScreenplayOutlinePayload({
+    acts: [{ id: "act-1", title: "Act One", sceneIds: ["scene-1"] }],
+    scenes: [{
+      id: "scene-1",
+      title: "Room",
+      actId: "act-1",
+      beatIds: ["beat-1"],
+    }],
+    beats: [{ id: "beat-1", label: "Reveal", actId: "act-1", sceneId: "scene-1" }],
+  });
+  const roundTripped = toScreenplayOutlinePayload({
+    acts: first.acts,
+    scenes: first.scenes,
+    beats: first.beats,
+  });
+
+  assert.deepEqual(roundTripped.acts[0].scene_ids, ["scene-1"]);
+  assert.equal(roundTripped.scenes[0].act_id, "act-1");
+  assert.deepEqual(roundTripped.scenes[0].beat_ids, ["beat-1"]);
+  assert.equal(roundTripped.beats[0].act_id, "act-1");
+  assert.equal(roundTripped.beats[0].scene_id, "scene-1");
+});
+
+test("[screenplay-model-payload] emits only bounded integer outline orders", () => {
+  const { toScreenplayOutlinePayload } = services();
+  const invalidOrders = [1.5, Number.MAX_SAFE_INTEGER + 1, "not-a-number"];
+  const payload = toScreenplayOutlinePayload({
+    acts: invalidOrders.map((order, index) => ({ id: `act-${index}`, title: "Act", order })),
+    scenes: invalidOrders.map((order, index) => ({ id: `scene-${index}`, title: "Scene", order })),
+    beats: invalidOrders.map((order, index) => ({ id: `beat-${index}`, label: "Beat", order })),
+  });
+
+  for (const collection of [payload.acts, payload.scenes, payload.beats]) {
+    assert.deepEqual(collection.map((item) => item.order), [0, 1, 2]);
+    assert.equal(collection.every((item) => Number.isSafeInteger(item.order)), true);
+  }
+});

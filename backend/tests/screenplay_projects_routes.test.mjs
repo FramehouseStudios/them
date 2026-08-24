@@ -10,6 +10,7 @@ import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes
 
 function defaultOwner() {
   return {
+    ownerKey: "owner:screenplay-route-test-user",
     activeProjectId: "p1",
     projects: [
       {
@@ -39,8 +40,15 @@ function defaultOwner() {
   };
 }
 
+function freezeDeep(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const nested of Object.values(value)) freezeDeep(nested);
+  return Object.freeze(value);
+}
+
 function defaultDeps(overrides = {}) {
   const owner = defaultOwner();
+  const commitStats = { calls: 0, writes: 0 };
   return {
     getOrCreateScreenplayOwnerRecord: () => owner,
     getScreenplayProjectRecord: (o, id) => (o.projects || []).find((p) => p.id === id) || null,
@@ -60,6 +68,7 @@ function defaultDeps(overrides = {}) {
       ending_image: project.endingImage || "",
       unresolved_setups: project.unresolvedSetups || [],
       studio_ask_note_history: project.studioAskNoteHistory || [],
+      outline_revision: Number(project.outlineRevision || project.outline?.revision || 0),
       _versionsIncluded: Boolean(opts?.includeVersions),
       _draftsIncluded: Boolean(opts?.includeDrafts),
     }),
@@ -81,7 +90,24 @@ function defaultDeps(overrides = {}) {
     normalizeClientIp: (v) => (typeof v === "string" ? v : ""),
     clientIp: () => "127.0.0.1",
     // Phase 2b write-route deps
+    commitScreenplayOwnerMutation: async ({ mutate }) => {
+      commitStats.calls += 1;
+      const result = await mutate(owner, { attempt: 1, currentOwner: structuredClone(owner) });
+      if (result?.commit !== false) commitStats.writes += 1;
+      return {
+        ok: true,
+        committed: result?.commit !== false,
+        owner,
+        result,
+      };
+    },
     markScreenplayOwnerDirty: (_o, _now) => {},
+    refreshScreenplayOwnerRecord: async (ownerKey) => ({
+      ok: true,
+      owner: owner.ownerKey === ownerKey ? owner : null,
+      authoritative: true,
+      persistenceKind: "test",
+    }),
     createScreenplayId: (prefix) => `${prefix || "id"}_test_${Math.random().toString(36).slice(2, 8)}`,
     createEmptyScreenplayOutline: () => ({ acts: [], beats: [], scenes: [] }),
     parseScreenplayOutlineInput: (body, _now) => ({ acts: body?.acts || [], beats: body?.beats || [], scenes: body?.scenes || [] }),
@@ -115,7 +141,35 @@ function defaultDeps(overrides = {}) {
     normalizeStoredScreenplayWriteAnchors: (v) => v || [],
     normalizeStoredScreenplayBindings: (v) => v || [],
     _owner: owner,
+    _commitStats: commitStats,
     ...overrides,
+  };
+}
+
+function serializedCommitter(owner, stats = { calls: 0, writes: 0 }) {
+  let chain = Promise.resolve();
+  return async ({ mutate }) => {
+    stats.calls += 1;
+    const run = chain.then(async () => {
+      const nextOwner = structuredClone(owner);
+      const result = await mutate(nextOwner, {
+        attempt: 1,
+        currentOwner: structuredClone(owner),
+      });
+      if (result?.commit !== false) {
+        stats.writes += 1;
+        for (const key of Object.keys(owner)) delete owner[key];
+        Object.assign(owner, nextOwner);
+      }
+      return {
+        ok: true,
+        committed: result?.commit !== false,
+        owner,
+        result,
+      };
+    });
+    chain = run.catch(() => {});
+    return run;
   };
 }
 
@@ -154,7 +208,9 @@ test("[screenplay-projects-routes] mount fails when required deps are missing", 
   const required = [
     "getOrCreateScreenplayOwnerRecord",
     "getScreenplayProjectRecord",
+    "commitScreenplayOwnerMutation",
     "markScreenplayOwnerDirty",
+    "refreshScreenplayOwnerRecord",
     "createScreenplayId",
     "createEmptyScreenplayOutline",
     "parseScreenplayOutlineInput",
@@ -291,8 +347,52 @@ test("[screenplay-projects-routes] GET /outline returns serialized outline + pro
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await get(baseURL, "/screenplay/projects/p1/outline");
     assert.equal(r.status, 200);
+    assert.equal(r.body.outline_revision, 0);
     assert.equal(r.body.outline._serialized, true);
     assert.equal(r.body.project.id, "p1");
+  });
+});
+
+test("[screenplay-projects-routes] GET /outline refreshes canonical multi-instance state", async () => {
+  const deps = defaultDeps();
+  const freshOwner = structuredClone(deps._owner);
+  freshOwner.projects[0].outlineRevision = 4;
+  freshOwner.projects[0].outline = {
+    revision: 4,
+    acts: [{ id: "act-fresh", title: "Fresh act" }],
+    scenes: [],
+    beats: [],
+  };
+  deps.refreshScreenplayOwnerRecord = async () => ({
+    ok: true,
+    owner: freshOwner,
+    authoritative: true,
+    persistenceKind: "postgres",
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await get(baseURL, "/screenplay/projects/p1/outline");
+    assert.equal(r.status, 200);
+    assert.equal(r.body.outline_revision, 4);
+    assert.equal(r.body.outline.acts[0].title, "Fresh act");
+  });
+});
+
+test("[screenplay-projects-routes] canonical read failures return 503 instead of stale state", async () => {
+  const deps = defaultDeps({
+    refreshScreenplayOwnerRecord: async () => ({
+      ok: false,
+      persistenceKind: "postgres",
+      error: new Error("database unavailable"),
+    }),
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await get(baseURL, "/screenplay/projects/p1/outline");
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.equal(r.body.persistence, "postgres");
+    assert.equal(r.headers.get("cache-control"), "no-store");
   });
 });
 
@@ -348,8 +448,45 @@ async function postJson(baseURL, path, body) {
     body: JSON.stringify(body),
   });
   const json = await r.json().catch(() => null);
-  return { status: r.status, body: json };
+  return { status: r.status, headers: r.headers, body: json };
 }
+
+test("[screenplay-projects-routes] legacy project writes refresh a project created on another instance", async () => {
+  const cachedOwner = defaultOwner();
+  const freshOwner = structuredClone(cachedOwner);
+  freshOwner.projects.push({
+    id: "remote-project",
+    title: "Remote project",
+    updatedAt: 3000,
+    activeVersionId: "",
+    lastVersionId: "",
+    versions: [],
+    collaborators: [],
+    comments: [],
+    outline: { revision: 0, acts: [], scenes: [], beats: [] },
+  });
+  const deps = defaultDeps({
+    getOrCreateScreenplayOwnerRecord: () => cachedOwner,
+    refreshScreenplayOwnerRecord: async () => ({
+      ok: true,
+      owner: freshOwner,
+      authoritative: true,
+      persistenceKind: "postgres",
+    }),
+    markScreenplayOwnerDirty: () => {},
+    _owner: cachedOwner,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/remote-project/comments", {
+      text: "This write reached the canonical project.",
+      author_email: "writer@example.com",
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.project_id, "remote-project");
+    assert.equal(freshOwner.projects.at(-1).comments.length, 1);
+  });
+});
 
 test("[screenplay-projects-routes] POST /screenplay/projects creates a project, returns 201", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
@@ -386,6 +523,59 @@ test("[screenplay-projects-routes] POST /screenplay/projects updates existing pr
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "updated");
     assert.equal(r.body.project_id, "p1");
+  });
+});
+
+test("[screenplay-projects-routes] POST /screenplay/projects responds with its committed snapshot", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  let committedOwner = null;
+  const deps = defaultDeps({
+    buildScreenplayEnvelope: (_req, owner, extra) => ({
+      ok: true,
+      envelope_active_project_id: owner.activeProjectId,
+      envelope_project_title: owner.projects.find((item) => item.id === "p1")?.title || "",
+      ...extra,
+    }),
+    markScreenplayOwnerDirty: (owner) => {
+      committedOwner = freezeDeep(structuredClone(owner));
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+  const liveProject = deps._owner.projects.find((item) => item.id === "p1");
+
+  await withTestServer(deps, async (baseURL) => {
+    const responsePromise = postJson(baseURL, "/screenplay/projects", {
+      project_id: "p1",
+      title: "Committed project title",
+    });
+    await persistenceStarted;
+    liveProject.title = "Concurrent uncommitted project title";
+    deps._owner.activeProjectId = "p2";
+    deps._owner.projects.push({
+      id: "concurrent-project",
+      title: "Concurrent project",
+      collaborators: [],
+      comments: [],
+      outline: { acts: [], scenes: [], beats: [] },
+    });
+    releasePersistence({ ok: true, owner: committedOwner });
+
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal(response.body.envelope_active_project_id, "p1");
+    assert.equal(response.body.envelope_project_title, "Committed project title");
+    assert.equal(response.body.project.title, "Committed project title");
+    assert.equal(response.body.screenplay_active_project_id, "p1");
+    assert.equal(response.body.screenplay_project_count, 2);
+    assert.equal(response.body.screenplay_projects.some((item) => item.id === "concurrent-project"), false);
   });
 });
 
@@ -477,6 +667,56 @@ test("[screenplay-projects-routes] POST /activate persists the active project fo
   });
 });
 
+test("[screenplay-projects-routes] POST /activate responds with its committed snapshot", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  let committedOwner = null;
+  const deps = defaultDeps({
+    buildScreenplayEnvelope: (_req, owner, extra) => ({
+      ok: true,
+      envelope_active_project_id: owner.activeProjectId,
+      envelope_project_title: owner.projects.find((item) => item.id === "p2")?.title || "",
+      ...extra,
+    }),
+    markScreenplayOwnerDirty: (owner) => {
+      committedOwner = freezeDeep(structuredClone(owner));
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+  const liveProject = deps._owner.projects.find((item) => item.id === "p2");
+
+  await withTestServer(deps, async (baseURL) => {
+    const responsePromise = postJson(baseURL, "/screenplay/projects/p2/activate", {});
+    await persistenceStarted;
+    deps._owner.activeProjectId = "p1";
+    liveProject.title = "Concurrent uncommitted title";
+    deps._owner.projects.push({
+      id: "concurrent-project",
+      title: "Concurrent project",
+      collaborators: [],
+      comments: [],
+      outline: { acts: [], scenes: [], beats: [] },
+    });
+    releasePersistence({ ok: true, owner: committedOwner });
+
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal(response.body.envelope_active_project_id, "p2");
+    assert.equal(response.body.envelope_project_title, "Second Project");
+    assert.equal(response.body.project.title, "Second Project");
+    assert.equal(response.body.screenplay_active_project_id, "p2");
+    assert.equal(response.body.screenplay_project_count, 2);
+    assert.equal(response.body.screenplay_projects.some((item) => item.id === "concurrent-project"), false);
+  });
+});
+
 test("[screenplay-projects-routes] POST /activate returns 404 for unknown project", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/missing/activate", {});
@@ -486,14 +726,452 @@ test("[screenplay-projects-routes] POST /activate returns 404 for unknown projec
 });
 
 test("[screenplay-projects-routes] POST /outline parses body and persists outline", async () => {
-  await withTestServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/outline", {
       acts: [{ id: "act1", label: "Act 1" }],
       beats: [{ id: "b1", label: "Setup" }],
     });
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "saved");
+    assert.equal(r.body.outline_revision, 1);
+    assert.equal(r.body.outline.revision, 1);
+    assert.equal(deps._owner.projects[0].outlineRevision, 1);
     assert.equal(r.body.outline._serialized, true);
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline commits a protected request and replays it once", async () => {
+  const deps = defaultDeps();
+  const body = {
+    client_request_id: "outline-save-001",
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "Act One" }],
+    scenes: [{ id: "scene-1", heading: "INT. ROOM - DAY" }],
+    beats: [{ id: "beat-1", label: "Reveal", scene_id: "scene-1" }],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/outline", body);
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/outline", body);
+
+    assert.equal(first.status, 200);
+    assert.equal(first.body.status, "saved");
+    assert.equal(first.body.replayed, false);
+    assert.equal(first.body.outline_revision, 1);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.status, "replayed");
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.outline_revision, 1);
+    assert.equal(deps._commitStats.calls, 2);
+    assert.equal(deps._commitStats.writes, 1);
+    assert.equal(deps._owner.projects[0].outlineMutationReceipts.length, 1);
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline returns 425 for an identical inflight request", async () => {
+  const owner = defaultOwner();
+  let releaseCommit;
+  let signalEntered;
+  const commitGate = new Promise((resolve) => { releaseCommit = resolve; });
+  const entered = new Promise((resolve) => { signalEntered = resolve; });
+  const deps = defaultDeps({
+    getOrCreateScreenplayOwnerRecord: () => owner,
+    commitScreenplayOwnerMutation: async ({ mutate }) => {
+      const nextOwner = structuredClone(owner);
+      const result = await mutate(nextOwner, { attempt: 1, currentOwner: structuredClone(owner) });
+      signalEntered();
+      await commitGate;
+      for (const key of Object.keys(owner)) delete owner[key];
+      Object.assign(owner, nextOwner);
+      return { ok: true, committed: true, owner, result };
+    },
+    _owner: owner,
+  });
+  const body = {
+    client_request_id: "outline-save-inflight",
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "Act One" }],
+    scenes: [],
+    beats: [],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const firstRequest = postJson(baseURL, "/screenplay/projects/p1/outline", body);
+    try {
+      const firstState = await Promise.race([
+        entered.then(() => ({ entered: true })),
+        firstRequest.then((response) => ({ entered: false, response })),
+      ]);
+      assert.equal(
+        firstState.entered,
+        true,
+        `first request completed before commit gate: ${JSON.stringify(firstState.response || null)}`
+      );
+      const inflight = await postJson(baseURL, "/screenplay/projects/p1/outline", body);
+
+      assert.equal(inflight.status, 425);
+      assert.equal(inflight.body.error, "screenplay_outline_mutation_inflight");
+      assert.equal(inflight.headers.get("retry-after"), "1");
+
+      const reusedPrecondition = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+        ...body,
+        expected_outline_revision: 1,
+      });
+      assert.equal(reusedPrecondition.status, 409);
+      assert.equal(
+        reusedPrecondition.body.error,
+        "screenplay_outline_client_request_id_reused"
+      );
+    } finally {
+      releaseCommit();
+    }
+    const first = await firstRequest;
+    assert.equal(first.status, 200);
+    assert.equal(first.body.status, "saved");
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline rejects request ID reuse with changed intent", async () => {
+  const deps = defaultDeps();
+  const base = {
+    client_request_id: "outline-save-reused",
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "Act One" }],
+    scenes: [],
+    beats: [],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/outline", base);
+    const reused = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      ...base,
+      acts: [{ id: "act-1", title: "Changed Act" }],
+    });
+
+    assert.equal(first.status, 200);
+    assert.equal(reused.status, 409);
+    assert.equal(reused.body.error, "screenplay_outline_client_request_id_reused");
+    assert.equal(reused.body.outline_revision, 1);
+    assert.equal(deps._commitStats.writes, 1);
+    assert.equal(deps._owner.projects[0].outline.acts[0].title, "Act One");
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline rejects request ID reuse with a changed base revision", async () => {
+  const deps = defaultDeps();
+  const base = {
+    client_request_id: "outline-save-reused-revision",
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "Act One" }],
+    scenes: [],
+    beats: [],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/outline", base);
+    const reused = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      ...base,
+      expected_outline_revision: 1,
+    });
+
+    assert.equal(first.status, 200);
+    assert.equal(reused.status, 409);
+    assert.equal(reused.body.error, "screenplay_outline_client_request_id_reused");
+    assert.equal(reused.body.outline_revision, 1);
+    assert.equal(deps._commitStats.writes, 1);
+  });
+});
+
+test("[screenplay-projects-routes] protected outline replacement preserves server-owned creation times", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects[0];
+  project.outlineRevision = 1;
+  project.outline = {
+    revision: 1,
+    updatedAt: 150,
+    acts: [{ id: "act-existing", title: "Old", createdAt: 100, updatedAt: 150 }],
+    scenes: [{ id: "scene-existing", createdAt: 110, updatedAt: 150 }],
+    beats: [{ id: "beat-existing", createdAt: 120, updatedAt: 150 }],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-preserve-created-at",
+      expected_outline_revision: 1,
+      acts: [
+        { id: "act-existing", title: "Updated", created_at: 999_001, updated_at: 999_002 },
+        { id: "act-new", title: "New", created_at: 999_003, updated_at: 999_004 },
+      ],
+      scenes: [{ id: "scene-existing", createdAt: 999_005, updatedAt: 999_006 }],
+      beats: [{ id: "beat-existing", createdAt: 999_007, updatedAt: 999_008 }],
+    });
+
+    assert.equal(response.status, 200);
+    const [existingAct, newAct] = project.outline.acts;
+    assert.equal(existingAct.createdAt, 100);
+    assert.equal(project.outline.scenes[0].createdAt, 110);
+    assert.equal(project.outline.beats[0].createdAt, 120);
+    assert.ok(existingAct.updatedAt > 150);
+    assert.equal(newAct.createdAt, newAct.updatedAt);
+    assert.notEqual(newAct.createdAt, 999_003);
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline rejects stale and superseded retries", async () => {
+  const deps = defaultDeps();
+  const firstBody = {
+    client_request_id: "outline-save-old",
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "First" }],
+    scenes: [],
+    beats: [],
+  };
+  const secondBody = {
+    client_request_id: "outline-save-new",
+    expected_outline_revision: 1,
+    acts: [{ id: "act-1", title: "Second" }],
+    scenes: [],
+    beats: [],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    assert.equal((await postJson(baseURL, "/screenplay/projects/p1/outline", firstBody)).status, 200);
+    const stale = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      ...secondBody,
+      client_request_id: "outline-save-stale",
+      expected_outline_revision: 0,
+    });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error, "stale_screenplay_outline_revision");
+    assert.equal(stale.body.outline_revision, 1);
+
+    assert.equal((await postJson(baseURL, "/screenplay/projects/p1/outline", secondBody)).status, 200);
+    const superseded = await postJson(baseURL, "/screenplay/projects/p1/outline", firstBody);
+    assert.equal(superseded.status, 409);
+    assert.equal(superseded.body.error, "screenplay_outline_replayed_superseded");
+    assert.equal(superseded.body.outline_revision, 2);
+    assert.equal(deps._commitStats.writes, 2);
+    assert.equal(deps._owner.projects[0].outline.acts[0].title, "Second");
+  });
+});
+
+test("[screenplay-projects-routes] POST /outline requires paired preconditions and stable safe-mode scope", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const missingRevision = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-missing-revision",
+      acts: [],
+      scenes: [],
+      beats: [],
+    });
+    assert.equal(missingRevision.status, 400);
+    assert.equal(missingRevision.body.error, "outline_write_precondition_pair_required");
+
+    const invalidRevision = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-invalid-revision",
+      expected_outline_revision: null,
+      acts: [],
+      scenes: [],
+      beats: [],
+    });
+    assert.equal(invalidRevision.status, 400);
+    assert.equal(invalidRevision.body.error, "invalid_outline_write_precondition");
+
+    const incompleteSnapshot = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-incomplete",
+      expected_outline_revision: 0,
+      acts: [],
+      scenes: [],
+    });
+    assert.equal(incompleteSnapshot.status, 400);
+    assert.equal(incompleteSnapshot.body.error, "outline_collections_required");
+
+    const missingEntityId = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-missing-id",
+      expected_outline_revision: 0,
+      acts: [{ label: "Act without identity" }],
+      scenes: [],
+      beats: [],
+    });
+    assert.equal(missingEntityId.status, 400);
+    assert.equal(missingEntityId.body.error, "outline_entity_id_required");
+
+    const duplicateEntityId = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-duplicate-id",
+      expected_outline_revision: 0,
+      acts: [{ id: "act-1" }, { id: "act-1" }],
+      scenes: [],
+      beats: [],
+    });
+    assert.equal(duplicateEntityId.status, 400);
+    assert.equal(duplicateEntityId.body.error, "outline_entity_ids_must_be_unique");
+
+    const metadata = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-stale-metadata",
+      expected_outline_revision: 0,
+      title: "A stale cached title",
+      acts: [],
+      scenes: [],
+      beats: [],
+    });
+    assert.equal(metadata.status, 400);
+    assert.equal(metadata.body.error, "outline_safe_metadata_not_allowed");
+  });
+});
+
+test("[screenplay-projects-routes] protected outline rejects orphan references before hashing or commit", async () => {
+  const deps = defaultDeps();
+  const before = structuredClone(deps._owner.projects[0]);
+
+  await withTestServer(deps, async (baseURL) => {
+    const orphanScene = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-orphan-scene-act",
+      expected_outline_revision: 0,
+      acts: [{ id: "act-1" }],
+      scenes: [{ id: "scene-1", act_id: "missing-act" }],
+      beats: [],
+    });
+    assert.equal(orphanScene.status, 400);
+    assert.equal(orphanScene.body.error, "outline_reference_invalid");
+    assert.equal(orphanScene.body.reason, "orphan_reference");
+    assert.equal(orphanScene.body.field, "scene.act_id");
+    assert.equal(orphanScene.body.reference_id, "missing-act");
+
+    const orphanBeat = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-orphan-beat-scene",
+      expected_outline_revision: 0,
+      acts: [],
+      scenes: [],
+      beats: [{ id: "beat-1", scene_id: "missing-scene" }],
+    });
+    assert.equal(orphanBeat.status, 400);
+    assert.equal(orphanBeat.body.error, "outline_reference_invalid");
+    assert.equal(orphanBeat.body.field, "beat.scene_id");
+
+    assert.equal(deps._commitStats.calls, 0);
+    assert.deepEqual(deps._owner.projects[0], before);
+  });
+});
+
+test("[screenplay-projects-routes] protected outline rejects mismatched direct and derived references", async () => {
+  const deps = defaultDeps();
+
+  await withTestServer(deps, async (baseURL) => {
+    const mismatchedBeatAct = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-mismatched-beat-act",
+      expected_outline_revision: 0,
+      acts: [{ id: "act-1" }, { id: "act-2" }],
+      scenes: [{ id: "scene-1", act_id: "act-1" }],
+      beats: [{ id: "beat-1", scene_id: "scene-1", act_id: "act-2" }],
+    });
+    assert.equal(mismatchedBeatAct.status, 400);
+    assert.equal(mismatchedBeatAct.body.error, "outline_reference_invalid");
+    assert.equal(mismatchedBeatAct.body.reason, "reference_mismatch");
+    assert.equal(mismatchedBeatAct.body.field, "beat.act_id");
+
+    const mismatchedDerivedList = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-mismatched-derived-list",
+      expected_outline_revision: 0,
+      acts: [{ id: "act-1", scene_ids: ["scene-1"] }, { id: "act-2" }],
+      scenes: [{ id: "scene-1", act_id: "act-2" }],
+      beats: [],
+    });
+    assert.equal(mismatchedDerivedList.status, 400);
+    assert.equal(mismatchedDerivedList.body.error, "outline_reference_invalid");
+    assert.equal(mismatchedDerivedList.body.reason, "reference_mismatch");
+    assert.equal(mismatchedDerivedList.body.field, "act.scene_ids");
+
+    assert.equal(deps._commitStats.calls, 0);
+  });
+});
+
+test("[screenplay-projects-routes] outline writes reject adversarial collection sizes before normalization", async () => {
+  const deps = defaultDeps();
+  const scenes = Array.from({ length: 513 }, (_, index) => ({
+    id: `scene-${String(index).padStart(4, "0")}`,
+  }));
+
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-too-many-scenes",
+      expected_outline_revision: 0,
+      acts: [],
+      scenes,
+      beats: [],
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.body.error, "outline_collection_limit_exceeded");
+    assert.equal(response.body.limits.scenes, 512);
+    assert.equal(response.body.counts.scenes, 513);
+    assert.equal(deps._commitStats.calls, 0);
+
+    const legacyResponse = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      scenes,
+    });
+    assert.equal(legacyResponse.status, 413);
+    assert.equal(legacyResponse.body.error, "outline_collection_limit_exceeded");
+    assert.equal(legacyResponse.body.counts.scenes, 513);
+    assert.equal(deps._commitStats.calls, 0);
+  });
+});
+
+test("[screenplay-projects-routes] concurrent protected outline writes choose one revision winner", async () => {
+  const owner = defaultOwner();
+  const stats = { calls: 0, writes: 0 };
+  const deps = defaultDeps({
+    getOrCreateScreenplayOwnerRecord: () => owner,
+    commitScreenplayOwnerMutation: serializedCommitter(owner, stats),
+    _owner: owner,
+    _commitStats: stats,
+  });
+  const common = {
+    expected_outline_revision: 0,
+    acts: [{ id: "act-1", title: "Act One" }],
+    scenes: [],
+    beats: [],
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const [winner, loser] = await Promise.all([
+      postJson(baseURL, "/screenplay/projects/p1/outline", {
+        ...common,
+        client_request_id: "outline-race-a",
+      }),
+      postJson(baseURL, "/screenplay/projects/p1/outline", {
+        ...common,
+        client_request_id: "outline-race-b",
+      }),
+    ]);
+    assert.deepEqual([winner.status, loser.status].sort(), [200, 409]);
+    assert.equal(stats.writes, 1);
+    assert.equal(owner.projects[0].outlineRevision, 1);
+  });
+});
+
+test("[screenplay-projects-routes] failed protected commit leaves outline state untouched", async () => {
+  const deps = defaultDeps({
+    commitScreenplayOwnerMutation: async () => ({
+      ok: false,
+      committed: false,
+      persistenceKind: "postgres",
+      persistenceFailureCount: 1,
+    }),
+  });
+  const before = structuredClone(deps._owner.projects[0]);
+
+  await withTestServer(deps, async (baseURL) => {
+    const failed = await postJson(baseURL, "/screenplay/projects/p1/outline", {
+      client_request_id: "outline-cas-failed",
+      expected_outline_revision: 0,
+      acts: [{ id: "act-1", title: "Should not commit" }],
+      scenes: [],
+      beats: [],
+    });
+
+    assert.equal(failed.status, 503);
+    assert.equal(failed.body.error, "screenplay_persistence_failed");
+    assert.deepEqual(deps._owner.projects[0], before);
   });
 });
 
@@ -505,13 +1183,15 @@ test("[screenplay-projects-routes] POST /outline returns 404 for unknown project
 });
 
 test("[screenplay-projects-routes] POST /scenes upserts a scene", async () => {
-  await withTestServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/scenes", {
       scene: { heading: "INT. ROOM - DAY", action: "Test scene." },
     });
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "saved");
     assert.ok(r.body.scene_id);
+    assert.equal(r.body.outline_revision, 1);
   });
 });
 
@@ -524,13 +1204,134 @@ test("[screenplay-projects-routes] POST /scenes rejects missing scene with 400",
 });
 
 test("[screenplay-projects-routes] POST /beats upserts a beat", async () => {
-  await withTestServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  deps._owner.projects[0].outlineRevision = 3;
+  deps._owner.projects[0].outline.revision = 3;
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/beats", {
       beat: { label: "Inciting incident" },
     });
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "saved");
     assert.ok(r.body.beat_id);
+    assert.equal(r.body.outline_revision, 4);
+  });
+});
+
+test("[screenplay-projects-routes] scene and beat writes keep commit timestamps monotonic", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects[0];
+  const futureTimestamp = Date.now() + 60_000;
+  project.updatedAt = futureTimestamp;
+  project.outline.updatedAt = futureTimestamp;
+  const observed = [];
+  deps.upsertScreenplaySceneRecord = (target, scene, committedAt) => {
+    observed.push(committedAt);
+    target.outline.scenes = [{ id: scene.id, updatedAt: committedAt }];
+    target.outline.updatedAt = committedAt;
+    target.updatedAt = committedAt;
+    return target.outline.scenes[0];
+  };
+  deps.upsertScreenplayBeatRecord = (target, beat, committedAt) => {
+    observed.push(committedAt);
+    target.outline.beats = [{ id: beat.id, updatedAt: committedAt }];
+    target.outline.updatedAt = committedAt;
+    target.updatedAt = committedAt;
+    return target.outline.beats[0];
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const scene = await postJson(baseURL, "/screenplay/projects/p1/scenes", {
+      scene: { id: "scene-monotonic" },
+    });
+    const beat = await postJson(baseURL, "/screenplay/projects/p1/beats", {
+      beat: { id: "beat-monotonic" },
+    });
+
+    assert.equal(scene.status, 200);
+    assert.equal(beat.status, 200);
+    assert.deepEqual(observed, [futureTimestamp + 1, futureTimestamp + 2]);
+  });
+});
+
+test("[screenplay-projects-routes] scene and beat writes reject exhausted outline revisions", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects[0];
+  project.outlineRevision = Number.MAX_SAFE_INTEGER;
+  project.outline.revision = Number.MAX_SAFE_INTEGER;
+  project.outline.scenes = [];
+  project.outline.beats = [];
+
+  await withTestServer(deps, async (baseURL) => {
+    const scene = await postJson(baseURL, "/screenplay/projects/p1/scenes", {
+      scene: { id: "scene-max", heading: "INT. ROOM - DAY" },
+    });
+    const beat = await postJson(baseURL, "/screenplay/projects/p1/beats", {
+      beat: { id: "beat-max", label: "No room left" },
+    });
+
+    assert.equal(scene.status, 409);
+    assert.equal(scene.body.error, "screenplay_outline_revision_exhausted");
+    assert.equal(beat.status, 409);
+    assert.equal(beat.body.error, "screenplay_outline_revision_exhausted");
+    assert.deepEqual(project.outline.scenes, []);
+    assert.deepEqual(project.outline.beats, []);
+  });
+});
+
+test("[screenplay-projects-routes] scene and beat caps reject appends but preserve updates", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects[0];
+  project.outlineRevision = 7;
+  project.outline = {
+    revision: 7,
+    acts: [],
+    scenes: Array.from({ length: 512 }, (_, index) => ({
+      id: `scene-cap-${index}`,
+      heading: `Scene ${index}`,
+    })),
+    beats: Array.from({ length: 2048 }, (_, index) => ({
+      id: `beat-cap-${index}`,
+      label: `Beat ${index}`,
+    })),
+  };
+  const beforeRejectedWrites = structuredClone(project);
+
+  await withTestServer(deps, async (baseURL) => {
+    const sceneAppend = await postJson(baseURL, "/screenplay/projects/p1/scenes", {
+      scene: { id: "scene-over-cap", heading: "No room" },
+    });
+    const beatAppend = await postJson(baseURL, "/screenplay/projects/p1/beats", {
+      beat: { id: "beat-over-cap", label: "No room" },
+    });
+
+    assert.equal(sceneAppend.status, 413);
+    assert.equal(sceneAppend.body.error, "outline_collection_limit_exceeded");
+    assert.equal(sceneAppend.body.limits.scenes, 512);
+    assert.equal(sceneAppend.body.counts.scenes, 512);
+    assert.equal(beatAppend.status, 413);
+    assert.equal(beatAppend.body.error, "outline_collection_limit_exceeded");
+    assert.equal(beatAppend.body.limits.beats, 2048);
+    assert.equal(beatAppend.body.counts.beats, 2048);
+    assert.equal(deps._commitStats.writes, 0);
+    assert.deepEqual(project, beforeRejectedWrites);
+
+    const sceneUpdate = await postJson(baseURL, "/screenplay/projects/p1/scenes", {
+      scene: { id: "scene-cap-0", heading: "Updated scene" },
+    });
+    const beatUpdate = await postJson(baseURL, "/screenplay/projects/p1/beats", {
+      beat: { id: "beat-cap-0", label: "Updated beat" },
+    });
+
+    assert.equal(sceneUpdate.status, 200);
+    assert.equal(sceneUpdate.body.outline_revision, 8);
+    assert.equal(beatUpdate.status, 200);
+    assert.equal(beatUpdate.body.outline_revision, 9);
+    assert.equal(project.outline.scenes.length, 512);
+    assert.equal(project.outline.beats.length, 2048);
+    assert.equal(project.outline.scenes.find((scene) => scene.id === "scene-cap-0").heading, "Updated scene");
+    assert.equal(project.outline.beats.find((beat) => beat.id === "beat-cap-0").label, "Updated beat");
+    assert.equal(deps._commitStats.writes, 2);
   });
 });
 
@@ -575,6 +1376,62 @@ test("[screenplay-projects-routes] POST /comments creates a new comment", async 
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "upsert");
     assert.ok(r.body.comment.id);
+  });
+});
+
+test("[screenplay-projects-routes] POST /comments responds with its committed snapshot", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  let committedOwner = null;
+  const deps = defaultDeps({
+    buildScreenplayEnvelope: (_req, owner, extra) => ({
+      ok: true,
+      envelope_active_project_id: owner.activeProjectId,
+      envelope_comment_text: owner.projects
+        .find((item) => item.id === "p1")
+        ?.comments.find((item) => item.id === "committed-comment")
+        ?.text || "",
+      ...extra,
+    }),
+    markScreenplayOwnerDirty: (owner) => {
+      committedOwner = freezeDeep(structuredClone(owner));
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+  const liveProject = deps._owner.projects.find((item) => item.id === "p1");
+
+  await withTestServer(deps, async (baseURL) => {
+    const responsePromise = postJson(baseURL, "/screenplay/projects/p1/comments", {
+      comment_id: "committed-comment",
+      text: "Committed comment text.",
+      author_email: "writer@example.com",
+    });
+    await persistenceStarted;
+    liveProject.comments.find((item) => item.id === "committed-comment").text = "Concurrent uncommitted comment.";
+    liveProject.comments.push({
+      id: "concurrent-comment",
+      text: "Concurrent comment",
+      createdAt: Date.now(),
+    });
+    liveProject.title = "Concurrent uncommitted project title";
+    deps._owner.activeProjectId = "p2";
+    releasePersistence({ ok: true, owner: committedOwner });
+
+    const response = await responsePromise;
+    assert.equal(response.status, 200);
+    assert.equal(response.body.envelope_active_project_id, "p1");
+    assert.equal(response.body.envelope_comment_text, "Committed comment text.");
+    assert.equal(response.body.comment.text, "Committed comment text.");
+    assert.equal(response.body.comments.some((item) => item.id === "concurrent-comment"), false);
+    assert.equal(response.body.comment_count, 3);
+    assert.equal(response.body.project.title, "First Project");
   });
 });
 
@@ -717,6 +1574,40 @@ test("[screenplay-projects-routes] POST /version does not replay before durable 
     const first = await firstRequest;
     assert.equal(first.status, 201);
     assert.equal(project.versions[0].persistencePending, false);
+  });
+});
+
+test("[screenplay-projects-routes] POST /version responds with its committed snapshot", async () => {
+  let releasePersistence;
+  let signalPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
+  const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
+  let committedOwner = null;
+  const deps = defaultDeps({
+    markScreenplayOwnerDirty: (owner) => {
+      committedOwner = structuredClone(owner);
+      signalPersistenceStarted();
+      return {
+        ok: true,
+        persistenceKind: "postgres",
+        persistencePromise: persistenceGate,
+      };
+    },
+  });
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+
+  await withTestServer(deps, async (baseURL) => {
+    const responsePromise = postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nCommitted draft.",
+    });
+    await persistenceStarted;
+    project.versions[0].draft = "Concurrent uncommitted draft.";
+    releasePersistence({ ok: true, owner: committedOwner });
+
+    const response = await responsePromise;
+    assert.equal(response.status, 201);
+    assert.equal(response.body.version.draft, "FADE IN:\n\nINT. ROOM - DAY\n\nCommitted draft.");
+    assert.equal(response.body.server_version.draft, response.body.version.draft);
   });
 });
 

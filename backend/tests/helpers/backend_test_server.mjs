@@ -108,16 +108,23 @@ export async function startBackend({
     stdout,
     stderr,
     async stop() {
-      if (child.exitCode != null) return;
+      if (child.exitCode != null) return { forced: false, alreadyExited: true };
       child.kill("SIGTERM");
+      let stopTimer = null;
       const exited = await Promise.race([
         once(child, "exit").then(() => true).catch(() => true),
-        new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+        new Promise((resolve) => {
+          stopTimer = setTimeout(() => resolve(false), 1000);
+        }),
       ]);
+      if (stopTimer) clearTimeout(stopTimer);
+      let forced = false;
       if (!exited && child.exitCode == null) {
+        forced = true;
         child.kill("SIGKILL");
         await once(child, "exit").catch(() => {});
       }
+      return { forced, alreadyExited: false };
     },
   };
 }

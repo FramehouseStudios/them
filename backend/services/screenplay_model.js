@@ -1,4 +1,8 @@
 import { normalizeCharacterVoiceCardCollection } from "./character_voice_runtime.js";
+import {
+  normalizeOutlineMutationReceipts,
+  normalizeOutlineRevision,
+} from "../lib/screenplay_outline_protocol.js";
 
 export function createScreenplayModelServices(deps = {}) {
   const {
@@ -481,6 +485,7 @@ function analyzeScreenplayContinuityQa(input = {}) {
 
 function createEmptyScreenplayOutline() {
   return {
+    revision: 0,
     updatedAt: 0,
     acts: [],
     scenes: [],
@@ -1043,8 +1048,8 @@ function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
     id,
     title,
     summary: normalizeSnippet(entry.summary, 220),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
-    sceneIds: normalizeScreenplayStringList(entry.sceneIds, 128, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
+    sceneIds: normalizeScreenplayStringList(entry.sceneIds ?? entry.scene_ids, 128, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -1059,10 +1064,10 @@ function normalizeStoredScreenplayScene(entry, orderFallback = 0) {
     title: normalizeSnippet(entry.title, 140) || "Scene",
     objective: normalizeSnippet(entry.objective, 220),
     summary: normalizeSnippet(entry.summary, 320),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
-    beatIds: normalizeScreenplayStringList(entry.beatIds, 256, 64),
+    beatIds: normalizeScreenplayStringList(entry.beatIds ?? entry.beat_ids, 256, 64),
     unresolvedSetups: normalizeScreenplayStringList(entry.unresolvedSetups ?? entry.unresolved_setups, 64, 120),
     resolvedPayoffs: normalizeScreenplayStringList(entry.resolvedPayoffs ?? entry.resolved_payoffs ?? entry.payoffs, 64, 120),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
@@ -1077,9 +1082,9 @@ function normalizeStoredScreenplayBeat(entry, orderFallback = 0) {
     id,
     label: normalizeSnippet(entry.label, 140) || "Beat",
     summary: normalizeSnippet(entry.summary, 280),
-    sceneId: normalizeSnippet(entry.sceneId, 64),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    sceneId: normalizeSnippet(entry.sceneId ?? entry.scene_id, 64),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
@@ -1155,6 +1160,7 @@ function normalizeStoredScreenplayOutline(entry) {
   const orderedScenes = [...scenes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   const orderedBeats = [...beats].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   return {
+    revision: normalizeOutlineRevision(raw.revision ?? raw.outlineRevision ?? raw.outline_revision),
     updatedAt: Math.max(0, Number(raw.updatedAt || 0)),
     acts: acts.map((act) => ({
       ...act,
@@ -1188,6 +1194,10 @@ function normalizeStoredScreenplayProject(entry) {
     }
   );
   const outline = normalizeStoredScreenplayOutline(entry.outline);
+  const outlineRevision = normalizeOutlineRevision(
+    entry.outlineRevision ?? entry.outline_revision ?? outline.revision
+  );
+  outline.revision = outlineRevision;
   const versions = Array.isArray(entry.versions)
     ? entry.versions.map(normalizeStoredScreenplayVersion).filter(Boolean)
     : [];
@@ -1235,6 +1245,10 @@ function normalizeStoredScreenplayProject(entry) {
     studioDiffAcknowledgedKeys: diffAcknowledged.keys,
     studioDiffAcknowledgedEntries: diffAcknowledged.entries,
     studioAskNoteHistory,
+    outlineRevision,
+    outlineMutationReceipts: normalizeOutlineMutationReceipts(
+      entry.outlineMutationReceipts ?? entry.outline_mutation_receipts
+    ),
     outline,
     versions,
     collaborators,
@@ -1314,7 +1328,7 @@ function toScreenplayActPayload(act) {
     id: act.id,
     title: act.title,
     summary: act.summary || "",
-    order: Math.max(0, Number(act.order || 0)),
+    order: normalizeOutlineRevision(act.order),
     scene_ids: Array.isArray(act.sceneIds) ? act.sceneIds : [],
     created_at: Math.max(0, Number(act.createdAt || 0)),
     updated_at: Math.max(0, Number(act.updatedAt || act.createdAt || 0)),
@@ -1329,7 +1343,7 @@ function toScreenplayScenePayload(scene) {
     objective: scene.objective || "",
     summary: scene.summary || "",
     act_id: scene.actId || "",
-    order: Math.max(0, Number(scene.order || 0)),
+    order: normalizeOutlineRevision(scene.order),
     status: scene.status || "open",
     beat_ids: Array.isArray(scene.beatIds) ? scene.beatIds : [],
     unresolved_setups: normalizeScreenplayStringList(scene.unresolvedSetups ?? scene.unresolved_setups, 64, 120),
@@ -1346,7 +1360,7 @@ function toScreenplayBeatPayload(beat) {
     summary: beat.summary || "",
     scene_id: beat.sceneId || "",
     act_id: beat.actId || "",
-    order: Math.max(0, Number(beat.order || 0)),
+    order: normalizeOutlineRevision(beat.order),
     status: beat.status || "open",
     created_at: Math.max(0, Number(beat.createdAt || 0)),
     updated_at: Math.max(0, Number(beat.updatedAt || beat.createdAt || 0)),
@@ -1356,6 +1370,7 @@ function toScreenplayBeatPayload(beat) {
 function toScreenplayOutlinePayload(outline) {
   const safeOutline = normalizeStoredScreenplayOutline(outline);
   return {
+    revision: normalizeOutlineRevision(safeOutline.revision),
     updated_at: Math.max(0, Number(safeOutline.updatedAt || 0)),
     act_count: safeOutline.acts.length,
     scene_count: safeOutline.scenes.length,
@@ -1548,6 +1563,9 @@ function toScreenplayProjectPayload(project, options = {}) {
     act_count: Math.max(0, Number(safeProject.actCount || 0)),
     scene_count: Math.max(0, Number(safeProject.sceneCount || 0)),
     beat_count: Math.max(0, Number(safeProject.beatCount || 0)),
+    outline_revision: normalizeOutlineRevision(
+      safeProject.outlineRevision ?? safeProject.outline?.revision
+    ),
     outline_updated_at: Math.max(0, Number(safeProject.outlineUpdatedAt || 0)),
     collaborator_count: Math.max(0, Number(safeProject.collaboratorCount || 0)),
     approved_emails: safeProject.approvedEmails || [],
