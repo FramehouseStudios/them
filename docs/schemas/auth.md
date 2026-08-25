@@ -100,6 +100,21 @@ user object before it reaches this envelope.
 | `auth_reset_password` | `token_required`, `invalid_reset_token`, `password_too_short`, `password_reset_failed` | 400 / 404 |
 | `auth_email_verification` | `user_required`, `token_invalid_or_expired` | 400 |
 | any | `auth_unconfigured` | 503 (when JWT secret missing) |
+| any mutating auth route | `auth_persistence_failed` + `retryable` boolean | 503 |
+
+`retryable` is `true` only when the handler restored its pre-request state and
+that compensating snapshot also reached canonical persistence. A `false` value
+means the client must not assume an identical retry is safe; no access,
+refresh, reset, or verification token is included in either failure response.
+
+## V1 durability and scale boundary
+
+Mutating handlers do not return success until the canonical persistence queue
+settles. Production startup also refuses to hydrate auth from the legacy local
+file when the Postgres adapter cannot be read. V1 must run as a single backend
+instance: auth mutations use an in-process lock and full-snapshot persistence.
+Horizontal scaling requires row-scoped transactions plus compare-and-swap
+refresh-token rotation first.
 
 ## Sample success response
 
@@ -150,5 +165,7 @@ user object before it reaches this envelope.
 
 ## Changelog
 
+- 2026-08-25 — Documented durable auth responses, fail-closed startup, and the
+  V1 single-instance boundary.
 - 2026-05-14 — Doc created. Reflects shape produced by
   `backend/lib/user_auth.js` `buildAuthEnvelope` at this date.

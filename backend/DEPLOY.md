@@ -24,11 +24,24 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
    Both must pass. `eval:gate` requires `OPENAI_API_KEY` (see also
    `docs/ci-openai-secret-fix.md` if CI is failing).
 
-3. **No legacy JSON store will be loaded.**
+3. **Never use legacy auth state during a database outage.**
 
    Production must run with `DATABASE_URL` set. The
    `persistence_adapter.js` factory picks Postgres when `DATABASE_URL` is
-   present and the boot-time guard now refuses to start without it.
+   present and the boot-time guard now refuses to start without it. Auth-store
+   hydration also fails closed if Postgres cannot be read; the process must
+   never fall back to a stale local session snapshot during an outage. A
+   reachable, genuinely empty database can still receive the one-time legacy
+   backfill used by the migration path.
+
+4. **Keep the V1 backend at one instance.**
+
+   Auth mutations are serialized by an in-process lock and persisted as a
+   complete auth-store snapshot. That is safe for the V1 single-instance
+   deployment, but not for horizontal scaling: two writers can prune each
+   other's records or rotate the same refresh token twice. Before increasing
+   instance count, replace auth snapshot writes with row-scoped Postgres
+   transactions and compare-and-swap refresh rotation.
 
 ## Required production environment
 

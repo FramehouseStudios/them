@@ -141,9 +141,22 @@ const speculativePromptHash = createHash("sha256")
   .digest("hex")
   .slice(0, 16);
 
+const signup = await requestJson("/auth/signup", {
+  method: "POST",
+  headers: buildHeaders({ "Content-Type": "application/json" }),
+  body: JSON.stringify({
+    email: `speculative-reuse-${stamp}@example.com`,
+    password: `speculative-reuse-${stamp}`,
+  }),
+});
+assert(signup.response.status === 201, `/auth/signup failed with ${signup.response.status}`);
+const accessToken = String(signup.json?.access_token || signup.json?.token || "").trim();
+assert(accessToken, "Auth signup did not return an access token");
+const bearerHeader = { Authorization: `Bearer ${accessToken}` };
+
 const sessionBootstrap = await requestJson("/session", {
   method: "POST",
-  headers: buildHeaders(),
+  headers: buildHeaders(bearerHeader),
 });
 assert(sessionBootstrap.response.status === 201, `/session bootstrap failed with ${sessionBootstrap.response.status}`);
 const clientToken = String(sessionBootstrap.json?.client_token || "").trim();
@@ -160,6 +173,7 @@ const prepareResponse = await requestJson("/talk", {
   method: "POST",
   headers: buildHeaders({
     Accept: "application/json",
+    ...bearerHeader,
     "X-Client-Token": clientToken,
     "X-Speculative-Mode": "prepare",
     "X-Talk-Stream": "off",
@@ -186,6 +200,7 @@ const finalResponse = await requestBinary("/talk", {
   method: "POST",
   headers: buildHeaders({
     Accept: "audio/mpeg",
+    ...bearerHeader,
     "X-Client-Token": clientToken,
     "X-Talk-Stream": "off",
   }),
@@ -206,7 +221,8 @@ console.log(JSON.stringify({
   ok: true,
   baseUrl: BASE_URL,
   forwardedIp,
-  clientToken,
+  authenticated: true,
+  clientTokenPresent: Boolean(clientToken),
   speculativeKey,
   speculativePromptHash,
   prepare: {

@@ -6,6 +6,7 @@ let lastUserStorePersistenceWrite = Promise.resolve({
   persistenceStatus: "not_configured",
   persistenceFailureCount: 0,
 });
+let lastUserStoreMutation = Promise.resolve();
 
 const PASSWORD_MIN_LENGTH = 8;
 
@@ -24,6 +25,7 @@ function configureUserStore(deps = {}) {
     persistenceStatus: "not_configured",
     persistenceFailureCount: 0,
   });
+  lastUserStoreMutation = Promise.resolve();
 }
 
 function userStoreDeps() {
@@ -47,6 +49,18 @@ function normalizeBoolean(value, fallback = false) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;
   return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function validateUserPassword(password) {
+  const cleanPassword = String(password || "");
+  if (cleanPassword.length < PASSWORD_MIN_LENGTH) {
+    return {
+      ok: false,
+      status: "password_too_short",
+      message: "Password must be at least " + PASSWORD_MIN_LENGTH + " characters.",
+    };
+  }
+  return { ok: true, password: cleanPassword };
 }
 
 function toBase64Url(buffer) {
@@ -254,8 +268,10 @@ function cleanupExpiredAuthRecords(now = Date.now()) {
   }
 }
 
-function buildUserStorePayload(now = Date.now()) {
-  cleanupExpiredAuthRecords(now);
+function buildUserStorePayload(now = Date.now(), options = {}) {
+  if (options.cleanupExpired !== false) {
+    cleanupExpiredAuthRecords(now);
+  }
   return {
     version: 2,
     updatedAt: now,
@@ -304,6 +320,49 @@ function buildUserStorePayload(now = Date.now()) {
       usedAt: Math.max(0, Number(record.usedAt || 0)),
     })),
   };
+}
+
+function createUserStoreCheckpoint(now = Date.now()) {
+  return buildUserStorePayload(now, { cleanupExpired: false });
+}
+
+function restoreUserStoreCheckpoint(checkpoint, now = Date.now()) {
+  const payload = checkpoint && typeof checkpoint === "object" ? checkpoint : {};
+  usersById.clear();
+  usersByEmail.clear();
+  usersByAppleSubject.clear();
+  authSessionsById.clear();
+  authSessionIdByTokenHash.clear();
+  passwordResetTokensByHash.clear();
+  emailVerificationTokensByHash.clear();
+  for (const entry of Array.isArray(payload.users) ? payload.users : []) {
+    replaceUserRecord(entry);
+  }
+  for (const entry of Array.isArray(payload.authSessions) ? payload.authSessions : []) {
+    replaceAuthSessionRecord(entry);
+  }
+  for (const entry of Array.isArray(payload.passwordResetTokens) ? payload.passwordResetTokens : []) {
+    replaceOneTimeTokenRecord(passwordResetTokensByHash, entry);
+  }
+  for (const entry of Array.isArray(payload.emailVerificationTokens) ? payload.emailVerificationTokens : []) {
+    replaceOneTimeTokenRecord(emailVerificationTokensByHash, entry);
+  }
+  return saveUserStore(now);
+}
+
+function runUserStoreMutationExclusive(operation) {
+  if (typeof operation !== "function") {
+    return Promise.reject(new TypeError("runUserStoreMutationExclusive requires an operation"));
+  }
+  const run = lastUserStoreMutation
+    .catch(() => {})
+    .then(() => operation());
+  lastUserStoreMutation = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function waitForUserStoreMutations() {
+  return lastUserStoreMutation.catch(() => {});
 }
 
 async function writeUserStoreToAdapter(persistence, payload) {
@@ -355,9 +414,17 @@ async function writeUserStoreToAdapter(persistence, payload) {
   };
 }
 
-async function loadUserStoreFromAdapter() {
+async function loadUserStoreFromAdapter(options = {}) {
+  const failOnUnavailable = Boolean(options.failOnUnavailable);
   const { persistence } = userStoreDeps();
-  if (!persistence || typeof persistence.list !== "function") return false;
+  if (!persistence || typeof persistence.list !== "function") {
+    if (failOnUnavailable) {
+      const error = new Error("user_store_adapter_unavailable");
+      error.code = "USER_STORE_ADAPTER_UNAVAILABLE";
+      throw error;
+    }
+    return false;
+  }
   let records;
   try {
     records = await Promise.all([
@@ -368,6 +435,12 @@ async function loadUserStoreFromAdapter() {
     ]);
   } catch (err) {
     console.error("[user_store] adapter list failed:", err?.message || err);
+    if (failOnUnavailable) {
+      const error = new Error("user_store_adapter_unavailable");
+      error.code = "USER_STORE_ADAPTER_UNAVAILABLE";
+      error.cause = err;
+      throw error;
+    }
     return false;
   }
   const [users, sessions, passwordResetTokens, emailVerificationTokens] = records;
@@ -486,6 +559,8 @@ function saveUserStore(now = Date.now()) {
     lastUserStorePersistenceWrite = persistencePromise;
     result.persistencePromise = persistencePromise;
     void persistencePromise;
+  } else {
+    lastUserStorePersistenceWrite = Promise.resolve({ ...result });
   }
   return result;
 }
@@ -571,14 +646,9 @@ function createUser(input = {}, now = Date.now(), options = {}) {
     };
   }
   const allowPasswordless = Boolean(options.allowPasswordless);
-  const cleanPassword = String(input.password || "");
-  if (!allowPasswordless && cleanPassword.length < PASSWORD_MIN_LENGTH) {
-    return {
-      ok: false,
-      status: "password_too_short",
-      message: "Password must be at least " + PASSWORD_MIN_LENGTH + " characters.",
-    };
-  }
+  const passwordValidation = validateUserPassword(input.password);
+  if (!allowPasswordless && !passwordValidation.ok) return passwordValidation;
+  const cleanPassword = passwordValidation.ok ? passwordValidation.password : "";
   const record = replaceUserRecord({
     id: "user_" + randomUUID().replace(/-/g, "").slice(0, 16),
     email: normalizedEmail,
@@ -694,14 +764,9 @@ function updateUserPassword(userId, password, now = Date.now()) {
   if (!existing) {
     return { ok: false, status: "not_found", message: "Account not found." };
   }
-  const cleanPassword = String(password || "");
-  if (cleanPassword.length < PASSWORD_MIN_LENGTH) {
-    return {
-      ok: false,
-      status: "password_too_short",
-      message: "Password must be at least " + PASSWORD_MIN_LENGTH + " characters.",
-    };
-  }
+  const passwordValidation = validateUserPassword(password);
+  if (!passwordValidation.ok) return passwordValidation;
+  const cleanPassword = passwordValidation.password;
   const updated = replaceUserRecord({
     ...existing,
     password: createPasswordRecord(cleanPassword),
@@ -735,7 +800,6 @@ function issueAuthSession(input = {}, now = Date.now()) {
 }
 
 function getAuthSessionById(sessionId, now = Date.now(), options = {}) {
-  cleanupExpiredAuthRecords(now);
   const safeSessionId = String(sessionId || "").trim();
   if (!safeSessionId) return null;
   const session = authSessionsById.get(safeSessionId);
@@ -750,7 +814,6 @@ function getAuthSessionById(sessionId, now = Date.now(), options = {}) {
 }
 
 function getAuthSessionByToken(refreshToken, now = Date.now(), options = {}) {
-  cleanupExpiredAuthRecords(now);
   const normalizedToken = String(refreshToken || "").trim();
   if (!normalizedToken) return null;
   const tokenHash = hashOpaqueToken(normalizedToken);
@@ -825,10 +888,10 @@ function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
 }
 
 function listAuthSessionsForUser(userId, now = Date.now()) {
-  cleanupExpiredAuthRecords(now);
   const normalizedUserId = normalizeUserId(userId);
   return [...authSessionsById.values()]
     .filter((session) => session.userId === normalizedUserId)
+    .filter((session) => Number(session.expiresAt || 0) <= 0 || Number(session.expiresAt || 0) > now)
     .map((session) => sanitizeAuthSessionRecord(session))
     .sort((left, right) => Math.max(0, Number(right.updatedAt || 0)) - Math.max(0, Number(left.updatedAt || 0)));
 }
@@ -849,11 +912,14 @@ function issueOneTimeToken(targetMap, input = {}, now = Date.now()) {
 }
 
 function consumeOneTimeToken(targetMap, token, now = Date.now()) {
-  cleanupExpiredAuthRecords(now);
   const tokenHash = hashOpaqueToken(token);
   const existing = targetMap.get(tokenHash);
   if (!existing) return null;
-  if (Number(existing.usedAt || 0) > 0) return null;
+  if (Number(existing.usedAt || 0) > 0) {
+    targetMap.delete(tokenHash);
+    saveUserStore(now);
+    return null;
+  }
   if (Number(existing.expiresAt || 0) > 0 && Number(existing.expiresAt || 0) <= now) {
     targetMap.delete(tokenHash);
     saveUserStore(now);
@@ -890,6 +956,7 @@ export {
   configureUserStore,
   consumeEmailVerificationToken,
   consumePasswordResetToken,
+  createUserStoreCheckpoint,
   createOrAttachAppleUser,
   createUser,
   deleteUserById,
@@ -911,10 +978,14 @@ export {
   revokeAllAuthSessionsForUser,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
+  restoreUserStoreCheckpoint,
   rotateAuthSession,
+  runUserStoreMutationExclusive,
   saveUserStore,
   usersByAppleSubject,
   usersByEmail,
   usersById,
   updateUserPassword,
+  validateUserPassword,
+  waitForUserStoreMutations,
 };

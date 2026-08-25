@@ -215,6 +215,7 @@ import {
   loadUserStoreFromAdapter,
   loadUserStore,
   revokeAllAuthSessionsForUser,
+  runUserStoreMutationExclusive,
   saveUserStore,
 } from "./lib/user_store.js";
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
@@ -4866,12 +4867,20 @@ configureUserStore({
   persistence: sharedPersistence,
   writeJsonFileAtomic,
 });
-const loadedUserStoreFromAdapter = await loadUserStoreFromAdapter();
+const loadedUserStoreFromAdapter = await loadUserStoreFromAdapter({
+  failOnUnavailable: NODE_ENV === "production",
+});
 if (!loadedUserStoreFromAdapter) {
   loadUserStore();
   const authBackfill = saveUserStore(Date.now());
+  let authBackfillResult = authBackfill;
   if (authBackfill?.persistencePromise) {
-    await flushUserStorePersistenceWrites();
+    authBackfillResult = await flushUserStorePersistenceWrites();
+  }
+  if (NODE_ENV === "production" && authBackfillResult?.ok !== true) {
+    const error = new Error("user_store_adapter_backfill_failed");
+    error.code = "USER_STORE_ADAPTER_BACKFILL_FAILED";
+    throw error;
   }
 }
 const userAuth = createUserAuthSubsystem({
@@ -5043,7 +5052,9 @@ async function purgeAuthenticatedUserData(userId) {
   // Crossing the hard-delete deadline is irreversible. Remove the identity
   // first so no new authenticated writer can race the bounded data sweeps;
   // the lifecycle job remains retryable if any later storage step fails.
-  const authResult = await deleteUserById(normalizedUserId);
+  const authResult = await runUserStoreMutationExclusive(
+    () => deleteUserById(normalizedUserId)
+  );
   if (!authResult?.ok) throw new Error(authResult?.reason || "account auth deletion failed");
   const screenplayRows = await listPersistenceRowsPaginated({
     persistence: sharedPersistence,
@@ -33034,26 +33045,31 @@ mountRealtimeCallRoute(app, {
 });
 
 const authJson = express.json({ limit: "256kb" });
+const wrapAuthHandler = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
 
 app.use("/auth", backendRateLimiter.middleware("auth"));
-app.post("/auth/signup", authJson, userAuth.handleAuthSignup);
-app.post("/auth/login", authJson, userAuth.handleAuthLogin);
-app.post("/auth/apple", authJson, userAuth.handleAuthApple);
-app.post("/auth/refresh", authJson, userAuth.handleAuthRefresh);
-app.post("/auth/logout", authJson, userAuth.handleAuthLogout);
-app.get("/auth/sessions", userAuth.handleAuthSessions);
-app.post("/auth/sessions/revoke", authJson, userAuth.handleAuthSessionsRevoke);
-app.post("/auth/request_password_reset", authJson, userAuth.handleAuthRequestPasswordReset);
-app.post("/auth/reset_password", authJson, userAuth.handleAuthResetPassword);
-app.post("/auth/request_email_verification", authJson, userAuth.handleAuthRequestEmailVerification);
-app.post("/auth/verify_email", authJson, userAuth.handleAuthVerifyEmail);
+app.post("/auth/signup", authJson, wrapAuthHandler(userAuth.handleAuthSignup));
+app.post("/auth/login", authJson, wrapAuthHandler(userAuth.handleAuthLogin));
+app.post("/auth/apple", authJson, wrapAuthHandler(userAuth.handleAuthApple));
+app.post("/auth/refresh", authJson, wrapAuthHandler(userAuth.handleAuthRefresh));
+app.post("/auth/logout", authJson, wrapAuthHandler(userAuth.handleAuthLogout));
+app.get("/auth/sessions", wrapAuthHandler(userAuth.handleAuthSessions));
+app.post("/auth/sessions/revoke", authJson, wrapAuthHandler(userAuth.handleAuthSessionsRevoke));
+app.post("/auth/request_password_reset", authJson, wrapAuthHandler(userAuth.handleAuthRequestPasswordReset));
+app.post("/auth/reset_password", authJson, wrapAuthHandler(userAuth.handleAuthResetPassword));
+app.post("/auth/request_email_verification", authJson, wrapAuthHandler(userAuth.handleAuthRequestEmailVerification));
+app.post("/auth/verify_email", authJson, wrapAuthHandler(userAuth.handleAuthVerifyEmail));
 
 app.use("/account", express.json({ limit: "64kb" }));
 mountAccountRoutes(app, {
   resolveAuthenticatedUser: async (req) => req.authUser || null,
   exportUserData: exportAuthenticatedUserData,
   lifecycleStore: accountLifecycleStore,
-  revokeAllSessions: async (userId) => revokeAllAuthSessionsForUser(userId, Date.now()),
+  revokeAllSessions: async (userId) => runUserStoreMutationExclusive(
+    () => revokeAllAuthSessionsForUser(userId, Date.now())
+  ),
   verifyReauthProof: userAuth.verifyReauthProof,
   auditLog: accountAuditLog,
 });

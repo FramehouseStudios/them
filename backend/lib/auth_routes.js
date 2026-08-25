@@ -68,18 +68,21 @@ function mountAuthRoutes(app, deps = {}) {
   }
 
   const authJson = express.json({ limit: AUTH_BODY_LIMIT });
+  const wrapAuthHandler = (handler) => (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
 
-  app.post("/auth/signup", authJson, userAuth.handleAuthSignup);
-  app.post("/auth/login", authJson, userAuth.handleAuthLogin);
-  app.post("/auth/apple", authJson, userAuth.handleAuthApple);
-  app.post("/auth/refresh", authJson, userAuth.handleAuthRefresh);
-  app.post("/auth/logout", authJson, userAuth.handleAuthLogout);
-  app.get("/auth/sessions", userAuth.handleAuthSessions);
-  app.post("/auth/sessions/revoke", authJson, userAuth.handleAuthSessionsRevoke);
-  app.post("/auth/request_password_reset", authJson, userAuth.handleAuthRequestPasswordReset);
-  app.post("/auth/reset_password", authJson, userAuth.handleAuthResetPassword);
-  app.post("/auth/request_email_verification", authJson, userAuth.handleAuthRequestEmailVerification);
-  app.post("/auth/verify_email", authJson, userAuth.handleAuthVerifyEmail);
+  app.post("/auth/signup", authJson, wrapAuthHandler(userAuth.handleAuthSignup));
+  app.post("/auth/login", authJson, wrapAuthHandler(userAuth.handleAuthLogin));
+  app.post("/auth/apple", authJson, wrapAuthHandler(userAuth.handleAuthApple));
+  app.post("/auth/refresh", authJson, wrapAuthHandler(userAuth.handleAuthRefresh));
+  app.post("/auth/logout", authJson, wrapAuthHandler(userAuth.handleAuthLogout));
+  app.get("/auth/sessions", wrapAuthHandler(userAuth.handleAuthSessions));
+  app.post("/auth/sessions/revoke", authJson, wrapAuthHandler(userAuth.handleAuthSessionsRevoke));
+  app.post("/auth/request_password_reset", authJson, wrapAuthHandler(userAuth.handleAuthRequestPasswordReset));
+  app.post("/auth/reset_password", authJson, wrapAuthHandler(userAuth.handleAuthResetPassword));
+  app.post("/auth/request_email_verification", authJson, wrapAuthHandler(userAuth.handleAuthRequestEmailVerification));
+  app.post("/auth/verify_email", authJson, wrapAuthHandler(userAuth.handleAuthVerifyEmail));
 }
 
 export { mountAuthRoutes, AUTH_BODY_LIMIT };

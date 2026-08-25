@@ -21,11 +21,16 @@ import { test } from "node:test";
 
 import jwt from "jsonwebtoken";
 
+import { createJsonPersistence } from "../lib/persistence_json.js";
 import {
+  authenticateUser,
   authSessionIdByTokenHash,
   authSessionsById,
   configureUserStore,
   emailVerificationTokensByHash,
+  getAuthSessionByToken,
+  getUserByEmail,
+  loadUserStoreFromAdapter,
   passwordResetTokensByHash,
   usersByAppleSubject,
   usersByEmail,
@@ -38,6 +43,10 @@ function tempStorePath() {
   return path.join(dir, "users.json");
 }
 
+function tempPersistenceRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "io-them-userauth-persistence-"));
+}
+
 function resetState() {
   usersById.clear();
   usersByEmail.clear();
@@ -48,7 +57,7 @@ function resetState() {
   passwordResetTokensByHash.clear();
 }
 
-function setupSubsystem(overrides = {}) {
+function setupSubsystem(overrides = {}, userStoreOverrides = {}) {
   resetState();
   configureUserStore({
     USER_STORE_PATH: tempStorePath(),
@@ -62,6 +71,7 @@ function setupSubsystem(overrides = {}) {
       const s = String(v || "").trim();
       return s.length <= max ? s : s.slice(0, max);
     },
+    ...userStoreOverrides,
   });
   return createUserAuthSubsystem({
     nodeEnv: "test",
@@ -94,6 +104,20 @@ function makeReq(body = {}) {
     get: () => undefined,
     headers: {},
   };
+}
+
+async function settleBefore(promise, timeoutMs) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve("timed_out"), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function sha256Base64Url(value) {
@@ -147,6 +171,292 @@ test("[user-auth-roundtrip] signup creates a user and returns access+refresh tok
   // JWT decodes with the configured secret.
   const decoded = jwt.verify(res._body.access_token, "test-secret-do-not-use-in-production");
   assert.equal(decoded.email, "alice@example.com");
+});
+
+test("[user-auth-roundtrip] signup waits for canonical persistence before responding", async () => {
+  let releasePersistence;
+  let markPersistenceStarted;
+  const persistenceGate = new Promise((resolve) => {
+    releasePersistence = resolve;
+  });
+  const persistenceStarted = new Promise((resolve) => {
+    markPersistenceStarted = resolve;
+  });
+  const auth = setupSubsystem({}, {
+    persistence: {
+      kind: "deferred-test",
+      async put() {
+        markPersistenceStarted();
+        await persistenceGate;
+      },
+    },
+  });
+  const res = makeRes();
+  const responsePromise = auth.handleAuthSignup(
+    makeReq({ email: "durable@example.com", password: "validpass123" }),
+    res,
+  );
+
+  await persistenceStarted;
+  assert.equal(res._body, null, "signup must not answer while persistence is pending");
+
+  releasePersistence();
+  await responsePromise;
+  assert.equal(res._status, 201);
+  assert.ok(res._body.access_token);
+  assert.ok(res._body.refresh_token);
+});
+
+test("[user-auth-roundtrip] signup fails closed when canonical persistence fails", async () => {
+  let persistenceAvailable = false;
+  const auth = setupSubsystem({}, {
+    persistence: {
+      kind: "failing-test",
+      async put() {
+        if (!persistenceAvailable) throw new Error("simulated persistence outage");
+      },
+    },
+  });
+  const res = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "persistence-failure@example.com", password: "validpass123" }),
+    res,
+  );
+
+  assert.equal(res._status, 503);
+  assert.equal(res._body.error, "auth_persistence_failed");
+  assert.equal(res._body.retryable, true);
+  assert.equal(res._body.access_token, undefined);
+  assert.equal(res._body.refresh_token, undefined);
+  assert.equal(res._body.debug_email_verification_token, undefined);
+  assert.equal(getUserByEmail("persistence-failure@example.com"), null);
+
+  persistenceAvailable = true;
+  const retry = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "persistence-failure@example.com", password: "validpass123" }),
+    retry,
+  );
+  assert.equal(retry._status, 201, "the exact signup request must remain retryable");
+  assert.ok(retry._body.access_token);
+  assert.ok(retry._body.refresh_token);
+});
+
+test("[user-auth-roundtrip] completed signup restores without an explicit test flush", async () => {
+  const persistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  try {
+    const auth = setupSubsystem({}, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(
+      makeReq({ email: "restart@example.com", password: "validpass123" }),
+      signup,
+    );
+    assert.equal(signup._status, 201);
+    const refreshToken = signup._body.refresh_token;
+    const userId = signup._body.user.user_id;
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getUserByEmail("restart@example.com")?.id, userId);
+    assert.equal(getAuthSessionByToken(refreshToken)?.userId, userId);
+  } finally {
+    await persistence.close();
+  }
+});
+
+test("[user-auth-roundtrip] refresh rotation and logout are durable when their handlers return", async () => {
+  const persistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  try {
+    const auth = setupSubsystem({}, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(
+      makeReq({ email: "rotation-restart@example.com", password: "validpass123" }),
+      signup,
+    );
+    const originalRefreshToken = signup._body.refresh_token;
+
+    const refresh = makeRes();
+    await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), refresh);
+    assert.equal(refresh._status, 200);
+    const rotatedRefreshToken = refresh._body.refresh_token;
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getAuthSessionByToken(originalRefreshToken), null);
+    assert.ok(getAuthSessionByToken(originalRefreshToken, Date.now(), { includeRevoked: true }));
+    assert.ok(getAuthSessionByToken(rotatedRefreshToken));
+
+    const logout = makeRes();
+    await auth.handleAuthLogout(makeReq({ refresh_token: rotatedRefreshToken }), logout);
+    assert.equal(logout._status, 200);
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getAuthSessionByToken(rotatedRefreshToken), null);
+    assert.ok(getAuthSessionByToken(rotatedRefreshToken, Date.now(), { includeRevoked: true }));
+  } finally {
+    await persistence.close();
+  }
+});
+
+test("[user-auth-roundtrip] failed refresh restores live state without promising an undurable retry", async () => {
+  const basePersistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  let persistenceAvailable = true;
+  const persistence = {
+    ...basePersistence,
+    kind: "recovering-test",
+    async put(input) {
+      if (!persistenceAvailable) throw new Error("simulated persistence outage");
+      return basePersistence.put(input);
+    },
+  };
+  try {
+    const auth = setupSubsystem({}, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(
+      makeReq({ email: "refresh-retry@example.com", password: "validpass123" }),
+      signup,
+    );
+    const originalRefreshToken = signup._body.refresh_token;
+
+    persistenceAvailable = false;
+    const failed = makeRes();
+    await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), failed);
+    assert.equal(failed._status, 503);
+    assert.equal(failed._body.retryable, false);
+    assert.equal(failed._body.access_token, undefined);
+    assert.equal(failed._body.refresh_token, undefined);
+    assert.ok(getAuthSessionByToken(originalRefreshToken), "rollback must restore the original session");
+
+    persistenceAvailable = true;
+    const retry = makeRes();
+    await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), retry);
+    assert.equal(retry._status, 200, "the exact refresh request must remain retryable");
+    assert.ok(retry._body.refresh_token);
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getAuthSessionByToken(originalRefreshToken), null);
+    assert.ok(getAuthSessionByToken(retry._body.refresh_token));
+  } finally {
+    await basePersistence.close();
+  }
+});
+
+test("[user-auth-roundtrip] partial signup persistence never makes a false retry promise", async () => {
+  const recordsByDomain = new Map();
+  const domainRecords = (domain) => {
+    if (!recordsByDomain.has(domain)) recordsByDomain.set(domain, new Map());
+    return recordsByDomain.get(domain);
+  };
+  const persistence = {
+    kind: "partial-failure-test",
+    async put({ domain, key, value }) {
+      if (domain === "auth_sessions") {
+        throw new Error("simulated session write failure");
+      }
+      domainRecords(domain).set(key, structuredClone(value));
+    },
+    async list({ domain }) {
+      return [...domainRecords(domain).entries()].map(([key, value]) => ({ key, value }));
+    },
+    async delete() {
+      throw new Error("simulated compensation failure");
+    },
+  };
+  const auth = setupSubsystem({}, { persistence });
+  const failed = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "partial-write@example.com", password: "validpass123" }),
+    failed,
+  );
+
+  assert.equal(failed._status, 503);
+  assert.equal(failed._body.error, "auth_persistence_failed");
+  assert.equal(failed._body.retryable, false);
+  assert.equal(failed._body.access_token, undefined);
+  assert.equal(failed._body.refresh_token, undefined);
+  assert.equal(getUserByEmail("partial-write@example.com"), null);
+
+  resetState();
+  assert.equal(await loadUserStoreFromAdapter(), true);
+  assert.ok(
+    getUserByEmail("partial-write@example.com"),
+    "the test adapter retains the partial user write after failed compensation",
+  );
+
+  const retry = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "partial-write@example.com", password: "validpass123" }),
+    retry,
+  );
+  assert.equal(retry._status, 409);
+  assert.equal(retry._body.error, "email_taken");
+});
+
+test("[user-auth-roundtrip] bearer reads wait for refresh rollback before authenticating", async () => {
+  const basePersistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  let failPersistence = false;
+  let releaseFailure;
+  let markPersistenceStarted;
+  const failureGate = new Promise((resolve) => { releaseFailure = resolve; });
+  const persistenceStarted = new Promise((resolve) => { markPersistenceStarted = resolve; });
+  const persistence = {
+    ...basePersistence,
+    kind: "deferred-failure-test",
+    async put(input) {
+      if (failPersistence) {
+        markPersistenceStarted();
+        await failureGate;
+        throw new Error("simulated persistence outage");
+      }
+      return basePersistence.put(input);
+    },
+  };
+  try {
+    const auth = setupSubsystem({}, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(
+      makeReq({ email: "refresh-read-lock@example.com", password: "validpass123" }),
+      signup,
+    );
+
+    failPersistence = true;
+    const refresh = makeRes();
+    const refreshPromise = auth.handleAuthRefresh(
+      makeReq({ refresh_token: signup._body.refresh_token }),
+      refresh,
+    );
+    await persistenceStarted;
+
+    let attachCompleted = false;
+    const bearerRequest = {
+      body: {},
+      headers: { authorization: "Bearer " + signup._body.access_token },
+      get(name) {
+        return String(name || "").toLowerCase() === "authorization"
+          ? this.headers.authorization
+          : undefined;
+      },
+    };
+    const attachPromise = new Promise((resolve, reject) => {
+      auth.attachUserAuth(bearerRequest, makeRes(), (error) => {
+        if (error) return reject(error);
+        attachCompleted = true;
+        resolve();
+      });
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(attachCompleted, false, "bearer verification must not observe transient rotation state");
+
+    releaseFailure();
+    await refreshPromise;
+    await attachPromise;
+    assert.equal(refresh._status, 503);
+    assert.equal(bearerRequest.authUser?.email, "refresh-read-lock@example.com");
+  } finally {
+    await basePersistence.close();
+  }
 });
 
 test("[user-auth-roundtrip] signup rejects duplicate email", async () => {
@@ -326,6 +636,35 @@ test("[user-auth-roundtrip] staging request_password_reset does not expose debug
   assert.equal(res._body.user, null);
 });
 
+test("[user-auth-roundtrip] short replacement password does not consume the reset token", async () => {
+  const auth = setupSubsystem();
+  await auth.handleAuthSignup(
+    makeReq({ email: "reset-retry@example.com", password: "validpass123" }),
+    makeRes(),
+  );
+  const request = makeRes();
+  await auth.handleAuthRequestPasswordReset(
+    makeReq({ email: "reset-retry@example.com" }),
+    request,
+  );
+  const resetToken = request._body.debug_password_reset_token;
+
+  const rejected = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "short" }),
+    rejected,
+  );
+  assert.equal(rejected._status, 400);
+  assert.equal(rejected._body.error, "password_too_short");
+
+  const retry = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "corrected-password-456" }),
+    retry,
+  );
+  assert.equal(retry._status, 200, "correcting the password should reuse the same reset token");
+});
+
 test("[user-auth-roundtrip] reset_password consumes the token and revokes all sessions", async () => {
   const auth = setupSubsystem();
   const signup = makeRes();
@@ -372,6 +711,59 @@ test("[user-auth-roundtrip] request + verify_email flips the user's emailVerifie
   assert.ok(verifyRes._status >= 200 && verifyRes._status < 300);
 });
 
+test("[user-auth-roundtrip] verification and password reset are durable when handlers return", async () => {
+  const persistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  try {
+    const auth = setupSubsystem({ requireEmailVerification: true }, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(
+      makeReq({ email: "durable-recovery@example.com", password: "validpass123" }),
+      signup,
+    );
+    const originalRefreshToken = signup._body.refresh_token;
+
+    const verify = makeRes();
+    await auth.handleAuthVerifyEmail(
+      makeReq({ token: signup._body.debug_email_verification_token }),
+      verify,
+    );
+    assert.equal(verify._status, 200);
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getUserByEmail("durable-recovery@example.com")?.emailVerified, true);
+
+    const requestReset = makeRes();
+    await auth.handleAuthRequestPasswordReset(
+      makeReq({ email: "durable-recovery@example.com" }),
+      requestReset,
+    );
+    const reset = makeRes();
+    await auth.handleAuthResetPassword(
+      makeReq({
+        token: requestReset._body.debug_password_reset_token,
+        new_password: "new-valid-pass-456",
+      }),
+      reset,
+    );
+    assert.equal(reset._status, 200);
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(
+      authenticateUser("durable-recovery@example.com", "new-valid-pass-456").ok,
+      true,
+    );
+    assert.equal(
+      authenticateUser("durable-recovery@example.com", "validpass123").ok,
+      false,
+    );
+    assert.equal(getAuthSessionByToken(originalRefreshToken), null);
+  } finally {
+    await persistence.close();
+  }
+});
+
 // ---------- Apple Sign In ----------
 
 test("[user-auth-roundtrip] production Apple sign-in verifies JWKS kid and nonce", async () => {
@@ -396,6 +788,99 @@ test("[user-auth-roundtrip] production Apple sign-in verifies JWKS kid and nonce
   assert.equal(res._status, 201);
   assert.equal(res._body.user.email, "apple-prod@example.com");
   assert.equal(res._body.user.auth_provider, "apple");
+});
+
+test("[user-auth-roundtrip] slow Apple JWKS discovery does not hold the auth mutation lock", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-slow-kid",
+    subject: "apple-slow-subject",
+    email: "apple-slow@example.com",
+    nonce: "apple-slow-nonce",
+  });
+  let releaseJwks;
+  let markJwksStarted;
+  const jwksGate = new Promise((resolve) => { releaseJwks = resolve; });
+  const jwksStarted = new Promise((resolve) => { markJwksStarted = resolve; });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    appleJwksTimeoutMs: 5_000,
+    fetchAppleJwks: async () => {
+      markJwksStarted();
+      await jwksGate;
+      return { keys: [fixture.jwk] };
+    },
+  });
+
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "existing-bearer@example.com", password: "validpass123" }),
+    signup,
+  );
+  assert.equal(signup._status, 201);
+
+  const apple = makeRes();
+  const appleRequest = auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "apple-slow-nonce",
+  }), apple);
+  await jwksStarted;
+
+  const bearerReq = {
+    body: {},
+    headers: {},
+    get(name) {
+      return String(name || "").toLowerCase() === "authorization"
+        ? `Bearer ${signup._body.access_token}`
+        : undefined;
+    },
+  };
+  const bearerResult = await settleBefore(
+    new Promise((resolve, reject) => {
+      auth.attachUserAuth(bearerReq, makeRes(), (error) => error ? reject(error) : resolve("attached"));
+    }),
+    1_000,
+  );
+  assert.equal(bearerResult, "attached");
+  assert.equal(bearerReq.authUser?.email, "existing-bearer@example.com");
+
+  const unrelatedSignup = makeRes();
+  const signupResult = await settleBefore(
+    auth.handleAuthSignup(
+      makeReq({ email: "unrelated-signup@example.com", password: "validpass123" }),
+      unrelatedSignup,
+    ).then(() => "completed"),
+    2_000,
+  );
+  assert.equal(signupResult, "completed");
+  assert.equal(unrelatedSignup._status, 201);
+
+  releaseJwks();
+  await appleRequest;
+  assert.equal(apple._status, 201);
+});
+
+test("[user-auth-roundtrip] Apple JWKS discovery has a bounded unavailable response", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-timeout-kid",
+    nonce: "apple-timeout-nonce",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    appleJwksTimeoutMs: 25,
+    fetchAppleJwks: async () => new Promise(() => {}),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "apple-timeout-nonce",
+  }), res);
+  assert.equal(res._status, 503);
+  assert.equal(res._body.error, "apple_jwks_unavailable");
 });
 
 test("[user-auth-roundtrip] production Apple sign-in accepts raw nonce by comparing its SHA-256 claim", async () => {

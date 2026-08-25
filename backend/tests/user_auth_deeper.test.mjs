@@ -125,7 +125,7 @@ test("[user-auth-deeper] createUserAuthSubsystem tolerates options=undefined", (
 
 // ---------- handler smoke: 503 when auth misconfigured ----------
 
-test("[user-auth-deeper] handleAuthSignup returns 503 when JWT secret missing in production", () => {
+test("[user-auth-deeper] handleAuthSignup returns 503 when JWT secret missing in production", async () => {
   // production + no jwtSecret -> authConfigured false -> 503.
   const s = createUserAuthSubsystem({ nodeEnv: "production" });
   let captured = null;
@@ -133,32 +133,32 @@ test("[user-auth-deeper] handleAuthSignup returns 503 when JWT secret missing in
     status(code) { captured = { code }; return this; },
     json(body) { captured.body = body; return this; },
   };
-  s.handleAuthSignup({ body: {} }, fakeRes);
+  await s.handleAuthSignup({ body: {} }, fakeRes);
   assert.equal(captured?.code, 503);
   assert.equal(captured?.body?.error, "user_auth_not_configured");
 });
 
-test("[user-auth-deeper] handleAuthLogin returns 503 when JWT secret missing in production", () => {
+test("[user-auth-deeper] handleAuthLogin returns 503 when JWT secret missing in production", async () => {
   const s = createUserAuthSubsystem({ nodeEnv: "production" });
   let captured = null;
   const fakeRes = {
     status(code) { captured = { code }; return this; },
     json(body) { captured.body = body; return this; },
   };
-  s.handleAuthLogin({ body: { email: "a@b.com", password: "x" } }, fakeRes);
+  await s.handleAuthLogin({ body: { email: "a@b.com", password: "x" } }, fakeRes);
   assert.equal(captured?.code, 503);
 });
 
 // ---------- error response shape ----------
 
-test("[user-auth-deeper] auth_unconfigured error envelope has stage + error keys", () => {
+test("[user-auth-deeper] auth_unconfigured error envelope has stage + error keys", async () => {
   const s = createUserAuthSubsystem({ nodeEnv: "production" });
   const fakeRes = {
     _payload: null,
     status(_) { return this; },
     json(body) { this._payload = body; return this; },
   };
-  s.handleAuthLogin({ body: {} }, fakeRes);
+  await s.handleAuthLogin({ body: {} }, fakeRes);
   assert.ok(fakeRes._payload, "response payload missing");
   assert.ok("stage" in fakeRes._payload);
   assert.ok("error" in fakeRes._payload);

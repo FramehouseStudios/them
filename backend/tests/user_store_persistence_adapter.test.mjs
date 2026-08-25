@@ -9,12 +9,14 @@ import {
   authSessionIdByTokenHash,
   authSessionsById,
   configureUserStore,
+  consumePasswordResetToken,
   createUser,
   emailVerificationTokensByHash,
   flushUserStorePersistenceWrites,
   getAuthSessionByToken,
   getUserByEmail,
   issueAuthSession,
+  issuePasswordResetToken,
   loadUserStoreFromAdapter,
   loadUserStore,
   passwordResetTokensByHash,
@@ -77,6 +79,48 @@ test("[user-store-persistence] writes auth records to adapter and restores them"
   }
 });
 
+test("[user-store-persistence] file-only save failures are visible through the flush boundary", async () => {
+  clearUserStoreMaps();
+  configureUserStore({
+    USER_STORE_PATH: tempPath("io-them-auth-file-failure-", "user_store.json"),
+    fs,
+    normalizeSnippet: (value, max = 160) => String(value || "").trim().slice(0, max),
+    persistence: null,
+    writeJsonFileAtomic: () => false,
+  });
+
+  const created = createUser({ email: "file-failure@example.com", password: "longenough" });
+  assert.equal(created.ok, true);
+  const flushed = await flushUserStorePersistenceWrites();
+  assert.equal(flushed.ok, false);
+  assert.equal(flushed.fileOk, false);
+  assert.equal(flushed.persistenceStatus, "not_configured");
+});
+
+test("[user-store-persistence] consuming an expired token durably removes it", async () => {
+  const persistence = createJsonPersistence({ jsonRoot: tempPath("io-them-auth-expired-token-") });
+  try {
+    configureTestStore(persistence);
+    const created = createUser({ email: "expired-token@example.com", password: "longenough" }, 1_000);
+    const issued = issuePasswordResetToken({ userId: created.user.id, ttlMs: 60_000 }, 1_000);
+    await flushUserStorePersistenceWrites();
+    assert.equal(
+      (await persistence.list({ domain: "auth_password_reset_tokens", limit: 100 })).length,
+      1,
+    );
+
+    assert.equal(consumePasswordResetToken(issued.token, 61_001), null);
+    const flushed = await flushUserStorePersistenceWrites();
+    assert.equal(flushed.ok, true);
+    assert.equal(
+      (await persistence.list({ domain: "auth_password_reset_tokens", limit: 100 })).length,
+      0,
+    );
+  } finally {
+    await persistence.close();
+  }
+});
+
 test("[user-store-persistence] empty adapter lets startup fall back to legacy file", async () => {
   const persistence = createJsonPersistence({ jsonRoot: tempPath("io-them-auth-empty-persistence-") });
   try {
@@ -85,6 +129,56 @@ test("[user-store-persistence] empty adapter lets startup fall back to legacy fi
   } finally {
     await persistence.close();
   }
+});
+
+test("[user-store-persistence] strict startup distinguishes an empty adapter from an unavailable adapter", async () => {
+  configureTestStore({
+    kind: "unavailable-test",
+    async put() {},
+    async list() {
+      throw new Error("simulated canonical database outage");
+    },
+  });
+
+  await assert.rejects(
+    loadUserStoreFromAdapter({ failOnUnavailable: true }),
+    (error) => {
+      assert.equal(error?.code, "USER_STORE_ADAPTER_UNAVAILABLE");
+      assert.equal(error?.message, "user_store_adapter_unavailable");
+      assert.match(String(error?.cause?.message || ""), /canonical database outage/);
+      return true;
+    },
+  );
+
+  assert.equal(
+    await loadUserStoreFromAdapter(),
+    false,
+    "non-production migration mode may still use the legacy-file fallback",
+  );
+
+  const emptyPersistence = createJsonPersistence({ jsonRoot: tempPath("io-them-auth-strict-empty-") });
+  try {
+    configureTestStore(emptyPersistence);
+    assert.equal(
+      await loadUserStoreFromAdapter({ failOnUnavailable: true }),
+      false,
+      "a reachable but empty adapter remains eligible for the one-time legacy backfill",
+    );
+  } finally {
+    await emptyPersistence.close();
+  }
+});
+
+test("[user-store-persistence] strict startup rejects an adapter without canonical reads", async () => {
+  configureTestStore({
+    kind: "write-only-test",
+    async put() {},
+  });
+
+  await assert.rejects(
+    loadUserStoreFromAdapter({ failOnUnavailable: true }),
+    (error) => error?.code === "USER_STORE_ADAPTER_UNAVAILABLE",
+  );
 });
 
 test("[user-store-persistence] startup backfills existing legacy accounts into the adapter", async () => {

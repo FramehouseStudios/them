@@ -7,6 +7,8 @@ import {
   consumePasswordResetToken,
   createOrAttachAppleUser,
   createUser,
+  createUserStoreCheckpoint,
+  flushUserStorePersistenceWrites,
   getAuthSessionById,
   getUserByAppleSubject,
   getUserByEmail,
@@ -19,8 +21,12 @@ import {
   revokeAllAuthSessionsForUser,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
+  restoreUserStoreCheckpoint,
   rotateAuthSession,
+  runUserStoreMutationExclusive,
   updateUserPassword,
+  validateUserPassword,
+  waitForUserStoreMutations,
 } from "./user_store.js";
 
 const ACCESS_TOKEN_AUDIENCE = "io.them.them";
@@ -150,6 +156,7 @@ function createUserAuthSubsystem(options = {}) {
   const appleJwks = options.appleJwks && typeof options.appleJwks === "object" ? options.appleJwks : null;
   const fetchAppleJwks = typeof options.fetchAppleJwks === "function" ? options.fetchAppleJwks : null;
   const appleJwksCacheTtlMs = Math.max(60_000, Number(options.appleJwksCacheTtlMs || 6 * 60 * 60 * 1000));
+  const appleJwksTimeoutMs = Math.max(25, Number(options.appleJwksTimeoutMs || 5_000));
   const signingSecret = String(options.jwtSecret || "").trim() || (nodeEnv === "production" ? "" : "them-dev-user-jwt-secret");
   const authConfigured = Boolean(signingSecret);
   const allowDebugTokens = new Set(["test", "development", "local"]).has(String(nodeEnv || "").trim().toLowerCase());
@@ -159,6 +166,41 @@ function createUserAuthSubsystem(options = {}) {
 
   function authMisconfigured(res, stage = "auth_user") {
     return res.status(503).json({ stage, error: "user_auth_not_configured" });
+  }
+
+  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+    try {
+      const result = await flushUserStorePersistenceWrites();
+      if (result?.ok === true) return true;
+    } catch {
+      // The response below is intentionally generic so storage details and
+      // credentials never escape through the auth surface.
+    }
+    let retryable = false;
+    try {
+      restoreUserStoreCheckpoint(checkpoint, Date.now());
+      const rollbackResult = await flushUserStorePersistenceWrites();
+      retryable = rollbackResult?.ok === true;
+    } catch {
+      // The checkpoint has already restored the live maps before its
+      // compensating durability attempt. Do not promise a safe retry unless
+      // that compensation also reached durable storage.
+    }
+    if (!res.headersSent) {
+      res.status(503).json({
+        stage,
+        error: "auth_persistence_failed",
+        retryable,
+      });
+    }
+    return false;
+  }
+
+  function serializeAuthMutation(handler) {
+    return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handler(req, res, checkpoint, next);
+    });
   }
 
   function buildEmailDelivery(action = "noop", transport = "none") {
@@ -292,22 +334,26 @@ function createUserAuthSubsystem(options = {}) {
       req.authUserError = "";
       return next();
     }
-    const verified = verifyAccessToken(token);
-    if (!verified.ok) {
-      req.authUser = null;
-      req.authSession = null;
-      req.authUserError = verified.error || "invalid_user_token";
-      return next();
-    }
-    req.authUser = verified.user;
-    req.authSession = verified.session;
-    req.authTokenPayload = verified.payload;
-    req.authUserError = "";
-    req.userId = verified.user.id;
-    // Day 1 Backend Exposure Lock: do not rewrite req.headers["x-user-id"]
-    // with the auth-derived id. Downstream ownership must read req.authUser.id
-    // / req.userId, never a header.
-    return next();
+    return waitForUserStoreMutations()
+      .then(() => {
+        const verified = verifyAccessToken(token);
+        if (!verified.ok) {
+          req.authUser = null;
+          req.authSession = null;
+          req.authUserError = verified.error || "invalid_user_token";
+          return next();
+        }
+        req.authUser = verified.user;
+        req.authSession = verified.session;
+        req.authTokenPayload = verified.payload;
+        req.authUserError = "";
+        req.userId = verified.user.id;
+        // Day 1 Backend Exposure Lock: do not rewrite req.headers["x-user-id"]
+        // with the auth-derived id. Downstream ownership must read req.authUser.id
+        // / req.userId, never a header.
+        return next();
+      })
+      .catch(next);
   }
 
   function isProtectedRoute(pathname) {
@@ -437,9 +483,24 @@ function createUserAuthSubsystem(options = {}) {
     if (appleJwksCache.keys.length && (now - appleJwksCache.fetchedAt) < appleJwksCacheTtlMs) {
       return appleJwksCache.keys;
     }
-    const payload = fetchAppleJwks
-      ? await fetchAppleJwks(appleJwksUrl)
-      : await fetchAppleJwksDefault(appleJwksUrl);
+    let timeoutId;
+    let payload;
+    try {
+      payload = await Promise.race([
+        Promise.resolve().then(() => fetchAppleJwks
+          ? fetchAppleJwks(appleJwksUrl)
+          : fetchAppleJwksDefault(appleJwksUrl)),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("apple_jwks_timeout")), appleJwksTimeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      const unavailable = new Error("apple_jwks_unavailable");
+      unavailable.cause = error;
+      throw unavailable;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const keys = normalizeAppleJwksPayload(payload);
     appleJwksCache = { fetchedAt: now, keys };
     return keys;
@@ -541,14 +602,14 @@ function createUserAuthSubsystem(options = {}) {
         emailVerified: normalizeBoolean(payload?.email_verified, false),
       };
     } catch (error) {
-      if (String(error?.message || "").startsWith("apple_jwks_http_") || String(error?.message || "") === "fetch_unavailable") {
+      if (String(error?.message || "") === "apple_jwks_unavailable") {
         return { ok: false, status: 503, error: "apple_jwks_unavailable" };
       }
       return { ok: false, status: 401, error: "invalid_apple_identity_token" };
     }
   }
 
-  function handleAuthSignup(req, res) {
+  async function handleAuthSignup(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_signup");
     const now = Date.now();
     const email = normalizeEmail(req.body?.email);
@@ -567,6 +628,7 @@ function createUserAuthSubsystem(options = {}) {
     }
     const issued = issueAuthResult(created.user, req);
     if (!issued) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_signup", checkpoint))) return;
       return res.status(500).json({
         stage: "auth_signup",
         error: "session_issue_failed",
@@ -587,6 +649,7 @@ function createUserAuthSubsystem(options = {}) {
         extra.debug_email_verification_token = verification.token;
       }
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_signup", checkpoint))) return;
     return res.status(201).json(buildAuthEnvelope({
       user: created.user,
       accessToken: issued.accessToken,
@@ -596,7 +659,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthLogin(req, res) {
+  async function handleAuthLogin(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_login");
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || "");
@@ -615,6 +678,7 @@ function createUserAuthSubsystem(options = {}) {
         error: "session_issue_failed",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user: authenticated.user,
       accessToken: issued.accessToken,
@@ -623,15 +687,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  async function handleAuthApple(req, res) {
-    if (!authConfigured) return authMisconfigured(res, "auth_apple");
-    const verified = await verifyAppleIdentityToken(req.body?.identity_token, req.body || {});
-    if (!verified.ok) {
-      return res.status(verified.status || 401).json({
-        stage: "auth_apple",
-        error: verified.error || "invalid_apple_identity_token",
-      });
-    }
+  async function handleAuthAppleMutation(req, res, checkpoint, verified) {
     const suppliedEmail = normalizeEmail(req.body?.email);
     const existing = getUserByAppleSubject(verified.subject) || (suppliedEmail ? getUserByEmail(suppliedEmail) : null);
     const createdOrAttached = createOrAttachAppleUser({
@@ -649,11 +705,13 @@ function createUserAuthSubsystem(options = {}) {
     }
     const issued = issueAuthResult(createdOrAttached.user, req);
     if (!issued) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_apple", checkpoint))) return;
       return res.status(500).json({
         stage: "auth_apple",
         error: "session_issue_failed",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_apple", checkpoint))) return;
     return res.status(existing ? 200 : 201).json(buildAuthEnvelope({
       user: createdOrAttached.user,
       accessToken: issued.accessToken,
@@ -662,7 +720,25 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthRefresh(req, res) {
+  async function handleAuthApple(req, res) {
+    if (!authConfigured) return authMisconfigured(res, "auth_apple");
+    // Apple key discovery is remote I/O. Verify before taking the mutation
+    // lock so a slow identity provider cannot stall local login, refresh, or
+    // bearer authentication for every user.
+    const verified = await verifyAppleIdentityToken(req.body?.identity_token, req.body || {});
+    if (!verified.ok) {
+      return res.status(verified.status || 401).json({
+        stage: "auth_apple",
+        error: verified.error || "invalid_apple_identity_token",
+      });
+    }
+    return runUserStoreMutationExclusive(async () => {
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handleAuthAppleMutation(req, res, checkpoint, verified);
+    });
+  }
+
+  async function handleAuthRefresh(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_refresh");
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
     if (!refreshToken) {
@@ -684,11 +760,13 @@ function createUserAuthSubsystem(options = {}) {
     const user = getUserById(rotated.session.userId);
     if (!user) {
       revokeAuthSessionById(rotated.session.sessionId, Date.now());
+      if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
       return res.status(401).json({
         stage: "auth_refresh",
         error: "invalid_refresh_token",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       accessToken: signAccessToken(user, rotated.session),
@@ -697,7 +775,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthLogout(req, res) {
+  async function handleAuthLogout(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_logout");
     const now = Date.now();
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
@@ -717,6 +795,8 @@ function createUserAuthSubsystem(options = {}) {
     if (req.authSession && (!revokedRefresh || req.authSession.sessionId !== revokedRefresh.sessionId)) {
       revokedAccess = revokeAuthSessionById(req.authSession.sessionId, now);
     }
+
+    if ((revokedRefresh || revokedAccess) && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
 
     return res.status(200).json(buildAuthEnvelope({
       extra: {
@@ -741,7 +821,7 @@ function createUserAuthSubsystem(options = {}) {
     });
   }
 
-  function handleAuthSessionsRevoke(req, res) {
+  async function handleAuthSessionsRevoke(req, res, checkpoint) {
     const user = requireAuthenticatedUser(req, res, "auth_sessions_revoke");
     if (!user) return;
     const now = Date.now();
@@ -760,6 +840,7 @@ function createUserAuthSubsystem(options = {}) {
         });
       }
       const revoked = revokeAuthSessionById(sessionId, now);
+      if (revoked && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
         revoked: Boolean(revoked),
@@ -776,6 +857,7 @@ function createUserAuthSubsystem(options = {}) {
       const revoked = revokeAllAuthSessionsForUser(user.id, now, {
         exceptSessionId: String(req.authSession?.sessionId || "").trim(),
       });
+      if (revoked.length > 0 && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
         revoked: revoked.length > 0,
@@ -791,7 +873,7 @@ function createUserAuthSubsystem(options = {}) {
     });
   }
 
-  function handleAuthRequestPasswordReset(req, res) {
+  async function handleAuthRequestPasswordReset(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_request_password_reset");
     const email = normalizeEmail(req.body?.email);
     if (!email) {
@@ -818,12 +900,13 @@ function createUserAuthSubsystem(options = {}) {
     if (debugResetToken) {
       extra.debug_password_reset_token = debugResetToken;
     }
+    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_password_reset", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       extra,
     }));
   }
 
-  function handleAuthResetPassword(req, res) {
+  async function handleAuthResetPassword(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_reset_password");
     const token = String(req.body?.token || "").trim();
     const newPassword = String(req.body?.new_password || req.body?.newPassword || "");
@@ -833,8 +916,16 @@ function createUserAuthSubsystem(options = {}) {
         error: "token_required",
       });
     }
+    const passwordValidation = validateUserPassword(newPassword);
+    if (!passwordValidation.ok) {
+      return res.status(400).json({
+        stage: "auth_reset_password",
+        error: passwordValidation.status,
+      });
+    }
     const consumed = consumePasswordResetToken(token, Date.now());
     if (!consumed) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_reset_password",
         error: "invalid_reset_token",
@@ -842,12 +933,14 @@ function createUserAuthSubsystem(options = {}) {
     }
     const updated = updateUserPassword(consumed.userId, newPassword, Date.now());
     if (!updated.ok) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(updated.status === "not_found" ? 404 : 400).json({
         stage: "auth_reset_password",
         error: updated.status || "password_reset_failed",
       });
     }
     const revoked = revokeAllAuthSessionsForUser(updated.user.id, Date.now());
+    if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user: updated.user,
       extra: {
@@ -857,7 +950,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthRequestEmailVerification(req, res) {
+  async function handleAuthRequestEmailVerification(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_request_email_verification");
     const authenticatedUser = req.authUser || null;
     const email = normalizeEmail(req.body?.email);
@@ -897,6 +990,7 @@ function createUserAuthSubsystem(options = {}) {
     if (allowDebugTokens && issued) {
       extra.debug_email_verification_token = issued.token;
     }
+    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_email_verification", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       session: req.authSession && String(req.authSession.userId || "").trim() === String(user.id || "").trim()
@@ -906,7 +1000,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthVerifyEmail(req, res) {
+  async function handleAuthVerifyEmail(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_verify_email");
     const token = String(req.body?.token || "").trim();
     if (!token) {
@@ -917,6 +1011,7 @@ function createUserAuthSubsystem(options = {}) {
     }
     const consumed = consumeEmailVerificationToken(token, Date.now());
     if (!consumed) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_verify_email",
         error: "invalid_verification_token",
@@ -924,11 +1019,13 @@ function createUserAuthSubsystem(options = {}) {
     }
     const user = markUserEmailVerified(consumed.userId, Date.now());
     if (!user) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
       return res.status(404).json({
         stage: "auth_verify_email",
         error: "account_not_found",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       session: req.authSession && String(req.authSession.userId || "").trim() === String(user.id || "").trim()
@@ -945,16 +1042,16 @@ function createUserAuthSubsystem(options = {}) {
     attachUserAuth,
     buildPublicUser,
     handleAuthApple,
-    handleAuthLogin,
-    handleAuthLogout,
-    handleAuthRefresh,
-    handleAuthRequestEmailVerification,
-    handleAuthRequestPasswordReset,
-    handleAuthResetPassword,
+    handleAuthLogin: serializeAuthMutation(handleAuthLogin),
+    handleAuthLogout: serializeAuthMutation(handleAuthLogout),
+    handleAuthRefresh: serializeAuthMutation(handleAuthRefresh),
+    handleAuthRequestEmailVerification: serializeAuthMutation(handleAuthRequestEmailVerification),
+    handleAuthRequestPasswordReset: serializeAuthMutation(handleAuthRequestPasswordReset),
+    handleAuthResetPassword: serializeAuthMutation(handleAuthResetPassword),
     handleAuthSessions,
-    handleAuthSessionsRevoke,
-    handleAuthSignup,
-    handleAuthVerifyEmail,
+    handleAuthSessionsRevoke: serializeAuthMutation(handleAuthSessionsRevoke),
+    handleAuthSignup: serializeAuthMutation(handleAuthSignup),
+    handleAuthVerifyEmail: serializeAuthMutation(handleAuthVerifyEmail),
     protectPaidProviderRoutes,
     protectUserRoutes,
     verifyReauthProof,

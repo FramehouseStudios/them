@@ -201,7 +201,9 @@ try {
   assert.match(initialGrounding.payload.instructions, new RegExp(escapedRegExp(QUESTION)));
   assert.match(initialGrounding.payload.instructions, /<realtime_screenplay_question>/);
 
-  const bridgeResponse = await fetch(`${server.baseUrl}/realtime/bridge`);
+  const bridgeResponse = await fetch(`${server.baseUrl}/realtime/bridge`, {
+    headers: { "X-APP-TOKEN": activeIdentity.appToken },
+  });
   assert.equal(bridgeResponse.status, 200, "The realtime bridge could not be loaded.");
   const simulator = new RealtimeBridgeRuntimeSimulator(await bridgeResponse.text());
   await simulator.start({
