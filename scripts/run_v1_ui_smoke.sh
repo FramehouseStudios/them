@@ -6,6 +6,7 @@ PROJECT="${PROJECT:-$ROOT/them.xcodeproj}"
 SCHEME="${SCHEME:-them}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 ONLY_TESTING="${ONLY_TESTING:-themUITests}"
+XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
 
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
   destination="$IOS_SIMULATOR_DESTINATION"
@@ -29,17 +30,21 @@ fi
 echo "run-v1-ui-smoke: destination=${destination}"
 echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
 
-xcconfig_args=()
+build_args=()
 if [[ -n "${THEM_UITEST_RESTORE_XCCONFIG_PATH:-}" ]]; then
-  xcconfig_args+=("-xcconfig" "${THEM_UITEST_RESTORE_XCCONFIG_PATH}")
+  build_args+=("-xcconfig" "${THEM_UITEST_RESTORE_XCCONFIG_PATH}")
 fi
 
-xcodebuild "${xcconfig_args[@]}" test \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -destination "$destination" \
-  "-only-testing:${ONLY_TESTING}" \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
+build_args+=(
+  test
+  -project "$PROJECT"
+  -scheme "$SCHEME"
+  -configuration "$CONFIGURATION"
+  -destination "$destination"
+  "-only-testing:${ONLY_TESTING}"
+  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_REQUIRED=NO
   "$@"
+)
+
+"${XCODEBUILD_BIN}" "${build_args[@]}"
