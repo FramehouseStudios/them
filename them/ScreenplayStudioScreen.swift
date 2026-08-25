@@ -3826,6 +3826,12 @@ Detail:
             isFormatLinting: vm.isFormatLinting,
             formatLintErrorText: vm.formatLintErrorText,
             formatLintSource: vm.formatLintSourceText,
+            coverageSimulationReport: vm.coverageSimulationReport,
+            isCoverageSimulating: vm.isCoverageSimulating,
+            coverageSimulationErrorText: vm.coverageSimulationErrorText,
+            coverageSimulationSource: vm.coverageSimulationSourceText,
+            canSimulateCoverage: vm.canSimulateCraftCoverage,
+            isCoverageSimulationCurrent: vm.isCoverageSimulationCurrent,
             onRefresh: {
                 Task { await vm.loadCraftReport(force: true) }
             },
@@ -3834,6 +3840,9 @@ Detail:
             },
             onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Manual check") }
+            },
+            onSimulateCoverage: {
+                Task { await vm.refreshCraftCoverage(source: "Manual check") }
             },
             onAnalyze: {
                 Task { await vm.analyzeCraftReport() }

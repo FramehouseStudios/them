@@ -136,6 +136,173 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.first?.ruleLabel, "Character Cue Caps")
     }
 
+    func testCoverageSimulationReportDecodesNestedReaderSignals() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "overview": {
+            "pageCount": 90,
+            "sceneCount": 2,
+            "dialogueRatio": 0.2,
+            "avgSceneLengthLines": 9
+          },
+          "pacing": {
+            "intensity": "medium",
+            "peakScenes": [{ "idx": 0, "heading": "INT. TERMINAL - NIGHT", "lineCount": 12 }],
+            "longScenes": [{ "idx": 0, "heading": "INT. TERMINAL - NIGHT", "lineCount": 12 }],
+            "shortScenes": [{ "idx": 1, "heading": "EXT. RUNWAY - DAWN", "lineCount": 6 }]
+          },
+          "characters": [{ "name": "JUNE", "lineCount": 4, "sceneCount": 2, "share": 0.5 }],
+          "warnings": [{ "severity": "soft", "code": "dialogue_thin", "message": "Dialogue is sparse." }],
+          "frameworkId": null,
+          "summary": "2 scene(s), 20% dialogue — reads balanced."
+        }
+        """#.utf8)
+
+        let report = try JSONDecoder().decode(ScreenplayCraftCoverageSimulationReport.self, from: data)
+
+        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.overview.pageCount, 90)
+        XCTAssertEqual(report.overview.sceneCount, 2)
+        XCTAssertEqual(report.overview.dialogueRatio, 0.2, accuracy: 0.001)
+        XCTAssertEqual(report.overview.avgSceneLengthLines, 9, accuracy: 0.001)
+        XCTAssertEqual(report.pacing.intensity, "medium")
+        XCTAssertEqual(report.pacing.peakScenes.first?.idx, 0)
+        XCTAssertEqual(report.pacing.longScenes.first?.lineCount, 12)
+        XCTAssertEqual(report.pacing.shortScenes.first?.heading, "EXT. RUNWAY - DAWN")
+        XCTAssertEqual(report.characters.first?.sceneCount, 2)
+        XCTAssertEqual(report.characters.first?.share, 0.5)
+        XCTAssertEqual(report.warnings.first?.code, "dialogue_thin")
+        XCTAssertNil(report.frameworkId)
+    }
+
+    func testReaderPreviewStateFormatsClampsAndCapsWarnings() {
+        let warnings = (1...4).map { index in
+            ScreenplayCraftCoverageWarning(
+                severity: index == 1 ? " medium " : "soft",
+                code: "signal_\(index)",
+                message: "Signal \(index)"
+            )
+        }
+        let report = ScreenplayCraftCoverageSimulationReport(
+            schemaVersion: 1,
+            overview: ScreenplayCraftCoverageOverview(
+                pageCount: -2,
+                sceneCount: -1,
+                dialogueRatio: 1.4,
+                avgSceneLengthLines: -3
+            ),
+            pacing: ScreenplayCraftCoveragePacing(
+                intensity: " medium ",
+                peakScenes: [
+                    ScreenplayCraftCoverageSceneSignal(idx: 0, heading: "INT. TERMINAL - NIGHT", lineCount: 90)
+                ],
+                longScenes: [
+                    ScreenplayCraftCoverageSceneSignal(idx: 0, heading: "INT. TERMINAL - NIGHT", lineCount: 90),
+                    ScreenplayCraftCoverageSceneSignal(idx: 1, heading: "EXT. RUNWAY - DAWN", lineCount: 84),
+                    ScreenplayCraftCoverageSceneSignal(idx: 2, heading: "INT. TOWER - DAY", lineCount: 82)
+                ],
+                shortScenes: [
+                    ScreenplayCraftCoverageSceneSignal(idx: 3, heading: "EXT. ROAD - DAY", lineCount: -1)
+                ]
+            ),
+            characters: [
+                ScreenplayCraftCoverageCharacter(name: "JUNE", lineCount: -2, sceneCount: -1, share: 1.4),
+                ScreenplayCraftCoverageCharacter(name: "MARCUS", lineCount: 8, sceneCount: 2, share: 0.3),
+                ScreenplayCraftCoverageCharacter(name: "DISPATCH", lineCount: 2, sceneCount: 1, share: 0.1),
+                ScreenplayCraftCoverageCharacter(name: "PILOT", lineCount: 1, sceneCount: 1, share: 0.05)
+            ],
+            warnings: warnings,
+            frameworkId: "save-the-cat",
+            summary: "  A fast read.  "
+        )
+
+        let state = ScreenplayCraftReaderPreviewState.make(report: report)
+
+        XCTAssertEqual(state.pagesLabel, "0")
+        XCTAssertEqual(state.scenesLabel, "0")
+        XCTAssertEqual(state.dialogueLabel, "100%")
+        XCTAssertEqual(state.averageSceneLabel, "0 lines")
+        XCTAssertEqual(state.paceLabel, "Medium")
+        XCTAssertEqual(state.summary, "A fast read.")
+        XCTAssertEqual(state.characters.map(\.name), ["JUNE", "MARCUS", "DISPATCH"])
+        XCTAssertEqual(state.characters.first?.shareLabel, "100%")
+        XCTAssertEqual(state.characters.first?.detailLabel, "0 scenes · 0 lines")
+        XCTAssertEqual(state.hiddenCharacterCount, 1)
+        XCTAssertEqual(state.sceneSignals.map(\.heading), [
+            "INT. TERMINAL - NIGHT",
+            "EXT. RUNWAY - DAWN",
+            "INT. TOWER - DAY"
+        ])
+        XCTAssertEqual(state.sceneSignals.first?.signalLabel, "PEAK · LONG")
+        XCTAssertEqual(state.hiddenSceneSignalCount, 1)
+        XCTAssertEqual(state.warnings.map(\.code), ["signal_1", "signal_2", "signal_3"])
+        XCTAssertEqual(state.warnings.first?.severityLabel, "MEDIUM")
+        XCTAssertEqual(state.hiddenWarningCount, 1)
+    }
+
+    func testReaderPreviewStateUsesBalancedFallbacks() {
+        let report = ScreenplayCraftCoverageSimulationReport(
+            schemaVersion: 1,
+            overview: ScreenplayCraftCoverageOverview(
+                pageCount: 1,
+                sceneCount: 0,
+                dialogueRatio: -0.4,
+                avgSceneLengthLines: 0
+            ),
+            pacing: ScreenplayCraftCoveragePacing(
+                intensity: " ",
+                peakScenes: [],
+                longScenes: [],
+                shortScenes: []
+            ),
+            characters: [],
+            warnings: [],
+            frameworkId: nil,
+            summary: "  "
+        )
+
+        let state = ScreenplayCraftReaderPreviewState.make(report: report)
+
+        XCTAssertEqual(state.dialogueLabel, "0%")
+        XCTAssertEqual(state.paceLabel, "Unknown")
+        XCTAssertEqual(state.summary, "Reader preview ready.")
+        XCTAssertTrue(state.characters.isEmpty)
+        XCTAssertEqual(state.hiddenCharacterCount, 0)
+        XCTAssertTrue(state.sceneSignals.isEmpty)
+        XCTAssertEqual(state.hiddenSceneSignalCount, 0)
+        XCTAssertTrue(state.warnings.isEmpty)
+        XCTAssertEqual(state.hiddenWarningCount, 0)
+    }
+
+    func testCoverageSnapshotPreservesFastResponseWhenMatchingDebounceArrives() {
+        let snapshot = ScreenplayCraftCoverageSnapshot(
+            draft: "  INT. TERMINAL - NIGHT\n\nJUNE\nWait.  ",
+            frameworkId: " save-the-cat "
+        )
+
+        XCTAssertTrue(snapshot.matches(
+            draft: "INT. TERMINAL - NIGHT\n\nJUNE\nWait.",
+            frameworkId: "save-the-cat"
+        ))
+    }
+
+    func testCoverageSnapshotRejectsChangedDraftOrFramework() {
+        let snapshot = ScreenplayCraftCoverageSnapshot(
+            draft: "INT. TERMINAL - NIGHT",
+            frameworkId: "save-the-cat"
+        )
+
+        XCTAssertFalse(snapshot.matches(
+            draft: "EXT. RUNWAY - DAWN",
+            frameworkId: "save-the-cat"
+        ))
+        XCTAssertFalse(snapshot.matches(
+            draft: "INT. TERMINAL - NIGHT",
+            frameworkId: "story-circle"
+        ))
+    }
+
     func testLoglineResponsesDecodeBackendEnvelopes() throws {
         let distilled = try JSONDecoder().decode(ScreenplayCraftLoglineDistillResponse.self, from: Data(#"""
         {

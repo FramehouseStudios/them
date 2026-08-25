@@ -2,6 +2,21 @@ import SwiftUI
 import ScreenplayStudio
 import Combine
 
+nonisolated struct ScreenplayCraftCoverageSnapshot: Equatable {
+    let draft: String
+    let frameworkId: String?
+
+    init(draft: String, frameworkId: String?) {
+        self.draft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFrameworkId = frameworkId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.frameworkId = cleanFrameworkId.isEmpty ? nil : cleanFrameworkId
+    }
+
+    func matches(draft: String, frameworkId: String?) -> Bool {
+        self == ScreenplayCraftCoverageSnapshot(draft: draft, frameworkId: frameworkId)
+    }
+}
+
 
 #if DEBUG || os(macOS)
 struct StudioDebugVoiceRenderStatusSnapshot: Decodable {
@@ -1463,6 +1478,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isFormatLinting: Bool = false
     @Published var formatLintErrorText: String = ""
     @Published var formatLintSourceText: String = ""
+    @Published var coverageSimulationReport: ScreenplayCraftCoverageSimulationReport?
+    @Published var isCoverageSimulating: Bool = false
+    @Published var coverageSimulationErrorText: String = ""
+    @Published var coverageSimulationSourceText: String = ""
+    private var coverageSimulationSnapshot: ScreenplayCraftCoverageSnapshot?
     @Published var craftLogline: ScreenplayCraftLoglineDistillResponse?
     @Published var craftLoglineDrift: ScreenplayCraftLoglineDriftResponse?
     @Published var craftLoglineHistory: [ScreenplayCraftLoglineEntry] = []
@@ -1497,6 +1517,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
+    }
+
+    var canSimulateCraftCoverage: Bool {
+        !fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCoverageSimulating
+    }
+
+    var isCoverageSimulationCurrent: Bool {
+        guard coverageSimulationReport != nil, let coverageSimulationSnapshot else { return true }
+        return coverageSimulationSnapshot.matches(
+            draft: fountainDraft,
+            frameworkId: selectedCraftFrameworkID
+        )
     }
 
     var screenplayExportMenuItems: [ScreenplayExportMenuItem] {
@@ -4092,6 +4124,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         formatLintReport = nil
         formatLintErrorText = ""
         formatLintSourceText = ""
+        clearCoverageSimulation()
         conflictState = nil
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             clearLocalDraftRecovery(projectId: selectedProjectID)
@@ -4200,6 +4233,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         acceptedCraftTwists = []
         acceptedCraftTwistErrorText = ""
         acceptedCraftTwistInfoText = ""
+        clearCoverageSimulation()
         if clearFrameworks {
             craftFrameworks = []
             selectedCraftFrameworkID = ""
@@ -4208,9 +4242,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func noteCraftFrameworkSelectionChanged() {
         let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let report = craftReport, !cleanSelected.isEmpty, report.framework.id != cleanSelected else { return }
-        craftReport = nil
-        craftInfoText = "Analyze with the selected framework to update the beat sheet."
+        if let coverageSimulationSnapshot,
+           !coverageSimulationSnapshot.matches(draft: fountainDraft, frameworkId: cleanSelected) {
+            clearCoverageSimulation()
+        }
+        if let report = craftReport, !cleanSelected.isEmpty, report.framework.id != cleanSelected {
+            craftReport = nil
+            craftInfoText = "Analyze with the selected framework to update the beat sheet."
+        }
     }
 
     func loadCraftReport(force: Bool = false) async {
@@ -4347,6 +4386,74 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             formatLintSourceText = source
         }
+    }
+
+    func refreshCraftCoverage(source: String = "Draft") async {
+        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            clearCoverageSimulation()
+            return
+        }
+        guard !isCoverageSimulating else { return }
+
+        let frameworkId = normalizedOrNil(selectedCraftFrameworkID)
+        let pageCount = craftFallbackPageCount
+        let projectId = selectedProjectID
+        isCoverageSimulating = true
+        defer { isCoverageSimulating = false }
+        coverageSimulationErrorText = ""
+
+        do {
+            let report = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.simulateCraftCoverage(
+                    text: draft,
+                    pageCount: pageCount,
+                    frameworkId: frameworkId
+                )
+            }
+            guard projectId == selectedProjectID,
+                  draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                  frameworkId == normalizedOrNil(selectedCraftFrameworkID) else { return }
+            coverageSimulationReport = report
+            coverageSimulationSnapshot = ScreenplayCraftCoverageSnapshot(
+                draft: draft,
+                frameworkId: frameworkId
+            )
+            coverageSimulationSourceText = source
+        } catch BackendError.http(400, _) {
+            guard projectId == selectedProjectID,
+                  draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                  frameworkId == normalizedOrNil(selectedCraftFrameworkID) else { return }
+            coverageSimulationReport = nil
+            coverageSimulationErrorText = "Draft is empty."
+            coverageSimulationSourceText = source
+            coverageSimulationSnapshot = ScreenplayCraftCoverageSnapshot(
+                draft: draft,
+                frameworkId: frameworkId
+            )
+        } catch {
+            guard projectId == selectedProjectID,
+                  draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines),
+                  frameworkId == normalizedOrNil(selectedCraftFrameworkID) else { return }
+            coverageSimulationReport = nil
+            coverageSimulationErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "reader preview"
+            )
+            coverageSimulationSourceText = source
+            coverageSimulationSnapshot = ScreenplayCraftCoverageSnapshot(
+                draft: draft,
+                frameworkId: frameworkId
+            )
+        }
+    }
+
+    private func clearCoverageSimulation() {
+        coverageSimulationReport = nil
+        coverageSimulationErrorText = ""
+        coverageSimulationSourceText = ""
+        coverageSimulationSnapshot = nil
     }
 
     func refreshCraftLogline(source: String = "Draft") async {
@@ -5264,6 +5371,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func handleDraftDebouncedChange(_ draft: String) async {
         guard !isHydratingDraft else { return }
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasCoveragePresentation = coverageSimulationReport != nil ||
+            !coverageSimulationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasCoveragePresentation,
+           coverageSimulationSnapshot?.matches(
+               draft: normalized,
+               frameworkId: selectedCraftFrameworkID
+           ) != true {
+            clearCoverageSimulation()
+        }
         let currentFingerprint = fingerprint(for: normalized)
         hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
         if hasUnsavedDraftChanges && isManualDraftEditing {

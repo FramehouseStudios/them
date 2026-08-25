@@ -2720,6 +2720,24 @@ final class BackendClient {
         )
     }
 
+    func simulateCraftCoverage(
+        text: String,
+        pageCount: Int? = nil,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayCraftCoverageSimulationReport {
+        let request = ScreenplayCraftCoverageSimulationRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            pageCount: pageCount,
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "coverage", "simulate"],
+            body: request,
+            responseType: ScreenplayCraftCoverageSimulationReport.self
+        )
+    }
+
     func recordCraftTurnOverride(
         _ override: ScreenplayCraftTurnOverrideMutation
     ) async throws -> ScreenplayCraftTurnOverride {

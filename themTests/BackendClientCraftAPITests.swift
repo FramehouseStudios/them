@@ -1039,6 +1039,71 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
     }
 
+    func testCoverageSimulationPostsDraftMetricsAndFramework() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/craft/coverage/simulate")
+            return .json(#"""
+            {
+              "schemaVersion": 1,
+              "overview": {
+                "pageCount": 90,
+                "sceneCount": 2,
+                "dialogueRatio": 0.2,
+                "avgSceneLengthLines": 9
+              },
+              "pacing": {
+                "intensity": "medium",
+                "peakScenes": [{ "idx": 0, "heading": "INT. TERMINAL - NIGHT", "lineCount": 12 }],
+                "longScenes": [],
+                "shortScenes": [{ "idx": 1, "heading": "EXT. RUNWAY - DAWN", "lineCount": 6 }]
+              },
+              "characters": [{ "name": "JUNE", "lineCount": 4, "sceneCount": 2, "share": 0.5 }],
+              "warnings": [{ "severity": "soft", "code": "dialogue_thin", "message": "Dialogue is sparse." }],
+              "frameworkId": "save-the-cat",
+              "summary": "2 scene(s), 20% dialogue — reads balanced."
+            }
+            """#)
+        }
+
+        let report = try await client.simulateCraftCoverage(
+            text: "INT. TERMINAL - NIGHT\n\nJUNE\nWait.",
+            pageCount: 90,
+            frameworkId: "save-the-cat"
+        )
+
+        XCTAssertEqual(report.overview.pageCount, 90)
+        XCTAssertEqual(report.pacing.peakScenes.first?.heading, "INT. TERMINAL - NIGHT")
+        XCTAssertEqual(report.characters.first?.share, 0.5)
+        XCTAssertEqual(report.warnings.first?.code, "dialogue_thin")
+        XCTAssertEqual(recorder.methodsAndPaths, ["POST /craft/coverage/simulate"])
+        XCTAssertEqual(recorder.allHeaders(named: "X-Craft-Schema-Version"), ["1"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["text"] as? String, "INT. TERMINAL - NIGHT\n\nJUNE\nWait.")
+        XCTAssertEqual(body["pageCount"] as? Int, 90)
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
+    func testCoverageSimulationRejectsBlankTextBeforeTransport() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { _ in
+            XCTFail("Blank coverage text should fail before transport.")
+            return .json(#"{}"#)
+        }
+
+        do {
+            _ = try await client.simulateCraftCoverage(text: "  \n  ")
+            XCTFail("Expected local craft validation error")
+        } catch BackendError.stage(let stage, let message) {
+            XCTAssertEqual(stage, "craft")
+            XCTAssertEqual(message, "text is required.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertTrue(recorder.requests.isEmpty)
+    }
+
     func testLoglineEndpointsBuildExpectedRequests() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in
