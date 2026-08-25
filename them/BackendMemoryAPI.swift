@@ -3117,6 +3117,13 @@ nonisolated enum BackendAuthClient {
         return currentAuthSessionState()
     }
 
+    static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
+        let current = currentAuthSessionState()
+        guard current.refreshTokenPresent else { return current }
+        guard !current.isAuthenticated || current.accessExpired else { return current }
+        return try await refreshAuthSession(force: true)
+    }
+
     static func logout() async throws {
         let accessTokenValue = accessToken() ?? ""
         let refreshTokenValue = refreshToken() ?? ""
@@ -3328,6 +3335,7 @@ nonisolated enum BackendAuthClient {
             return user
         }
 #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return nil }
         let signedIn = preferenceStringValues(forKey: DefaultsKey.authSignedIn).contains { rawValue in
             let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return ["1", "true", "yes", "on"].contains(normalized)
@@ -3433,15 +3441,17 @@ nonisolated enum BackendAuthClient {
 
     fileprivate static func accessToken() -> String? {
 #if DEBUG
-        let debugAccessEnabled = preferenceStringValues(forKey: "auth_debug_access_token_enabled").contains { rawValue in
-            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return ["1", "true", "yes", "on"].contains(normalized)
-        } || UserDefaults.standard.bool(forKey: "auth_debug_access_token_enabled")
-        if debugAccessEnabled {
-            let trimmedDebugToken = preferenceString(forKey: "auth_debug_access_token")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedDebugToken.isEmpty {
-                return trimmedDebugToken
+        if IOThemRuntime.isStudioAutomationSession {
+            let debugAccessEnabled = preferenceStringValues(forKey: "auth_debug_access_token_enabled").contains { rawValue in
+                let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return ["1", "true", "yes", "on"].contains(normalized)
+            } || UserDefaults.standard.bool(forKey: "auth_debug_access_token_enabled")
+            if debugAccessEnabled {
+                let trimmedDebugToken = preferenceString(forKey: "auth_debug_access_token")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedDebugToken.isEmpty {
+                    return trimmedDebugToken
+                }
             }
         }
 #endif
@@ -3464,10 +3474,12 @@ nonisolated enum BackendAuthClient {
 
     private static func refreshToken() -> String? {
 #if DEBUG
-        let debugToken = preferenceString(forKey: "auth_debug_refresh_token")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !debugToken.isEmpty {
-            return debugToken
+        if IOThemRuntime.isStudioAutomationSession {
+            let debugToken = preferenceString(forKey: "auth_debug_refresh_token")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !debugToken.isEmpty {
+                return debugToken
+            }
         }
 #endif
         guard !IOThemRuntime.isRunningTests else { return nil }

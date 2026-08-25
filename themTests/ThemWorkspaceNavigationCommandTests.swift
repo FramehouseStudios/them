@@ -143,4 +143,48 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
             )
         )
     }
+
+    func testWorkspaceAuthenticationRefreshesPersistedSessionBeforeRequiringAccount() {
+        let expiredAccessDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: true,
+            accessTokenExpired: true,
+            refreshTokenPresent: true,
+            isRunningUITests: false
+        )
+        guard case .refreshPersistedSession = expiredAccessDecision else {
+            return XCTFail("Expected an expired access token to restore through the refresh token.")
+        }
+
+        let missingAccessDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: false,
+            accessTokenExpired: false,
+            refreshTokenPresent: true,
+            isRunningUITests: false
+        )
+        guard case .refreshPersistedSession = missingAccessDecision else {
+            return XCTFail("Expected a missing access token to restore through the refresh token.")
+        }
+    }
+
+    func testWorkspaceAuthenticationRequiresAccountWhenNoSessionCanBeRestored() {
+        let missingSessionDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: false,
+            accessTokenExpired: false,
+            refreshTokenPresent: false,
+            isRunningUITests: false
+        )
+        guard case .requireAccount = missingSessionDecision else {
+            return XCTFail("Expected a missing saved session to require an account.")
+        }
+
+        let liveSessionDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: true,
+            accessTokenExpired: false,
+            refreshTokenPresent: true,
+            isRunningUITests: false
+        )
+        guard case .openWorkspace = liveSessionDecision else {
+            return XCTFail("Expected a live access token to open Studio immediately.")
+        }
+    }
 }

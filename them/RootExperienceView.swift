@@ -771,6 +771,7 @@ struct RootExperienceView: View {
     @State private var showingTrustCenter = false
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
+    @State private var isRestoringWorkspaceAuthSession = false
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
@@ -4042,13 +4043,20 @@ struct RootExperienceView: View {
 
     private func openStudio() {
         let authSession = BackendAuthClient.currentAuthSessionState()
-        if ThemWorkspaceAuthenticationPolicy.requiresAccount(
+        switch ThemWorkspaceAuthenticationPolicy.accessDecision(
             isAuthenticated: authSession.isAuthenticated,
             accessTokenExpired: authSession.accessExpired,
+            refreshTokenPresent: authSession.refreshTokenPresent,
             isRunningUITests: IOThemRuntime.isRunningUITests
         ) {
+        case .refreshPersistedSession:
+            restorePersistedAuthSessionAndOpenStudio()
+            return
+        case .requireAccount:
             openAccount(resumeStudioAfterSignIn: true)
             return
+        case .openWorkspace:
+            break
         }
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
@@ -4085,6 +4093,28 @@ struct RootExperienceView: View {
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
+            }
+        }
+    }
+
+    @MainActor
+    private func restorePersistedAuthSessionAndOpenStudio() {
+        guard !isRestoringWorkspaceAuthSession else { return }
+        isRestoringWorkspaceAuthSession = true
+        Task { @MainActor in
+            defer { isRestoringWorkspaceAuthSession = false }
+            do {
+                let restored = try await BackendAuthClient.restorePersistedAuthSessionIfNeeded()
+                guard restored.isAuthenticated, !restored.accessExpired else {
+                    openAccount(resumeStudioAfterSignIn: true)
+                    return
+                }
+                resumeStudioAfterAccountSignIn = false
+                handleAccountSessionChanged()
+                openStudio()
+            } catch {
+                openAccount(resumeStudioAfterSignIn: true)
+                lastIssueSummary = "Your saved session could not be refreshed. Sign in again to continue into Studio."
             }
         }
     }

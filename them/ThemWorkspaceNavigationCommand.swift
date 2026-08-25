@@ -71,6 +71,28 @@ enum ThemWorkspaceSurfaceRestorePolicy {
 }
 
 enum ThemWorkspaceAuthenticationPolicy {
+    enum AccessDecision {
+        case openWorkspace
+        case refreshPersistedSession
+        case requireAccount
+    }
+
+    static func accessDecision(
+        isAuthenticated: Bool,
+        accessTokenExpired: Bool,
+        refreshTokenPresent: Bool,
+        isRunningUITests: Bool
+    ) -> AccessDecision {
+        guard !isRunningUITests else { return .openWorkspace }
+        if isAuthenticated, !accessTokenExpired {
+            return .openWorkspace
+        }
+        if refreshTokenPresent {
+            return .refreshPersistedSession
+        }
+        return .requireAccount
+    }
+
     static func requiresAccount(
         isAuthenticated: Bool,
         accessTokenExpired: Bool,
