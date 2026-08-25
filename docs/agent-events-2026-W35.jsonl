@@ -1,1 +1,2 @@
 {"at":"2026-08-25T09:12:07.104Z","by":"codex","kind":"pr_opened","pr":366,"comment":"Opened stacked iOS Reader Preview PR with 448/448 tests, iOS/macOS Release builds, and live coverage endpoint verification green."}
+{"at":"2026-08-25T10:16:41.504Z","by":"codex","kind":"pr_opened","pr":367,"comment":"Opened stacked V1 UI smoke repair PR after 29 UI tests completed with 7 expected fixture skips and 0 failures, 450 unit tests passed, macOS scaffold build passed, and strict preflight was green."}
