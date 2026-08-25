@@ -2,8 +2,8 @@
 id: T-ios-xcuitest-v1-smoke
 title: Thin XCUITest scaffold for the V1 manual smoke checklist
 owner: codex
-status: ready
-branch: -
+status: in-progress
+branch: codex/T-ios-xcuitest-v1-smoke-bash32
 pillar: ios
 v1_pillar: ios
 v1_effect: replaces 'manual human on device' V1 smoke gate with five automated XCUITests covering the iOS golden-path contracts.
