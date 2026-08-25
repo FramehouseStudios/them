@@ -3981,6 +3981,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     #if DEBUG
+    func applyStructuralUITestDraft(_ draft: String, versionID: String) {
+        let normalizedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        isHydratingDraft = true
+        fountainDraft = draft
+        latestVersionID = normalizedVersionID
+        isHydratingDraft = false
+        loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        isManualDraftEditing = false
+        lastManualDraftEditAt = .distantPast
+        lastSavedDraftFingerprint = fingerprint(for: normalizedDraft)
+        lastRevisionBaseDraft = normalizedDraft
+        hasUnsavedDraftChanges = false
+        autosaveStatusText = normalizedDraft.isEmpty ? "Ready" : "Loaded latest draft"
+        recoveryCandidate = nil
+        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !projectID.isEmpty {
+            clearLocalDraftRecovery(projectId: projectID)
+        }
+    }
+
     func runQueuedSaveNetworkFaultUITest(marker: String, offlineBaseURL: String) async {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanMarker.isEmpty, selectedProject != nil else { return }
@@ -5520,6 +5541,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func reconnectAndResumeQueuedDraftSaves() async {
+        await refreshDraftSaveOutboxStatus()
+        guard queuedDraftSaveCount > 0 else { return }
         if !didLoadScreenplayProjectsFromBackend {
             guard !isLoading else { return }
             await load()

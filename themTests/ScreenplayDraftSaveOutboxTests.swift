@@ -183,6 +183,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(stored.first?.lastError, "offline 6")
     }
 
+    func testUITestResetRemovesPersistedDraftSaveQueue() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "stale-ui-save"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: storageDirectory.path))
+
+        ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(at: storageDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storageDirectory.path))
+    }
+
     private func makeEntry(
         id: String,
         draft: String = "Draft one",

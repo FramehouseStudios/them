@@ -847,7 +847,12 @@ Replace is best when this file should become the script you edit. Append is safe
                 if let mode = DirectionOneWorkspaceMode(tab: newValue) {
                     directionOneWorkspaceMode = mode
                 }
-                if newValue == .them {
+                #if DEBUG
+                let shouldRefreshThemRail = !UITestLaunchConfiguration.hasStructuralStudioFixture()
+                #else
+                let shouldRefreshThemRail = true
+                #endif
+                if newValue == .them, shouldRefreshThemRail {
                     Task {
                         await refreshStudioCreativeInstincts(force: true)
                         await vm.refreshBlockSignal(source: "io.them rail")
@@ -1051,7 +1056,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .task {
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests,
-                   ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict") {
+                   UITestLaunchConfiguration.shouldBypassStudioHydration() {
                     return
                 }
                 #endif
@@ -1064,7 +1069,6 @@ Replace is best when this file should become the script you edit. Append is safe
                 publishDebugStudioDiffState()
                 #endif
                 #if DEBUG
-                applyUITestPendingScreenplayQuestionFixtureIfNeeded()
                 await applyUITestSaveNetworkFaultIfNeeded()
                 #endif
                 await vm.refreshScreenplayExportFormatsAutomatically()
@@ -14405,8 +14409,7 @@ Look at the city.
         isBeatListDropTargeted = false
         shouldRestoreInspectorWorkspaceOnNextOutlineChange = true
         vm.outline = outline
-        vm.latestVersionID = "debug-version"
-        vm.fountainDraft = sampleDraft
+        vm.applyStructuralUITestDraft(sampleDraft, versionID: "debug-version")
         vm.characterTraits = BackendCharacterTraitsResponse(
             schemaVersion: 1,
             userId: "ui-structural",
@@ -14512,6 +14515,7 @@ Look at the city.
             openStudioCommandBar()
         }
         applyUITestDraftConflictFixtureIfNeeded()
+        applyUITestPendingScreenplayQuestionFixtureIfNeeded()
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
             studioPromptRoutingMode = .page
             submitStudioPromptText(

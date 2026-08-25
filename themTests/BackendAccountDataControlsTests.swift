@@ -952,6 +952,59 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testUITestStudioFixtureHydrationBypassIsExplicit() {
+        XCTAssertTrue(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-show-draft-conflict"]
+            )
+        )
+        XCTAssertTrue(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-show-pending-screenplay-question"]
+            )
+        )
+        XCTAssertTrue(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "42"]
+            )
+        )
+        XCTAssertTrue(
+            UITestLaunchConfiguration.hasStructuralStudioFixture(
+                arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "42"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-open-studio"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-show-draft-conflict"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.hasStructuralStudioFixture(
+                arguments: ["them", "-studio_debug_seed_structural_token", "42"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.hasStructuralStudioFixture(
+                arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.hasStructuralStudioFixture(
+                arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "invalid"]
+            )
+        )
+        XCTAssertFalse(
+            UITestLaunchConfiguration.hasStructuralStudioFixture(
+                arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "0"]
+            )
+        )
+    }
+
     func testUITestLaunchConfigurationSeedsBackendRestoreDefaultsFromEnvironment() throws {
         let suiteName = "io.them.tests.ui-launch-\(UUID().uuidString)"
         let suiteDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

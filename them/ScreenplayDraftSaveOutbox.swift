@@ -291,6 +291,25 @@ actor ScreenplayDraftSaveOutbox {
         return entries
     }
 
+    #if DEBUG
+    nonisolated static func resetStoredQueueForUITesting(
+        fileManager: FileManager = .default
+    ) {
+        resetStoredQueueForUITesting(
+            at: defaultStorageDirectory(),
+            fileManager: fileManager
+        )
+    }
+
+    nonisolated static func resetStoredQueueForUITesting(
+        at storageDirectory: URL,
+        fileManager: FileManager = .default
+    ) {
+        guard fileManager.fileExists(atPath: storageDirectory.path) else { return }
+        try? fileManager.removeItem(at: storageDirectory)
+    }
+    #endif
+
     private static func defaultStorageDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory

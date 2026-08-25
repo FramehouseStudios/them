@@ -14,6 +14,7 @@ nonisolated enum UITestLaunchConfiguration {
            let bundleID = Bundle.main.bundleIdentifier {
             defaults.removePersistentDomain(forName: bundleID)
             ScreenplayLiveDraftFileStore.remove()
+            ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }
 
@@ -68,6 +69,30 @@ nonisolated enum UITestLaunchConfiguration {
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON", from: environment, to: "studio.diff.keep-current.writeids.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_APPLIED_MEMORY_JSON", from: environment, to: "studio_latest_applied_memory_v1", defaults: defaults)
         defaults.synchronize()
+    }
+
+    static func shouldBypassStudioHydration(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard arguments.contains("--ui-testing") else { return false }
+        return arguments.contains("--ui-show-draft-conflict")
+            || arguments.contains("--ui-show-pending-screenplay-question")
+            || hasStructuralStudioFixture(arguments: arguments)
+    }
+
+    static func hasStructuralStudioFixture(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard arguments.contains("--ui-testing"),
+              let index = arguments.firstIndex(of: "-studio_debug_seed_structural_token") else {
+            return false
+        }
+        let valueIndex = arguments.index(after: index)
+        guard arguments.indices.contains(valueIndex),
+              let token = Int(arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+        return token > 0
     }
 
     private static func copyLaunchArgumentValue(

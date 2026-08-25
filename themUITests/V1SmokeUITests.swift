@@ -270,9 +270,11 @@ final class V1SmokeUITests: XCTestCase {
         }
         XCTAssertTrue(reversalCards.waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["studio.them.reversal-cards.refresh"].exists)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["studio.them.reversal-card.ui-twist-midpoint"].exists
-        )
+        let reversalCard = app.otherElements["studio.them.reversal-card.ui-twist-midpoint"]
+        for _ in 0..<8 where !reversalCard.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(reversalCard.waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.keep"].exists)
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
@@ -395,7 +397,10 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pinRoute = element(identifier: "studio.prompt.routing.voicePin", in: app)
         XCTAssertTrue(pinRoute.waitForExistence(timeout: 4))
-        XCTAssertTrue(pinRoute.isSelected, "Reuse did not retain Voice Pin routing.")
+        XCTAssertTrue(
+            waitForSelection(of: pinRoute, timeout: 4),
+            "Reuse did not retain Voice Pin routing."
+        )
 
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
         for _ in 0..<20 where !toPage.isHittable {
@@ -418,7 +423,10 @@ final class V1SmokeUITests: XCTestCase {
         )
         let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
         XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
-        XCTAssertTrue(pageRoute.isSelected, "To Page did not re-route the current exchange to the page.")
+        XCTAssertTrue(
+            waitForSelection(of: pageRoute, timeout: 4),
+            "To Page did not re-route the current exchange to the page."
+        )
     }
 
     func test_memory_recall_includes_a_mentioned_character() {
@@ -2366,6 +2374,20 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
+    }
+
+    private func waitForSelection(
+        of element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists, element.isSelected {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return element.exists && element.isSelected
     }
 
     private func waitForFirstVisibleElement(
