@@ -4,6 +4,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import {
   assertInteractionLifecycle,
+  createStudioOwnedAppController,
   createStudioDebugDefaultsTransport,
   defaultStudioSessionTelemetry,
   ensureStudioProjectLoadedWithDebugHook,
@@ -42,14 +43,8 @@ function runOptional(command, args, options = {}) {
 
 const studioAppSessionHelperPath = fileURLToPath(new URL("./studio_app_session_helper.sh", import.meta.url));
 const studioDebugDefaults = createStudioDebugDefaultsTransport({ run, runOptional });
-
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
-}
+const studioApp = createStudioOwnedAppController({ runOptional });
+let smokeAppSession = defaultStudioSessionTelemetry();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,191 +111,24 @@ function findDebugAppPath() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    'try',
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
-function activateApp(appPath = "") {
-  if (!appIsRunning() && appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  const pid = currentAppPidForPath(appPath) || currentAppPids()[0] || 0;
-  if (!pid) {
-    if (appPath) {
-      runOptional("open", ["-na", appPath]);
-    }
-    return;
-  }
-  const appleScript = runOptional("osascript", [
-    "-e", "tell application \"System Events\"",
-    "-e", "repeat with attempt from 1 to 40",
-    "-e", `set matchingProcesses to (processes whose unix id is ${pid})`,
-    "-e", "if (count of matchingProcesses) > 0 then",
-    "-e", "set targetProcess to item 1 of matchingProcesses",
-    "-e", "set visible of targetProcess to true",
-    "-e", "set frontmost of targetProcess to true",
-    "-e", "return \"1\"",
-    "-e", "end if",
-    "-e", "delay 0.1",
-    "-e", "end repeat",
-    "-e", `error "unable to activate THEM pid ${pid}"`,
-    "-e", "end tell",
-  ]);
-  if (appleScript.status === 0) return;
-  const message = `${appleScript.stderr}\n${appleScript.stdout}`;
-  if (/timed out|Connection is invalid|\(-609\)/i.test(message)) {
-    if (appPath) {
-      runOptional("open", ["-na", appPath]);
-    }
-    return;
-  }
-  throw new Error(message.trim() || 'unable to activate "them"');
-}
-
-function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
-}
-
-function currentAppPidForPath(appPath = "") {
-  const cleanAppPath = String(appPath || "").trim();
-  if (!cleanAppPath) return 0;
-  const executablePath = cleanAppPath.endsWith("/Contents/MacOS/them")
-    ? cleanAppPath
-    : `${cleanAppPath.replace(/\/+$/, "")}/Contents/MacOS/them`;
-  const result = runOptional("ps", ["-axo", "pid=,command="]);
-  if (result.status !== 0 || !result.stdout.trim()) return 0;
-  const matches = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
-    if (!line.includes(executablePath)) continue;
-    const match = line.trim().match(/^(\d+)\s+/);
-    if (match) matches.push(Number(match[1]));
-  }
-  return matches.find((value) => Number.isInteger(value) && value > 0) || 0;
-}
-
-function currentAppPids() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  if (result.status !== 0 || !result.stdout.trim()) return [];
-  return result.stdout
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((value) => Number(value))
-    .filter((value) => Number.isInteger(value) && value > 0);
-}
-
-function samePidSet(left, right) {
-  if (left.length !== right.length) return false;
-  const sortedLeft = [...left].sort((a, b) => a - b);
-  const sortedRight = [...right].sort((a, b) => a - b);
-  return sortedLeft.every((value, index) => value === sortedRight[index]);
-}
-
-function defaultSmokeSessionTelemetry() {
-  return defaultStudioSessionTelemetry();
-}
-
-function parsePidList(raw) {
-  return String(raw || "")
-    .split(",")
-    .map((value) => Number(value.trim()))
-    .filter((value) => Number.isInteger(value) && value > 0);
-}
-
-function parseBoolFlag(raw) {
-  const normalized = String(raw || "").trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function parseStudioAppSessionHelperOutput(stdout = "") {
-  const telemetry = defaultSmokeSessionTelemetry();
-  for (const line of String(stdout || "").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const separator = trimmed.indexOf("=");
-    if (separator <= 0) continue;
-    const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim();
-    switch (key) {
-      case "OK":
-        telemetry.helperStatus = parseBoolFlag(value) ? "ok" : "error";
-        break;
-      case "STALE_PIDS":
-        telemetry.stalePidSet = parsePidList(value);
-        telemetry.hadExistingSession = telemetry.stalePidSet.length > 0;
-        break;
-      case "RELAUNCHED_PIDS":
-        telemetry.relaunchedPidSet = parsePidList(value);
-        break;
-      case "REUSED_EXISTING_SESSION":
-        telemetry.reusedExistingSession = parseBoolFlag(value);
-        break;
-      case "LAST_TEARDOWN_STAGE":
-        telemetry.lastTeardownStage = value || telemetry.lastTeardownStage;
-        break;
-      case "FRESH_PID": {
-        const parsed = Number(value);
-        telemetry.freshPid = Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-        break;
-      }
-      case "HAD_EXISTING_SESSION":
-        telemetry.hadExistingSession = parseBoolFlag(value);
-        break;
-      case "SESSION_MODE":
-        telemetry.sessionMode = value || telemetry.sessionMode;
-        break;
-      case "ERROR_MESSAGE":
-        telemetry.helperError = value;
-        break;
-      default:
-        break;
-    }
-  }
-  return telemetry;
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 function relaunchAppWithHelper(appPath) {
-  return relaunchStudioAppWithHelper({
+  const appSession = relaunchStudioAppWithHelper({
     helperPath: studioAppSessionHelperPath,
     appPath,
     timeoutSeconds: readEnvInt("STUDIO_APP_SESSION_TIMEOUT_SECONDS", 20),
     pollMillis: readEnvInt("STUDIO_APP_SESSION_POLL_MILLIS", 250),
     runOptional,
   });
-}
-
-function killExistingAppProcesses() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  if (result.status !== 0 || !result.stdout.trim()) return;
-  const pids = result.stdout.split(/\s+/).filter(Boolean);
-  for (const pid of pids) {
-    runOptional("kill", [pid]);
-  }
-  const stubborn = runOptional("pgrep", ["-x", "them"]);
-  if (stubborn.status === 0 && stubborn.stdout.trim()) {
-    for (const pid of stubborn.stdout.split(/\s+/).filter(Boolean)) {
-      runOptional("kill", ["-9", pid]);
-    }
-  }
-}
-
-function launchApp(appPath) {
-  run("open", ["-na", appPath]);
-}
-
-function quitApp() {
-  runOptional("osascript", ["-e", 'try', "-e", 'tell application \"them\" to quit', "-e", 'end try']);
+  studioApp.bindSession(appPath, appSession);
+  smokeAppSession = appSession;
+  return appSession;
 }
 
 async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
@@ -309,13 +137,10 @@ async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 2
 
 function sendCmdReturn() {
   activateApp(appPath);
-  osascript([
-    'delay 0.35',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
+  studioApp.runProcessAppleScript([
+    "delay 0.35",
     'delay 0.1',
     'keystroke return using {command down}',
-    'end tell',
   ]);
 }
 
@@ -924,8 +749,8 @@ async function ensureStudioVisible() {
     } catch (error) {
       lastError = error;
       await sleep(900);
-      activateApp();
-      runOptional("open", ["-na", appPath]);
+      const retrySession = relaunchAppWithHelper(appPath);
+      activateApp(appPath, retrySession);
       await waitFor(
         () => appHasWindow(),
         `visible THEM window before Studio open retry ${attempt}`,
@@ -1518,15 +1343,6 @@ async function acknowledgeDiff(diffKey) {
   return token;
 }
 
-async function relaunchApp(appPath) {
-  quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit", 15000, 300);
-  launchApp(appPath);
-  await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp(appPath);
-  await ensureStudioVisible();
-}
-
 async function prepareAppForSmoke(appPath) {
   resetStudioDebugHandshakeDefaults();
   // Keep the relaunched app on the same backend as the smoke harness.
@@ -1534,7 +1350,7 @@ async function prepareAppForSmoke(appPath) {
   const priorLifecycle = readStudioDebugLifecycleSnapshot();
   const appSession = relaunchAppWithHelper(appPath);
   try {
-    activateApp(appPath);
+    activateApp(appPath, appSession);
     await waitFor(() => appHasWindow(), "visible THEM window after launch", 20000, 300);
     await waitForStudioLifecycleReady(priorLifecycle.timestampMs);
     const priorOpenToken = readDefaultInt("studio_debug_open_token");
@@ -1554,7 +1370,7 @@ async function prepareAppForSmoke(appPath) {
       + `App session telemetry: ${JSON.stringify(appSession, null, 2)}`
     );
   }
-  return appSession;
+  return studioApp.session || appSession;
 }
 
 function readStudioVoiceTurnDebugSnapshot(token) {
@@ -1992,7 +1808,6 @@ const baselineDiffState = readDebugDiffState() || {
   projectKey: "",
 };
 
-let smokeAppSession = defaultSmokeSessionTelemetry();
 smokeAppSession = await prepareAppForSmoke(appPath);
 if (requiresPreloadedStudioProject) {
   await ensureStudioVisible();

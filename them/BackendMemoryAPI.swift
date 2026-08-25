@@ -3573,6 +3573,13 @@ nonisolated enum BackendAuthClient {
 
     private static func preferenceValues(forKey key: String) -> [Any] {
         #if DEBUG
+        if IOThemRuntime.isStudioAutomationSession,
+           let explicitValue = IOThemRuntime.explicitPreferenceArgumentValue(
+               forKey: key,
+               arguments: ProcessInfo.processInfo.arguments
+           ) {
+            return [explicitValue]
+        }
         if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
             return [fileValue]
         }

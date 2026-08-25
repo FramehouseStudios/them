@@ -1,6 +1,11 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import http from "node:http";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-screenplay-visual-export.png";
 
@@ -31,11 +36,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -173,55 +174,30 @@ async function seedProjectVersion(projectId, title, draft) {
   return payload;
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
-}
-
-function killExistingAppProcesses() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  if (result.status !== 0 || !result.stdout.trim()) return;
-  for (const pid of result.stdout.split(/\s+/).filter(Boolean)) {
-    runOptional("kill", [pid]);
-  }
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await sleep(1200);
-  if (appIsRunning()) {
-    killExistingAppProcesses();
-  }
-  await waitFor(() => !appIsRunning(), "THEM process to quit before smoke", 15000, 300);
 }
 
 async function ensureStudioVisible() {
@@ -244,56 +220,15 @@ async function ensureStudioVisible() {
 
 async function relaunchApp(appPath) {
   await ensureAppStopped();
-  launchApp(appPath);
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
+  activateApp(appPath, appSession);
   await ensureStudioVisible();
 }
 
-function readFrontWindowInfo() {
-  const swiftSource = String.raw`
-import AppKit
-import CoreGraphics
-import Foundation
-
-let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
-    let layer = window[kCGWindowLayer as String] as? Int ?? 0
-    guard layer == 0 else { return nil }
-    guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
-    let width = Int((bounds["Width"] as? Double ?? 0).rounded())
-    let height = Int((bounds["Height"] as? Double ?? 0).rounded())
-    guard width > 0, height > 0 else { return nil }
-    let x = Int((bounds["X"] as? Double ?? 0).rounded())
-    let y = Int((bounds["Y"] as? Double ?? 0).rounded())
-    let area = width * height
-    let windowID = Int(window[kCGWindowNumber as String] as? Int ?? 0)
-    guard windowID > 0 else { return nil }
-    return ["windowID": windowID, "x": x, "y": y, "width": width, "height": height, "area": area]
-}
-guard let selected = candidates.max(by: { ($0["area"] as? Int ?? 0) < ($1["area"] as? Int ?? 0) }) else {
-    fputs("missing THEM window\n", stderr)
-    exit(1)
-}
-let data = try JSONSerialization.data(withJSONObject: selected, options: [])
-print(String(data: data, encoding: .utf8) ?? "{}")
-`;
-  const raw = run("swift", ["-e", swiftSource]).trim();
-  const parsed = JSON.parse(raw);
-  return {
-    windowID: Number(parsed.windowID || 0),
-    x: Number(parsed.x || 0),
-    y: Number(parsed.y || 0),
-    width: Number(parsed.width || 0),
-    height: Number(parsed.height || 0),
-  };
-}
-
-function captureScreenshot(path, windowInfo) {
+function captureScreenshot(path) {
   mkdirSync("/tmp/them-smoke", { recursive: true });
-  run("screencapture", ["-x", "-l", String(windowInfo.windowID), path]);
+  ownedApp.captureWindow(path);
   assert(existsSync(path), `Screenshot was not created: ${path}`);
   assert(statSync(path).size > 0, `Screenshot file is empty: ${path}`);
 }
@@ -503,8 +438,7 @@ try {
       && String(state.draftPreview || "").includes("JESSICA");
   }, `Studio project hydrate for ${throwawayProject.projectId}`, 30000, 250);
 
-  const windowInfo = readFrontWindowInfo();
-  captureScreenshot(SCREENSHOT_PATH, windowInfo);
+  captureScreenshot(SCREENSHOT_PATH);
   const visual = analyzeScreenplayLayout(SCREENSHOT_PATH);
   const bands = Array.isArray(visual.lineBands) ? visual.lineBands : [];
   assert(bands.length >= 6, `Expected at least 6 screenplay line bands, found ${bands.length}`);

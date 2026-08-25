@@ -7,6 +7,7 @@ extension ScreenplayStudioScreen {
         let selectedProjectID: String
         let latestVersionID: String
         let studioSurfaceActive: Bool
+        let initialLoadSettled: Bool
         let selectedProjectPresent: Bool
         let errorText: String
         let isSaving: Bool

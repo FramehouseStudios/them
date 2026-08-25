@@ -1,5 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -30,13 +35,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,39 +64,25 @@ function findDebugAppPath() {
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
+}
+
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
-}
-
-function killExistingAppProcesses() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  if (result.status !== 0 || !result.stdout.trim()) return;
-  for (const pid of result.stdout.split(/\s+/).filter(Boolean)) {
-    runOptional("kill", [pid]);
-  }
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 function readDefaultString(key) {
@@ -140,12 +125,11 @@ const showToken = Math.max(
 ) + 1;
 const hideToken = showToken + 1;
 
-killExistingAppProcesses();
-await waitFor(() => !appIsRunning(), "stale THEM processes to clear", 15000, 300);
-launchApp(appPath);
+quitApp();
+const appSession = launchApp(appPath);
 await waitFor(() => appIsRunning(), "THEM process after launch", 20000, 300);
 await waitFor(() => appHasWindow(), "visible THEM window", 20000, 300);
-osascript(['tell application "them" to activate']);
+activateApp(appPath, appSession);
 await sleep(800);
 
 writeDefaultString("orb_echo_debug_user_text", userText);

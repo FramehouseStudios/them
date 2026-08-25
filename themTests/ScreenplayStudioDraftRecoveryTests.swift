@@ -497,6 +497,52 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(selectedProjectId, "first-project")
     }
 
+    func testProjectLoadApplicationPolicyAcceptsUnchangedSelection() {
+        XCTAssertTrue(ScreenplayProjectLoadApplicationPolicy.shouldApply(
+            selectedProjectIDAtStart: " project-a ",
+            currentSelectedProjectID: "project-a"
+        ))
+    }
+
+    func testProjectLoadApplicationPolicyRejectsStaleSelection() {
+        XCTAssertFalse(ScreenplayProjectLoadApplicationPolicy.shouldApply(
+            selectedProjectIDAtStart: "project-a",
+            currentSelectedProjectID: "project-b"
+        ))
+    }
+
+    func testProjectBindingStoragePolicyMigratesProductStateAndIsolatesAutomation() {
+        XCTAssertEqual(
+            ScreenplayProjectBindingStoragePolicy.restoredValue(
+                productValue: "product-binding",
+                legacyDebugValue: "legacy-binding",
+                isAutomationSession: false
+            ),
+            "product-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayProjectBindingStoragePolicy.restoredValue(
+                productValue: nil,
+                legacyDebugValue: "legacy-binding",
+                isAutomationSession: false
+            ),
+            "legacy-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayProjectBindingStoragePolicy.restoredValue(
+                productValue: "product-binding",
+                legacyDebugValue: "automation-binding",
+                isAutomationSession: true
+            ),
+            "automation-binding"
+        )
+        XCTAssertNil(ScreenplayProjectBindingStoragePolicy.restoredValue(
+            productValue: "product-binding",
+            legacyDebugValue: nil,
+            isAutomationSession: true
+        ))
+    }
+
     func testPostHydrationRestorePolicyRequiresLoadedProjectAndDraftMatch() {
         XCTAssertTrue(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
             selectedProjectID: " project-a ",

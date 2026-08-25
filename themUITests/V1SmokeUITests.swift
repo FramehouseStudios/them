@@ -276,11 +276,149 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.keep"].exists)
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
+        let creativePartner = app.descendants(matching: .any)["studio.them.creative-partner"]
+        for _ in 0..<12 where !creativePartner.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(creativePartner.waitForExistence(timeout: 4))
+
+        let modePicker = app.descendants(matching: .any)["studio.them.modePicker"]
+        for _ in 0..<8 where !modePicker.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(modePicker.waitForExistence(timeout: 4))
+
+        let voicePin = app.descendants(matching: .any)["studio.them.voice-pin"]
+        for _ in 0..<8 where !voicePin.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(voicePin.waitForExistence(timeout: 4))
+
+        let emptyVoicePin = app.descendants(matching: .any)["studio.them.voice-pin.empty"]
+        let latestVoicePin = app.descendants(matching: .any)["studio.them.voice-pin.latest"]
+        for _ in 0..<8 where !emptyVoicePin.exists && !latestVoicePin.exists {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(
+            emptyVoicePin.waitForExistence(timeout: 1) ||
+                latestVoicePin.waitForExistence(timeout: 1),
+            "Creative Partner did not expose an empty or latest Voice Pin state."
+        )
+
+        let clearThread = app.buttons["studio.them.creative-partner.clear-thread"]
+        let clearMemory = app.buttons["studio.them.creative-partner.clear-memory"]
+        for _ in 0..<8 where !clearThread.isHittable || !clearMemory.isHittable {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(clearThread.waitForExistence(timeout: 4))
+        XCTAssertTrue(clearMemory.waitForExistence(timeout: 4))
+        XCTAssertTrue(clearThread.isEnabled)
+        XCTAssertTrue(clearMemory.isEnabled)
+
         let surfaceMix = app.descendants(matching: .any)["studio.them.surface-mix"]
         for _ in 0..<12 where !surfaceMix.exists {
             drawer.swipeUp()
         }
         XCTAssertTrue(surfaceMix.waitForExistence(timeout: 4))
+    }
+
+    func test_creative_partner_mode_reuse_and_to_page_callbacks() {
+        let prompt = "Help me choose the smallest playable next move for Lucy."
+        let app = launchApp(
+            openStudio: true,
+            openCommandBar: true,
+            routeVoicePin: true,
+            autoSubmitVoicePinPrompt: prompt
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.voice-pin.latest.output", in: app)
+                .waitForExistence(timeout: 10)
+        )
+
+        let themTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(themTab.waitForExistence(timeout: 8))
+        if !themTab.isSelected {
+#if os(macOS)
+            themTab.click()
+#else
+            themTab.tap()
+#endif
+        }
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let coWriterMode = element(identifier: "studio.them.mode.co_writer", in: app)
+        for _ in 0..<20 where !coWriterMode.isHittable {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(waitForHittability(of: coWriterMode, timeout: 5))
+#if os(macOS)
+        coWriterMode.click()
+#else
+        coWriterMode.tap()
+#endif
+        XCTAssertTrue(
+            waitForAccessibilityText(
+                identifier: "studio.them.mode.summary",
+                containing: "Warm creative partnership",
+                in: app,
+                timeout: 5
+            ),
+            "The extracted mode picker did not update its current presentation."
+        )
+
+        let reuse = app.buttons["studio.them.voice-pin.latest.reuse"]
+        for _ in 0..<12 where !reuse.isHittable {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(waitForHittability(of: reuse, timeout: 5))
+#if os(macOS)
+        reuse.click()
+#else
+        reuse.tap()
+#endif
+        XCTAssertTrue(
+            staticText(containing: "Loaded this Voice Pin ask", in: app)
+                .waitForExistence(timeout: 4),
+            "Reuse did not reach the current exchange handler."
+        )
+
+        let promptField = element(identifier: "studio.prompt.field", in: app)
+        for _ in 0..<20 where !promptField.isHittable {
+            drawer.swipeDown()
+        }
+        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForTextInputValue(in: promptField, containing: prompt, timeout: 5),
+            "Reuse did not reload the current Voice Pin prompt. Field value: \(String(describing: promptField.value))"
+        )
+        let pinRoute = element(identifier: "studio.prompt.routing.voicePin", in: app)
+        XCTAssertTrue(pinRoute.waitForExistence(timeout: 4))
+        XCTAssertTrue(pinRoute.isSelected, "Reuse did not retain Voice Pin routing.")
+
+        let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
+        for _ in 0..<20 where !toPage.isHittable {
+            drawer.swipeUp()
+        }
+        XCTAssertTrue(waitForHittability(of: toPage, timeout: 5))
+#if os(macOS)
+        toPage.click()
+#else
+        toPage.tap()
+#endif
+
+        for _ in 0..<20 where !promptField.isHittable {
+            drawer.swipeDown()
+        }
+        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForTextInputValue(in: promptField, containing: prompt, timeout: 5),
+            "To Page did not preserve the current Voice Pin prompt."
+        )
+        let pageRoute = element(identifier: "studio.prompt.routing.page", in: app)
+        XCTAssertTrue(pageRoute.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageRoute.isSelected, "To Page did not re-route the current exchange to the page.")
     }
 
     func test_memory_recall_includes_a_mentioned_character() {
@@ -2492,6 +2630,25 @@ final class V1SmokeUITests: XCTestCase {
         return target.exists &&
             accessibilityText(of: target)
                 .localizedCaseInsensitiveContains(expected)
+    }
+
+    private func waitForTextInputValue(
+        in target: XCUIElement,
+        containing expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if target.exists,
+               let value = target.value as? String,
+               value.localizedCaseInsensitiveContains(expected) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        guard target.exists,
+              let value = target.value as? String else { return false }
+        return value.localizedCaseInsensitiveContains(expected)
     }
 
     private func recordStudioInstinctEvidence(

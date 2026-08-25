@@ -420,6 +420,7 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
     }
 }
 
+#if DEBUG
 @MainActor
 final class StudioDebugDefaultsBridge: ObservableObject {
     static let shared = StudioDebugDefaultsBridge()
@@ -431,6 +432,7 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     private var pollTask: Task<Void, Never>?
 
     init() {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         noteLifecycle("polling_started")
         startPolling()
     }
@@ -440,6 +442,7 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     }
 
     private func startPolling() {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         pollTask?.cancel()
         pollTask = Task { @MainActor in
             await Task.yield()
@@ -489,6 +492,7 @@ final class StudioDebugDefaultsBridge: ObservableObject {
         return bestValue ?? fallback
     }
 }
+#endif
 #else
 private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
     guard let value = UserDefaults.standard.object(forKey: key) else { return [] }
@@ -894,7 +898,7 @@ struct RootExperienceView: View {
     @AppStorage("orb_echo_debug_assistant_text") private var orbEchoDebugAssistantText: String = ""
     @AppStorage("home_turn_cue_debug_token") private var homeTurnCueDebugToken: Int = 0
     @AppStorage("home_turn_cue_debug_text") private var homeTurnCueDebugText: String = ""
-#if os(macOS)
+#if DEBUG && os(macOS)
     @StateObject private var studioDebugDefaultsBridge = StudioDebugDefaultsBridge.shared
 #endif
     @State private var activeStudioDebugVoiceTurnToken: Int?
@@ -1286,7 +1290,7 @@ struct RootExperienceView: View {
         #endif
     }
 
-    #if DEBUG || os(macOS)
+    #if DEBUG
     private var bodyWithObservedChanges: AnyView {
         AnyView(
             rootBodyView
@@ -1411,8 +1415,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugOpenChange(_ newValue: Int? = nil) {
-        #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let token = newValue ?? studioDebugOpenToken
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugOpenToken else { return }
@@ -1425,8 +1429,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugLoadProjectTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         guard newValue != lastHandledStudioDebugLoadProjectToken else { return }
         lastHandledStudioDebugLoadProjectToken = newValue
@@ -1451,8 +1455,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugVoiceTurnTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         handleStudioDebugVoiceTurnCommand(
             token: newValue,
             promptOverride: nil,
@@ -1466,8 +1470,8 @@ struct RootExperienceView: View {
         promptOverride: String?,
         projectIDOverride: String?
     ) {
-        #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugVoiceTurnToken else { return }
         lastHandledStudioDebugVoiceTurnToken = token
@@ -1497,7 +1501,8 @@ struct RootExperienceView: View {
     }
 
     private func handleOrbEchoDebugShowChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         showReplyEcho(
             user: orbEchoDebugUserText,
@@ -1508,14 +1513,16 @@ struct RootExperienceView: View {
     }
 
     private func handleOrbEchoDebugHideChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         hideReplyEcho(debugToken: newValue)
         #endif
     }
 
     private func handleHomeTurnCueDebugTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         let cleaned = homeTurnCueDebugText.trimmingCharacters(in: .whitespacesAndNewlines)
         let probeText = cleaned.isEmpty ? "Hey, can we talk for a second?" : cleaned
@@ -1573,11 +1580,17 @@ struct RootExperienceView: View {
     }
 
     private func setStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         writeStudioDebugPreferenceInt(value, forKey: key)
+        #endif
     }
 
     private func setStudioDebugPreferenceString(_ value: String, forKey key: String) {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         writeStudioDebugPreferenceString(value, forKey: key)
+        #endif
     }
 
     private func currentStudioDebugVoiceTurnTextFromDefaults() -> String {
@@ -1591,7 +1604,8 @@ struct RootExperienceView: View {
     }
 
     private func studioDebugVoiceTurnRequest(for token: Int) -> StudioDebugVoiceTurnRequest? {
-        #if os(macOS)
+        #if DEBUG && os(macOS)
+        guard IOThemRuntime.isStudioAutomationSession else { return nil }
         guard let data = try? Data(contentsOf: studioDebugVoiceTurnRequestURL),
               let request = try? JSONDecoder().decode(StudioDebugVoiceTurnRequest.self, from: data),
               request.token == token else {
@@ -1615,12 +1629,15 @@ struct RootExperienceView: View {
 
     @MainActor
     private func prepareBackendForStudioDebugVoiceTurn() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let rawPinnedURL = studioDebugPreferenceString("backend_base_url", fallback: "http://127.0.0.1:3000")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let pinnedURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL
             ?? canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
         setStudioDebugPreferenceString(pinnedURL.absoluteString, forKey: "backend_base_url")
         backend = BackendClient(baseURL: pinnedURL, fallbackURL: pinnedURL)
+        #endif
     }
 
     private func canonicalizedStudioDebugBackendURL(from raw: String) -> URL {
@@ -1648,7 +1665,8 @@ struct RootExperienceView: View {
     }
 
     private func processPendingStudioDebugCommandsIfNeeded() {
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
 
         let autoInsertEnabled = studioDebugPreferenceBool(
@@ -1675,10 +1693,12 @@ struct RootExperienceView: View {
         if voiceToken > 0 {
             handleStudioDebugVoiceTurnTokenChange(voiceToken)
         }
+        #endif
     }
 
     private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
-        #if os(macOS)
+        #if DEBUG && os(macOS)
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard let match = studioDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioDebugLoadProjectRequest, URL)? in
             guard let data = try? Data(contentsOf: url),
                   let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
@@ -1715,9 +1735,9 @@ struct RootExperienceView: View {
         #endif
     }
 
-    #if os(macOS)
+    #if DEBUG && os(macOS)
     private func startStudioDebugCommandPolling() {
-        guard !IOThemRuntime.isRunningTests else { return }
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugCommandPollTask?.cancel()
         noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
@@ -1736,6 +1756,7 @@ struct RootExperienceView: View {
     }
     #endif
 
+    #if DEBUG
     @MainActor
     private func runStudioDebugVoiceTurn(token: Int, prompt: String) async {
         await runStudioDebugVoiceTurn(token: token, prompt: prompt, projectIDOverride: nil)
@@ -1747,6 +1768,7 @@ struct RootExperienceView: View {
         prompt: String,
         projectIDOverride: String?
     ) async {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else {
             writeStudioDebugVoiceTurnResult(
@@ -1839,6 +1861,7 @@ struct RootExperienceView: View {
             debugVoiceTurnToken: token
         )
     }
+    #endif
 
     private func currentStudioDebugVoiceDraftBreadcrumbs(
         token: Int? = nil
@@ -1863,6 +1886,7 @@ struct RootExperienceView: View {
         tokenOverride: Int? = nil,
         promptPreviewOverride: String? = nil
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let cleanEvent = event.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanEvent.isEmpty else { return }
         let effectiveToken = tokenOverride ?? activeStudioDebugVoiceTurnToken ?? 0
@@ -1959,6 +1983,7 @@ struct RootExperienceView: View {
         syncedVoiceSeekToMs: Int? = nil,
         appendPersistenceBreadcrumb: Bool = true
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let formatter = ISO8601DateFormatter()
         let decoder = ISO8601DateFormatter()
         let breadcrumbs = currentStudioDebugVoiceDraftBreadcrumbs(token: token)
@@ -2420,10 +2445,12 @@ struct RootExperienceView: View {
     private func handleContentViewAppear() {
         #if DEBUG || os(macOS)
         noteStudioDebugLifecycle("content_view_appear")
+        #if DEBUG
         #if os(macOS)
         startStudioDebugCommandPolling()
         #endif
         processPendingStudioDebugCommandsIfNeeded()
+        #endif
         #endif
         ensureSessionBumped()
         onboardingName = evolution.preferredName
@@ -2868,7 +2895,7 @@ struct RootExperienceView: View {
     }
 
     private func handleContentViewDisappear() {
-#if DEBUG || os(macOS)
+#if DEBUG
         #if os(macOS)
         if IOThemRuntime.isRunningTests {
             stopStudioDebugCommandPolling()
@@ -2932,7 +2959,7 @@ struct RootExperienceView: View {
             }
             return
         }
-#if DEBUG || os(macOS)
+#if DEBUG
         processPendingStudioDebugCommandsIfNeeded()
 #endif
         retryOfflineTalkOutbox()
@@ -4224,7 +4251,7 @@ struct RootExperienceView: View {
         return routedTurns
     }
 
-#if DEBUG || os(macOS)
+#if DEBUG
     private struct DebugStudioPromptStubReply {
         let target: ScreenplayStudioUserPrompt.Target
         let pack: String
@@ -4260,11 +4287,11 @@ struct RootExperienceView: View {
     }
 
     private var shouldUseDebugStudioPromptStubTransport: Bool {
-        debugStudioPromptTransportMode == "stub"
+        IOThemRuntime.isStudioAutomationSession && debugStudioPromptTransportMode == "stub"
     }
 
     private var shouldUseDebugStudioPromptLiveBackendTransport: Bool {
-        debugStudioPromptTransportMode == "live-backend"
+        IOThemRuntime.isStudioAutomationSession && debugStudioPromptTransportMode == "live-backend"
     }
 
     private func debugStudioPromptLooksLikeRewriteIntent(_ prompt: String) -> Bool {
@@ -6064,7 +6091,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             from observation: SegmentedPlaybackObservation?
         ) -> SegmentedPlaybackObservation? {
             guard var observation else { return nil }
-#if DEBUG || os(macOS)
+#if DEBUG
+            guard IOThemRuntime.isStudioAutomationSession else { return observation }
             let freezeAfterMs = max(
                 UserDefaults.standard.integer(forKey: "studio_debug_freeze_synced_voice_playback_after_ms"),
                 0
@@ -6778,23 +6806,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
                 persistDebugVoiceTurnProgress()
             }
-            let debugCancelAfterMs = UserDefaults.standard.integer(forKey: "studio_debug_cancel_synced_voice_insert_after_ms")
-            if debugCancelAfterMs > 0 {
-                debugSyncedInsertCancelTask?.cancel()
-                debugSyncedInsertCancelTask = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: UInt64(debugCancelAfterMs) * 1_000_000)
-                    guard !Task.isCancelled else { return }
-                    screenplayDraftBridge.cancelStream(reason: .cancel)
-                    appendStudioDebugVoiceDraftBreadcrumb(
-                        event: "synced_insert_cancelled",
-                        detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms. reason=cancel",
-                        interruptionReason: ScreenplaySyncedInsertInterruptionReason.cancel.rawValue,
-                        replyPreview: String(cleanText.prefix(220)),
-                        tokenOverride: debugVoiceTurnToken,
-                        promptPreviewOverride: preparedPrompt.directorText
-                    )
+            #if DEBUG
+            if IOThemRuntime.isStudioAutomationSession {
+                let debugCancelAfterMs = UserDefaults.standard.integer(
+                    forKey: "studio_debug_cancel_synced_voice_insert_after_ms"
+                )
+                if debugCancelAfterMs > 0 {
+                    debugSyncedInsertCancelTask?.cancel()
+                    debugSyncedInsertCancelTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: UInt64(debugCancelAfterMs) * 1_000_000)
+                        guard !Task.isCancelled else { return }
+                        screenplayDraftBridge.cancelStream(reason: .cancel)
+                        appendStudioDebugVoiceDraftBreadcrumb(
+                            event: "synced_insert_cancelled",
+                            detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms. reason=cancel",
+                            interruptionReason: ScreenplaySyncedInsertInterruptionReason.cancel.rawValue,
+                            replyPreview: String(cleanText.prefix(220)),
+                            tokenOverride: debugVoiceTurnToken,
+                            promptPreviewOverride: preparedPrompt.directorText
+                        )
+                    }
                 }
             }
+            #endif
 #endif
         }
 
@@ -7617,10 +7651,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
         setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")
         setStudioDebugPreferenceString(requestID ?? "", forKey: "studio_debug_root_submit_request_id")
         setStudioDebugPreferenceString("", forKey: "studio_debug_root_submit_error")
+        #if DEBUG
         if shouldUseDebugStudioPromptLiveBackendTransport {
             prepareBackendForStudioDebugVoiceTurn()
             setStudioDebugPreferenceString("root_submit_backend_pinned", forKey: "studio_debug_root_submit_stage")
         }
+        #endif
 #endif
         guard !isTurnSubmitting else {
 #if DEBUG || os(macOS)
@@ -7711,7 +7747,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             restoreRealtimeStudioDraftPreview()
         }
 
-#if DEBUG || os(macOS)
+#if DEBUG
         if shouldUseDebugStudioPromptStubTransport {
             let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)

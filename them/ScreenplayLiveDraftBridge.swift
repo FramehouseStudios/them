@@ -2900,6 +2900,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let projectRecentTurnsStorageKey = "studio_project_recent_turns_v1"
     private static let companionRecentTurnsStorageKey = "studio_companion_recent_turns_v1"
     private static let companionModeStorageKey = "studio_companion_mode_v1"
+    private static let projectBindingStorageKey = "studio_project_binding_v1"
     private static let debugActiveElementRawStorageKey = "studio_debug_active_screenplay_element_raw"
     private static let debugActiveElementLabelStorageKey = "studio_debug_active_screenplay_element_label"
     private static let debugLastMemoryDomainStorageKey = "studio_debug_last_memory_domain"
@@ -3251,8 +3252,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistActiveElementDebugMirror() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         UserDefaults.standard.set(activeScreenplayElement.rawValue, forKey: Self.debugActiveElementRawStorageKey)
         UserDefaults.standard.set(activeScreenplayElement.title, forKey: Self.debugActiveElementLabelStorageKey)
+        #endif
     }
 
     private static func restoreStructuredDraft() -> ScreenplayStructuredDraft {
@@ -3290,7 +3294,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private static func restoreProjectBindingSnapshot() -> ScreenplayProjectBindingSnapshot {
-        guard let stored = UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
+        let stored = ScreenplayProjectBindingStoragePolicy.restoredValue(
+            productValue: UserDefaults.standard.string(forKey: projectBindingStorageKey),
+            legacyDebugValue: UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
+            isAutomationSession: IOThemRuntime.isStudioAutomationSession
+        )
+        guard let stored,
               let data = stored.data(using: .utf8) else {
             return .empty
         }
@@ -3458,9 +3467,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistStudioRoutingDebugMirror() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         UserDefaults.standard.set(latestMemoryDomain.rawValue, forKey: Self.debugLastMemoryDomainStorageKey)
         UserDefaults.standard.set(latestStudioRouteTarget.rawValue, forKey: Self.debugLastPromptTargetStorageKey)
         UserDefaults.standard.set(latestStudioUserPrompt?.source.rawValue ?? "", forKey: Self.debugLastPromptSourceStorageKey)
+        #endif
     }
 
     private func persistProjectBindingDebugMirror() {
@@ -3468,10 +3480,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(projectBinding),
               let encoded = String(data: data, encoding: .utf8) else {
-            UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
+            if IOThemRuntime.isStudioAutomationSession {
+                UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
+                return
+            }
+            UserDefaults.standard.removeObject(forKey: Self.projectBindingStorageKey)
             return
         }
-        UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
+        if IOThemRuntime.isStudioAutomationSession {
+            UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
+            return
+        }
+        UserDefaults.standard.set(encoded, forKey: Self.projectBindingStorageKey)
     }
 
     private func reconcileFeatureWorkflowContextWithActiveProject() {
@@ -6340,6 +6360,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         requestID: String? = nil
     ) {
 #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let resolvedRequestID = (requestID ?? debugActiveReplacementRequestID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let event = ScreenplayReplacementTraceEvent(

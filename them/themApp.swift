@@ -9,18 +9,20 @@ struct themApp: App {
         UITestLaunchConfiguration.applyIfNeeded()
         #endif
 
-        #if DEBUG || os(macOS)
+        #if DEBUG
         #if os(macOS)
-        let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
-        UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
-        UserDefaults.standard.synchronize()
-        let launchProbeMirrorDomain = "io.them.them"
-        let appDefaultsDomain = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if launchProbeMirrorDomain != appDefaultsDomain {
-            UserDefaults(suiteName: launchProbeMirrorDomain)?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
-            UserDefaults(suiteName: launchProbeMirrorDomain)?.synchronize()
+        if IOThemRuntime.isStudioEvalSession {
+            let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
+            UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+            UserDefaults.standard.synchronize()
+            let launchProbeMirrorDomain = "io.them.them"
+            let appDefaultsDomain = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if launchProbeMirrorDomain != appDefaultsDomain {
+                UserDefaults(suiteName: launchProbeMirrorDomain)?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+                UserDefaults(suiteName: launchProbeMirrorDomain)?.synchronize()
+            }
+            _ = StudioDebugDefaultsBridge.shared
         }
-        _ = StudioDebugDefaultsBridge.shared
         #endif
         #endif
         configureAudioSession()

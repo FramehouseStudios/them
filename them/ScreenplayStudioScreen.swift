@@ -161,6 +161,7 @@ struct ScreenplayStudioScreen: View {
     @State private var isRestoringFullThreadBrowseState = false
     @State private var isAwaitingInitialFullThreadRestore = true
     @State private var studioDebugSessionID = UUID().uuidString
+    @State private var studioDebugInitialLoadSettled = false
     @State private var isSceneQuickInsertVisible = false
     @State private var highlightedSceneInspectorKey: String = ""
     @State private var highlightedStudioExchangeID: UUID?
@@ -338,6 +339,7 @@ struct ScreenplayStudioScreen: View {
     @State private var trackedStudioDebugProjectLoadReady = false
     @State private var trackedStudioDebugProjectLoadError = ""
     @State private var studioDebugProjectLoadInFlight = false
+    @State private var activeStudioDebugProjectLoadOperationID: UUID?
     #if os(macOS)
     @State private var studioDebugPreparePollTask: Task<Void, Never>?
     @State private var studioCommandReturnKeyMonitor: Any?
@@ -603,7 +605,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
     }
 
-    #if DEBUG || os(macOS)
+    #if DEBUG
     private var studioLifecycleDebugPrimaryBoundView: some View {
         studioLifecycleTaskBoundView
             .onChange(of: studioDebugPrepareToken) { _, _ in
@@ -699,16 +701,22 @@ Replace is best when this file should become the script you edit. Append is safe
                 isSceneQuickInsertVisible = false
                 clearWriteCommitUI()
                 #if os(macOS)
-                if IOThemRuntime.isRunningTests {
+                #if DEBUG
+                if IOThemRuntime.isStudioAutomationSession {
                     stopStudioDebugPreparePolling()
                 }
+                #endif
                 removeStudioCommandReturnKeyMonitor()
                 #endif
             }
             .task {
                 studioDebugSessionID = UUID().uuidString
                 #if os(macOS)
-                startStudioDebugPreparePollingIfNeeded()
+                #if DEBUG
+                if IOThemRuntime.isStudioAutomationSession {
+                    startStudioDebugPreparePollingIfNeeded()
+                }
+                #endif
                 installStudioCommandReturnKeyMonitorIfNeeded()
                 #endif
                 restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
@@ -720,7 +728,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     !restoredAcknowledgements.isEmpty
                     || !acknowledgedDiffWriteIDs.isEmpty
                     || !reopenedDiffExchangeKeys.isEmpty
-#if DEBUG || os(macOS)
+#if DEBUG
                 if !didRunStudioThreadViewStateRegressionSmoke {
                     runStudioThreadViewStateDecodeMergeRegressionSmoke()
                     didRunStudioThreadViewStateRegressionSmoke = true
@@ -920,7 +928,8 @@ Replace is best when this file should become the script you edit. Append is safe
         publishDebugStudioDiffState()
         Task {
             await restoreStudioAskNoteHistory(for: newValue)
-            if migratedLiveDraftHistory {
+            if migratedLiveDraftHistory,
+               isCurrentStudioAskNoteHistoryRestore(key: newValue) {
                 vm.infoText = "Carried this first Studio thread into the new project."
             }
         }
@@ -1050,6 +1059,10 @@ Replace is best when this file should become the script you edit. Append is safe
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
+                #if DEBUG
+                studioDebugInitialLoadSettled = true
+                publishDebugStudioDiffState()
+                #endif
                 #if DEBUG
                 applyUITestPendingScreenplayQuestionFixtureIfNeeded()
                 await applyUITestSaveNetworkFaultIfNeeded()
@@ -2221,216 +2234,8 @@ Replace is best when this file should become the script you edit. Append is safe
         .accessibilityIdentifier("studio.sidebar.right.drawer")
     }
 
-    private var directionOneThemCollaboratorSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Creative partner")
-                            .font(.system(size: 14, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.90))
-                        Text("Mode, Voice Pin, and page requests move through one calmer lane.")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.50))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 8) {
-                            studioCompanionMetaPill("Mode", value: liveDraftBridge.companionMode.shortTitle)
-                            studioTargetBadge(currentStudioPromptTarget, prefix: nil, compact: true)
-                            studioPromptWorkflowBadge
-                        }
-
-                        HStack(spacing: 6) {
-                            directionOneCompactMetricPill("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
-                            directionOneCompactMetricPill("Pins", value: "\(voicePinTurns.count)")
-                            directionOneCompactMetricPill("Fixes", value: "\(queuedIntelligenceFixes.count)")
-                        }
-                    }
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Companion mode")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Spacer(minLength: 0)
-                    studioRouteMetaStrip(
-                        memory: currentStudioPromptTarget == .page ? .project : .companion,
-                        output: currentStudioPromptTarget,
-                        mode: nil
-                    )
-                }
-            }
-
-            companionModePickerCard
-
-            Text(liveDraftBridge.companionMode.summary)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.62))
-                .fixedSize(horizontal: false, vertical: true)
-
-            directionOneThemSectionDivider
-            directionOneCompactVoicePinSection
-            directionOneThemSectionDivider
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Context")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Text("Thread memory, routing, and screenplay fixes stay attached to this same partner surface.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.50))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 8) {
-                    Button("Clear Thread") {
-                        clearCompanionThreadHistory()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Clear Memory") {
-                        liveDraftBridge.clearCompanionMemory()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .controlSize(.small)
-                .foregroundStyle(Color.herText.opacity(0.82))
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var directionOneThemSectionDivider: some View {
-        Rectangle()
-            .fill(Color.herShellStroke.opacity(0.16))
-            .frame(height: 1)
-    }
-
-    private func directionOneCompactMetricPill(_ label: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(value)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.76))
-            Text(label)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.48))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.30))
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-    }
-
     private var directionOneComposerClusterIsActive: Bool {
         studioPromptFocused || isSubmittingStudioPrompt || isSubmittingPrompt
-    }
-
-    private var directionOneCompactVoicePinSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Voice Pin")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.74))
-                Spacer(minLength: 0)
-                if !voicePinTurns.isEmpty {
-                    Text("\(voicePinTurns.count)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.82))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.herStudioActiveFill.opacity(0.10))
-                        .clipShape(Capsule())
-                }
-            }
-
-            if let latestTurn = voicePinTurns.last,
-               let latestExchange = studioAskNoteHistory.first(where: { $0.id == latestTurn.exchangeID }) {
-                let fullOutput = latestExchange.developmentText?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(latestTurn.userAskLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.84))
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(latestTurn.timeAgo)
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.40))
-                    }
-
-                    Text(latestTurn.outputExcerpt)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.58))
-                        .lineLimit(4)
-                        .accessibilityLabel(
-                            "\(latestExchange.source == .voice ? "Voice" : "Typed"). \(fullOutput.isEmpty ? latestTurn.outputExcerpt : fullOutput)"
-                        )
-                        .accessibilityIdentifier("studio.voice-pin.latest.output")
-
-                    HStack(spacing: 8) {
-                        Button("Reuse") {
-                            reloadStudioAskNoteExchange(latestExchange)
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 11, weight: .medium, design: .default))
-
-                        Button("To Page") {
-                            openStudioCommandBar(
-                                prefill: latestExchange.prompt,
-                                routingMode: .page,
-                                intent: .rewrite
-                            )
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.accentColor.opacity(0.84))
-                    }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.black.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-                )
-            } else {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.herStudioActiveFill.opacity(0.08))
-                            .frame(width: 30, height: 30)
-                        Image(systemName: "waveform")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.herStudioActiveFill.opacity(0.54))
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("No active Voice Pin")
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.66))
-                        Text("Dictate or send a note to keep it off the page.")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.42))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 2)
-            }
-        }
     }
 
     private var directionOneCompactComposerSection: some View {
@@ -3941,6 +3746,27 @@ Detail:
         vm.infoText = "Cleared the companion-side thread history."
     }
 
+    private func selectCreativePartnerMode(rawValue: String) {
+        guard let mode = StudioCompanionMode(rawValue: rawValue) else { return }
+        liveDraftBridge.setCompanionMode(mode)
+    }
+
+    private func reuseCreativePartnerVoicePin(exchangeID: UUID) {
+        guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
+              exchange.target == .voicePin else { return }
+        reloadStudioAskNoteExchange(exchange)
+    }
+
+    private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
+        guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
+              exchange.target == .voicePin else { return }
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: .page,
+            intent: .rewrite
+        )
+    }
+
     private var directionOneRightPanelTabs: some View {
         ScreenplayStudioRightPanelTabs(
             selection: $directionOneRightPanelTab,
@@ -4274,6 +4100,38 @@ private var directionOneThemPanel: some View {
         isMutating: vm.isAcceptedCraftTwistMutating,
         hasSelectedProject: vm.selectedProject != nil
     )
+    let creativePartnerPresentation = ScreenplayStudioCreativePartnerPresentationPlanner.make(
+        modes: StudioCompanionMode.allCases.map { mode in
+            ScreenplayStudioCreativePartnerModeInput(
+                rawValue: mode.rawValue,
+                title: mode.title,
+                shortTitle: mode.shortTitle,
+                summary: mode.summary
+            )
+        },
+        selectedModeRawValue: liveDraftBridge.companionMode.rawValue,
+        routesToPage: currentStudioPromptTarget == .page,
+        recentTurnCount: liveDraftBridge.companionRecentTurns.count,
+        queuedFixCount: queuedIntelligenceFixes.count,
+        voicePinTurns: voicePinTurns.map { turn in
+            ScreenplayStudioCreativePartnerVoicePinTurnInput(
+                id: turn.id,
+                exchangeID: turn.exchangeID,
+                userAskLabel: turn.userAskLabel,
+                fountainOutput: turn.fountainOutput,
+                timestamp: turn.timestamp
+            )
+        },
+        exchanges: studioAskNoteHistory.map { exchange in
+            ScreenplayStudioCreativePartnerVoicePinExchangeInput(
+                id: exchange.id,
+                prompt: exchange.prompt,
+                source: exchange.source == .voice ? .voice : .typed,
+                developmentText: exchange.developmentText
+            )
+        },
+        now: Date()
+    )
 
     return ScreenplayStudioThemRailView(
         presentation: presentation,
@@ -4318,7 +4176,16 @@ private var directionOneThemPanel: some View {
             )
         )
 
-        directionOneThemCollaboratorSection
+        ScreenplayStudioCreativePartnerView(
+            presentation: creativePartnerPresentation,
+            actions: ScreenplayStudioCreativePartnerActions(
+                onSelectMode: selectCreativePartnerMode,
+                onReuseVoicePin: reuseCreativePartnerVoicePin,
+                onSendVoicePinToPage: sendCreativePartnerVoicePinToPage,
+                onClearThread: clearCompanionThreadHistory,
+                onClearMemory: liveDraftBridge.clearCompanionMemory
+            )
+        )
     }
     .task {
         if !IOThemRuntime.isRunningUITests {
@@ -5373,26 +5240,6 @@ private var projectsSidebarContent: some View {
     private func outlineFocusedSceneCard(_ scene: BackendScreenplayScene) -> some View {
         ScreenplayStudioOutlineFocusedSceneCard(scene: scene)
     }
-
-    private var companionModePickerCard: some View {
-        Picker(
-            "Companion Mode",
-            selection: Binding(
-                get: { liveDraftBridge.companionMode },
-                set: { liveDraftBridge.setCompanionMode($0) }
-            )
-        ) {
-            ForEach(StudioCompanionMode.allCases) { mode in
-                Text(mode.title)
-                    .tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accessibilityIdentifier("studio.them.modePicker")
-    }
-
-
 
     private var sortedOutlineActs: [BackendScreenplayAct] {
         InspectorOrderSupport.sortedActs(vm.outline.acts)
@@ -6635,20 +6482,13 @@ private var projectsSidebarContent: some View {
     }
 
     private func resolvedVoicePinOutput(for exchange: StudioAskNoteExchange) -> String {
-        let candidates = [
-            exchange.insertedText,
-            exchange.revisedBlockText,
-            exchange.resolvedAnchorExcerpt,
-            exchange.developmentText,
-            exchange.noteBody
-        ]
-        for candidate in candidates {
-            let normalized = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !normalized.isEmpty {
-                return normalized
-            }
-        }
-        return ""
+        ScreenplayStudioCreativePartnerPresentationPlanner.resolvedVoicePinOutput(
+            insertedText: exchange.insertedText,
+            revisedBlockText: exchange.revisedBlockText,
+            resolvedAnchorExcerpt: exchange.resolvedAnchorExcerpt,
+            developmentText: exchange.developmentText,
+            noteBody: exchange.noteBody
+        )
     }
 
     private func studioAskNoteExchange(for turn: VoicePinTurn) -> StudioAskNoteExchange? {
@@ -8285,16 +8125,6 @@ Current draft version:
         shouldRoutePromptToPage(studioPromptSeed, studioPromptRoutingMode) ? .page : .voicePin
     }
 
-    private var currentStudioPromptWorkflowLabel: String {
-        currentStudioPromptTarget == .page ? "Page Write" : "Advice"
-    }
-
-    private var currentStudioPromptWorkflowTint: Color {
-        currentStudioPromptTarget == .page
-            ? Color.herStudioActiveFill.opacity(0.92)
-            : Color.blue.opacity(0.88)
-    }
-
     private var studioPromptRoutingMode: PromptRoutingMode {
         get { PromptRoutingMode(rawValue: studioPromptRoutingModeRaw) ?? .automatic }
         nonmutating set { studioPromptRoutingModeRaw = newValue.rawValue }
@@ -8324,20 +8154,6 @@ Current draft version:
         }
     }
 
-    private var studioPromptWorkflowBadge: some View {
-        Text(currentStudioPromptWorkflowLabel)
-            .font(.system(size: 10, weight: .semibold, design: .default))
-            .foregroundStyle(currentStudioPromptWorkflowTint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(currentStudioPromptWorkflowTint.opacity(0.10))
-            .overlay(
-                Capsule()
-                    .stroke(currentStudioPromptWorkflowTint.opacity(0.18), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-    }
-
     private var promptRoutingControl: some View {
         VStack(alignment: .leading, spacing: 6) {
             Picker(
@@ -8350,10 +8166,12 @@ Current draft version:
                 ForEach(PromptRoutingMode.allCases) { mode in
                     Text(compactRoutingLabel(for: mode))
                         .tag(mode)
+                        .accessibilityIdentifier("studio.prompt.routing.\(mode.rawValue)")
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accessibilityIdentifier("studio.prompt.routing")
         }
     }
 
@@ -10962,6 +10780,7 @@ Return revised screenplay lines only.
         exchange: StudioAskNoteExchange?,
         error: String
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let resolvedExchange = exchange
         let payload = StudioDebugSubmitResultPayload(
             token: token,
@@ -11787,11 +11606,13 @@ Return revised screenplay lines only.
     }
 
     private func restoreStudioAskNoteHistory(for key: String) async {
+        guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
         let store = loadStudioAskNoteHistoryMap()
         let decoded = applyStoredWriteAnchors(to: Array((store[key] ?? []).prefix(24)), for: key)
         let backendEntries = backendStudioAskNoteHistory(for: key)
         let localAndBackend = mergedStudioThreadHistory(local: decoded, remote: backendEntries)
         if IOThemRuntime.isRunningTests {
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
             studioAskNoteHistory = localAndBackend
             highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
@@ -11820,16 +11641,24 @@ Return revised screenplay lines only.
             } else {
                 remoteEntries = []
             }
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
             let merged = mergedStudioThreadHistory(local: localAndBackend, remote: remoteEntries)
             studioAskNoteHistory = merged
             highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: merged)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
             persistStudioAskNoteHistory(merged, for: key)
         } catch {
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
             studioAskNoteHistory = localAndBackend
             highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
         }
+    }
+
+    private func isCurrentStudioAskNoteHistoryRestore(key: String) -> Bool {
+        guard activeStudioAskNoteHistoryKey == key else { return false }
+        guard let projectID = screenplayProjectIdFromHistoryKey(key) else { return true }
+        return vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectID
     }
 
     private func syncLatestCommittedPrompt(from exchange: StudioAskNoteExchange?) {
@@ -12451,6 +12280,7 @@ Return revised screenplay lines only.
         self.studioCommandReturnKeyMonitor = nil
     }
 
+    #if DEBUG
     @discardableResult
     private func synchronizeMirroredStudioDebugPrepareState() -> Bool {
         var didChange = false
@@ -12807,6 +12637,7 @@ Return revised screenplay lines only.
         studioDebugPreparePollTask = nil
     }
     #endif
+    #endif
 
     private func resolvedStudioDebugReplacementModeForSubmission(_ explicitMode: String?) -> String {
         let normalizedExplicit = explicitMode?
@@ -12825,7 +12656,8 @@ Return revised screenplay lines only.
         routingMode: PromptRoutingMode,
         replacementMode: String
     ) -> Int? {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return nil }
         let preparedToken = studioDebugPrepareAckToken
         guard preparedToken > 0 else { return nil }
         let preparedText = studioDebugPrepareAckText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12961,9 +12793,11 @@ Return revised screenplay lines only.
             routingMode: routingMode,
             replacementMode: debugReplacementMode
         )
-        #if DEBUG || os(macOS)
-        let shouldForceLocalStubSubmit = shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
-            (IOThemRuntime.isRunningUITests && !shouldUseBackendStudioPromptTransportForDebugSubmit)
+        #if DEBUG
+        let shouldForceLocalStubSubmit = IOThemRuntime.isStudioAutomationSession && (
+            shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
+                (IOThemRuntime.isRunningUITests && !shouldUseBackendStudioPromptTransportForDebugSubmit)
+        )
         let generatedDebugStubSubmitToken = shouldForceLocalStubSubmit
             ? Int(Date().timeIntervalSince1970 * 1_000)
             : nil
@@ -12971,8 +12805,9 @@ Return revised screenplay lines only.
         #else
         let effectiveDebugSubmitToken = debugSubmitToken ?? preparedDebugSubmitToken
         #endif
-#if DEBUG || os(macOS)
-        if let effectiveDebugSubmitToken {
+#if DEBUG
+        if IOThemRuntime.isStudioAutomationSession,
+           let effectiveDebugSubmitToken {
             setStudioDebugSubmitAck(
                 token: effectiveDebugSubmitToken,
                 text: text,
@@ -13005,13 +12840,13 @@ Return revised screenplay lines only.
         }
 #endif
         publishDebugStudioDiffState()
-#if DEBUG || os(macOS)
+#if DEBUG
         if let effectiveDebugSubmitToken {
             setStudioDebugSubmitStage("backend_task_enqueued", token: effectiveDebugSubmitToken)
         }
 #endif
         Task { @MainActor in
-#if DEBUG || os(macOS)
+#if DEBUG
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
             }
@@ -13537,7 +13372,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugPreparedStudioPromptIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugPrepareToken > 0 else { return }
         guard studioDebugPrepareToken != studioDebugPrepareAckToken else { return }
         let text = studioDebugPrepareText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13579,7 +13415,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugAcknowledgedDiffIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugAcknowledgeDiffToken > 0 else { return }
         guard studioDebugAcknowledgeDiffToken != studioDebugAcknowledgeDiffAckToken else { return }
         guard studioDebugAcknowledgeDiffToken != lastAppliedStudioDebugAcknowledgeToken else { return }
@@ -13601,7 +13438,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func currentStudioDebugProjectLoadBreadcrumbs() -> [StudioDebugProjectLoadBreadcrumb] {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return [] }
         guard let data = studioDebugProjectLoadTraceJSON.data(using: .utf8),
               let decoded = try? JSONDecoder().decode([StudioDebugProjectLoadBreadcrumb].self, from: data) else {
             return []
@@ -13613,7 +13451,7 @@ The door closes softly. That is worse than a slam.
     }
 
     private func persistStudioDebugProjectLoadBreadcrumbs(_ breadcrumbs: [StudioDebugProjectLoadBreadcrumb]) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         guard let data = try? JSONEncoder().encode(breadcrumbs),
               let encoded = String(data: data, encoding: .utf8) else { return }
         studioDebugProjectLoadTraceJSON = encoded
@@ -13624,7 +13462,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func mirrorStudioDebugInt(_ value: Int, forKey key: String) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         #if os(macOS)
         writeMirroredStudioDebugPreferenceInt(value, forKey: key)
         #endif
@@ -13632,7 +13471,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func mirrorStudioDebugString(_ value: String, forKey key: String) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         #if os(macOS)
         writeMirroredStudioDebugPreferenceString(value, forKey: key)
         #endif
@@ -13640,7 +13480,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func setStudioDebugLoadProjectAckToken(_ token: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugLoadProjectAckToken = token
         mirrorStudioDebugInt(token, forKey: "studio_debug_load_project_ack_token")
         #endif
@@ -13652,7 +13493,8 @@ The door closes softly. That is worse than a slam.
         routing: String,
         replacementMode: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugPrepareAckToken = token
         studioDebugPrepareAckText = text
         studioDebugPrepareAckRoutingRaw = routing
@@ -13670,7 +13512,8 @@ The door closes softly. That is worse than a slam.
         routing: String,
         replacementMode: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugKeyboardSubmitAckToken = token
         studioDebugKeyboardSubmitAckText = text
         studioDebugKeyboardSubmitAckRoutingRaw = routing
@@ -13689,7 +13532,8 @@ The door closes softly. That is worse than a slam.
         replacementMode: String,
         requestID: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitAckToken = token
         studioDebugSubmitAckText = text
         studioDebugSubmitAckRoutingRaw = routing
@@ -13709,7 +13553,8 @@ The door closes softly. That is worse than a slam.
         error: String,
         payloadJSON: String? = nil
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitResultToken = token
         studioDebugSubmitResultStatus = status
         studioDebugSubmitResultError = error
@@ -13728,7 +13573,8 @@ The door closes softly. That is worse than a slam.
         token: Int,
         error: String = ""
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanStage.isEmpty else { return }
         mirrorStudioDebugString(cleanStage, forKey: "studio_debug_submit_stage")
@@ -13738,7 +13584,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func resetStudioDebugSubmitResult() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitResultToken = 0
         studioDebugSubmitResultStatus = ""
         studioDebugSubmitResultError = ""
@@ -13761,7 +13608,7 @@ The door closes softly. That is worse than a slam.
         ready: Bool,
         error: String = ""
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         trackedStudioDebugProjectLoadToken = token
         trackedStudioDebugProjectLoadRequestedProjectID = requestedProjectID
         trackedStudioDebugProjectLoadRequestedVersionID = requestedVersionID
@@ -13778,7 +13625,7 @@ The door closes softly. That is worse than a slam.
         requestedProjectID: String,
         requestedVersionID: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         let breadcrumb = StudioDebugProjectLoadBreadcrumb(
             token: token,
             event: event,
@@ -13807,7 +13654,7 @@ The door closes softly. That is worse than a slam.
         versionID: String,
         requireEditorFocusConsumption: Bool = true
     ) -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty else { return false }
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13834,7 +13681,8 @@ The door closes softly. That is worse than a slam.
         versionID: String,
         timeoutSeconds: TimeInterval = 25
     ) async -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
             if isStudioDebugProjectLoadReady(
@@ -13860,7 +13708,7 @@ The door closes softly. That is worse than a slam.
         projectID: String,
         timeoutSeconds: TimeInterval = 10
     ) async -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty else { return false }
         let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -13877,16 +13725,51 @@ The door closes softly. That is worse than a slam.
         #endif
     }
 
+    private func isCurrentStudioDebugProjectLoadRequest(
+        token: Int,
+        requestedProjectID: String,
+        requestedVersionID: String,
+        source: String
+    ) -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
+        let cleanProjectID = requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVersionID = requestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch source {
+        case "app_storage":
+            return studioDebugLoadProjectToken == token
+                && studioDebugLoadProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
+                && studioDebugLoadProjectVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanVersionID
+        case "bridge", "bridge_force":
+            return liveDraftBridge.debugProjectLoadToken == token
+                && liveDraftBridge.debugRequestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
+                && liveDraftBridge.debugRequestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanVersionID
+        default:
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
     @MainActor
     private func performStudioDebugProjectLoad(
         token: Int,
         requestedProjectID: String,
         requestedVersionID: String,
         source: String
-    ) async {
-        #if DEBUG || os(macOS)
+    ) async -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
         let cleanProjectID = requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanVersionID = requestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
 
         guard !cleanProjectID.isEmpty else {
             updateTrackedStudioDebugProjectLoadState(
@@ -13906,10 +13789,13 @@ The door closes softly. That is worse than a slam.
             )
             setStudioDebugLoadProjectAckToken(token)
             publishDebugStudioDiffState()
-            return
+            return false
         }
 
-        if studioDebugProjectLoadInFlight && trackedStudioDebugProjectLoadToken == token {
+        if studioDebugProjectLoadInFlight,
+           trackedStudioDebugProjectLoadToken == token,
+           trackedStudioDebugProjectLoadRequestedProjectID == cleanProjectID,
+           trackedStudioDebugProjectLoadRequestedVersionID == cleanVersionID {
             appendStudioDebugProjectLoadBreadcrumb(
                 token: token,
                 event: "load_reused",
@@ -13918,13 +13804,18 @@ The door closes softly. That is worse than a slam.
                 requestedVersionID: cleanVersionID
             )
             publishDebugStudioDiffState()
-            return
+            return false
         }
 
+        let operationID = UUID()
+        activeStudioDebugProjectLoadOperationID = operationID
         studioDebugProjectLoadInFlight = true
         defer {
-            studioDebugProjectLoadInFlight = false
-            publishDebugStudioDiffState()
+            if activeStudioDebugProjectLoadOperationID == operationID {
+                activeStudioDebugProjectLoadOperationID = nil
+                studioDebugProjectLoadInFlight = false
+                publishDebugStudioDiffState()
+            }
         }
 
         updateTrackedStudioDebugProjectLoadState(
@@ -13968,6 +13859,15 @@ The door closes softly. That is worse than a slam.
             await vm.selectProject(cleanProjectID)
         }
         let selectionApplied = await waitForStudioDebugSelectedProjectID(projectID: cleanProjectID)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else {
+            selectionTask.cancel()
+            return false
+        }
         if selectionApplied {
             appendStudioDebugProjectLoadBreadcrumb(
                 token: token,
@@ -13976,21 +13876,14 @@ The door closes softly. That is worse than a slam.
                 requestedProjectID: cleanProjectID,
                 requestedVersionID: cleanVersionID
             )
-            if cleanVersionID.isEmpty {
-                updateTrackedStudioDebugProjectLoadState(
-                    token: token,
-                    requestedProjectID: cleanProjectID,
-                    requestedVersionID: cleanVersionID,
-                    stage: "selection_ready",
-                    ready: true
-                )
-                setStudioDebugLoadProjectAckToken(token)
-                publishDebugStudioDiffState()
-                return
-            }
-        } else {
-            await selectionTask.value
         }
+        await selectionTask.value
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
 
         let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedLoadedProjectID = (vm.selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14057,7 +13950,7 @@ The door closes softly. That is worse than a slam.
                 requestedVersionID: cleanVersionID
             )
             publishDebugStudioDiffState()
-            return
+            return false
         }
         if !resolvedErrorText.isEmpty {
             vm.errorText = ""
@@ -14091,6 +13984,12 @@ The door closes softly. That is worse than a slam.
             projectID: cleanProjectID,
             versionID: cleanVersionID
         )
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
         if ready {
             updateTrackedStudioDebugProjectLoadState(
                 token: token,
@@ -14132,30 +14031,38 @@ The door closes softly. That is worse than a slam.
                 requestedVersionID: cleanVersionID
             )
         }
+        return ready
+        #else
+        return false
         #endif
     }
 
     private func applyDebugLoadProjectIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard !IOThemRuntime.isRunningTests else { return }
-        guard studioDebugLoadProjectToken > 0 else { return }
-        guard studioDebugLoadProjectToken != studioDebugLoadProjectAckToken else { return }
-        guard studioDebugLoadProjectToken != lastAppliedStudioDebugLoadProjectToken else { return }
-        lastAppliedStudioDebugLoadProjectToken = studioDebugLoadProjectToken
+        let requestToken = studioDebugLoadProjectToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugLoadProjectAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugLoadProjectToken else { return }
+        lastAppliedStudioDebugLoadProjectToken = requestToken
         let requestedProjectID = studioDebugLoadProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedVersionID = studioDebugLoadProjectVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else {
-            setStudioDebugLoadProjectAckToken(studioDebugLoadProjectToken)
+            setStudioDebugLoadProjectAckToken(requestToken)
             publishDebugStudioDiffState()
             return
         }
         Task { @MainActor in
-            await performStudioDebugProjectLoad(
-                token: studioDebugLoadProjectToken,
+            guard studioDebugLoadProjectToken == requestToken else { return }
+            if await performStudioDebugProjectLoad(
+                token: requestToken,
                 requestedProjectID: requestedProjectID,
                 requestedVersionID: requestedVersionID,
                 source: "app_storage"
-            )
+            ) {
+                await restoreStudioWorkspaceAfterProjectHydration()
+            }
         }
         #endif
     }
@@ -14163,7 +14070,8 @@ The door closes softly. That is worse than a slam.
     @MainActor
     @discardableResult
     private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
         guard !IOThemRuntime.isRunningTests else { return false }
         let token = liveDraftBridge.debugProjectLoadToken
         let requestedProjectID = liveDraftBridge.debugRequestedProjectID
@@ -14187,17 +14095,23 @@ The door closes softly. That is worse than a slam.
             return false
         }
         if token > 0 {
-            await performStudioDebugProjectLoad(
+            let source = force ? "bridge_force" : "bridge"
+            return await performStudioDebugProjectLoad(
                 token: token,
                 requestedProjectID: requestedProjectID,
                 requestedVersionID: requestedVersionID,
-                source: force ? "bridge_force" : "bridge"
+                source: source
             )
-            return true
         }
         liveDraftBridge.preferredProjectID = requestedProjectID
         liveDraftBridge.preferredVersionID = requestedVersionID
         await vm.selectProject(requestedProjectID)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: requestedProjectID,
+            requestedVersionID: requestedVersionID,
+            source: force ? "bridge_force" : "bridge"
+        ) else { return false }
         if !requestedVersionID.isEmpty {
             liveDraftBridge.preferredVersionID = requestedVersionID
         }
@@ -14209,7 +14123,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugFocusPageIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugFocusPageToken > 0 else { return }
         guard studioDebugFocusPageToken != studioDebugFocusPageAckToken else { return }
         guard studioDebugFocusPageToken != lastAppliedStudioDebugFocusPageToken else { return }
@@ -14221,7 +14136,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugManualDraftEditIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugManualEditToken > 0 else { return }
         guard studioDebugManualEditToken != studioDebugManualEditAckToken else { return }
         guard studioDebugManualEditToken != lastAppliedStudioDebugManualEditToken else { return }
@@ -14248,7 +14164,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugAutosaveToggleIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugAutosaveToggleToken > 0 else { return }
         guard studioDebugAutosaveToggleToken != studioDebugAutosaveToggleAckToken else { return }
         guard studioDebugAutosaveToggleToken != lastAppliedStudioDebugAutosaveToggleToken else { return }
@@ -14263,23 +14180,28 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugForceHydrateIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugForceHydrateToken > 0 else { return }
-        guard studioDebugForceHydrateToken != studioDebugForceHydrateAckToken else { return }
-        guard studioDebugForceHydrateToken != lastAppliedStudioDebugForceHydrateToken else { return }
-        lastAppliedStudioDebugForceHydrateToken = studioDebugForceHydrateToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugForceHydrateToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugForceHydrateAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugForceHydrateToken else { return }
+        lastAppliedStudioDebugForceHydrateToken = requestToken
+        let requestedProjectID = liveDraftBridge.debugRequestedProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         Task { @MainActor in
-            let requestedProjectID = liveDraftBridge.debugRequestedProjectID
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard studioDebugForceHydrateToken == requestToken else { return }
             if !requestedProjectID.isEmpty,
                vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) != requestedProjectID {
                 await vm.selectProject(requestedProjectID)
+                guard studioDebugForceHydrateToken == requestToken else { return }
             }
             await vm.refreshSelectedProjectForDebug()
+            guard studioDebugForceHydrateToken == requestToken else { return }
             vm.markManualEditHydrateProtectedForDebugIfNeeded()
-            studioDebugForceHydrateAckToken = studioDebugForceHydrateToken
+            studioDebugForceHydrateAckToken = requestToken
             #if os(macOS)
-            writeMirroredStudioDebugPreferenceInt(studioDebugForceHydrateToken, forKey: "studio_debug_force_hydrate_ack_token")
+            writeMirroredStudioDebugPreferenceInt(requestToken, forKey: "studio_debug_force_hydrate_ack_token")
             #endif
             publishDebugStudioDiffState()
         }
@@ -14287,16 +14209,20 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugManualSaveIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugSaveToken > 0 else { return }
-        guard studioDebugSaveToken != studioDebugSaveAckToken else { return }
-        guard studioDebugSaveToken != lastAppliedStudioDebugSaveToken else { return }
-        lastAppliedStudioDebugSaveToken = studioDebugSaveToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugSaveToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugSaveAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugSaveToken else { return }
+        lastAppliedStudioDebugSaveToken = requestToken
         Task { @MainActor in
+            guard studioDebugSaveToken == requestToken else { return }
             await vm.manualSaveDraft()
-            studioDebugSaveAckToken = studioDebugSaveToken
+            guard studioDebugSaveToken == requestToken else { return }
+            studioDebugSaveAckToken = requestToken
             #if os(macOS)
-            writeMirroredStudioDebugPreferenceInt(studioDebugSaveToken, forKey: "studio_debug_save_ack_token")
+            writeMirroredStudioDebugPreferenceInt(requestToken, forKey: "studio_debug_save_ack_token")
             #endif
             publishDebugStudioDiffState()
         }
@@ -14304,7 +14230,8 @@ The door closes softly. That is worse than a slam.
     }
 
     private func applyDebugStructuralSeedIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSeedStructuralToken > 0 else { return }
         guard studioDebugSeedStructuralToken != studioDebugSeedStructuralAckToken else { return }
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
@@ -14547,6 +14474,12 @@ Look at the city.
         liveDraftBridge.latestMemoryDomain = .project
         vm.refreshLiveDraftBridgeContext()
         studioDebugSeedStructuralAckToken = studioDebugSeedStructuralToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(
+            studioDebugSeedStructuralToken,
+            forKey: "studio_debug_seed_structural_ack_token"
+        )
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
@@ -14720,34 +14653,40 @@ Look at the city.
     #endif
 
     private func applyDebugDraftInspectorIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugDraftInspectorToken > 0 else { return }
-        guard studioDebugDraftInspectorToken != studioDebugDraftInspectorAckToken else { return }
-        guard studioDebugDraftInspectorToken != lastAppliedStudioDebugDraftInspectorToken else { return }
-        lastAppliedStudioDebugDraftInspectorToken = studioDebugDraftInspectorToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugDraftInspectorToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugDraftInspectorAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugDraftInspectorToken else { return }
+        lastAppliedStudioDebugDraftInspectorToken = requestToken
         let requestedSection = DraftToolsSection(
             rawValue: studioDebugDraftInspectorSectionRaw
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
         ) ?? .pages
         Task { @MainActor in
+            guard studioDebugDraftInspectorToken == requestToken else { return }
             openDraftInspector()
             selectedDraftToolsSection = requestedSection
             if requestedSection == .pages {
                 await vm.refreshDraftInsights()
+                guard studioDebugDraftInspectorToken == requestToken else { return }
             }
-            studioDebugDraftInspectorAckToken = studioDebugDraftInspectorToken
+            studioDebugDraftInspectorAckToken = requestToken
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugShellVisibilityIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugShellVisibilityToken > 0 else { return }
-        guard studioDebugShellVisibilityToken != studioDebugShellVisibilityAckToken else { return }
-        guard studioDebugShellVisibilityToken != lastAppliedStudioDebugShellVisibilityToken else { return }
-        lastAppliedStudioDebugShellVisibilityToken = studioDebugShellVisibilityToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugShellVisibilityToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugShellVisibilityAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugShellVisibilityToken else { return }
+        lastAppliedStudioDebugShellVisibilityToken = requestToken
 
         let sidebarDirective = studioDebugShellVisibilitySidebarRaw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14757,6 +14696,7 @@ Look at the city.
             .lowercased()
 
         Task { @MainActor in
+            guard studioDebugShellVisibilityToken == requestToken else { return }
             withAnimation(.easeOut(duration: 0.20)) {
                 switch sidebarDirective {
                 case "show":
@@ -14781,18 +14721,26 @@ Look at the city.
                 directionOneRightPanelTab = .them
             }
 
-            studioDebugShellVisibilityAckToken = studioDebugShellVisibilityToken
+            studioDebugShellVisibilityAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_shell_visibility_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugRightPanelTabIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugRightPanelTabToken > 0 else { return }
-        guard studioDebugRightPanelTabToken != studioDebugRightPanelTabAckToken else { return }
-        guard studioDebugRightPanelTabToken != lastAppliedStudioDebugRightPanelTabToken else { return }
-        lastAppliedStudioDebugRightPanelTabToken = studioDebugRightPanelTabToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugRightPanelTabToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugRightPanelTabAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugRightPanelTabToken else { return }
+        lastAppliedStudioDebugRightPanelTabToken = requestToken
 
         let requestedTabRaw = studioDebugRightPanelTabRaw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14800,40 +14748,57 @@ Look at the city.
         let requestedTab = DirectionOneRightPanelTab.resolved(from: requestedTabRaw) ?? .beats
 
         Task { @MainActor in
+            guard studioDebugRightPanelTabToken == requestToken else { return }
             isDirectionOneRightRailExpanded = true
             directionOneRightPanelTab = requestedTab
             if requestedTabRaw == "intelligence" {
                 previewAllSuggestedIntelligenceFixes()
             }
-            studioDebugRightPanelTabAckToken = studioDebugRightPanelTabToken
+            studioDebugRightPanelTabAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_right_panel_tab_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugCommandBarIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugCommandBarToken > 0 else { return }
-        guard studioDebugCommandBarToken != studioDebugCommandBarAckToken else { return }
-        guard studioDebugCommandBarToken != lastAppliedStudioDebugCommandBarToken else { return }
-        lastAppliedStudioDebugCommandBarToken = studioDebugCommandBarToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugCommandBarToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugCommandBarAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugCommandBarToken else { return }
+        lastAppliedStudioDebugCommandBarToken = requestToken
 
         Task { @MainActor in
+            guard studioDebugCommandBarToken == requestToken else { return }
             openStudioCommandBar()
-            studioDebugCommandBarAckToken = studioDebugCommandBarToken
+            studioDebugCommandBarAckToken = requestToken
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugRouteMetadataSeedIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSeedRouteMetadataToken > 0 else { return }
         guard studioDebugSeedRouteMetadataToken != studioDebugSeedRouteMetadataAckToken else { return }
         guard studioDebugSeedRouteMetadataToken != lastAppliedStudioDebugSeedRouteMetadataToken else { return }
         lastAppliedStudioDebugSeedRouteMetadataToken = studioDebugSeedRouteMetadataToken
         guard vm.selectedProject != nil else {
             studioDebugSeedRouteMetadataAckToken = studioDebugSeedRouteMetadataToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                studioDebugSeedRouteMetadataToken,
+                forKey: "studio_debug_seed_route_metadata_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
             return
         }
@@ -14904,6 +14869,12 @@ Look at the city.
         liveDraftBridge.latestStudioRouteTarget = .voicePin
         liveDraftBridge.companionMode = .coach
         studioDebugSeedRouteMetadataAckToken = studioDebugSeedRouteMetadataToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(
+            studioDebugSeedRouteMetadataToken,
+            forKey: "studio_debug_seed_route_metadata_ack_token"
+        )
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
@@ -14938,56 +14909,73 @@ Look at the city.
     }
 
     private func applyDebugSelectedLinesIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugSelectLinesToken > 0 else { return }
-        guard studioDebugSelectLinesToken != studioDebugSelectLinesAckToken else { return }
-        guard studioDebugSelectLinesToken != lastAppliedStudioDebugSelectLinesToken else { return }
-        lastAppliedStudioDebugSelectLinesToken = studioDebugSelectLinesToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugSelectLinesToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugSelectLinesAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugSelectLinesToken else { return }
+        lastAppliedStudioDebugSelectLinesToken = requestToken
+        let requestedStartLine = studioDebugSelectLinesStartLine
+        let requestedEndLine = max(requestedStartLine, studioDebugSelectLinesEndLine)
         if let snapshot = debugSelectionSnapshot(
-            startLine: studioDebugSelectLinesStartLine,
-            endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+            startLine: requestedStartLine,
+            endLine: requestedEndLine
         ) {
             liveDraftBridge.jumpToLine(snapshot.startLine)
             liveDraftBridge.highlightLineRange(startLine: snapshot.startLine, endLine: snapshot.endLine)
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 120_000_000)
-                guard studioDebugSelectLinesAckToken == studioDebugSelectLinesToken else { return }
+                guard studioDebugSelectLinesToken == requestToken,
+                      studioDebugSelectLinesAckToken == requestToken else { return }
                 liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 publishDebugStudioDiffState()
             }
         } else {
             liveDraftBridge.updateEditorSelectionSnapshot(nil)
         }
-        studioDebugSelectLinesAckToken = studioDebugSelectLinesToken
+        studioDebugSelectLinesAckToken = requestToken
         publishDebugStudioDiffState()
         #endif
     }
 
     private func applyDebugLocalStudioCommandIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugLocalCommandToken > 0 else { return }
-        guard studioDebugLocalCommandToken != studioDebugLocalCommandAckToken else { return }
-        guard studioDebugLocalCommandToken != lastAppliedStudioDebugLocalCommandToken else { return }
-        lastAppliedStudioDebugLocalCommandToken = studioDebugLocalCommandToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugLocalCommandToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugLocalCommandAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugLocalCommandToken else { return }
+        lastAppliedStudioDebugLocalCommandToken = requestToken
         let text = studioDebugLocalCommandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            studioDebugLocalCommandAckToken = studioDebugLocalCommandToken
-            studioDebugLocalCommandResultToken = studioDebugLocalCommandToken
+            studioDebugLocalCommandAckToken = requestToken
+            studioDebugLocalCommandResultToken = requestToken
             studioDebugLocalCommandResultStatus = "error"
             studioDebugLocalCommandResultError = "local_command_empty"
-            studioDebugLocalCommandResultJSON = "{\"status\":\"error\",\"error\":\"local_command_empty\"}"
+            studioDebugLocalCommandResultJSON = studioDebugJSONString(from: [
+                "request_token": requestToken,
+                "status": "error",
+                "error": "local_command_empty",
+            ])
             publishDebugStudioDiffState()
             return
         }
         let source = StudioPromptSource(rawValue: studioDebugLocalCommandSourceRaw) ?? .voice
         let commandSource: ScreenplayStudioUserPrompt.Source = source == .typed ? .typed : .voice
+        let requestedSelectionSnapshot: ScreenplayEditorSelectionSnapshot?
+        if studioDebugSelectLinesAckToken == studioDebugSelectLinesToken,
+           studioDebugSelectLinesStartLine > 0 {
+            requestedSelectionSnapshot = debugSelectionSnapshot(
+                startLine: studioDebugSelectLinesStartLine,
+                endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+            )
+        } else {
+            requestedSelectionSnapshot = nil
+        }
         Task { @MainActor in
-            if studioDebugSelectLinesAckToken == studioDebugSelectLinesToken,
-               studioDebugSelectLinesStartLine > 0,
-               let snapshot = debugSelectionSnapshot(
-                    startLine: studioDebugSelectLinesStartLine,
-                    endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
-               ) {
+            guard studioDebugLocalCommandToken == requestToken else { return }
+            if let snapshot = requestedSelectionSnapshot {
                 liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
             }
             let feedback = liveDraftBridge.executeLocalStudioCommand(text, source: commandSource)
@@ -14998,6 +14986,7 @@ Look at the city.
             if expectsPreview && liveDraftBridge.pendingStudioActionPreview == nil {
                 for _ in 0..<8 {
                     try? await Task.sleep(nanoseconds: 25_000_000)
+                    guard studioDebugLocalCommandToken == requestToken else { return }
                     if liveDraftBridge.pendingStudioActionPreview != nil { break }
                 }
             }
@@ -15005,13 +14994,16 @@ Look at the city.
                 for _ in 0..<20 {
                     if liveDraftBridge.pendingStudioAction == nil { break }
                     try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard studioDebugLocalCommandToken == requestToken else { return }
                 }
             }
+            guard studioDebugLocalCommandToken == requestToken else { return }
             let preview = liveDraftBridge.pendingStudioActionPreview
             let previewDiffRows = preview.map(studioActionPreviewDiffRows(for:)) ?? []
             let previewDiffSummary = preview.map { studioActionPreviewDiffSummary(for: $0, diffRows: previewDiffRows) }
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": feedback == nil ? "unhandled" : (feedback?.isError == true ? "error" : "handled"),
                 "confirmation": feedback?.confirmation ?? "",
                 "is_error": feedback?.isError ?? true,
@@ -15050,8 +15042,8 @@ Look at the city.
                 "draft_preview": String(vm.fountainDraft.prefix(220)),
                 "draft_tail_preview": String(vm.fountainDraft.suffix(220)),
             ]
-            studioDebugLocalCommandAckToken = studioDebugLocalCommandToken
-            studioDebugLocalCommandResultToken = studioDebugLocalCommandToken
+            studioDebugLocalCommandAckToken = requestToken
+            studioDebugLocalCommandResultToken = requestToken
             studioDebugLocalCommandResultStatus = feedback == nil
                 ? "unhandled"
                 : (feedback?.isError == true ? "error" : "handled")
@@ -15063,11 +15055,13 @@ Look at the city.
     }
 
     private func applyDebugCompanionModeIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugCompanionModeToken > 0 else { return }
-        guard studioDebugCompanionModeToken != studioDebugCompanionModeAckToken else { return }
-        guard studioDebugCompanionModeToken != lastAppliedStudioDebugCompanionModeToken else { return }
-        lastAppliedStudioDebugCompanionModeToken = studioDebugCompanionModeToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugCompanionModeToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugCompanionModeAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugCompanionModeToken else { return }
+        lastAppliedStudioDebugCompanionModeToken = requestToken
 
         let requestedMode = StudioCompanionMode(
             rawValue: studioDebugCompanionModeRaw
@@ -15076,21 +15070,30 @@ Look at the city.
         ) ?? .coach
 
         Task { @MainActor in
+            guard studioDebugCompanionModeToken == requestToken else { return }
             isDirectionOneRightRailExpanded = true
             directionOneRightPanelTab = .them
             liveDraftBridge.setCompanionMode(requestedMode)
-            studioDebugCompanionModeAckToken = studioDebugCompanionModeToken
+            studioDebugCompanionModeAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_companion_mode_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugIntelligenceQueueIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugIntelligenceQueueToken > 0 else { return }
-        guard studioDebugIntelligenceQueueToken != studioDebugIntelligenceQueueAckToken else { return }
-        guard studioDebugIntelligenceQueueToken != lastAppliedStudioDebugIntelligenceQueueToken else { return }
-        lastAppliedStudioDebugIntelligenceQueueToken = studioDebugIntelligenceQueueToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugIntelligenceQueueToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugIntelligenceQueueAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugIntelligenceQueueToken else { return }
+        lastAppliedStudioDebugIntelligenceQueueToken = requestToken
 
         let requestedAction = StudioDebugIntelligenceQueueAction(
             rawValue: studioDebugIntelligenceQueueActionRaw
@@ -15101,6 +15104,7 @@ Look at the city.
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task { @MainActor in
+            guard studioDebugIntelligenceQueueToken == requestToken else { return }
             directionOneRightPanelTab = .them
             isDirectionOneRightRailExpanded = true
 
@@ -15122,18 +15126,21 @@ Look at the city.
                     break
                 }
                 affectedFixCount = await applyQueuedIntelligenceFix(item) ? 1 : 0
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0, errorText.isEmpty {
                     status = "error"
                     errorText = "queue_apply_one_failed"
                 }
             case .applyAllSafe:
                 affectedFixCount = await applyAllSafeQueuedIntelligenceFixes()
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0, !queuedIntelligenceFixes.filter(\.isSafe).isEmpty {
                     status = "error"
                     errorText = "queue_apply_all_safe_failed"
                 }
             case .rollbackLastBatch:
                 affectedFixCount = await rollbackLastIntelligenceFixBatch()
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0 {
                     status = "error"
                     errorText = "queue_rollback_failed"
@@ -15144,7 +15151,9 @@ Look at the city.
                 vm.infoText = "I couldn't resolve that queue action."
             }
 
+            guard studioDebugIntelligenceQueueToken == requestToken else { return }
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -15159,18 +15168,41 @@ Look at the city.
                 "last_batch_applied_fix_count": lastAppliedIntelligenceFixBatch?.appliedFixIDs.count ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            studioDebugIntelligenceQueueAckToken = studioDebugIntelligenceQueueToken
-            studioDebugIntelligenceQueueResultToken = studioDebugIntelligenceQueueToken
+            studioDebugIntelligenceQueueAckToken = requestToken
+            studioDebugIntelligenceQueueResultToken = requestToken
             studioDebugIntelligenceQueueResultStatus = status
             studioDebugIntelligenceQueueResultError = errorText
             studioDebugIntelligenceQueueResultJSON = studioDebugJSONString(from: payload)
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_intelligence_queue_ack_token"
+            )
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_intelligence_queue_result_token"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                status,
+                forKey: "studio_debug_intelligence_queue_result_status"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                errorText,
+                forKey: "studio_debug_intelligence_queue_result_error"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                studioDebugIntelligenceQueueResultJSON,
+                forKey: "studio_debug_intelligence_queue_result_json"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugPageWriteToastIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugPageWriteToastToken > 0 else { return }
         guard studioDebugPageWriteToastToken != studioDebugPageWriteToastAckToken else { return }
         guard studioDebugPageWriteToastToken != lastAppliedStudioDebugPageWriteToastToken else { return }
@@ -15260,12 +15292,14 @@ Look at the city.
     }
 
     private func applyDebugPageWriteToastInteractionIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugPageWriteToastInteractionToken > 0 else { return }
-        guard studioDebugPageWriteToastInteractionToken != studioDebugPageWriteToastInteractionAckToken else { return }
-        guard studioDebugPageWriteToastInteractionToken != lastAppliedStudioDebugPageWriteToastInteractionToken else { return }
-        lastAppliedStudioDebugPageWriteToastInteractionToken = studioDebugPageWriteToastInteractionToken
-        studioDebugPageWriteToastInteractionAckToken = studioDebugPageWriteToastInteractionToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugPageWriteToastInteractionToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugPageWriteToastInteractionAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugPageWriteToastInteractionToken else { return }
+        lastAppliedStudioDebugPageWriteToastInteractionToken = requestToken
+        studioDebugPageWriteToastInteractionAckToken = requestToken
 
         let requestedAction = StudioDebugPageWriteToastInteractionAction(
             rawValue: studioDebugPageWriteToastInteractionActionRaw
@@ -15274,6 +15308,7 @@ Look at the city.
         )
 
         Task { @MainActor in
+            guard studioDebugPageWriteToastInteractionToken == requestToken else { return }
             var status = "handled"
             var errorText = ""
             var openedMore = false
@@ -15317,6 +15352,7 @@ Look at the city.
             }
 
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -15329,7 +15365,7 @@ Look at the city.
                 "current_cursor_line": liveDraftBridge.currentCursorLine,
                 "latest_info_text": vm.infoText,
             ]
-            studioDebugPageWriteToastInteractionResultToken = studioDebugPageWriteToastInteractionToken
+            studioDebugPageWriteToastInteractionResultToken = requestToken
             studioDebugPageWriteToastInteractionResultStatus = status
             studioDebugPageWriteToastInteractionResultError = errorText
             studioDebugPageWriteToastInteractionResultJSON = studioDebugJSONString(from: payload)
@@ -15339,11 +15375,13 @@ Look at the city.
     }
 
     private func applyDebugShortcutIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugShortcutToken > 0 else { return }
-        guard studioDebugShortcutToken != studioDebugShortcutAckToken else { return }
-        guard studioDebugShortcutToken != lastAppliedStudioDebugShortcutToken else { return }
-        lastAppliedStudioDebugShortcutToken = studioDebugShortcutToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugShortcutToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugShortcutAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugShortcutToken else { return }
+        lastAppliedStudioDebugShortcutToken = requestToken
 
         let requestedAction = StudioDebugShortcutAction(
             rawValue: studioDebugShortcutActionRaw
@@ -15352,6 +15390,7 @@ Look at the city.
         )
 
         Task { @MainActor in
+            guard studioDebugShortcutToken == requestToken else { return }
             directionOneRightPanelTab = .beats
             isDirectionOneRightRailExpanded = true
 
@@ -15383,6 +15422,7 @@ Look at the city.
 
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -15402,8 +15442,8 @@ Look at the city.
                 "selection_end_line": liveDraftBridge.editorSelection?.endLine ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            studioDebugShortcutAckToken = studioDebugShortcutToken
-            studioDebugShortcutResultToken = studioDebugShortcutToken
+            studioDebugShortcutAckToken = requestToken
+            studioDebugShortcutResultToken = requestToken
             studioDebugShortcutResultStatus = status
             studioDebugShortcutResultError = errorText
             studioDebugShortcutResultJSON = studioDebugJSONString(from: payload)
@@ -15413,13 +15453,15 @@ Look at the city.
     }
 
     private func applyDebugInspectorInteractionIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugInspectorInteractionToken > 0 else { return }
-        guard studioDebugInspectorInteractionToken != studioDebugInspectorInteractionAckToken else { return }
-        guard studioDebugInspectorInteractionToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
-        lastAppliedStudioDebugInspectorInteractionToken = studioDebugInspectorInteractionToken
-        studioDebugInspectorInteractionAckToken = studioDebugInspectorInteractionToken
-        mirrorStudioDebugInt(studioDebugInspectorInteractionToken, forKey: "studio_debug_inspector_interaction_ack_token")
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugInspectorInteractionToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugInspectorInteractionAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
+        lastAppliedStudioDebugInspectorInteractionToken = requestToken
+        studioDebugInspectorInteractionAckToken = requestToken
+        mirrorStudioDebugInt(requestToken, forKey: "studio_debug_inspector_interaction_ack_token")
 
         let requestedAction = StudioDebugInspectorInteractionAction(
             rawValue: studioDebugInspectorInteractionActionRaw
@@ -15428,8 +15470,11 @@ Look at the city.
         )
         let primary = studioDebugInspectorInteractionPrimary.trimmingCharacters(in: .whitespacesAndNewlines)
         let secondary = studioDebugInspectorInteractionSecondary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedSelectionStartLine = studioDebugSelectLinesStartLine
+        let requestedSelectionEndLine = max(requestedSelectionStartLine, studioDebugSelectLinesEndLine)
 
         Task { @MainActor in
+            guard studioDebugInspectorInteractionToken == requestToken else { return }
             directionOneRightPanelTab = .beats
             isDirectionOneRightRailExpanded = true
 
@@ -15439,10 +15484,10 @@ Look at the city.
             switch requestedAction {
             case .makeBeatFromSelection:
                 if selectionQuickCaptureSeed == nil,
-                   studioDebugSelectLinesStartLine > 0,
+                   requestedSelectionStartLine > 0,
                    let snapshot = debugSelectionSnapshot(
-                        startLine: studioDebugSelectLinesStartLine,
-                        endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+                        startLine: requestedSelectionStartLine,
+                        endLine: requestedSelectionEndLine
                    ) {
                     liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 }
@@ -15453,6 +15498,7 @@ Look at the city.
                     break
                 }
                 await createBeatFromQuickCaptureSeed(seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .makeBeatFromCurrentScene:
                 guard let seed = currentSceneQuickCaptureSeed else {
                     status = "error"
@@ -15461,6 +15507,7 @@ Look at the city.
                     break
                 }
                 await createBeatFromQuickCaptureSeed(seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .updateSelectedBeatFromSelection:
                 let resolvedBeat = selectedBeatForQuickUpdate
                     ?? vm.outline.beats.first(where: {
@@ -15476,10 +15523,10 @@ Look at the city.
                     selectBeatInInspector(beat)
                 }
                 if selectionQuickCaptureSeed == nil,
-                   studioDebugSelectLinesStartLine > 0,
+                   requestedSelectionStartLine > 0,
                    let snapshot = debugSelectionSnapshot(
-                        startLine: studioDebugSelectLinesStartLine,
-                        endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+                        startLine: requestedSelectionStartLine,
+                        endLine: requestedSelectionEndLine
                    ) {
                     liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 }
@@ -15490,6 +15537,7 @@ Look at the city.
                     break
                 }
                 await updateBeatFromSelectionSeed(beat, seed: seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .previewSelectedBeatDropBefore:
                 let sourceBeat = vm.outline.beats.first(where: {
                     $0.id == primary || $0.label.caseInsensitiveCompare(primary) == .orderedSame
@@ -15570,6 +15618,7 @@ Look at the city.
                 directionOneRightPanelTab = .draft
                 selectedInspectorSection = .comments
                 await vm.refreshCollaborationData(source: "Manual retry")
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
                 if !vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     status = "error"
                     errorText = vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15589,6 +15638,7 @@ Look at the city.
                 vm.collaboratorNote = secondary
                 vm.collaboratorInvitedBy = "studio-debug"
                 await vm.approveCollaborator()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
                 if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     status = "error"
                     errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15623,6 +15673,7 @@ Look at the city.
                 vm.commentReplyToID = ""
                 vm.commentEditID = ""
                 await vm.addComment()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
                 let normalizedCommentBody = commentBody.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     status = "error"
@@ -15651,6 +15702,7 @@ Look at the city.
                 switch requestedAction {
                 case .resolveFirstComment:
                     await vm.setCommentResolved(targetComment, resolved: true)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
                     if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         status = "error"
                         errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15660,6 +15712,7 @@ Look at the city.
                     }
                 case .unresolveFirstComment:
                     await vm.setCommentResolved(targetComment, resolved: false)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
                     if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         status = "error"
                         errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15669,6 +15722,7 @@ Look at the city.
                     }
                 case .deleteFirstComment:
                     await vm.deleteComment(targetComment)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
                     if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         status = "error"
                         errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15690,6 +15744,7 @@ Look at the city.
                 }
                 vm.errorText = ""
                 await vm.keepLocalDraftAfterConflict()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
                 if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     status = "error"
                     errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15732,9 +15787,11 @@ Look at the city.
                 vm.infoText = "I couldn't resolve that inspector interaction."
             }
 
+            guard studioDebugInspectorInteractionToken == requestToken else { return }
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
 
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -15770,11 +15827,11 @@ Look at the city.
                 "latest_info_text": vm.infoText,
                 "vm_error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
             ]
-            studioDebugInspectorInteractionResultToken = studioDebugInspectorInteractionToken
+            studioDebugInspectorInteractionResultToken = requestToken
             studioDebugInspectorInteractionResultStatus = status
             studioDebugInspectorInteractionResultError = errorText
             studioDebugInspectorInteractionResultJSON = studioDebugJSONString(from: payload)
-            mirrorStudioDebugInt(studioDebugInspectorInteractionToken, forKey: "studio_debug_inspector_interaction_result_token")
+            mirrorStudioDebugInt(requestToken, forKey: "studio_debug_inspector_interaction_result_token")
             mirrorStudioDebugString(status, forKey: "studio_debug_inspector_interaction_result_status")
             mirrorStudioDebugString(errorText, forKey: "studio_debug_inspector_interaction_result_error")
             mirrorStudioDebugString(studioDebugInspectorInteractionResultJSON, forKey: "studio_debug_inspector_interaction_result_json")
@@ -15784,7 +15841,8 @@ Look at the city.
     }
 
     private func applyDebugSubmittedStudioPromptIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSubmitToken > 0 else { return }
         guard studioDebugSubmitToken != studioDebugSubmitAckToken else { return }
         guard studioDebugSubmitToken != lastAppliedStudioDebugSubmitToken else { return }
@@ -15824,7 +15882,8 @@ Look at the city.
     }
 
     private func publishDebugStudioDiffState() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let pendingReplacement = liveDraftBridge.pendingReplacementTarget
         let submittedReplacement = liveDraftBridge.submittedReplacementTarget
         let currentDraft = vm.fountainDraft
@@ -15882,6 +15941,7 @@ Look at the city.
             selectedProjectID: vm.selectedProjectID,
             latestVersionID: vm.latestVersionID,
             studioSurfaceActive: true,
+            initialLoadSettled: studioDebugInitialLoadSettled,
             selectedProjectPresent: vm.selectedProject != nil,
             errorText: vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
             isSaving: vm.isSaving,
@@ -17009,6 +17069,8 @@ Look at the city.
 
     @MainActor
     private func restoreStudioWorkspaceAfterProjectHydration() async {
+        let restoredProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let restoredHistoryKey = activeStudioAskNoteHistoryKey
         guard ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
             selectedProjectID: vm.selectedProjectID,
             loadedProjectID: vm.selectedProject?.id,
@@ -17022,7 +17084,17 @@ Look at the city.
             draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
         )
         bootstrapNavigatorIfNeeded()
-        await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+        await restoreStudioAskNoteHistory(for: restoredHistoryKey)
+        guard vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == restoredProjectID,
+              activeStudioAskNoteHistoryKey == restoredHistoryKey,
+              ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+                  selectedProjectID: vm.selectedProjectID,
+                  loadedProjectID: vm.selectedProject?.id,
+                  loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+                  isLoading: vm.isLoading
+              ) else {
+            return
+        }
         restoreInspectorWorkspaceState()
         vm.refreshLiveDraftBridgeContext()
         restoreFeatureWorkflowContextAfterProjectHydration()

@@ -5,7 +5,9 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnedAppController,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   sleepMs,
@@ -38,6 +40,8 @@ function runOptional(command, args, options = {}) {
     stderr: (result.stderr || "").trim(),
   };
 }
+
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 const LOCAL_BACKEND_BASE_URL = String(process.env.THEM_BASE_URL || "").trim() || "http://127.0.0.1:3000";
 const STUDIO_DEBUG_VOICE_TURN_REQUEST_PATH = String(
@@ -379,53 +383,24 @@ function findDebugAppPath() {
   return discovered;
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
-
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  try {
-    await waitForCondition(() => !appIsRunning(), "THEM process to quit before voice interrupt smoke", 8000, 300);
-  } catch {
-    runOptional("killall", ["them"]);
-    await waitForCondition(() => !appIsRunning(), "THEM process to terminate before voice interrupt smoke", 8000, 300);
-  }
 }
 
-function activateApp(appPath = "") {
-  if (appPath && !appIsRunning()) {
-    runOptional("open", [appPath]);
-  }
-  runOptional("osascript", ["-e", 'tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function appleScriptQuoted(value) {
@@ -446,27 +421,19 @@ async function focusPageEditor({ moveToEnd = false } = {}) {
   );
   if (!moveToEnd) return;
   activateApp();
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.2',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.1',
     'key code 125 using {command down}',
-    'end tell',
   ]);
 }
 
 function injectKeystrokeEdit(marker) {
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.2',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.1',
     'key code 36',
     `keystroke "${appleScriptQuoted(marker)}"`,
-    'end tell',
   ]);
 }
 

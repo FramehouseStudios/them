@@ -403,26 +403,6 @@ extension ScreenplayStudioScreen {
         let phase: String
         let timestamp: Date
         let lineRef: Int?
-
-        var outputExcerpt: String {
-            fountainOutput
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .prefix(2)
-                .joined(separator: " · ")
-        }
-
-        var timeAgo: String {
-            let elapsed = max(0, Int(Date().timeIntervalSince(timestamp)))
-            if elapsed < 60 {
-                return "\(elapsed)s ago"
-            }
-            if elapsed < 3600 {
-                return "\(elapsed / 60)m ago"
-            }
-            return "\(elapsed / 3600)h ago"
-        }
     }
 
     struct StudioAskNoteExchange: Identifiable, Codable, Equatable {

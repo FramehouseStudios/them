@@ -16,7 +16,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = path.resolve(__dirname, "..");
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-route-metadata-visual.png";
 const PROJECT_ID = "debug-structural";
-const studioAppSessionHelperPath = fileURLToPath(new URL("./studio_app_session_helper.sh", import.meta.url));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -31,6 +30,7 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
 
 function osascript(lines) {
@@ -57,14 +57,8 @@ function readDebugDiffState() {
   return debugDefaults.readJSON("studio_debug_diff_state_json", null);
 }
 
-function captureScreenshot(pathToCapture) {
-  mkdirSync("/tmp/them-smoke", { recursive: true });
-  run("screencapture", ["-x", pathToCapture]);
-  assert(existsSync(pathToCapture), `Screenshot was not created: ${pathToCapture}`);
-  assert(statSync(pathToCapture).size > 0, `Screenshot file is empty: ${pathToCapture}`);
-}
-
 function readFrontWindowInfo() {
+  studioApp.assertOwned();
   const swiftSource = String.raw`
 import AppKit
 import CoreGraphics
@@ -72,10 +66,11 @@ import Foundation
 
 let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+let expectedOwnerPID = ${studioApp.pid}
 
 let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    guard ownerPID == expectedOwnerPID else { return nil }
     let layer = window[kCGWindowLayer as String] as? Int ?? 0
     guard layer == 0 else { return nil }
     guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
@@ -130,37 +125,19 @@ print(String(data: data, encoding: .utf8) ?? "{}")
 
 function captureWindowScreenshot(pathToCapture, windowInfo) {
   mkdirSync("/tmp/them-smoke", { recursive: true });
-  const args = ["-x"];
-  if (windowInfo?.windowID) {
-    args.push("-l", String(windowInfo.windowID));
-  } else if (windowInfo) {
-    args.push("-R", `${windowInfo.x},${windowInfo.y},${windowInfo.width},${windowInfo.height}`);
-  }
-  args.push(pathToCapture);
-  run("screencapture", args);
+  studioApp.assertOwned();
+  run("screencapture", ["-x", "-l", String(windowInfo.windowID), pathToCapture]);
+  studioApp.assertOwned();
   assert(existsSync(pathToCapture), `Screenshot was not created: ${pathToCapture}`);
   assert(statSync(pathToCapture).size > 0, `Screenshot file is empty: ${pathToCapture}`);
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return studioApp.isRunning();
 }
 
 function findDebugAppPath() {
@@ -175,15 +152,8 @@ function findDebugAppPath() {
   return discovered;
 }
 
-function activateApp(appPath = "") {
-  if (!appIsRunning() && appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  const appleScript = runOptional("osascript", ["-e", 'tell application "them" to activate']);
-  if (appleScript.status === 0) return;
-  const message = `${appleScript.stderr}\n${appleScript.stdout}`;
-  if (/timed out|connection invalid|can’t get application|can't get application/i.test(message)) return;
-  throw new Error(message.trim() || 'unable to activate "them"');
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {

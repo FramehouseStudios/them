@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const DEFAULT_STUDIO_APP_SESSION_HELPER_PATH = fileURLToPath(
+  new URL("./studio_app_session_helper.sh", import.meta.url)
+);
 
 export function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -334,8 +339,10 @@ export function createStudioEvalDebugContext({
   domains = [],
 } = {}) {
   const defaults = createStudioDebugDefaultsTransport({ run, runOptional, domains });
+  const ownedApp = createStudioOwnedAppController({ runOptional });
   return {
     defaults,
+    ownedApp,
     readDefaultString: defaults.readString,
     readDefaultInt: defaults.readInt,
     readDefaultBool: defaults.readBool,
@@ -517,14 +524,273 @@ export function parseStudioAppSessionHelperOutput(stdout = "") {
   return telemetry;
 }
 
+function studioAppExecutablePath(appPath, processName = "them") {
+  const cleanPath = String(appPath || "").trim().replace(/\/$/, "");
+  if (!cleanPath) {
+    throw new Error("Studio app ownership requires appPath");
+  }
+  const bundledExecutable = join(cleanPath, "Contents", "MacOS", processName);
+  if (existsSync(bundledExecutable)) return realpathSync(bundledExecutable);
+  if (existsSync(cleanPath)) return realpathSync(cleanPath);
+  throw new Error(`Studio app ownership could not resolve executable for ${cleanPath}`);
+}
+
+function studioCommandHasExactMarker(command, marker) {
+  return command === marker
+    || command.endsWith(` ${marker}`)
+    || command.includes(` ${marker} `);
+}
+
+export function createStudioOwnedAppController({
+  processName = "them",
+  sessionMarker = "--studio-eval",
+  runOptional = runOptionalCommand,
+} = {}) {
+  let ownedPID = 0;
+  let ownedExecutablePath = "";
+  let ownedStartSignature = "";
+  let ownedSession = null;
+
+  function inspectPID(pid = ownedPID) {
+    const numericPID = Math.round(Number(pid || 0));
+    if (!Number.isSafeInteger(numericPID) || numericPID <= 0) return null;
+    const commandResult = runOptional("ps", ["-p", String(numericPID), "-o", "command="]);
+    if (commandResult.status !== 0 || !commandResult.stdout.trim()) return null;
+    const startResult = runOptional("ps", ["-p", String(numericPID), "-o", "lstart="]);
+    if (startResult.status !== 0 || !startResult.stdout.trim()) return null;
+    return {
+      pid: numericPID,
+      command: commandResult.stdout.trim(),
+      startSignature: startResult.stdout.trim(),
+    };
+  }
+
+  function assertOwned() {
+    if (ownedPID <= 0 || !ownedExecutablePath || !ownedStartSignature) {
+      throw new Error("Studio app interaction attempted without a helper-owned PID");
+    }
+    const process = inspectPID();
+    const exactExecutable = process != null
+      && (process.command === ownedExecutablePath || process.command.startsWith(`${ownedExecutablePath} `));
+    const exactMarker = process != null && studioCommandHasExactMarker(process.command, sessionMarker);
+    const sameProcess = process != null && process.startSignature === ownedStartSignature;
+    if (!exactExecutable || !exactMarker || !sameProcess) {
+      throw new Error(`Studio app PID ${ownedPID} no longer matches the helper-owned eval session`);
+    }
+    return process;
+  }
+
+  function bindSession(appPath, appSession) {
+    const freshPID = Math.round(Number(appSession?.freshPid || 0));
+    if (!Number.isSafeInteger(freshPID) || freshPID <= 0) {
+      throw new Error("Studio app helper did not provide a valid freshPid");
+    }
+    const executablePath = studioAppExecutablePath(appPath, processName);
+    const process = inspectPID(freshPID);
+    const exactExecutable = process != null
+      && (process.command === executablePath || process.command.startsWith(`${executablePath} `));
+    if (!exactExecutable || !studioCommandHasExactMarker(process.command, sessionMarker)) {
+      throw new Error(`Studio app freshPid ${freshPID} does not own ${executablePath} with ${sessionMarker}`);
+    }
+    ownedPID = freshPID;
+    ownedExecutablePath = executablePath;
+    ownedStartSignature = process.startSignature;
+    ownedSession = appSession;
+    assertOwned();
+    return snapshot();
+  }
+
+  function assertAppPath(appPath) {
+    if (!String(appPath || "").trim()) return;
+    const executablePath = studioAppExecutablePath(appPath, processName);
+    if (executablePath !== ownedExecutablePath) {
+      throw new Error(`Studio app interaction path ${executablePath} does not match owned ${ownedExecutablePath}`);
+    }
+  }
+
+  function runAppleScript(lines, options = {}) {
+    const args = [];
+    for (const line of lines) args.push("-e", line);
+    const result = runOptional("osascript", args, options);
+    if (result.status !== 0) {
+      throw new Error((result.stderr || result.stdout || "owned Studio AppleScript failed").trim());
+    }
+    return result.stdout.trim();
+  }
+
+  function activate(appPath = "", appSession = null) {
+    if (appSession != null) bindSession(appPath, appSession);
+    assertAppPath(appPath);
+    assertOwned();
+    runAppleScript([
+      'tell application "System Events"',
+      "repeat with attempt from 1 to 40",
+      `set matchingProcesses to (processes whose unix id is ${ownedPID})`,
+      "if (count of matchingProcesses) > 0 then",
+      "set targetProcess to item 1 of matchingProcesses",
+      "set visible of targetProcess to true",
+      "set frontmost of targetProcess to true",
+      'return "1"',
+      "end if",
+      "delay 0.1",
+      "end repeat",
+      `error "unable to activate helper-owned Studio pid ${ownedPID}"`,
+      "end tell",
+    ], { timeout: 6000 });
+    assertOwned();
+  }
+
+  function hasWindow() {
+    assertOwned();
+    const output = runAppleScript([
+      "try",
+      'tell application "System Events"',
+      `tell first process whose unix id is ${ownedPID}`,
+      'if visible is true then return "1"',
+      "return count of windows",
+      "end tell",
+      "end tell",
+      "on error",
+      'return "0"',
+      "end try",
+    ]);
+    assertOwned();
+    return Number(output) > 0;
+  }
+
+  function isRunning() {
+    try {
+      assertOwned();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function runProcessAppleScript(lines, options = {}) {
+    assertOwned();
+    const output = runAppleScript([
+      'tell application "System Events"',
+      `tell first process whose unix id is ${ownedPID}`,
+      "set frontmost to true",
+      ...lines,
+      "end tell",
+      "end tell",
+    ], options);
+    assertOwned();
+    return output;
+  }
+
+  function readFrontWindowInfo() {
+    assertOwned();
+    const swiftSource = String.raw`
+import AppKit
+import CoreGraphics
+import Foundation
+
+let expectedOwnerPID = ${ownedPID}
+let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+let candidates = windows.compactMap { window -> [String: Any]? in
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    guard ownerPID == expectedOwnerPID else { return nil }
+    let layer = window[kCGWindowLayer as String] as? Int ?? 0
+    guard layer == 0 else { return nil }
+    guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
+    let x = Int((bounds["X"] as? Double ?? 0).rounded())
+    let y = Int((bounds["Y"] as? Double ?? 0).rounded())
+    let width = Int((bounds["Width"] as? Double ?? 0).rounded())
+    let height = Int((bounds["Height"] as? Double ?? 0).rounded())
+    let windowID = Int(window[kCGWindowNumber as String] as? Int ?? 0)
+    guard windowID > 0, width > 0, height > 0 else { return nil }
+    return [
+        "windowID": windowID,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "area": width * height,
+    ]
+}
+
+guard let selected = candidates.max(by: { ($0["area"] as? Int ?? 0) < ($1["area"] as? Int ?? 0) }) else {
+    fputs("missing owned Studio window\\n", stderr)
+    exit(1)
+}
+let data = try JSONSerialization.data(withJSONObject: selected, options: [])
+print(String(data: data, encoding: .utf8) ?? "{}")
+`;
+    const result = runOptional("swift", ["-e", swiftSource]);
+    if (result.status !== 0) {
+      throw new Error((result.stderr || result.stdout || `missing owned Studio window for PID ${ownedPID}`).trim());
+    }
+    const parsed = JSON.parse(result.stdout.trim());
+    const info = {
+      windowID: Math.round(Number(parsed.windowID || 0)),
+      x: Math.round(Number(parsed.x || 0)),
+      y: Math.round(Number(parsed.y || 0)),
+      width: Math.round(Number(parsed.width || 0)),
+      height: Math.round(Number(parsed.height || 0)),
+    };
+    if (info.windowID <= 0 || info.width <= 0 || info.height <= 0) {
+      throw new Error(`invalid owned Studio window telemetry for PID ${ownedPID}`);
+    }
+    assertOwned();
+    return info;
+  }
+
+  function captureWindow(targetPath) {
+    const window = readFrontWindowInfo();
+    const result = runOptional("screencapture", ["-x", "-l", String(window.windowID), targetPath]);
+    if (result.status !== 0) {
+      throw new Error((result.stderr || result.stdout || `failed to capture owned Studio window ${window.windowID}`).trim());
+    }
+    assertOwned();
+    return window;
+  }
+
+  function snapshot() {
+    return {
+      pid: ownedPID,
+      executablePath: ownedExecutablePath,
+      startSignature: ownedStartSignature,
+      session: ownedSession,
+    };
+  }
+
+  return {
+    activate,
+    assertOwned,
+    bindSession,
+    captureWindow,
+    hasWindow,
+    isRunning,
+    readFrontWindowInfo,
+    runProcessAppleScript,
+    snapshot,
+    get pid() { return ownedPID; },
+    get executablePath() { return ownedExecutablePath; },
+    get session() { return ownedSession; },
+  };
+}
+
 export function relaunchStudioAppWithHelper({
-  helperPath,
+  helperPath = DEFAULT_STUDIO_APP_SESSION_HELPER_PATH,
   appPath,
+  launchArguments = [],
   timeoutSeconds = 20,
   pollMillis = 250,
   runOptional = runOptionalCommand,
 }) {
-  const result = runOptional("/bin/bash", [helperPath, "--app-path", appPath], {
+  const normalizedLaunchArguments = [
+    "--studio-eval",
+    ...launchArguments.map(String).filter((argument) => argument !== "--studio-eval"),
+  ];
+  const helperArguments = [helperPath, "--app-path", appPath];
+  for (const argument of normalizedLaunchArguments) {
+    helperArguments.push("--launch-arg", argument);
+  }
+  const result = runOptional("/bin/bash", helperArguments, {
     env: {
       ...process.env,
       STUDIO_APP_SESSION_HELPER_TIMEOUT_SECONDS: String(timeoutSeconds),
@@ -538,12 +804,46 @@ export function relaunchStudioAppWithHelper({
       + JSON.stringify(telemetry, null, 2)
     );
   }
+  if (telemetry.freshPid <= 0 || !telemetry.relaunchedPidSet.includes(telemetry.freshPid)) {
+    throw new Error(
+      `Studio app relaunch helper returned invalid PID ownership telemetry\n${JSON.stringify(telemetry, null, 2)}`
+    );
+  }
+  return telemetry;
+}
+
+export function cleanupStudioEvalSessionsWithHelper({
+  helperPath = DEFAULT_STUDIO_APP_SESSION_HELPER_PATH,
+  timeoutSeconds = 20,
+  pollMillis = 250,
+  runOptional = runOptionalCommand,
+} = {}) {
+  const result = runOptional("/bin/bash", [
+    helperPath,
+    "--cleanup-only",
+    "--launch-arg",
+    "--studio-eval",
+  ], {
+    env: {
+      ...process.env,
+      STUDIO_APP_SESSION_HELPER_TIMEOUT_SECONDS: String(timeoutSeconds),
+      STUDIO_APP_SESSION_HELPER_POLL_MILLIS: String(pollMillis),
+    },
+  });
+  const telemetry = parseStudioAppSessionHelperOutput(result.stdout);
+  if (result.status !== 0 || telemetry.helperStatus !== "ok" || telemetry.sessionMode !== "cleanup_only") {
+    throw new Error(
+      `Studio eval cleanup helper failed: ${telemetry.helperError || result.stderr || result.stdout || "unknown helper failure"}\n`
+      + JSON.stringify(telemetry, null, 2)
+    );
+  }
   return telemetry;
 }
 
 export async function ensureStudioVisibleWithOpenHandshake({
   appPath,
   debugDefaults,
+  launchArguments = [],
   runOptional = runOptionalCommand,
   activateApp = () => {},
   appHasWindow = () => false,
@@ -566,31 +866,22 @@ export async function ensureStudioVisibleWithOpenHandshake({
   }
 
   let appSession = defaultStudioSessionTelemetry();
-  const resolvedHelperPath = String(helperPath || "").trim() || `${process.cwd()}/evals/studio_app_session_helper.sh`;
-  try {
-    appSession = relaunchStudioAppWithHelper({
+  const resolvedHelperPath = String(helperPath || "").trim() || DEFAULT_STUDIO_APP_SESSION_HELPER_PATH;
+  const launchFreshSession = () => {
+    debugDefaults.writeString(STUDIO_DEBUG_DIFF_STATE_KEY, "");
+    debugDefaults.writeInt(openTokenKey, 0);
+    debugDefaults.writeInt(openAckTokenKey, 0);
+    return relaunchStudioAppWithHelper({
       helperPath: resolvedHelperPath,
       appPath,
+      launchArguments,
       timeoutSeconds,
       pollMillis,
       runOptional,
     });
-  } catch (error) {
-    // Fall back to a local reopen flow when helper teardown cannot clear stale PIDs.
-    appSession = {
-      ...defaultStudioSessionTelemetry(),
-      helperStatus: "error",
-      helperError: error instanceof Error ? error.message : String(error || "unknown helper failure"),
-      sessionMode: "fallback_open",
-    };
-    runOptional("open", [appPath]);
-    await sleepMs(900);
-  }
-
-  debugDefaults.writeString(STUDIO_DEBUG_DIFF_STATE_KEY, "");
-  debugDefaults.writeInt(openTokenKey, 0);
-  debugDefaults.writeInt(openAckTokenKey, 0);
-  activateApp(appPath);
+  };
+  appSession = launchFreshSession();
+  activateApp(appPath, appSession);
   try {
     await waitForCondition(
       () => Boolean(appHasWindow()) || readDebugDiffState() != null,
@@ -604,8 +895,8 @@ export async function ensureStudioVisibleWithOpenHandshake({
   }
 
   let lastError = null;
+  const token = debugDefaults.nextToken(openTokenKey, openAckTokenKey);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const token = debugDefaults.nextToken(openTokenKey, openAckTokenKey);
     debugDefaults.writeInt(openAckTokenKey, 0);
     debugDefaults.writeInt(openTokenKey, token);
     try {
@@ -616,7 +907,7 @@ export async function ensureStudioVisibleWithOpenHandshake({
         150
       );
       await sleepMs(settleMs);
-      activateApp(appPath);
+      activateApp(appPath, appSession);
       await waitForCondition(
         () => readDebugDiffState() != null,
         "Studio diff state after open",
@@ -629,23 +920,11 @@ export async function ensureStudioVisibleWithOpenHandshake({
       };
     } catch (error) {
       lastError = error;
-      runOptional("open", [appPath]);
-      activateApp(appPath);
+      if (attempt >= maxAttempts) break;
+      appSession = launchFreshSession();
+      activateApp(appPath, appSession);
       await sleepMs(settleMs);
     }
-  }
-
-  const hasDiffState = readDebugDiffState() != null;
-  const hasWindow = Boolean(appHasWindow());
-  if (hasDiffState) {
-    return {
-      token: 0,
-      degraded: true,
-      appSession: {
-        ...appSession,
-        helperStatus: appSession.helperStatus === "ok" ? "degraded_open_ack" : appSession.helperStatus,
-      },
-    };
   }
 
   const message = lastError instanceof Error ? lastError.message : String(lastError || "Studio open ack never arrived");

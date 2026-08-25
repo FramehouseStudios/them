@@ -3,6 +3,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import {
   assertInteractionLifecycle,
+  cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
@@ -27,13 +28,8 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
-
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
 
 async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
   await waitForCondition(predicate, description, timeoutMs, intervalMs);
@@ -232,42 +228,23 @@ done
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return studioApp.isRunning();
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"], {
-    timeout: 2000,
-  });
-  runOptional("killall", ["them"], {
-    timeout: 2000,
-  });
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit before prompt-mode smoke", 15000, 300);
 }
 
 function normalizeKey(value) {
@@ -386,37 +363,20 @@ async function waitForStudioOpenAck(token) {
 }
 
 async function ensureStudioVisible(appPath) {
-  let openState;
-  try {
-    openState = await ensureStudioVisibleWithOpenHandshake({
-      appPath,
-      helperPath: studioAppSessionHelperPath,
-      debugDefaults,
-      runOptional,
-      activateApp: () => activateApp(),
-      appHasWindow,
-      readDebugDiffState,
-      timeoutSeconds: Number(process.env.STUDIO_APP_SESSION_TIMEOUT_SECONDS || 20),
-      pollMillis: Number(process.env.STUDIO_APP_SESSION_POLL_MILLIS || 250),
-      startupTimeoutMs: Number(process.env.STUDIO_APP_STARTUP_TIMEOUT_MS || 45000),
-      ackTimeoutMs: Number(process.env.STUDIO_APP_OPEN_ACK_TIMEOUT_MS || 20000),
-      maxAttempts: Number(process.env.STUDIO_APP_OPEN_MAX_ATTEMPTS || 5),
-    });
-  } catch (error) {
-    await waitFor(
-      () => appIsRunning() && (Boolean(readDebugDiffState()) || appHasWindow()),
-      "degraded visible THEM window or Studio diff state after open",
-      Number(process.env.STUDIO_APP_DEGRADED_OPEN_TIMEOUT_MS || 30000),
-      250
-    ).catch(() => {
-      throw error;
-    });
-    openState = {
-      token: readDefaultInt("studio_debug_open_ack_token"),
-      degradedOpenHandshake: true,
-      appSession: { helperStatus: "degraded_open_fallback" },
-    };
-  }
+  const openState = await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    helperPath: studioAppSessionHelperPath,
+    debugDefaults,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+    timeoutSeconds: Number(process.env.STUDIO_APP_SESSION_TIMEOUT_SECONDS || 20),
+    pollMillis: Number(process.env.STUDIO_APP_SESSION_POLL_MILLIS || 250),
+    startupTimeoutMs: Number(process.env.STUDIO_APP_STARTUP_TIMEOUT_MS || 45000),
+    ackTimeoutMs: Number(process.env.STUDIO_APP_OPEN_ACK_TIMEOUT_MS || 20000),
+    maxAttempts: Number(process.env.STUDIO_APP_OPEN_MAX_ATTEMPTS || 5),
+  });
   assertInteractionLifecycle({
     action: "studio_debug_open",
     actionReceived: true,

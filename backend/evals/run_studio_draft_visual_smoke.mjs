@@ -27,6 +27,7 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
 const {
   readDefaultInt,
@@ -35,14 +36,6 @@ const {
   readJsonDefault,
   nextToken,
 } = debugContext;
-
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
-}
 
 function readDebugDiffState() {
   return readJsonDefault("studio_debug_diff_state_json", null);
@@ -55,8 +48,8 @@ function normalizeText(value) {
     .trim();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 function findDebugAppPath() {
@@ -72,19 +65,7 @@ function findDebugAppPath() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {
@@ -201,6 +182,7 @@ async function openDraftInspector(section = "pages") {
 }
 
 function readFrontWindowInfo() {
+  studioApp.assertOwned();
   const swiftSource = String.raw`
 import AppKit
 import CoreGraphics
@@ -208,10 +190,11 @@ import Foundation
 
 let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+let expectedOwnerPID = ${studioApp.pid}
 
 let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    guard ownerPID == expectedOwnerPID else { return nil }
     let layer = window[kCGWindowLayer as String] as? Int ?? 0
     guard layer == 0 else { return nil }
     guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
@@ -266,14 +249,9 @@ print(String(data: data, encoding: .utf8) ?? "{}")
 
 function captureScreenshot(path, windowInfo) {
   mkdirSync("/tmp/them-smoke", { recursive: true });
-  const args = ["-x"];
-  if (windowInfo?.windowID) {
-    args.push("-l", String(windowInfo.windowID));
-  } else if (windowInfo) {
-    args.push("-R", `${windowInfo.x},${windowInfo.y},${windowInfo.width},${windowInfo.height}`);
-  }
-  args.push(path);
-  run("screencapture", args);
+  studioApp.assertOwned();
+  run("screencapture", ["-x", "-l", String(windowInfo.windowID), path]);
+  studioApp.assertOwned();
   assert(existsSync(path), `Screenshot was not created: ${path}`);
   assert(statSync(path).size > 0, `Screenshot file is empty: ${path}`);
 }

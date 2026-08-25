@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STUDIO_APP_PID=0
+
 osascript_run() {
   local args=()
   local line
@@ -54,20 +57,31 @@ find_debug_app_path() {
 }
 
 activate_app() {
-  osascript_run 'tell application "them" to activate' >/dev/null
+  [[ "$STUDIO_APP_PID" =~ ^[0-9]+$ ]] && (( STUDIO_APP_PID > 0 ))
+  osascript_run \
+    'tell application "System Events"' \
+    "set frontmost of first process whose unix id is ${STUDIO_APP_PID} to true" \
+    'end tell' >/dev/null
 }
 
-app_is_running() {
-  local output
-  output=$(osascript_run \
-    'try' \
-    'tell application "System Events"' \
-    'return count of (every process whose name is "them")' \
-    'end tell' \
-    'on error' \
-    'return "0"' \
-    'end try')
-  [[ "$output" != "0" ]]
+owns_studio_app_pid() {
+  local executable command
+  [[ "$STUDIO_APP_PID" =~ ^[0-9]+$ ]] && (( STUDIO_APP_PID > 0 )) || return 1
+  executable="${APP_PATH}/Contents/MacOS/them"
+  command=$(ps -p "$STUDIO_APP_PID" -o command= 2>/dev/null || true)
+  [[ "$command" == "${executable} --studio-eval" || "$command" == "${executable} --studio-eval "* ]]
+}
+
+cleanup_owned_studio_app() {
+  owns_studio_app_pid || return 0
+  kill -TERM "$STUDIO_APP_PID" 2>/dev/null || true
+  for _ in {1..20}; do
+    owns_studio_app_pid || return 0
+    sleep_ms 50
+  done
+  if owns_studio_app_pid; then
+    kill -KILL "$STUDIO_APP_PID" 2>/dev/null || true
+  fi
 }
 
 seed_counter() {
@@ -152,11 +166,11 @@ wait_for_active_element() {
 
 send_command_number() {
   local number="$1"
+  activate_app
   osascript_run \
-    'tell application "them" to activate' \
     'delay 0.15' \
     'tell application "System Events"' \
-    'tell process "them" to set frontmost to true' \
+    "set frontmost of first process whose unix id is ${STUDIO_APP_PID} to true" \
     'delay 0.05' \
     "keystroke \"${number}\" using {command down}" \
     'end tell' >/dev/null
@@ -164,21 +178,20 @@ send_command_number() {
 
 send_tab() {
   local backward="$1"
+  activate_app
   if [[ "$backward" == "1" ]]; then
     osascript_run \
-      'tell application "them" to activate' \
       'delay 0.15' \
       'tell application "System Events"' \
-      'tell process "them" to set frontmost to true' \
+      "set frontmost of first process whose unix id is ${STUDIO_APP_PID} to true" \
       'delay 0.05' \
       'key code 48 using {shift down}' \
       'end tell' >/dev/null
   else
     osascript_run \
-      'tell application "them" to activate' \
       'delay 0.15' \
       'tell application "System Events"' \
-      'tell process "them" to set frontmost to true' \
+      "set frontmost of first process whose unix id is ${STUDIO_APP_PID} to true" \
       'delay 0.05' \
       'key code 48' \
       'end tell' >/dev/null
@@ -205,6 +218,16 @@ if [[ -z "$APP_PATH" ]]; then
   echo "Could not locate Debug them.app" >&2
   exit 1
 fi
+
+SESSION_OUTPUT=$("${SCRIPT_DIR}/studio_app_session_helper.sh" \
+  --app-path "$APP_PATH" \
+  --launch-arg --studio-eval)
+STUDIO_APP_PID=$(awk -F= '$1 == "FRESH_PID" { print $2 }' <<<"$SESSION_OUTPUT" | tail -n 1)
+if [[ ! "$STUDIO_APP_PID" =~ ^[0-9]+$ ]] || (( STUDIO_APP_PID <= 0 )); then
+  echo "Studio session helper did not return an owned PID" >&2
+  exit 1
+fi
+trap cleanup_owned_studio_app EXIT
 
 seed_counter
 

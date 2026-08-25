@@ -13,6 +13,53 @@ nonisolated enum IOThemRuntime {
     static var isRunningUITests: Bool {
         ProcessInfo.processInfo.arguments.contains("--ui-testing")
     }
+
+    static var isStudioEvalSession: Bool {
+        #if DEBUG
+        isStudioEvalArguments(ProcessInfo.processInfo.arguments)
+        #else
+        false
+        #endif
+    }
+
+    static func isStudioEvalArguments(_ arguments: [String]) -> Bool {
+        arguments.contains("--studio-eval")
+    }
+
+    static func isStudioAutomationArguments(_ arguments: [String]) -> Bool {
+        isStudioEvalArguments(arguments) || arguments.contains("--ui-testing")
+    }
+
+    static func explicitPreferenceArgumentValue(
+        forKey key: String,
+        arguments: [String]
+    ) -> String? {
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else { return nil }
+        let flag = "-\(cleanKey)"
+        let assignmentPrefix = "\(flag)="
+
+        for index in arguments.indices.reversed() {
+            let argument = arguments[index]
+            if argument.hasPrefix(assignmentPrefix) {
+                return String(argument.dropFirst(assignmentPrefix.count))
+            }
+            guard argument == flag else { continue }
+            let valueIndex = arguments.index(after: index)
+            guard valueIndex < arguments.endIndex else { return "" }
+            let value = arguments[valueIndex]
+            return value.hasPrefix("-") ? "" : value
+        }
+        return nil
+    }
+
+    static var isStudioAutomationSession: Bool {
+        #if DEBUG
+        isStudioAutomationArguments(ProcessInfo.processInfo.arguments)
+        #else
+        false
+        #endif
+    }
 }
 
 #if DEBUG

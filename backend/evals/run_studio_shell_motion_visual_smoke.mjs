@@ -27,6 +27,7 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
 const {
   readDefaultInt,
@@ -53,35 +54,15 @@ function findDebugAppPath() {
 }
 
 function appHasWindow() {
-  const output = runOptional("osascript", [
-    "-e", "try",
-    "-e", 'tell application "System Events"',
-    "-e", 'tell process "them"',
-    "-e", 'if visible is true then return "1"',
-    "-e", "return count of windows",
-    "-e", "end tell",
-    "-e", "end tell",
-    "-e", "on error",
-    "-e", 'return "0"',
-    "-e", "end try",
-  ]);
-  return output.status === 0 && Number(output.stdout || "0") > 0;
+  return studioApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return studioApp.isRunning();
 }
 
-function activateApp(appPath = "") {
-  if (!appIsRunning() && appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  const appleScript = runOptional("osascript", ["-e", 'tell application "them" to activate']);
-  if (appleScript.status === 0) return;
-  const message = `${appleScript.stderr}\n${appleScript.stdout}`;
-  if (/timed out|connection invalid|can’t get application|can't get application/i.test(message)) return;
-  throw new Error(message.trim() || 'unable to activate "them"');
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {
@@ -109,7 +90,7 @@ async function ensureStudioVisible() {
 
 async function seedStructuralDraft() {
   const appPath = findDebugAppPath();
-  runOptional("open", ["-na", appPath]);
+  activateApp(appPath);
   await sleepMs(700);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -144,6 +125,7 @@ async function seedStructuralDraft() {
 }
 
 function readFrontWindowInfo() {
+  studioApp.assertOwned();
   const swiftSource = String.raw`
 import AppKit
 import CoreGraphics
@@ -151,10 +133,11 @@ import Foundation
 
 let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+let expectedOwnerPID = ${studioApp.pid}
 
 let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    guard ownerPID == expectedOwnerPID else { return nil }
     let layer = window[kCGWindowLayer as String] as? Int ?? 0
     guard layer == 0 else { return nil }
     guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
@@ -197,8 +180,9 @@ print(String(data: data, encoding: .utf8) ?? "{}")
 
 function captureWindowScreenshot(path, windowInfo) {
   mkdirSync("/tmp/them-smoke", { recursive: true });
-  const args = ["-x", "-l", String(windowInfo.windowID), path];
-  run("screencapture", args);
+  studioApp.assertOwned();
+  run("screencapture", ["-x", "-l", String(windowInfo.windowID), path]);
+  studioApp.assertOwned();
   assert(existsSync(path), `Screenshot was not created: ${path}`);
   assert(statSync(path).size > 0, `Screenshot file is empty: ${path}`);
 }

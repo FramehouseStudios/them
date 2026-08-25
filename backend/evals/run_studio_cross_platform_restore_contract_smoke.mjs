@@ -3,6 +3,7 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
@@ -318,12 +319,6 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -379,6 +374,7 @@ done
 }
 
 const studioDebug = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = studioDebug.ownedApp;
 
 function readDefaultString(key) {
   return studioDebug.readDefaultString(key);
@@ -412,108 +408,29 @@ function synchronizeDefaults() {
   }
 }
 
-function appProcessIDs() {
-  const values = [];
-  const pgrep = runOptional("pgrep", ["-x", "them"]);
-  if (pgrep.status === 0 && pgrep.stdout.trim()) {
-    values.push(...pgrep.stdout.split(/\s+/));
-  }
-  const systemEvents = runOptional("osascript", [
-    "-e", "try",
-    "-e", 'tell application "System Events" to get unix id of every process whose name is "them"',
-    "-e", "on error",
-    "-e", 'return ""',
-    "-e", "end try",
-  ]);
-  if (systemEvents.status === 0 && systemEvents.stdout.trim()) {
-    values.push(...systemEvents.stdout.split(/[,\s]+/));
-  }
-  return Array.from(new Set(
-    values
-      .map((value) => Number(String(value || "").trim()))
-      .filter((value) => Number.isInteger(value) && value > 0)
-  ));
-}
-
 function appIsRunning() {
-  return appProcessIDs().length > 0;
+  return studioApp.isRunning();
 }
 
 function currentAppPidForPath(appPath = "") {
-  const cleanAppPath = String(appPath || "").trim();
-  if (!cleanAppPath) return 0;
-  const executablePath = cleanAppPath.endsWith("/Contents/MacOS/them")
-    ? cleanAppPath
-    : `${cleanAppPath.replace(/\/+$/, "")}/Contents/MacOS/them`;
-  const result = runOptional("ps", ["-axo", "pid=,command="]);
-  if (result.status !== 0 || !result.stdout.trim()) return 0;
-  for (const line of result.stdout.split(/\r?\n/)) {
-    if (!line.includes(executablePath)) continue;
-    const match = line.trim().match(/^(\d+)\s+/);
-    if (match) return Number(match[1]) || 0;
-  }
-  return 0;
+  if (!studioApp.isRunning()) return 0;
+  return studioApp.pid;
 }
 
-function activateApp(appPath = "") {
-  const pid = currentAppPidForPath(appPath) || appProcessIDs()[0] || 0;
-  if (!pid) return;
-  runOptional("osascript", [
-    "-e", "tell application \"System Events\"",
-    "-e", "repeat with attempt from 1 to 40",
-    "-e", `set matchingProcesses to (processes whose unix id is ${pid})`,
-    "-e", "if (count of matchingProcesses) > 0 then",
-    "-e", "set targetProcess to item 1 of matchingProcesses",
-    "-e", "set visible of targetProcess to true",
-    "-e", "set frontmost of targetProcess to true",
-    "-e", "return \"1\"",
-    "-e", "end if",
-    "-e", "delay 0.1",
-    "-e", "end repeat",
-    "-e", "end tell",
-  ], {
-    timeout: 6000,
-  });
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    "tell application \"System Events\"",
-    "tell process \"them\"",
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    "return \"0\"",
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", "tell application \"them\" to quit", "-e", "end try"], {
-    timeout: 2000,
-  });
-  runOptional("killall", ["them"], {
-    timeout: 2000,
-  });
-  for (const pid of appProcessIDs()) {
-    runOptional("kill", [String(pid)], {
-      timeout: 2000,
-    });
-  }
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    if (!appIsRunning()) return;
-    await sleep(250);
-  }
-  throw new Error("Timed out waiting for THEM macOS app to stop before cross-platform restore.");
 }
 
 function readDebugDiffState() {
@@ -755,7 +672,7 @@ async function restoreSharedProjectOnMac(seeded) {
     projectId: seeded.projectID,
     versionId: seeded.versionID,
   });
-  await ensureStudioVisibleWithOpenHandshake({
+  const openResult = await ensureStudioVisibleWithOpenHandshake({
     appPath,
     helperPath: STUDIO_APP_SESSION_HELPER,
     debugDefaults: studioDebug.defaults,
@@ -775,6 +692,7 @@ async function restoreSharedProjectOnMac(seeded) {
   const restoredState = await waitForMacRestoreState(seeded, stagedRequest);
   return {
     appPath,
+    appSession: openResult.appSession,
     stagedRequest,
     restoredState,
   };

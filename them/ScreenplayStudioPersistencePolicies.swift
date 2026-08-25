@@ -40,6 +40,29 @@ struct ScreenplayProjectSelectionRestorePolicy {
     }
 }
 
+struct ScreenplayProjectLoadApplicationPolicy {
+    static func shouldApply(
+        selectedProjectIDAtStart: String,
+        currentSelectedProjectID: String
+    ) -> Bool {
+        selectedProjectIDAtStart.trimmingCharacters(in: .whitespacesAndNewlines)
+            == currentSelectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ScreenplayProjectBindingStoragePolicy {
+    static func restoredValue(
+        productValue: String?,
+        legacyDebugValue: String?,
+        isAutomationSession: Bool
+    ) -> String? {
+        if isAutomationSession {
+            return legacyDebugValue
+        }
+        return productValue ?? legacyDebugValue
+    }
+}
+
 struct ScreenplayStudioPostHydrationRestorePolicy {
     static func canRestoreWorkspace(
         selectedProjectID: String,

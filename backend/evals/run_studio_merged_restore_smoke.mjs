@@ -4,6 +4,11 @@ import { existsSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -26,11 +31,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -436,65 +437,25 @@ function findPersistedReopenedRecord() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    'try',
-    'tell application "System Events"',
-    'tell process "them"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  return appProcessIDs().length > 0;
+  return ownedApp.isRunning();
 }
 
-function appProcessIDs() {
-  const values = [];
-  const pgrep = runOptional("pgrep", ["-x", "them"]);
-  if (pgrep.status === 0 && pgrep.stdout.trim()) {
-    values.push(...pgrep.stdout.split(/\s+/));
-  }
-  const systemEvents = runOptional("osascript", [
-    "-e", "try",
-    "-e", 'tell application "System Events" to get unix id of every process whose name is "them"',
-    "-e", "on error",
-    "-e", 'return ""',
-    "-e", "end try",
-  ]);
-  if (systemEvents.status === 0 && systemEvents.stdout.trim()) {
-    values.push(...systemEvents.stdout.split(/[,\s]+/));
-  }
-  return Array.from(new Set(
-    values
-      .map((value) => Number(String(value || "").trim()))
-      .filter((value) => Number.isInteger(value) && value > 0)
-  ));
-}
-
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"]);
-  runOptional("killall", ["them"], {
-    timeout: 2000,
-  });
-  for (const pid of appProcessIDs()) {
-    runOptional("kill", [String(pid)], {
-      timeout: 2000,
-    });
-  }
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 let debugTokenCounter = Math.max(1, readDefaultInt("studio_debug_open_token"));
@@ -527,20 +488,15 @@ async function ensureStudioVisible() {
 }
 
 async function relaunchApp(appPath) {
-  if (appIsRunning()) {
-    quitApp();
-    await waitFor(() => !appIsRunning(), "THEM process to quit", 15000, 300);
-  }
-  launchApp(appPath);
+  quitApp();
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
+  activateApp(appPath, appSession);
   await ensureStudioVisible();
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit before seed", 15000, 300);
 }
 
 const originalLocalStateRaw = readDefaultString("studio.full.thread.state.v1");

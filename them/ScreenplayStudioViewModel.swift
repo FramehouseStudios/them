@@ -1641,6 +1641,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
     private var clientTokenOwnedProjectIDs: Set<String> = []
+    private var activeLoadRequestID: UUID?
 
     init() {
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
@@ -1686,30 +1687,33 @@ final class ScreenplayStudioViewModel: ObservableObject {
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
             return
         }
+        let requestID = UUID()
+        let selectedProjectIDAtStart = selectedProjectID
+        activeLoadRequestID = requestID
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if activeLoadRequestID == requestID {
+                activeLoadRequestID = nil
+                isLoading = false
+            }
+        }
         errorText = ""
         infoText = ""
+        let result: BackendReadResult<BackendScreenplayProjectsResponse>
         do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(
+            result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(
                 limit: 24,
                 includeVersions: false,
                 includeDrafts: false
             )
-            didLoadScreenplayProjectsFromBackend = true
-            lastSeenScreenplayStateVersion = result.payload.stateVersion?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            projects = result.payload.screenplayProjects
-            let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
-            selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
-                activeProjectId: result.payload.screenplayActiveProjectId,
-                preferredProjectId: bridgePreferredProjectID,
-                projects: projects
-            )
-            await loadSelectedProjectOutline()
-            await refreshPendingScreenplayQuestion()
-            await resumeQueuedDraftSavesIfNeeded()
         } catch {
+            guard activeLoadRequestID == requestID,
+                  ScreenplayProjectLoadApplicationPolicy.shouldApply(
+                      selectedProjectIDAtStart: selectedProjectIDAtStart,
+                      currentSelectedProjectID: selectedProjectID
+                  ) else {
+                return
+            }
             didLoadScreenplayProjectsFromBackend = false
             errorText = error.localizedDescription
             selectedProject = nil
@@ -1719,7 +1723,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
             outlineRevisionProjectID = ""
             clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
+            return
         }
+        guard activeLoadRequestID == requestID,
+              ScreenplayProjectLoadApplicationPolicy.shouldApply(
+                  selectedProjectIDAtStart: selectedProjectIDAtStart,
+                  currentSelectedProjectID: selectedProjectID
+              ) else {
+            return
+        }
+        didLoadScreenplayProjectsFromBackend = true
+        lastSeenScreenplayStateVersion = result.payload.stateVersion?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        projects = result.payload.screenplayProjects
+        let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
+        selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+            activeProjectId: result.payload.screenplayActiveProjectId,
+            preferredProjectId: bridgePreferredProjectID,
+            projects: projects
+        )
+        await loadSelectedProjectOutline()
+        await refreshPendingScreenplayQuestion()
+        await resumeQueuedDraftSavesIfNeeded()
     }
 
     func refresh() async {

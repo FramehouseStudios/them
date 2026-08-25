@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -29,11 +34,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -160,54 +161,29 @@ async function createThrowawayStudioProject() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
-}
-
-function killExistingAppProcesses() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  if (result.status !== 0 || !result.stdout.trim()) return;
-  for (const pid of result.stdout.split(/\s+/).filter(Boolean)) {
-    runOptional("kill", [pid]);
-  }
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await sleep(1200);
-  if (appIsRunning()) {
-    killExistingAppProcesses();
-  }
-  await waitFor(() => !appIsRunning(), "THEM process to quit before smoke", 15000, 300);
 }
 
 async function ensureStudioVisible() {
@@ -230,42 +206,14 @@ async function ensureStudioVisible() {
 
 async function relaunchApp(appPath) {
   await ensureAppStopped();
-  launchApp(appPath);
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
+  activateApp(appPath, appSession);
   await ensureStudioVisible();
 }
 
 function readFrontWindowInfo() {
-  const swiftSource = String.raw`
-import AppKit
-import CoreGraphics
-import Foundation
-
-let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
-    let layer = window[kCGWindowLayer as String] as? Int ?? 0
-    guard layer == 0 else { return nil }
-    guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
-    let width = Int((bounds["Width"] as? Double ?? 0).rounded())
-    let height = Int((bounds["Height"] as? Double ?? 0).rounded())
-    guard width > 0, height > 0 else { return nil }
-    let x = Int((bounds["X"] as? Double ?? 0).rounded())
-    let y = Int((bounds["Y"] as? Double ?? 0).rounded())
-    let area = width * height
-    return ["x": x, "y": y, "width": width, "height": height, "area": area]
-}
-guard let selected = candidates.max(by: { ($0["area"] as? Int ?? 0) < ($1["area"] as? Int ?? 0) }) else {
-    fputs("missing THEM window\n", stderr)
-    exit(1)
-}
-let data = try JSONSerialization.data(withJSONObject: selected, options: [])
-print(String(data: data, encoding: .utf8) ?? "{}")
-`;
-  const raw = run("swift", ["-e", swiftSource]).trim();
-  return JSON.parse(raw);
+  return ownedApp.readFrontWindowInfo();
 }
 
 function appleScriptQuoted(value) {
@@ -275,31 +223,19 @@ function appleScriptQuoted(value) {
 }
 
 function typeText(text) {
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     "delay 0.2",
-    'tell application "System Events"',
-    'tell process "them"',
-    'set frontmost to true',
     "delay 0.05",
     `keystroke "${appleScriptQuoted(text)}"`,
-    "end tell",
-    "end tell",
   ]);
 }
 
 function pressReturn(times = 1) {
   for (let index = 0; index < times; index += 1) {
-    osascript([
-      'tell application "them" to activate',
+    ownedApp.runProcessAppleScript([
       "delay 0.12",
-      'tell application "System Events"',
-      'tell process "them"',
-      'set frontmost to true',
       "delay 0.05",
       "key code 36",
-      "end tell",
-      "end tell",
     ]);
   }
 }
@@ -319,15 +255,9 @@ async function focusDraftEditor() {
 function clickDraftEditor(windowInfo) {
   const clickX = Math.round(Number(windowInfo.x || 0) + (Number(windowInfo.width || 0) * 0.54));
   const clickY = Math.round(Number(windowInfo.y || 0) + (Number(windowInfo.height || 0) * 0.41));
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     "delay 0.15",
-    'tell application "System Events"',
-    'tell process "them"',
-    'set frontmost to true',
     `click at {${clickX}, ${clickY}}`,
-    "end tell",
-    "end tell",
   ]);
 }
 
@@ -335,18 +265,12 @@ async function clearDraftIfNeeded() {
   const state = readDebugDiffState();
   const preview = normalizeDraft(state?.draftPreview || "");
   if (!preview) return;
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     "delay 0.15",
-    'tell application "System Events"',
-    'tell process "them"',
-    'set frontmost to true',
     "delay 0.05",
     'keystroke "a" using {command down}',
     "delay 0.04",
     "key code 51",
-    "end tell",
-    "end tell",
   ]);
   await waitFor(() => {
     const current = readDebugDiffState();
