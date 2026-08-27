@@ -863,6 +863,8 @@
 - Documentation link targets and `git diff --check`: passed.
 - iOS/backend runtime tests were not run because this change is documentation
   and agent-operating doctrine only.
+- Commit `99c50c4` pushed and PR #370 opened from current `main` with `tier-3`
+  and `do-not-merge` retained for human doctrine review.
 
 ### T-backfill-v1-pillar-legacy — Backfill V1 pillar/effect on 13 legacy non-merged task files
 - **Owner:** claude
