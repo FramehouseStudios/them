@@ -93,6 +93,9 @@ function assertProductionEnv(env = process.env) {
   if (!String(env.APP_TOKEN || "").trim()) {
     missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
   }
+  if (!String(env.AUTH_APPLE_AUDIENCE || "").trim()) {
+    missing.push("AUTH_APPLE_AUDIENCE — required to validate Sign in with Apple token audiences.");
+  }
   if (isRequireUserAuthExplicitlyDisabled(env)) {
     missing.push("REQUIRE_USER_AUTH — production must not disable authenticated user routes.");
   }

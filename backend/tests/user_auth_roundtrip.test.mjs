@@ -225,7 +225,11 @@ test("[user-auth-roundtrip] signup fails closed when canonical persistence fails
 
   assert.equal(res._status, 503);
   assert.equal(res._body.error, "auth_persistence_failed");
-  assert.equal(res._body.retryable, true);
+  assert.equal(
+    res._body.retryable,
+    false,
+    "a retry is not promised while the empty-store compensation is itself undurable",
+  );
   assert.equal(res._body.access_token, undefined);
   assert.equal(res._body.refresh_token, undefined);
   assert.equal(res._body.debug_email_verification_token, undefined);
@@ -766,6 +770,35 @@ test("[user-auth-roundtrip] verification and password reset are durable when han
 
 // ---------- Apple Sign In ----------
 
+test("[user-auth-roundtrip] production Apple sign-in fails closed without a configured audience", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-no-audience-kid",
+    nonce: "apple-no-audience-nonce",
+  });
+  let jwksFetchCount = 0;
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "   ",
+    fetchAppleJwks: async () => {
+      jwksFetchCount += 1;
+      return { keys: [fixture.jwk] };
+    },
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "apple-no-audience-nonce",
+  }), res);
+
+  assert.equal(res._status, 503);
+  assert.equal(res._body.error, "apple_sign_in_not_configured");
+  assert.equal(res._body.access_token, undefined);
+  assert.equal(res._body.refresh_token, undefined);
+  assert.equal(jwksFetchCount, 0, "misconfigured production auth must fail before token verification");
+});
+
 test("[user-auth-roundtrip] production Apple sign-in verifies JWKS kid and nonce", async () => {
   const fixture = buildAppleRs256Fixture({
     kid: "apple-prod-kid",
@@ -788,6 +821,110 @@ test("[user-auth-roundtrip] production Apple sign-in verifies JWKS kid and nonce
   assert.equal(res._status, 201);
   assert.equal(res._body.user.email, "apple-prod@example.com");
   assert.equal(res._body.user.auth_provider, "apple");
+});
+
+test("[user-auth-roundtrip] production Apple sign-in rejects a token for another audience", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-wrong-audience-kid",
+    nonce: "apple-wrong-audience-nonce",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.some-other-app",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "apple-wrong-audience-nonce",
+  }), res);
+
+  assert.equal(res._status, 401);
+  assert.equal(res._body.error, "invalid_apple_identity_token");
+  assert.equal(res._body.access_token, undefined);
+  assert.equal(res._body.refresh_token, undefined);
+});
+
+test("[user-auth-roundtrip] Apple request email cannot attach an unknown subject to a password account", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-no-email-kid",
+    subject: "attacker-apple-subject",
+    email: "",
+    nonce: "attacker-apple-nonce",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "victim@example.com", password: "validpass123" }),
+    signup,
+  );
+  assert.equal(signup._status, 201);
+
+  const apple = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "attacker-apple-nonce",
+    email: "victim@example.com",
+  }), apple);
+
+  assert.equal(apple._status, 400);
+  assert.equal(apple._body.error, "apple_email_required");
+  assert.equal(apple._body.access_token, undefined);
+  assert.equal(apple._body.refresh_token, undefined);
+  assert.equal(getUserByEmail("victim@example.com")?.appleSubject, "");
+  assert.equal(authenticateUser("victim@example.com", "validpass123").ok, true);
+});
+
+test("[user-auth-roundtrip] Apple sign-in cannot replace an email's existing Apple subject", async () => {
+  const firstFixture = buildAppleRs256Fixture({
+    kid: "apple-original-kid",
+    subject: "apple-original-subject",
+    email: "apple-linked@example.com",
+    nonce: "apple-original-nonce",
+  });
+  const conflictingFixture = buildAppleRs256Fixture({
+    kid: "apple-conflicting-kid",
+    subject: "apple-conflicting-subject",
+    email: "apple-linked@example.com",
+    nonce: "apple-conflicting-nonce",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({
+      keys: [firstFixture.jwk, conflictingFixture.jwk],
+    }),
+  });
+
+  const first = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: firstFixture.token,
+    nonce: "apple-original-nonce",
+  }), first);
+  assert.equal(first._status, 201);
+
+  const conflicting = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: conflictingFixture.token,
+    nonce: "apple-conflicting-nonce",
+  }), conflicting);
+
+  assert.equal(conflicting._status, 409);
+  assert.equal(conflicting._body.error, "apple_subject_taken");
+  assert.equal(conflicting._body.access_token, undefined);
+  assert.equal(
+    getUserByEmail("apple-linked@example.com")?.appleSubject,
+    "apple-original-subject",
+  );
 });
 
 test("[user-auth-roundtrip] slow Apple JWKS discovery does not hold the auth mutation lock", async () => {

@@ -13,7 +13,9 @@ function makeApp({
   reauthOk = true,
   exportData = null,
   exportError = null,
+  revokeError = null,
   lifecycle = null,
+  lifecycleMarkError = null,
   now = () => 1700000000000,
   softDeleteWindowMs,
 } = {}) {
@@ -26,6 +28,7 @@ function makeApp({
   const lifecycleState = new Map();
   const lifecycleStore = lifecycle ?? {
     async markPendingDeletion({ userId, pendingDeletionAt, hardDeleteAt, reason }) {
+      if (lifecycleMarkError) throw lifecycleMarkError;
       lifecycleState.set(userId, { pendingDeletionAt, hardDeleteAt, reason });
     },
     async clearPendingDeletion(userId) {
@@ -46,7 +49,10 @@ function makeApp({
       };
     },
     lifecycleStore,
-    revokeAllSessions: async () => { sessions.revoked = true; },
+    revokeAllSessions: async () => {
+      if (revokeError) throw revokeError;
+      sessions.revoked = true;
+    },
     auditLog: async (entry) => { audits.push(entry); },
     now,
     softDeleteWindowMs,
@@ -137,6 +143,45 @@ test("[account] DELETE /account → 401 when unauthenticated", async () => {
   const { status, body } = await hit(app, "DELETE", "/account", {});
   assert.equal(status, 401);
   assert.equal(body.error, "unauthorized");
+});
+
+test("[account] DELETE /account → 503 without scheduling deletion when durable session revocation fails", async () => {
+  const revokeError = new Error("adapter write failed");
+  revokeError.code = "AUTH_PERSISTENCE_FAILED";
+  revokeError.retryable = true;
+  const { app, audits, sessions, lifecycleState } = makeApp({ revokeError });
+
+  const { status, body } = await hit(app, "DELETE", "/account", {});
+
+  assert.equal(status, 503);
+  assert.equal(body.stage, "account_delete");
+  assert.equal(body.error, "auth_persistence_failed");
+  assert.equal(body.retryable, true);
+  assert.equal(sessions.revoked, false);
+  assert.equal(lifecycleState.size, 0, "deletion must not be scheduled before durable revocation");
+  assert.equal(
+    audits.some((entry) => entry.event === "account_deletion_requested"),
+    false,
+    "must not emit a success audit when session revocation was not durable"
+  );
+});
+
+test("[account] DELETE /account lifecycle failure leaves no deletion scheduled after revocation", async () => {
+  const { app, audits, sessions, lifecycleState } = makeApp({
+    lifecycleMarkError: new Error("lifecycle write failed"),
+  });
+
+  const { status, body } = await hit(app, "DELETE", "/account", {});
+
+  assert.equal(status, 500);
+  assert.equal(body.error, "deletion_request_failed");
+  assert.equal(sessions.revoked, true, "session revocation completes before lifecycle scheduling");
+  assert.equal(lifecycleState.size, 0, "failed lifecycle write cannot queue hard deletion");
+  assert.equal(
+    audits.some((entry) => entry.event === "account_deletion_requested"),
+    false,
+    "must not emit a success audit after failed lifecycle scheduling"
+  );
 });
 
 test("[account] POST /account/cancel-deletion → cancels pending deletion", async () => {

@@ -26,6 +26,7 @@ test("[auth-startup] production exits instead of loading local sessions when Pos
       JWT_SECRET: "production-startup-test-secret",
       OPENAI_API_KEY: "production-startup-test-openai-key",
       APP_TOKEN: "production-startup-test-app-token",
+      AUTH_APPLE_AUDIENCE: "io.them.them",
       SCALE_BACKPLANE_ENABLED: "0",
       OUTBOX_SNAPSHOT_ENABLED: "0",
       OUTBOX_WORKER_ENABLED: "0",

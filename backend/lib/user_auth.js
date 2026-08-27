@@ -549,6 +549,13 @@ function createUserAuthSubsystem(options = {}) {
     if (!token) {
       return { ok: false, status: 400, error: "identity_token_required" };
     }
+    // Main production startup rejects a missing audience in config.js. Keep
+    // the verifier independently fail-closed as well so tests, workers, or a
+    // future alternate entry point cannot accidentally verify an Apple token
+    // without binding it to this app's Services ID / bundle identifier.
+    if (nodeEnv === "production" && !appleAudience) {
+      return { ok: false, status: 503, error: "apple_sign_in_not_configured" };
+    }
     if (!allowAppleTestJwtSecret && !allowStaticApplePublicKey && nodeEnv !== "production" && !fetchAppleJwks && !appleJwks) {
       return { ok: false, status: 503, error: "apple_sign_in_not_configured" };
     }
@@ -688,16 +695,27 @@ function createUserAuthSubsystem(options = {}) {
   }
 
   async function handleAuthAppleMutation(req, res, checkpoint, verified) {
-    const suppliedEmail = normalizeEmail(req.body?.email);
-    const existing = getUserByAppleSubject(verified.subject) || (suppliedEmail ? getUserByEmail(suppliedEmail) : null);
+    const existingBySubject = getUserByAppleSubject(verified.subject);
+    const trustedEmail = verified.emailVerified ? normalizeEmail(verified.email) : "";
+    if (!existingBySubject && !trustedEmail) {
+      return res.status(400).json({
+        stage: "auth_apple",
+        error: "apple_email_required",
+      });
+    }
+    const existing = existingBySubject || getUserByEmail(trustedEmail);
     const createdOrAttached = createOrAttachAppleUser({
       appleSubject: verified.subject,
-      email: verified.email || suppliedEmail,
+      email: trustedEmail,
       name: [sanitizeText(req.body?.given_name || "", 80), sanitizeText(req.body?.family_name || "", 80)].filter(Boolean).join(" "),
-      emailVerified: verified.emailVerified || autoVerifyEmails,
+      emailVerified: Boolean(trustedEmail),
+      allowExistingEmailLink: !existingBySubject && Boolean(trustedEmail),
     }, Date.now());
     if (!createdOrAttached.ok) {
-      const statusCode = createdOrAttached.status === "email_taken" ? 409 : 400;
+      const statusCode = createdOrAttached.status === "email_taken"
+        || createdOrAttached.status === "apple_subject_taken"
+        ? 409
+        : 400;
       return res.status(statusCode).json({
         stage: "auth_apple",
         error: createdOrAttached.status || "apple_sign_in_failed",

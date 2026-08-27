@@ -330,6 +330,7 @@ test("KNOWN_DOMAINS includes the canonical domains", () => {
       "auth_email_verification_tokens",
       "auth_password_reset_tokens",
       "auth_sessions",
+      "auth_store_meta",
       "auth_users",
       "craft_classifications",
       "craft_loglines",
