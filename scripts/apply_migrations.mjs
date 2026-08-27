@@ -16,12 +16,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_DIR = path.resolve(__dirname, "..", "backend", "migrations");
+// Dependencies are owned by backend/package.json, while this operational
+// runner lives one directory higher. Resolve from the backend package so a
+// clean CI checkout does not require an accidental repository-root node_modules.
+const requireFromBackend = createRequire(
+  path.resolve(__dirname, "..", "backend", "package.json"),
+);
 
 const args = new Set(process.argv.slice(2));
 const DRY_RUN = args.has("--dry-run");
@@ -55,7 +62,7 @@ function listMigrations() {
 }
 
 async function loadPgClient(databaseUrl) {
-  const pgModule = await import("pg");
+  const pgModule = requireFromBackend("pg");
   const { Client } = pgModule.default ?? pgModule;
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();

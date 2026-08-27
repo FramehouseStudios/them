@@ -58,36 +58,48 @@ function createAccountLifecycleStore({ client, now = () => Date.now() } = {}) {
   async function markPendingDeletion({ userId, pendingDeletionAt, hardDeleteAt, reason = null }) {
     const uid = String(userId);
     await client.query(
-      `INSERT INTO account_lifecycle (user_id, pending_deletion_at, hard_delete_at, reason, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id) DO UPDATE
-         SET pending_deletion_at = EXCLUDED.pending_deletion_at,
-             hard_delete_at      = EXCLUDED.hard_delete_at,
-             reason              = EXCLUDED.reason,
-             updated_at          = NOW()`,
-      [uid, tsISO(pendingDeletionAt), tsISO(hardDeleteAt), reason]
+      `WITH lifecycle_write AS (
+         INSERT INTO account_lifecycle
+           (user_id, pending_deletion_at, hard_delete_at, reason, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (user_id) DO UPDATE
+           SET pending_deletion_at = EXCLUDED.pending_deletion_at,
+               hard_delete_at      = EXCLUDED.hard_delete_at,
+               reason              = EXCLUDED.reason,
+               updated_at          = NOW()
+         RETURNING user_id
+       )
+       INSERT INTO account_audit_log (user_id, event, request_id, actor_ip, metadata)
+       SELECT user_id, $5, NULL, NULL, $6::jsonb
+         FROM lifecycle_write`,
+      [
+        uid,
+        tsISO(pendingDeletionAt),
+        tsISO(hardDeleteAt),
+        reason,
+        "account_deletion_requested",
+        JSON.stringify({ hard_delete_at: tsISO(hardDeleteAt) }),
+      ]
     );
-    await audit({
-      userId: uid,
-      event: "account_deletion_requested",
-      metadata: { hard_delete_at: tsISO(hardDeleteAt) },
-    });
   }
 
   async function clearPendingDeletion(userId) {
     const uid = String(userId);
     const r = await client.query(
-      `UPDATE account_lifecycle
-          SET pending_deletion_at = NULL, hard_delete_at = NULL,
-              reason = NULL, updated_at = NOW()
-        WHERE user_id = $1 AND pending_deletion_at IS NOT NULL`,
-      [uid]
+      `WITH lifecycle_clear AS (
+         UPDATE account_lifecycle
+            SET pending_deletion_at = NULL, hard_delete_at = NULL,
+                reason = NULL, updated_at = NOW()
+          WHERE user_id = $1 AND pending_deletion_at IS NOT NULL
+          RETURNING user_id
+       )
+       INSERT INTO account_audit_log (user_id, event, request_id, actor_ip, metadata)
+       SELECT user_id, $2, NULL, NULL, $3::jsonb
+         FROM lifecycle_clear
+       RETURNING user_id`,
+      [uid, "account_deletion_cancelled", JSON.stringify({})]
     );
-    const changed = (r?.rowCount ?? 0) > 0;
-    if (changed) {
-      await audit({ userId: uid, event: "account_deletion_cancelled" });
-    }
-    return changed;
+    return (r?.rowCount ?? 0) > 0;
   }
 
   // For the hard-delete sweep job: every account whose recovery

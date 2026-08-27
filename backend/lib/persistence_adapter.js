@@ -26,6 +26,7 @@ const KNOWN_DOMAINS = Object.freeze([
   "auth_sessions",
   "auth_password_reset_tokens",
   "auth_email_verification_tokens",
+  "auth_store_meta",
   "outbox",
   "user_memory",
   "screenplay",

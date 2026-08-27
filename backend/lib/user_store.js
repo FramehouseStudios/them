@@ -9,6 +9,23 @@ let lastUserStorePersistenceWrite = Promise.resolve({
 let lastUserStoreMutation = Promise.resolve();
 
 const PASSWORD_MIN_LENGTH = 8;
+const AUTH_STORE_META_DOMAIN = "auth_store_meta";
+const AUTH_STORE_META_KEY = "canonical_state";
+const AUTH_STORE_META_VALUE = Object.freeze({
+  schemaVersion: 1,
+  initialized: true,
+});
+const USER_STORE_ADAPTER_INVALID = "USER_STORE_ADAPTER_INVALID";
+const AUTH_STORE_ADAPTER_PAGE_LIMIT = 10_000;
+const AUTH_STORE_ADAPTER_MAX_PAGES = 100_000;
+// New password records use OWASP's 2023 PBKDF2-SHA256 minimum. Canonical and
+// legacy records may retain a lower historical count, but a hard upper bound
+// prevents a corrupt record from turning synchronous login verification into
+// an unbounded CPU denial of service.
+const PBKDF2_ITERATIONS_DEFAULT = 600_000;
+const PBKDF2_ITERATIONS_MAX = 2_000_000;
+const PASSWORD_SALT_MAX_LENGTH = 512;
+const PASSWORD_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 
 const usersById = new Map();
 const usersByEmail = new Map();
@@ -43,12 +60,64 @@ function normalizeUserId(value) {
   return String(value || "").trim();
 }
 
+// Apple `sub` is an opaque stable identifier. Treating it as display text can
+// collapse or truncate distinct identities, so its only normalization is the
+// boundary whitespace trimming also enforced by the Postgres uniqueness index.
+function normalizeAppleSubject(value) {
+  return String(value || "").trim();
+}
+
 function normalizeBoolean(value, fallback = false) {
   if (value == null) return fallback;
   if (typeof value === "boolean") return value;
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;
   return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function normalizeStoredPasswordRecord(record) {
+  const source = record && typeof record === "object" ? record : {};
+  const hasNestedMaterial = source.password != null;
+  const nested = hasNestedMaterial
+    && typeof source.password === "object"
+    && !Array.isArray(source.password)
+    ? source.password
+    : null;
+  const hasLegacyMaterial = ["passwordSalt", "passwordHash", "passwordIterations"]
+    .some((field) => Object.prototype.hasOwnProperty.call(source, field));
+  const hasMaterial = hasNestedMaterial || hasLegacyMaterial;
+  const rawSalt = hasNestedMaterial ? nested?.salt : source.passwordSalt;
+  const rawHash = hasNestedMaterial ? nested?.hash : source.passwordHash;
+  // Legacy local JSON records predate the explicit iteration field and used
+  // 120k. Canonical adapter hydration separately requires the field to be
+  // present and valid before this compatibility normalizer runs.
+  const rawIterations = hasNestedMaterial
+    ? (Object.prototype.hasOwnProperty.call(nested || {}, "iterations")
+      ? nested.iterations
+      : 120000)
+    : (Object.prototype.hasOwnProperty.call(source, "passwordIterations")
+      ? source.passwordIterations
+      : 120000);
+  const salt = typeof rawSalt === "string" ? rawSalt.trim() : "";
+  const hash = typeof rawHash === "string" ? rawHash.trim() : "";
+  const iterations = typeof rawIterations === "number"
+    ? rawIterations
+    : (typeof rawIterations === "string" && rawIterations.trim() !== ""
+      ? Number(rawIterations.trim())
+      : Number.NaN);
+  const valid = Boolean(
+    salt
+    && salt.length <= PASSWORD_SALT_MAX_LENGTH
+    && PASSWORD_HASH_PATTERN.test(hash)
+    && Number.isFinite(iterations)
+    && Number.isInteger(iterations)
+    && iterations > 0
+    && iterations <= PBKDF2_ITERATIONS_MAX
+  );
+  return {
+    hasMaterial,
+    password: valid ? { salt, hash, iterations } : null,
+  };
 }
 
 function validateUserPassword(password) {
@@ -71,11 +140,6 @@ function toBase64Url(buffer) {
     .replace(/=+$/g, "");
 }
 
-// OWASP 2023 minimum for PBKDF2-SHA256 is 600,000. Existing accounts keep
-// their stored iteration count via `verifyPassword`, so bumping this default
-// only affects newly-created accounts.
-const PBKDF2_ITERATIONS_DEFAULT = 600000;
-
 function hashPassword(password, salt, iterations = PBKDF2_ITERATIONS_DEFAULT) {
   const digest = pbkdf2Sync(password, salt, iterations, 32, "sha256");
   return digest.toString("hex");
@@ -89,11 +153,11 @@ function createPasswordRecord(password) {
 }
 
 function verifyPassword(password, record) {
-  if (!record || !record.salt || !record.hash) return false;
-  const iterations = Math.max(1, Number(record.iterations || 120000));
-  const hashed = hashPassword(password, record.salt, iterations);
+  const normalized = normalizeStoredPasswordRecord({ password: record }).password;
+  if (!normalized) return false;
+  const hashed = hashPassword(password, normalized.salt, normalized.iterations);
   const left = Buffer.from(hashed, "hex");
-  const right = Buffer.from(String(record.hash || ""), "hex");
+  const right = Buffer.from(normalized.hash, "hex");
   if (left.length !== right.length || left.length === 0) return false;
   return timingSafeEqual(left, right);
 }
@@ -138,15 +202,8 @@ function sanitizeStoredUserRecord(record) {
   const email = normalizeEmail(record.email);
   if (!id || !email) return null;
 
-  const passwordRecord = record.password && typeof record.password === "object"
-    ? record.password
-    : null;
-  const legacySalt = String(record.passwordSalt || "").trim();
-  const legacyHash = String(record.passwordHash || "").trim();
-  const legacyIterations = Math.max(1, Number(record.passwordIterations || 120000));
-  const salt = String(passwordRecord?.salt || legacySalt || "").trim();
-  const hash = String(passwordRecord?.hash || legacyHash || "").trim();
-  const iterations = Math.max(1, Number(passwordRecord?.iterations || legacyIterations || 120000));
+  const storedPassword = normalizeStoredPasswordRecord(record);
+  const appleSubject = normalizeAppleSubject(record.appleSubject);
   const createdAt = Math.max(0, Number(record.createdAt || 0));
   const updatedAt = Math.max(createdAt, Number(record.updatedAt || createdAt || 0));
   const emailVerifiedAt = Math.max(
@@ -161,19 +218,13 @@ function sanitizeStoredUserRecord(record) {
     email,
     name: sanitizeSnippetLocal(record.name || "", 80),
     authProvider: sanitizeSnippetLocal(
-      record.authProvider || (String(record.appleSubject || "").trim() ? "apple" : "password"),
+      record.authProvider || (appleSubject ? "apple" : "password"),
       24
     ) || "password",
-    appleSubject: sanitizeSnippetLocal(record.appleSubject || "", 160),
+    appleSubject,
     emailVerified: Boolean(emailVerifiedAt > 0),
     emailVerifiedAt: emailVerifiedAt || 0,
-    password: salt && hash
-      ? {
-        salt,
-        hash,
-        iterations,
-      }
-      : null,
+    password: storedPassword.password,
     createdAt,
     updatedAt,
   };
@@ -249,6 +300,366 @@ function replaceOneTimeTokenRecord(targetMap, record) {
   return safeRecord;
 }
 
+function userStoreAdapterInvalid(message, cause = null) {
+  const error = new Error(`user_store_adapter_invalid: ${message}`);
+  error.code = USER_STORE_ADAPTER_INVALID;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function assertAdapterRowKey(entry, expectedKey, domain) {
+  const rowKey = typeof entry?.key === "string" ? entry.key : "";
+  if (!rowKey || rowKey !== expectedKey) {
+    throw userStoreAdapterInvalid(
+      `${domain} row key ${JSON.stringify(rowKey)} does not match embedded key ${JSON.stringify(expectedKey)}`
+    );
+  }
+}
+
+function adapterRecord(entry, domain) {
+  const record = entry?.value;
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    throw userStoreAdapterInvalid(`${domain} contains a non-object record`);
+  }
+  return record;
+}
+
+function adapterAliasedValue(record, fieldNames, label, normalize, { required = true } = {}) {
+  const present = fieldNames.filter((fieldName) => (
+    Object.prototype.hasOwnProperty.call(record, fieldName)
+  ));
+  if (present.length === 0) {
+    if (!required) return undefined;
+    throw userStoreAdapterInvalid(`${label} is missing ${fieldNames[0]}`);
+  }
+  const values = present.map((fieldName) => normalize(record[fieldName], fieldName));
+  if (values.some((value) => value !== values[0])) {
+    throw userStoreAdapterInvalid(`${label} has conflicting ${fieldNames[0]} aliases`);
+  }
+  return values[0];
+}
+
+function adapterString(
+  record,
+  fieldNames,
+  label,
+  { allowEmpty = false, maxLength = Number.POSITIVE_INFINITY, required = true } = {},
+) {
+  return adapterAliasedValue(record, fieldNames, label, (rawValue) => {
+    if (typeof rawValue !== "string") {
+      throw userStoreAdapterInvalid(`${label} ${fieldNames[0]} must be a string`);
+    }
+    const value = rawValue.trim();
+    if (!allowEmpty && !value) {
+      throw userStoreAdapterInvalid(`${label} ${fieldNames[0]} must be nonempty`);
+    }
+    if (value.length > maxLength) {
+      throw userStoreAdapterInvalid(
+        `${label} ${fieldNames[0]} must be at most ${maxLength} characters`,
+      );
+    }
+    return value;
+  }, { required });
+}
+
+function adapterBoolean(record, fieldNames, label, { required = true } = {}) {
+  return adapterAliasedValue(record, fieldNames, label, (rawValue) => {
+    if (typeof rawValue !== "boolean") {
+      throw userStoreAdapterInvalid(`${label} ${fieldNames[0]} must be a boolean`);
+    }
+    return rawValue;
+  }, { required });
+}
+
+function adapterTimestamp(
+  record,
+  fieldNames,
+  label,
+  { allowZero = false, required = true } = {},
+) {
+  return adapterAliasedValue(record, fieldNames, label, (rawValue) => {
+    const isNumber = typeof rawValue === "number";
+    const isNumericString = typeof rawValue === "string" && rawValue.trim() !== "";
+    if (!isNumber && !isNumericString) {
+      throw userStoreAdapterInvalid(`${label} ${fieldNames[0]} must be a primitive timestamp`);
+    }
+    const value = isNumber ? rawValue : Number(rawValue.trim());
+    const inRange = allowZero ? value >= 0 : value > 0;
+    if (!Number.isFinite(value) || !inRange) {
+      throw userStoreAdapterInvalid(`${label} ${fieldNames[0]} has an invalid timestamp`);
+    }
+    return value;
+  }, { required });
+}
+
+function adapterPositiveInteger(
+  rawValue,
+  label,
+  { max = Number.MAX_SAFE_INTEGER } = {},
+) {
+  const isNumber = typeof rawValue === "number";
+  const isNumericString = typeof rawValue === "string" && rawValue.trim() !== "";
+  if (!isNumber && !isNumericString) {
+    throw userStoreAdapterInvalid(`${label} must be a primitive positive integer`);
+  }
+  const value = isNumber ? rawValue : Number(rawValue.trim());
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw userStoreAdapterInvalid(`${label} must be a finite positive integer`);
+  }
+  if (value > max) {
+    throw userStoreAdapterInvalid(`${label} must be at most ${max}`);
+  }
+  return value;
+}
+
+function assertAdapterPasswordMaterial(credential, label) {
+  if (!PASSWORD_HASH_PATTERN.test(credential.hash)) {
+    throw userStoreAdapterInvalid(`${label} password hash must be a 64-character hexadecimal digest`);
+  }
+}
+
+function validateAdapterPasswordCredential(record, label) {
+  const hasNested = Object.prototype.hasOwnProperty.call(record, "password")
+    && record.password != null;
+  const flatFields = ["passwordSalt", "passwordHash", "passwordIterations"];
+  const hasFlat = flatFields.some((fieldName) => (
+    Object.prototype.hasOwnProperty.call(record, fieldName)
+  ));
+  let nested = null;
+  let flat = null;
+
+  if (hasNested) {
+    if (typeof record.password !== "object" || Array.isArray(record.password)) {
+      throw userStoreAdapterInvalid(`${label} password must be an object or null`);
+    }
+    nested = {
+      salt: adapterString(record.password, ["salt"], `${label} password`, {
+        maxLength: PASSWORD_SALT_MAX_LENGTH,
+      }),
+      hash: adapterString(record.password, ["hash"], `${label} password`),
+      iterations: adapterPositiveInteger(
+        record.password.iterations,
+        `${label} password iterations`,
+        { max: PBKDF2_ITERATIONS_MAX },
+      ),
+    };
+    assertAdapterPasswordMaterial(nested, label);
+  }
+
+  if (hasFlat) {
+    flat = {
+      salt: adapterString(record, ["passwordSalt"], label, {
+        maxLength: PASSWORD_SALT_MAX_LENGTH,
+      }),
+      hash: adapterString(record, ["passwordHash"], label),
+      iterations: adapterPositiveInteger(
+        record.passwordIterations,
+        `${label} passwordIterations`,
+        { max: PBKDF2_ITERATIONS_MAX },
+      ),
+    };
+    assertAdapterPasswordMaterial(flat, label);
+  }
+
+  if (
+    nested
+    && flat
+    && (
+      nested.salt !== flat.salt
+      || nested.hash !== flat.hash
+      || nested.iterations !== flat.iterations
+    )
+  ) {
+    throw userStoreAdapterInvalid(`${label} has conflicting password credentials`);
+  }
+  return nested || flat;
+}
+
+function buildUserStoreAdapterState({
+  users = [],
+  sessions = [],
+  passwordResetTokens = [],
+  emailVerificationTokens = [],
+} = {}) {
+  const state = {
+    usersById: new Map(),
+    usersByEmail: new Map(),
+    usersByAppleSubject: new Map(),
+    authSessionsById: new Map(),
+    authSessionIdByTokenHash: new Map(),
+    passwordResetTokensByHash: new Map(),
+    emailVerificationTokensByHash: new Map(),
+  };
+  const tokenAliases = new Set();
+
+  for (const entry of users) {
+    const rawRecord = adapterRecord(entry, "auth_users");
+    adapterString(rawRecord, ["id"], "auth user");
+    adapterString(rawRecord, ["email"], "auth user");
+    adapterString(rawRecord, ["appleSubject"], "auth user", {
+      allowEmpty: true,
+      required: false,
+    });
+    const rawEmailVerified = adapterBoolean(
+      rawRecord,
+      ["emailVerified"],
+      "auth user",
+      { required: false },
+    );
+    const rawEmailVerifiedAt = adapterTimestamp(
+      rawRecord,
+      ["emailVerifiedAt"],
+      "auth user",
+      { allowZero: true, required: false },
+    );
+    if ((rawEmailVerified === undefined) !== (rawEmailVerifiedAt === undefined)) {
+      throw userStoreAdapterInvalid(
+        "auth user must provide emailVerified and emailVerifiedAt together",
+      );
+    }
+    if (
+      rawEmailVerified !== undefined
+      && rawEmailVerified !== (rawEmailVerifiedAt > 0)
+    ) {
+      throw userStoreAdapterInvalid(
+        "auth user has contradictory email verification metadata",
+      );
+    }
+    const validatedPassword = validateAdapterPasswordCredential(rawRecord, "auth user");
+    const safeRecord = sanitizeStoredUserRecord(rawRecord);
+    if (!safeRecord) {
+      throw userStoreAdapterInvalid("auth_users contains an invalid user record");
+    }
+    assertAdapterRowKey(entry, safeRecord.id, "auth_users");
+    const storedPassword = normalizeStoredPasswordRecord(rawRecord);
+    if (validatedPassword && !storedPassword.password) {
+      throw userStoreAdapterInvalid(`auth user ${safeRecord.id} contains malformed password credentials`);
+    }
+    if (!safeRecord.password && !safeRecord.appleSubject) {
+      throw userStoreAdapterInvalid(`auth user ${safeRecord.id} has no usable authentication credential`);
+    }
+    if (state.usersById.has(safeRecord.id)) {
+      throw userStoreAdapterInvalid(`duplicate auth user id ${safeRecord.id}`);
+    }
+    if (state.usersByEmail.has(safeRecord.email)) {
+      throw userStoreAdapterInvalid(`duplicate normalized auth email ${safeRecord.email}`);
+    }
+    if (safeRecord.appleSubject && state.usersByAppleSubject.has(safeRecord.appleSubject)) {
+      throw userStoreAdapterInvalid(`duplicate Apple subject ${safeRecord.appleSubject}`);
+    }
+    state.usersById.set(safeRecord.id, safeRecord);
+    state.usersByEmail.set(safeRecord.email, safeRecord);
+    if (safeRecord.appleSubject) {
+      state.usersByAppleSubject.set(safeRecord.appleSubject, safeRecord);
+    }
+  }
+
+  for (const entry of sessions) {
+    const rawRecord = adapterRecord(entry, "auth_sessions");
+    adapterString(rawRecord, ["sessionId", "session_id"], "auth session");
+    adapterString(rawRecord, ["familyId", "family_id"], "auth session");
+    adapterString(rawRecord, ["userId", "user_id"], "auth session");
+    adapterString(rawRecord, ["tokenHash", "token_hash"], "auth session");
+    adapterTimestamp(rawRecord, ["expiresAt", "expires_at"], "auth session");
+    adapterTimestamp(
+      rawRecord,
+      ["revokedAt", "revoked_at"],
+      "auth session",
+      { allowZero: true },
+    );
+    const safeRecord = sanitizeAuthSessionRecord(rawRecord);
+    if (!safeRecord) {
+      throw userStoreAdapterInvalid("auth_sessions contains an invalid session record");
+    }
+    assertAdapterRowKey(entry, safeRecord.sessionId, "auth_sessions");
+    if (!state.usersById.has(safeRecord.userId)) {
+      throw userStoreAdapterInvalid(
+        `auth session ${safeRecord.sessionId} references unknown user ${safeRecord.userId}`
+      );
+    }
+    if (!Number.isFinite(safeRecord.expiresAt) || safeRecord.expiresAt <= 0) {
+      throw userStoreAdapterInvalid(`auth session ${safeRecord.sessionId} has invalid expiresAt`);
+    }
+    if (!Number.isFinite(safeRecord.revokedAt) || safeRecord.revokedAt < 0) {
+      throw userStoreAdapterInvalid(`auth session ${safeRecord.sessionId} has invalid revokedAt`);
+    }
+    if (state.authSessionsById.has(safeRecord.sessionId)) {
+      throw userStoreAdapterInvalid(`duplicate auth session id ${safeRecord.sessionId}`);
+    }
+    if (tokenAliases.has(safeRecord.tokenHash)) {
+      throw userStoreAdapterInvalid(`duplicate auth token alias ${safeRecord.tokenHash}`);
+    }
+    tokenAliases.add(safeRecord.tokenHash);
+    state.authSessionsById.set(safeRecord.sessionId, safeRecord);
+    state.authSessionIdByTokenHash.set(safeRecord.tokenHash, safeRecord.sessionId);
+  }
+
+  const stageOneTimeTokens = (entries, domain, targetMap) => {
+    for (const entry of entries) {
+      const rawRecord = adapterRecord(entry, domain);
+      adapterString(rawRecord, ["tokenHash", "token_hash"], `${domain} token`);
+      adapterString(rawRecord, ["userId", "user_id"], `${domain} token`);
+      adapterTimestamp(rawRecord, ["expiresAt", "expires_at"], `${domain} token`);
+      adapterTimestamp(
+        rawRecord,
+        ["usedAt", "used_at"],
+        `${domain} token`,
+        { allowZero: true },
+      );
+      const safeRecord = sanitizeOneTimeTokenRecord(rawRecord);
+      if (!safeRecord) {
+        throw userStoreAdapterInvalid(`${domain} contains an invalid token record`);
+      }
+      assertAdapterRowKey(entry, safeRecord.tokenHash, domain);
+      if (!state.usersById.has(safeRecord.userId)) {
+        throw userStoreAdapterInvalid(
+          `${domain} token ${safeRecord.tokenHash} references unknown user ${safeRecord.userId}`
+        );
+      }
+      if (!Number.isFinite(safeRecord.expiresAt) || safeRecord.expiresAt <= 0) {
+        throw userStoreAdapterInvalid(`${domain} token ${safeRecord.tokenHash} has invalid expiresAt`);
+      }
+      if (!Number.isFinite(safeRecord.usedAt) || safeRecord.usedAt < 0) {
+        throw userStoreAdapterInvalid(`${domain} token ${safeRecord.tokenHash} has invalid usedAt`);
+      }
+      if (tokenAliases.has(safeRecord.tokenHash)) {
+        throw userStoreAdapterInvalid(`duplicate auth token alias ${safeRecord.tokenHash}`);
+      }
+      tokenAliases.add(safeRecord.tokenHash);
+      targetMap.set(safeRecord.tokenHash, safeRecord);
+    }
+  };
+
+  stageOneTimeTokens(
+    passwordResetTokens,
+    "auth_password_reset_tokens",
+    state.passwordResetTokensByHash
+  );
+  stageOneTimeTokens(
+    emailVerificationTokens,
+    "auth_email_verification_tokens",
+    state.emailVerificationTokensByHash
+  );
+  return state;
+}
+
+function replaceMapContents(target, source) {
+  target.clear();
+  for (const [key, value] of source.entries()) {
+    target.set(key, value);
+  }
+}
+
+function applyUserStoreAdapterState(state) {
+  replaceMapContents(usersById, state.usersById);
+  replaceMapContents(usersByEmail, state.usersByEmail);
+  replaceMapContents(usersByAppleSubject, state.usersByAppleSubject);
+  replaceMapContents(authSessionsById, state.authSessionsById);
+  replaceMapContents(authSessionIdByTokenHash, state.authSessionIdByTokenHash);
+  replaceMapContents(passwordResetTokensByHash, state.passwordResetTokensByHash);
+  replaceMapContents(emailVerificationTokensByHash, state.emailVerificationTokensByHash);
+}
+
 function cleanupExpiredAuthRecords(now = Date.now()) {
   for (const [sessionId, session] of authSessionsById.entries()) {
     if (Number(session.expiresAt || 0) > 0 && Number(session.expiresAt || 0) <= now) {
@@ -287,7 +698,7 @@ function buildUserStorePayload(now = Date.now(), options = {}) {
         ? {
           salt: user.password.salt,
           hash: user.password.hash,
-          iterations: Math.max(1, Number(user.password.iterations || 120000)),
+          iterations: user.password.iterations,
         }
         : null,
       createdAt: Math.max(0, Number(user.createdAt || now)),
@@ -365,6 +776,52 @@ function waitForUserStoreMutations() {
   return lastUserStoreMutation.catch(() => {});
 }
 
+async function listAllUserStoreAdapterRows(persistence, domain) {
+  const rows = [];
+  const observedKeys = new Set();
+  const observedCursors = new Set();
+  let afterKey = "";
+
+  for (let pageIndex = 0; pageIndex < AUTH_STORE_ADAPTER_MAX_PAGES; pageIndex += 1) {
+    const page = await persistence.list({
+      domain,
+      afterKey,
+      limit: AUTH_STORE_ADAPTER_PAGE_LIMIT,
+    });
+    if (!Array.isArray(page)) {
+      throw userStoreAdapterInvalid(`adapter list ${domain} must return an array`);
+    }
+    if (page.length > AUTH_STORE_ADAPTER_PAGE_LIMIT) {
+      throw userStoreAdapterInvalid(`adapter list ${domain} exceeded its page limit`);
+    }
+    if (page.length === 0) return rows;
+
+    let previousKey = afterKey;
+    for (const row of page) {
+      if (typeof row?.key !== "string" || !row.key.trim()) {
+        throw userStoreAdapterInvalid(`adapter list ${domain} returned a row without a key`);
+      }
+      const key = row.key.trim();
+      if (key <= previousKey || observedKeys.has(key)) {
+        throw userStoreAdapterInvalid(`adapter list ${domain} pagination did not advance at key ${key}`);
+      }
+      previousKey = key;
+      observedKeys.add(key);
+      rows.push(row);
+    }
+
+    if (page.length < AUTH_STORE_ADAPTER_PAGE_LIMIT) return rows;
+    const nextAfterKey = previousKey;
+    if (!nextAfterKey || nextAfterKey <= afterKey || observedCursors.has(nextAfterKey)) {
+      throw userStoreAdapterInvalid(`adapter list ${domain} pagination cursor did not advance`);
+    }
+    observedCursors.add(nextAfterKey);
+    afterKey = nextAfterKey;
+  }
+
+  throw userStoreAdapterInvalid(`adapter list ${domain} exceeded its pagination safety limit`);
+}
+
 async function writeUserStoreToAdapter(persistence, payload) {
   if (!persistence || typeof persistence.put !== "function") {
     return {
@@ -378,6 +835,7 @@ async function writeUserStoreToAdapter(persistence, payload) {
     ["auth_sessions", (payload.authSessions || []).map((session) => ({ key: session.sessionId, value: session }))],
     ["auth_password_reset_tokens", (payload.passwordResetTokens || []).map((token) => ({ key: token.tokenHash, value: token }))],
     ["auth_email_verification_tokens", (payload.emailVerificationTokens || []).map((token) => ({ key: token.tokenHash, value: token }))],
+    [AUTH_STORE_META_DOMAIN, [{ key: AUTH_STORE_META_KEY, value: AUTH_STORE_META_VALUE }]],
   ]);
   let failureCount = 0;
   let recordCount = 0;
@@ -395,7 +853,7 @@ async function writeUserStoreToAdapter(persistence, payload) {
     }
     if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") continue;
     try {
-      const existing = await persistence.list({ domain, limit: 10_000 });
+      const existing = await listAllUserStoreAdapterRows(persistence, domain);
       for (const row of existing || []) {
         const key = String(row?.key || "").trim();
         if (!key || expectedKeys.has(key)) continue;
@@ -416,6 +874,7 @@ async function writeUserStoreToAdapter(persistence, payload) {
 
 async function loadUserStoreFromAdapter(options = {}) {
   const failOnUnavailable = Boolean(options.failOnUnavailable);
+  const failOnUninitialized = Boolean(options.failOnUninitialized);
   const { persistence } = userStoreDeps();
   if (!persistence || typeof persistence.list !== "function") {
     if (failOnUnavailable) {
@@ -428,13 +887,15 @@ async function loadUserStoreFromAdapter(options = {}) {
   let records;
   try {
     records = await Promise.all([
-      persistence.list({ domain: "auth_users", limit: 10_000 }),
-      persistence.list({ domain: "auth_sessions", limit: 10_000 }),
-      persistence.list({ domain: "auth_password_reset_tokens", limit: 10_000 }),
-      persistence.list({ domain: "auth_email_verification_tokens", limit: 10_000 }),
+      listAllUserStoreAdapterRows(persistence, "auth_users"),
+      listAllUserStoreAdapterRows(persistence, "auth_sessions"),
+      listAllUserStoreAdapterRows(persistence, "auth_password_reset_tokens"),
+      listAllUserStoreAdapterRows(persistence, "auth_email_verification_tokens"),
+      listAllUserStoreAdapterRows(persistence, AUTH_STORE_META_DOMAIN),
     ]);
   } catch (err) {
     console.error("[user_store] adapter list failed:", err?.message || err);
+    if (err?.code === USER_STORE_ADAPTER_INVALID) throw err;
     if (failOnUnavailable) {
       const error = new Error("user_store_adapter_unavailable");
       error.code = "USER_STORE_ADAPTER_UNAVAILABLE";
@@ -443,30 +904,55 @@ async function loadUserStoreFromAdapter(options = {}) {
     }
     return false;
   }
-  const [users, sessions, passwordResetTokens, emailVerificationTokens] = records;
-  const total = records.reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
-  if (total === 0) return false;
+  const [users, sessions, passwordResetTokens, emailVerificationTokens, metadata] = records;
+  const canonicalMarker = (metadata || []).find(
+    (entry) => entry?.key === AUTH_STORE_META_KEY
+  );
+  const total = [users, sessions, passwordResetTokens, emailVerificationTokens].reduce(
+    (sum, list) => sum + (Array.isArray(list) ? list.length : 0),
+    0
+  );
+  // Only a truly virgin adapter can use the one-time legacy-file backfill, and
+  // production must never make that ambiguous choice automatically. Operators
+  // publish the marker through the validated exact importer before production
+  // starts; local development may retain the one-time legacy-file backfill.
+  if (!canonicalMarker && total === 0 && (metadata || []).length === 0) {
+    if (failOnUninitialized) {
+      const error = new Error("user_store_adapter_uninitialized");
+      error.code = "USER_STORE_ADAPTER_UNINITIALIZED";
+      throw error;
+    }
+    return false;
+  }
+  // Any markerless partial state is structurally invalid and must not make the
+  // caller load a stale JSON mirror over canonical rows.
+  if (!canonicalMarker) {
+    throw userStoreAdapterInvalid("canonical auth marker is missing");
+  }
+  const markerValue = canonicalMarker.value;
+  if (
+    !markerValue
+    || typeof markerValue !== "object"
+    || Array.isArray(markerValue)
+    || markerValue.schemaVersion !== AUTH_STORE_META_VALUE.schemaVersion
+    || markerValue.initialized !== true
+  ) {
+    throw userStoreAdapterInvalid("canonical auth marker has an unsupported value or schema version");
+  }
 
-  usersById.clear();
-  usersByEmail.clear();
-  usersByAppleSubject.clear();
-  authSessionsById.clear();
-  authSessionIdByTokenHash.clear();
-  passwordResetTokensByHash.clear();
-  emailVerificationTokensByHash.clear();
-
-  for (const entry of users || []) {
-    replaceUserRecord(entry.value);
+  let stagedState;
+  try {
+    stagedState = buildUserStoreAdapterState({
+      users,
+      sessions,
+      passwordResetTokens,
+      emailVerificationTokens,
+    });
+  } catch (err) {
+    if (err?.code === USER_STORE_ADAPTER_INVALID) throw err;
+    throw userStoreAdapterInvalid("canonical auth rows could not be validated", err);
   }
-  for (const entry of sessions || []) {
-    replaceAuthSessionRecord(entry.value);
-  }
-  for (const entry of passwordResetTokens || []) {
-    replaceOneTimeTokenRecord(passwordResetTokensByHash, entry.value);
-  }
-  for (const entry of emailVerificationTokens || []) {
-    replaceOneTimeTokenRecord(emailVerificationTokensByHash, entry.value);
-  }
+  applyUserStoreAdapterState(stagedState);
   cleanupExpiredAuthRecords(Date.now());
   return true;
 }
@@ -580,7 +1066,7 @@ function getUserById(id) {
 }
 
 function getUserByAppleSubject(appleSubject) {
-  const normalized = String(appleSubject || "").trim();
+  const normalized = normalizeAppleSubject(appleSubject);
   return usersByAppleSubject.get(normalized) || null;
 }
 
@@ -631,7 +1117,7 @@ async function deleteUserById(userId, now = Date.now()) {
 
 function createUser(input = {}, now = Date.now(), options = {}) {
   const normalizedEmail = normalizeEmail(input.email);
-  const appleSubject = String(input.appleSubject || "").trim();
+  const appleSubject = normalizeAppleSubject(input.appleSubject);
   if (!normalizedEmail) {
     return { ok: false, status: "email_required", message: "Email is required." };
   }
@@ -668,16 +1154,22 @@ function createUser(input = {}, now = Date.now(), options = {}) {
 }
 
 function createOrAttachAppleUser(input = {}, now = Date.now()) {
-  const appleSubject = String(input.appleSubject || "").trim();
+  const appleSubject = normalizeAppleSubject(input.appleSubject);
   const normalizedEmail = normalizeEmail(input.email);
   const emailVerified = normalizeBoolean(input.emailVerified, false);
+  const allowExistingEmailLink = Boolean(input.allowExistingEmailLink);
   if (!appleSubject) {
     return { ok: false, status: "apple_subject_required", message: "Apple subject is required." };
   }
 
   const existingBySubject = getUserByAppleSubject(appleSubject);
   if (existingBySubject) {
-    const nextEmail = normalizedEmail || existingBySubject.email;
+    // Later Apple identity tokens commonly omit email. The stable subject is
+    // sufficient for an already-linked account; only a verified claim may
+    // change its stored email.
+    const nextEmail = emailVerified && normalizedEmail
+      ? normalizedEmail
+      : existingBySubject.email;
     if (!nextEmail) {
       return { ok: false, status: "email_required", message: "Email is required." };
     }
@@ -698,24 +1190,37 @@ function createOrAttachAppleUser(input = {}, now = Date.now()) {
     return { ok: true, user: updated };
   }
 
-  if (normalizedEmail) {
-    const existingByEmail = getUserByEmail(normalizedEmail);
-    if (existingByEmail) {
-      const updated = replaceUserRecord({
-        ...existingByEmail,
-        authProvider: existingByEmail.authProvider || "password",
-        appleSubject,
-        emailVerified: existingByEmail.emailVerified || emailVerified,
-        emailVerifiedAt: existingByEmail.emailVerifiedAt || (emailVerified ? now : 0),
-        updatedAt: now,
-      });
-      saveUserStore(now);
-      return { ok: true, user: updated };
-    }
+  if (!normalizedEmail || !emailVerified) {
+    return {
+      ok: false,
+      status: "apple_email_required",
+      message: "A verified Apple email claim is required for a new Apple identity.",
+    };
   }
 
-  if (!normalizedEmail) {
-    return { ok: false, status: "email_required", message: "Email is required." };
+  const existingByEmail = getUserByEmail(normalizedEmail);
+  if (existingByEmail) {
+    if (!allowExistingEmailLink) {
+      return { ok: false, status: "email_taken", message: "Email already exists." };
+    }
+    const linkedAppleSubject = normalizeAppleSubject(existingByEmail.appleSubject);
+    if (linkedAppleSubject && linkedAppleSubject !== appleSubject) {
+      return {
+        ok: false,
+        status: "apple_subject_taken",
+        message: "Email is already linked to a different Apple identity.",
+      };
+    }
+    const updated = replaceUserRecord({
+      ...existingByEmail,
+      authProvider: existingByEmail.authProvider || "password",
+      appleSubject,
+      emailVerified: true,
+      emailVerifiedAt: existingByEmail.emailVerifiedAt || now,
+      updatedAt: now,
+    });
+    saveUserStore(now);
+    return { ok: true, user: updated };
   }
 
   return createUser({
@@ -860,6 +1365,44 @@ function revokeAllAuthSessionsForUser(userId, now = Date.now(), options = {}) {
   return revoked;
 }
 
+async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), options = {}) {
+  return runUserStoreMutationExclusive(async () => {
+    const checkpoint = createUserStoreCheckpoint(now);
+    const revoked = revokeAllAuthSessionsForUser(userId, now, options);
+    let persistenceResult = null;
+    try {
+      persistenceResult = await flushUserStorePersistenceWrites();
+    } catch {
+      // The compensating path below restores the checkpoint.
+    }
+    if (persistenceResult?.ok === true) {
+      return {
+        ok: true,
+        revoked,
+        revokedCount: revoked.length,
+        retryable: true,
+      };
+    }
+
+    // Restore the live state immediately, then require compensation to reach
+    // durable storage before telling the caller that a retry is safe.
+    let rollbackResult = null;
+    try {
+      restoreUserStoreCheckpoint(checkpoint, Date.now());
+      rollbackResult = await flushUserStorePersistenceWrites();
+    } catch {
+      // Live maps were restored before the compensating write was attempted.
+    }
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: rollbackResult?.ok === true,
+    };
+  });
+}
+
 function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
   const current = getAuthSessionByToken(refreshToken, now);
   if (!current) return null;
@@ -976,6 +1519,7 @@ export {
   markUserEmailVerified,
   passwordResetTokensByHash,
   revokeAllAuthSessionsForUser,
+  revokeAllAuthSessionsForUserDurably,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
   restoreUserStoreCheckpoint,

@@ -214,7 +214,7 @@ import {
   flushUserStorePersistenceWrites,
   loadUserStoreFromAdapter,
   loadUserStore,
-  revokeAllAuthSessionsForUser,
+  revokeAllAuthSessionsForUserDurably,
   runUserStoreMutationExclusive,
   saveUserStore,
 } from "./lib/user_store.js";
@@ -4869,6 +4869,7 @@ configureUserStore({
 });
 const loadedUserStoreFromAdapter = await loadUserStoreFromAdapter({
   failOnUnavailable: NODE_ENV === "production",
+  failOnUninitialized: NODE_ENV === "production",
 });
 if (!loadedUserStoreFromAdapter) {
   loadUserStore();
@@ -33067,9 +33068,14 @@ mountAccountRoutes(app, {
   resolveAuthenticatedUser: async (req) => req.authUser || null,
   exportUserData: exportAuthenticatedUserData,
   lifecycleStore: accountLifecycleStore,
-  revokeAllSessions: async (userId) => runUserStoreMutationExclusive(
-    () => revokeAllAuthSessionsForUser(userId, Date.now())
-  ),
+  revokeAllSessions: async (userId) => {
+    const result = await revokeAllAuthSessionsForUserDurably(userId, Date.now());
+    if (result.ok) return result;
+    const error = new Error("auth_persistence_failed");
+    error.code = "AUTH_PERSISTENCE_FAILED";
+    error.retryable = Boolean(result.retryable);
+    throw error;
+  },
   verifyReauthProof: userAuth.verifyReauthProof,
   auditLog: accountAuditLog,
 });

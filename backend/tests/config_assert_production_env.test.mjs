@@ -9,6 +9,7 @@ const FULL_PROD_ENV = Object.freeze({
   JWT_SECRET: "test-jwt-secret",
   OPENAI_API_KEY: "sk-test",
   APP_TOKEN: "app-token",
+  AUTH_APPLE_AUDIENCE: "io.them.them",
 });
 
 test("[assertProductionEnv] no-op when NODE_ENV is not production", () => {
@@ -41,6 +42,15 @@ test("[assertProductionEnv] throws when APP_TOKEN is missing", () => {
   assert.throws(() => assertProductionEnv(env), /APP_TOKEN/);
 });
 
+test("[assertProductionEnv] throws when AUTH_APPLE_AUDIENCE is missing or blank", () => {
+  const { AUTH_APPLE_AUDIENCE: _omitted, ...missingAudienceEnv } = FULL_PROD_ENV;
+  assert.throws(() => assertProductionEnv(missingAudienceEnv), /AUTH_APPLE_AUDIENCE/);
+  assert.throws(
+    () => assertProductionEnv({ ...FULL_PROD_ENV, AUTH_APPLE_AUDIENCE: "   " }),
+    /AUTH_APPLE_AUDIENCE/,
+  );
+});
+
 test("[assertProductionEnv] throws when production user auth is explicitly disabled", () => {
   assert.throws(
     () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "0" }),
@@ -70,6 +80,7 @@ test("[assertProductionEnv] lists every missing variable, not just the first", (
   assert.match(message, /JWT_SECRET/);
   assert.match(message, /OPENAI_API_KEY/);
   assert.match(message, /APP_TOKEN/);
+  assert.match(message, /AUTH_APPLE_AUDIENCE/);
 });
 
 test("[assertProductionEnv] treats whitespace-only values as missing", () => {

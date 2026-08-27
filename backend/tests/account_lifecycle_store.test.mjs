@@ -7,7 +7,7 @@ import { createAccountLifecycleStore } from "../lib/account_lifecycle_store.js";
 // SQL surface this store uses, matched by substring on the query
 // text. Mirrors the testing approach used elsewhere for the
 // Postgres adapter.
-function makeFakeClient() {
+function makeFakeClient({ failAtomicAuditEvent = null } = {}) {
   const lifecycle = new Map(); // user_id -> row
   const audit = [];
   return {
@@ -29,22 +29,44 @@ function makeFakeClient() {
         const row = lifecycle.get(params[0]);
         return { rows: row ? [row] : [] };
       }
-      if (q.startsWith("INSERT INTO account_lifecycle")) {
-        lifecycle.set(params[0], {
+      if (q.startsWith("WITH lifecycle_write AS")) {
+        const nextRow = {
           user_id: params[0],
           pending_deletion_at: params[1],
           hard_delete_at: params[2],
           reason: params[3],
-        });
+        };
+        const nextAudit = {
+          user_id: params[0],
+          event: params[4],
+          request_id: null,
+          actor_ip: null,
+          metadata: JSON.parse(params[5]),
+        };
+        if (nextAudit.event === failAtomicAuditEvent) {
+          throw new Error("simulated atomic statement failure");
+        }
+        lifecycle.set(params[0], nextRow);
+        audit.push(nextAudit);
         return { rowCount: 1, rows: [] };
       }
-      if (q.startsWith("UPDATE account_lifecycle SET pending_deletion_at = NULL")) {
+      if (q.startsWith("WITH lifecycle_clear AS")) {
         const row = lifecycle.get(params[0]);
         if (row && row.pending_deletion_at) {
+          if (params[1] === failAtomicAuditEvent) {
+            throw new Error("simulated atomic statement failure");
+          }
           row.pending_deletion_at = null;
           row.hard_delete_at = null;
           row.reason = null;
-          return { rowCount: 1, rows: [] };
+          audit.push({
+            user_id: params[0],
+            event: params[1],
+            request_id: null,
+            actor_ip: null,
+            metadata: JSON.parse(params[2]),
+          });
+          return { rowCount: 1, rows: [{ user_id: params[0] }] };
         }
         return { rowCount: 0, rows: [] };
       }
@@ -84,6 +106,23 @@ test("[lifecycle] markPendingDeletion writes row + audit", async () => {
   assert.equal(client.audit[0].event, "account_deletion_requested");
 });
 
+test("[lifecycle] failed deletion audit leaves no pending lifecycle row", async () => {
+  const client = makeFakeClient({ failAtomicAuditEvent: "account_deletion_requested" });
+  const store = createAccountLifecycleStore({ client });
+
+  await assert.rejects(
+    () => store.markPendingDeletion({
+      userId: "atomic-mark",
+      pendingDeletionAt: 1_000_000,
+      hardDeleteAt: 2_000_000,
+    }),
+    /simulated atomic statement failure/
+  );
+
+  assert.equal(client.lifecycle.has("atomic-mark"), false);
+  assert.equal(client.audit.length, 0);
+});
+
 test("[lifecycle] read round-trips timestamps to epoch ms", async () => {
   const client = makeFakeClient();
   const store = createAccountLifecycleStore({ client });
@@ -115,6 +154,29 @@ test("[lifecycle] clearPendingDeletion is idempotent + audits only on change", a
   assert.equal(second, false, "no-op when nothing pending");
   const events = client.audit.map((a) => a.event);
   assert.deepEqual(events, ["account_deletion_requested", "account_deletion_cancelled"]);
+});
+
+test("[lifecycle] failed cancellation audit preserves pending lifecycle row", async () => {
+  const client = makeFakeClient();
+  const store = createAccountLifecycleStore({ client });
+  await store.markPendingDeletion({
+    userId: "atomic-clear", pendingDeletionAt: 1_000, hardDeleteAt: 2_000,
+  });
+  const failingClient = makeFakeClient({ failAtomicAuditEvent: "account_deletion_cancelled" });
+  failingClient.lifecycle.set("atomic-clear", { ...client.lifecycle.get("atomic-clear") });
+  failingClient.audit.push(...client.audit);
+  const failingStore = createAccountLifecycleStore({ client: failingClient });
+
+  await assert.rejects(
+    () => failingStore.clearPendingDeletion("atomic-clear"),
+    /simulated atomic statement failure/
+  );
+
+  assert.equal(failingClient.lifecycle.get("atomic-clear").pending_deletion_at, new Date(1_000).toISOString());
+  assert.deepEqual(
+    failingClient.audit.map((entry) => entry.event),
+    ["account_deletion_requested"]
+  );
 });
 
 test("[lifecycle] listDueForHardDelete returns only elapsed windows", async () => {

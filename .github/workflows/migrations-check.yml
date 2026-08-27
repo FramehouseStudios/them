@@ -89,7 +89,7 @@ jobs:
           set -e
           out=$(node scripts/apply_migrations.mjs)
           echo "$out"
-          if echo "$out" | grep -q "applied this run: 0"; then
+          if grep -Eq "applied this run:[[:space:]]*0" <<<"$out"; then
             echo "ok — idempotent"
           else
             echo "::error::re-applying migrations was not a no-op"

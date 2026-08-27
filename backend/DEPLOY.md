@@ -11,7 +11,10 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
    Inspect `backend/migrations/` and confirm every `*.sql` has been applied
    to the production Postgres instance. New migrations need to land before
-   code that depends on them.
+   code that depends on them. In particular,
+   `011_auth_store_metadata.sql` must run before this auth build starts. It
+   creates the marker table and marks an existing nonempty auth store, but it
+   deliberately does not authorize an empty database as canonical.
 
 2. **Quality gate is green.**
 
@@ -30,9 +33,20 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
    `persistence_adapter.js` factory picks Postgres when `DATABASE_URL` is
    present and the boot-time guard now refuses to start without it. Auth-store
    hydration also fails closed if Postgres cannot be read; the process must
-   never fall back to a stale local session snapshot during an outage. A
-   reachable, genuinely empty database can still receive the one-time legacy
-   backfill used by the migration path.
+   never fall back to a stale local session snapshot during an outage.
+   Production also fails closed when the canonical marker is absent; it never
+   guesses whether an empty database is virgin or represents intentional
+   deletion. Local JSON development retains the one-time virgin-adapter
+   backfill. Before the first production boot, publish the marker through the
+   explicit migration tooling: import a validated nonempty legacy snapshot, or
+   use an intentionally empty four-array snapshot with `--allow-empty-auth`.
+   Run an import only while backend auth writes are stopped. The importer
+   validates first, then replaces all four canonical auth tables and publishes
+   the marker in one transaction so omitted stale sessions cannot survive a
+   rerun. `--schema-only` never clears auth rows and never makes an empty auth
+   database authoritative. For an intentional empty replacement, first run
+   with `--dry-run`, review its destructive warning, and keep auth writes
+   stopped through the live transaction.
 
 4. **Keep the V1 backend at one instance.**
 
@@ -52,16 +66,18 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 | `JWT_SECRET` | HMAC signing key for access/refresh tokens. Required. |
 | `OPENAI_API_KEY` | Talk + realtime supplier. Required. |
 | `APP_TOKEN` | App-level shared secret sent as `X-APP-TOKEN`. Required. |
+| `AUTH_APPLE_AUDIENCE` | Sign in with Apple Services ID / bundle identifier used for mandatory `aud` validation. Required. |
 | `PORT` | Listen port. Defaults to 3000. |
 
 Optional but commonly set: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`,
-`AUTH_APPLE_AUDIENCE`, `CORS_ALLOW_ORIGIN`,
-`API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`, `AUTH_REQUIRE_EMAIL_VERIFIED`.
+`CORS_ALLOW_ORIGIN`, `API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`,
+`AUTH_REQUIRE_EMAIL_VERIFIED`.
 For V1 production, do not set `REQUIRE_USER_AUTH=false`; production requires
 login and the startup guard refuses that insecure opt-out.
 Production Apple Sign In verifies identity tokens against Apple's JWKS by
-`kid`; `AUTH_APPLE_JWT_PUBLIC_KEY` and `AUTH_APPLE_TEST_JWT_SECRET` are
-non-production fixture fallbacks.
+`kid` and requires `AUTH_APPLE_AUDIENCE` so every token is bound to this app;
+`AUTH_APPLE_JWT_PUBLIC_KEY` and `AUTH_APPLE_TEST_JWT_SECRET` are non-production
+fixture fallbacks.
 
 The boot will throw a multi-line error listing every missing var; the
 process will not start.
@@ -90,7 +106,7 @@ The Dockerfile is fly-compatible. Generate a `fly.toml` with:
 
 ```sh
 fly launch --no-deploy --dockerfile Dockerfile --copy-config=false
-fly secrets set DATABASE_URL=... JWT_SECRET=... OPENAI_API_KEY=... APP_TOKEN=...
+fly secrets set DATABASE_URL=... JWT_SECRET=... OPENAI_API_KEY=... APP_TOKEN=... AUTH_APPLE_AUDIENCE=...
 fly deploy
 ```
 
@@ -104,8 +120,15 @@ fly deploy
 Render: revert the deploy in the dashboard. The previous image is kept.
 Fly: `fly releases list && fly releases rollback <version>`.
 
-The backend is stateless except for Postgres. As long as the database
-schema is compatible, rolling the image back is safe.
+The backend is stateless except for Postgres, but migration 011 creates a
+one-way auth compatibility boundary. After that migration is applied, **do not
+roll back to an image that predates marker-aware canonical auth hydration**.
+Those older images ignore `persistence_auth_store_meta`; when the canonical
+auth tables are intentionally empty, an old image can load a stale
+`user_store.json` mirror and recreate deleted users or sessions. Roll forward
+with a repaired marker-aware image instead. A rollback is safe only when the
+target image contains the canonical marker logic and its expected marker schema
+is compatible with the database.
 
 ## Smoke after deploy
 

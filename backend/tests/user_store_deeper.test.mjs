@@ -16,6 +16,7 @@
 // Stubs persistence (in-memory fs mock) so tests don't touch disk.
 
 import assert from "node:assert/strict";
+import { pbkdf2Sync } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -120,6 +121,39 @@ test("[user-store-deeper] createUser succeeds with valid input", () => {
   assert.equal(fetched.id, r.user.id);
 });
 
+test("[user-store-deeper] password verification rejects malformed digests and unsafe work factors", () => {
+  setupStore();
+  const created = createUser({ email: "guarded@b.com", password: "longenough" });
+  assert.equal(created.ok, true);
+  const stored = getUserByEmail("guarded@b.com");
+  const originalHash = stored.password.hash;
+
+  // Node's hexadecimal decoder silently ignores this trailing nibble. The
+  // verifier must validate the encoded digest before decoding it.
+  stored.password.hash = `${originalHash}f`;
+  assert.equal(authenticateUser("guarded@b.com", "longenough").status, "invalid_password");
+
+  stored.password.hash = originalHash;
+  stored.password.iterations = 2_000_001;
+  assert.equal(authenticateUser("guarded@b.com", "longenough").status, "invalid_password");
+});
+
+test("[user-store-deeper] legacy password records without iterations retain the 120k fallback", () => {
+  setupStore();
+  const salt = "legacy-compatible-salt";
+  const password = "legacy-password";
+  const hash = pbkdf2Sync(password, salt, 120_000, 32, "sha256").toString("hex");
+  const user = {
+    id: "user-legacy-password",
+    email: "legacy@b.com",
+    password: { salt, hash },
+  };
+  usersById.set(user.id, user);
+  usersByEmail.set(user.email, user);
+
+  assert.equal(authenticateUser(user.email, password).ok, true);
+});
+
 test("[user-store-deeper] createUser refuses duplicate email", () => {
   setupStore();
   createUser({ email: "dup@b.com", password: "longenough" });
@@ -142,18 +176,107 @@ test("[user-store-deeper] createOrAttachAppleUser creates a new apple user", () 
   assert.equal(r.user.email, "apple@b.com");
 });
 
-test("[user-store-deeper] createOrAttachAppleUser attaches to existing password user with matching email", () => {
+test("[user-store-deeper] Apple subjects remain exact opaque identifiers after boundary trimming", () => {
+  setupStore();
+  const opaqueSubject = `apple  opaque  ${"x".repeat(180)}`;
+  const r = createOrAttachAppleUser({
+    appleSubject: ` \t${opaqueSubject}\n `,
+    email: "opaque-apple@b.com",
+    emailVerified: true,
+  });
+
+  assert.equal(r.ok, true);
+  assert.equal(r.user.appleSubject, opaqueSubject);
+  assert.ok(r.user.appleSubject.length > 160);
+  assert.equal(getUserByAppleSubject(opaqueSubject)?.id, r.user.id);
+  assert.equal(getUserByAppleSubject(`  ${opaqueSubject}  `)?.id, r.user.id);
+  assert.equal(getUserByAppleSubject(opaqueSubject.replace("  opaque", " opaque")), null);
+});
+
+test("[user-store-deeper] createOrAttachAppleUser lets a known subject sign in when a later token omits email", () => {
+  setupStore();
+  const first = createOrAttachAppleUser({
+    appleSubject: "apple_repeat",
+    email: "repeat@b.com",
+    emailVerified: true,
+  });
+
+  const repeated = createOrAttachAppleUser({ appleSubject: "apple_repeat" });
+
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.user.id, first.user.id);
+  assert.equal(repeated.user.email, "repeat@b.com");
+});
+
+test("[user-store-deeper] createOrAttachAppleUser requires verified email for an unknown subject", () => {
+  setupStore();
+
+  const unverified = createOrAttachAppleUser({
+    appleSubject: "apple_unverified",
+    email: "unverified@b.com",
+  });
+  const missing = createOrAttachAppleUser({ appleSubject: "apple_missing_email" });
+
+  assert.equal(unverified.ok, false);
+  assert.equal(unverified.status, "apple_email_required");
+  assert.equal(missing.ok, false);
+  assert.equal(missing.status, "apple_email_required");
+  assert.equal(getUserByAppleSubject("apple_unverified"), null);
+  assert.equal(getUserByAppleSubject("apple_missing_email"), null);
+});
+
+test("[user-store-deeper] createOrAttachAppleUser denies implicit matching-email linkage", () => {
+  setupStore();
+  const password = createUser({ email: "shared-denied@b.com", password: "longenough" });
+
+  const r = createOrAttachAppleUser({
+    appleSubject: "apple_denied",
+    email: "shared-denied@b.com",
+    emailVerified: true,
+  });
+
+  assert.equal(r.ok, false);
+  assert.equal(r.status, "email_taken");
+  assert.equal(getUserById(password.user.id).appleSubject, "");
+  assert.equal(getUserByAppleSubject("apple_denied"), null);
+});
+
+test("[user-store-deeper] createOrAttachAppleUser explicitly links a verified matching email", () => {
   setupStore();
   const password = createUser({ email: "shared@b.com", password: "longenough" });
   const r = createOrAttachAppleUser({
     appleSubject: "apple_xyz",
     email: "shared@b.com",
+    emailVerified: true,
+    allowExistingEmailLink: true,
   });
   assert.equal(r.ok, true);
   // Same id as the password user.
   assert.equal(r.user.id, password.user.id);
   // Apple subject is now attached.
   assert.equal(r.user.appleSubject, "apple_xyz");
+});
+
+test("[user-store-deeper] createOrAttachAppleUser cannot replace a different Apple subject", () => {
+  setupStore();
+  const first = createOrAttachAppleUser({
+    appleSubject: "apple_original",
+    email: "already-linked@b.com",
+    emailVerified: true,
+  });
+  assert.equal(first.ok, true);
+
+  const conflicting = createOrAttachAppleUser({
+    appleSubject: "apple_conflicting",
+    email: "already-linked@b.com",
+    emailVerified: true,
+    allowExistingEmailLink: true,
+  });
+
+  assert.equal(conflicting.ok, false);
+  assert.equal(conflicting.status, "apple_subject_taken");
+  assert.equal(getUserByEmail("already-linked@b.com")?.appleSubject, "apple_original");
+  assert.equal(getUserByAppleSubject("apple_conflicting"), null);
 });
 
 // ---------- authenticateUser ----------

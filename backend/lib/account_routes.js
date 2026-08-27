@@ -97,19 +97,28 @@ function mountAccountRoutes(app, deps) {
     const pendingDeletionAt = now();
     const hardDeleteAt = pendingDeletionAt + softDeleteWindowMs;
     try {
+      // Revoke first. A later lifecycle-write failure may sign the user out,
+      // but it cannot leave an unacknowledged hard deletion scheduled. The
+      // inverse ordering requires a compensating delete that can itself fail.
+      if (typeof deps.revokeAllSessions === "function") {
+        await deps.revokeAllSessions(user.id);
+      }
       await deps.lifecycleStore.markPendingDeletion({
         userId: user.id,
         pendingDeletionAt,
         hardDeleteAt,
         reason,
       });
-      if (typeof deps.revokeAllSessions === "function") {
-        await deps.revokeAllSessions(user.id);
-      }
     } catch (err) {
+      if (String(err?.code || "") === "AUTH_PERSISTENCE_FAILED") {
+        return res.status(503).json({
+          stage: "account_delete",
+          error: "auth_persistence_failed",
+          retryable: Boolean(err?.retryable),
+        });
+      }
       return res.status(500).json({
         error: "deletion_request_failed",
-        message: String(err?.message || "unknown"),
       });
     }
     await audit({
