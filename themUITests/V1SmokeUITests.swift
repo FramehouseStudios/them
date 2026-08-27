@@ -20,6 +20,31 @@ final class V1SmokeUITests: XCTestCase {
         studio.terminate()
     }
 
+    func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
+        let app = launchApp()
+        defer { app.terminate() }
+
+        let openAccount = app.buttons["home.open-account"]
+        XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
+        openAccount.tap()
+
+        XCTAssertTrue(
+            app.switches["profile-auth-remember-me"].waitForExistence(timeout: 6),
+            "Profile did not expose the Remember me option."
+        )
+        XCTAssertTrue(
+            app.switches["profile-auth-save-password"].waitForExistence(timeout: 3),
+            "Profile did not expose the Apple Keychain password option."
+        )
+
+        let demo = app.buttons["profile-auth-use-local-demo"]
+        for _ in 0..<6 where !demo.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(demo.waitForExistence(timeout: 4), "Local debug login was not visible on a loopback backend.")
+        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 4))
+    }
+
     func test_first_run_onboarding_unlocks_companion() {
         let app = launchApp(skipOnboarding: false)
 

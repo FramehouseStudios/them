@@ -1123,6 +1123,134 @@ final class BackendCredentialMigrationTests: XCTestCase {
     }
 }
 
+final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
+    func testRememberedLoginRoundTripsNormalizedEmailAndPassword() {
+        var keychain: [String: String] = [:]
+
+        let saved = BackendRememberedLoginCredentialPolicy.update(
+            email: "  Studio-Demo@IO.Them.Invalid  ",
+            password: "ThemDemo!2026",
+            rememberEmail: true,
+            savePassword: true,
+            writeKeychain: { value, account in
+                keychain[account] = value
+                return true
+            },
+            deleteKeychain: { keychain.removeValue(forKey: $0) }
+        )
+        let loaded = BackendRememberedLoginCredentialPolicy.load(
+            enabled: true,
+            readKeychain: { keychain[$0] }
+        )
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(loaded?.email, "studio-demo@io.them.invalid")
+        XCTAssertEqual(loaded?.password, "ThemDemo!2026")
+        XCTAssertTrue(loaded?.hasSavedPassword == true)
+    }
+
+    func testRememberedLoginCanStoreEmailWithoutPassword() {
+        var keychain: [String: String] = [:]
+
+        XCTAssertTrue(
+            BackendRememberedLoginCredentialPolicy.update(
+                email: "writer@example.invalid",
+                password: "must-not-be-stored",
+                rememberEmail: true,
+                savePassword: false,
+                writeKeychain: { value, account in
+                    keychain[account] = value
+                    return true
+                },
+                deleteKeychain: { keychain.removeValue(forKey: $0) }
+            )
+        )
+        let loaded = BackendRememberedLoginCredentialPolicy.load(
+            enabled: true,
+            readKeychain: { keychain[$0] }
+        )
+
+        XCTAssertEqual(loaded?.email, "writer@example.invalid")
+        XCTAssertNil(loaded?.password)
+        XCTAssertFalse(loaded?.hasSavedPassword == true)
+        XCTAssertFalse(keychain.values.contains { $0.contains("must-not-be-stored") })
+    }
+
+    func testDisablingRememberedLoginDeletesKeychainPayload() {
+        var keychain = [BackendRememberedLoginCredentialPolicy.keychainAccount: "stale"]
+        var attemptedWrite = false
+
+        let cleared = BackendRememberedLoginCredentialPolicy.update(
+            email: "writer@example.invalid",
+            password: "secret",
+            rememberEmail: false,
+            savePassword: true,
+            writeKeychain: { _, _ in
+                attemptedWrite = true
+                return true
+            },
+            deleteKeychain: { keychain.removeValue(forKey: $0) }
+        )
+
+        XCTAssertTrue(cleared)
+        XCTAssertFalse(attemptedWrite)
+        XCTAssertNil(keychain[BackendRememberedLoginCredentialPolicy.keychainAccount])
+    }
+
+    func testRememberedLoginRejectsCorruptPayloadAndSurfacesWriteFailure() {
+        XCTAssertNil(
+            BackendRememberedLoginCredentialPolicy.load(
+                enabled: true,
+                readKeychain: { _ in "not-json" }
+            )
+        )
+        XCTAssertFalse(
+            BackendRememberedLoginCredentialPolicy.update(
+                email: "writer@example.invalid",
+                password: "valid-password",
+                rememberEmail: true,
+                savePassword: true,
+                writeKeychain: { _, _ in false },
+                deleteKeychain: { _ in }
+            )
+        )
+    }
+
+#if DEBUG
+    func testLocalDemoAccountIsDebugLoopbackOnly() {
+        XCTAssertEqual(BackendLocalDemoAccount.standard.email, "studio-demo@io.them.invalid")
+        XCTAssertEqual(BackendLocalDemoAccount.standard.password, "ThemDemo!2026")
+        XCTAssertTrue(BackendLocalDemoAccount.standard.email.hasSuffix(".invalid"))
+        XCTAssertTrue(
+            BackendLocalDemoAccount.isAvailable(
+                baseURL: URL(string: "http://127.0.0.1:3000")!
+            )
+        )
+        XCTAssertTrue(
+            BackendLocalDemoAccount.isAvailable(
+                baseURL: URL(string: "http://localhost:3137")!
+            )
+        )
+        XCTAssertFalse(
+            BackendLocalDemoAccount.isAvailable(
+                baseURL: URL(string: "https://api.them.io")!
+            )
+        )
+        XCTAssertFalse(
+            BackendLocalDemoAccount.isAvailable(
+                baseURL: URL(string: "https://localhost")!
+            )
+        )
+        XCTAssertFalse(
+            BackendLocalDemoAccount.isAvailable(
+                baseURL: URL(string: "http://127.0.0.1:3000")!,
+                isDebugBuild: false
+            )
+        )
+    }
+#endif
+}
+
 private struct AccountDataControlsHTTPStub {
     let status: Int
     let headers: [String: String]

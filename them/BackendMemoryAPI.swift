@@ -1717,6 +1717,83 @@ nonisolated enum BackendAuthDebugSessionPolicy {
     }
 }
 
+nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendable {
+    let email: String
+    let password: String?
+
+    var hasSavedPassword: Bool {
+        !(password ?? "").isEmpty
+    }
+}
+
+nonisolated enum BackendRememberedLoginCredentialPolicy {
+    static let keychainAccount = "auth_remembered_login"
+
+    static func load(
+        enabled: Bool,
+        readKeychain: (String) -> String?
+    ) -> BackendRememberedLoginCredentials? {
+        guard enabled,
+              let raw = readKeychain(keychainAccount),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(BackendRememberedLoginCredentials.self, from: data) else {
+            return nil
+        }
+        let email = decoded.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !email.isEmpty else { return nil }
+        let password = (decoded.password ?? "").isEmpty ? nil : decoded.password
+        return BackendRememberedLoginCredentials(email: email, password: password)
+    }
+
+    @discardableResult
+    static func update(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Void
+    ) -> Bool {
+        guard rememberEmail else {
+            deleteKeychain(keychainAccount)
+            return true
+        }
+
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedEmail.isEmpty else { return false }
+        let credentials = BackendRememberedLoginCredentials(
+            email: normalizedEmail,
+            password: savePassword && !password.isEmpty ? password : nil
+        )
+        guard let data = try? JSONEncoder().encode(credentials),
+              let payload = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return writeKeychain(payload, keychainAccount)
+    }
+}
+
+#if DEBUG
+nonisolated struct BackendLocalDemoAccount: Equatable, Sendable {
+    let email: String
+    let password: String
+
+    static let standard = BackendLocalDemoAccount(
+        email: "studio-demo@io.them.invalid",
+        password: "ThemDemo!2026"
+    )
+
+    static func isAvailable(baseURL: URL, isDebugBuild: Bool = true) -> Bool {
+        guard isDebugBuild,
+              baseURL.scheme?.lowercased() == "http",
+              let host = baseURL.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+}
+#endif
+
 nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
     let status: String?
     let action: String?
@@ -2985,6 +3062,7 @@ nonisolated enum BackendAuthClient {
         static let authCurrentSessionId = "auth_current_session_id"
         static let authCurrentFamilyId = "auth_current_family_id"
         static let authSignedIn = "auth_signed_in"
+        static let authRememberedLoginEnabled = "auth_remembered_login_enabled"
         static let clientTokenCachedAt = "client_token_cached_at"
         static let clientTokenBaseURL = "client_token_base_url"
     }
@@ -3027,6 +3105,57 @@ nonisolated enum BackendAuthClient {
             verificationRequired: verificationRequired
         )
     }
+
+    static func rememberedLoginCredentials() -> BackendRememberedLoginCredentials? {
+        let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.authRememberedLoginEnabled)
+        guard enabled else {
+            deleteKeychainString(account: BackendRememberedLoginCredentialPolicy.keychainAccount)
+            return nil
+        }
+        guard let credentials = BackendRememberedLoginCredentialPolicy.load(
+            enabled: true,
+            readKeychain: readKeychainString
+        ) else {
+            clearRememberedLoginCredentials()
+            return nil
+        }
+        return credentials
+    }
+
+    @discardableResult
+    static func persistRememberedLoginCredentials(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) -> Bool {
+        let saved = BackendRememberedLoginCredentialPolicy.update(
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword,
+            writeKeychain: writeRememberedLoginKeychainString,
+            deleteKeychain: deleteKeychainString
+        )
+        if rememberEmail && saved {
+            UserDefaults.standard.set(true, forKey: DefaultsKey.authRememberedLoginEnabled)
+        } else {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+        }
+        return saved
+    }
+
+    static func clearRememberedLoginCredentials() {
+        deleteKeychainString(account: BackendRememberedLoginCredentialPolicy.keychainAccount)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+    }
+
+#if DEBUG
+    static func localDemoAccount() -> BackendLocalDemoAccount? {
+        let account = BackendLocalDemoAccount.standard
+        return BackendLocalDemoAccount.isAvailable(baseURL: baseURL()) ? account : nil
+    }
+#endif
 
     static func signUp(email: String, password: String) async throws -> BackendAuthSessionState {
         try await prepareVerifiedBackendForAuth()
@@ -3148,6 +3277,7 @@ nonisolated enum BackendAuthClient {
 
     static func clearLocalSessionAfterAccountDeletion() async {
         clearAuthSession()
+        clearRememberedLoginCredentials()
         await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
     }
 
@@ -3496,6 +3626,28 @@ nonisolated enum BackendAuthClient {
 
     @discardableResult
     private static func writeKeychainString(_ value: String, account: String) -> Bool {
+        writeKeychainString(
+            value,
+            account: account,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    @discardableResult
+    private static func writeRememberedLoginKeychainString(_ value: String, account: String) -> Bool {
+        writeKeychainString(
+            value,
+            account: account,
+            accessibility: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
+    }
+
+    @discardableResult
+    private static func writeKeychainString(
+        _ value: String,
+        account: String,
+        accessibility: CFString
+    ) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -3505,7 +3657,7 @@ nonisolated enum BackendAuthClient {
         SecItemDelete(query as CFDictionary)
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        item[kSecAttrAccessible as String] = accessibility
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
