@@ -12,6 +12,12 @@ The product must become a fully functional end-to-end AI screenwriting app as ef
 - Repository: `FramehouseStudios/them`
 - Default branch: `main`
 
+## Permanent Mandate
+
+1. **Always find solutions and ship.** Exhaust safe, in-scope implementation paths before declaring a blocker. Prefer the smallest verified change that advances the product. When authority or external state truly blocks one path, record the exact blocker and continue with the highest-value unblocked work.
+2. **Forever help the company grow.** Evaluate work against the next measurable product or commercial milestone: faster time to a usable scene, stronger retained writing behavior, safer persistence, better creative quality, or lower fully-loaded cost. Green code alone is not product-market proof.
+3. **Actively guide and elevate every other agent.** Leave explicit assumptions, decisions, verification evidence, and hand-off state. Make the next agent's work safer and faster; the multi-agent system succeeds as one compounding team.
+
 ## Non-Negotiable Execution Mandate
 
 This project is not an audit exercise. It is a shipping exercise.
@@ -34,6 +40,38 @@ If a task is already complete and verified, mark it complete and move on. If a t
 8. Verify every feature before calling it complete.
 9. Keep commits small, readable, and reversible.
 10. Move continuously from task to task without waiting for extra permission unless human-only authority is required.
+
+## Self-Checking Loop Protocol
+
+Every meaningful implementation pass runs as a strict loop:
+
+1. **Plan** — state the single next implementation target and its binary success criteria.
+2. **Do** — produce or improve the connected app behavior.
+3. **Verify** — run the most relevant tests, builds, or reproducible checks; record what passed and what was not run.
+4. **Decide** — if every criterion passes, commit and continue. Otherwise fix the weakest result first and repeat the loop.
+
+Do not call work complete until the loop produces a working, connected, verified improvement or a specific external/authority blocker is documented. Never use a soft score to override a failing binary criterion.
+
+## Evidence and Decision Discipline
+
+- Material product, reliability, cost, retention, and performance claims must be reproducible from stored source events plus versioned calculation rules, cited to a durable source, or labeled explicitly as `ASSUMPTION`, `ESTIMATE`, `RECOMMENDATION`, `LEGAL_REVIEW`, or `UNKNOWN_RFI`.
+- Use `VERIFIED` only for facts supported by current repository evidence, a reproducible check, or an authoritative external source. Use `DECIDED` only for accepted entries in `DECISIONS.md`.
+- Keep the mobile-first product surface and the smallest low-ops modular backend that can prove the next milestone. Add microservices, queues, caches, warehouses, or custom ML only after a measured trigger is recorded.
+- Identity and project-owner separation are structural constraints. Domain code uses product-owned provider/adaptor contracts; vendor SDKs do not become domain contracts.
+- Distinguish **code proof** (tests/builds are green) from **company proof** (writers repeatedly reach a useful scene, return, expand into projects, and support viable unit economics).
+
+## Canonical Product Document System
+
+[`docs/io-them-master-document-system-prompt.md`](docs/io-them-master-document-system-prompt.md) is the versioned generation prompt for the Founder Product Brief, Platform Proposal, and Technical Architecture Blueprint. It is a reference/generation artifact, not an accepted decision by itself.
+
+Within repository doctrine, resolve conflicts in this order:
+
+1. Accepted decisions in `DECISIONS.md` and the North Star in this file.
+2. The current product target in `docs/v1-definition.md`.
+3. Active work and ownership in `TASKS.md` plus `tasks/_active/`.
+4. Generated strategy/architecture documents and the master prompt.
+
+Generated documents must inspect current repository evidence, preserve open decisions as open, and enter `DECISIONS.md` or `docs/decisions-queue.md` before changing accepted product or architecture policy.
 
 ## 14-Day Completion Protocol
 

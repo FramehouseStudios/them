@@ -735,6 +735,7 @@
 
 | ID                                      | Title                                                                                    | Owner  | Status           |
 |-----------------------------------------|------------------------------------------------------------------------------------------|--------|------------------|
+| T-agent-operating-system-v1             | Integrate the io.them agent operating system and master document prompt                  | codex  | review           |
 | T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | claude | review           |
 | T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | claude | review           |
 | T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | claude | review           |
@@ -820,6 +821,48 @@
 | T99-fix-auth-expected-action            | Fix truncated auth-route coordination expected action                                    | codex  | review           |
 
 ## Active work — full detail (auto-generated)
+
+### T-agent-operating-system-v1 — Integrate the io.them agent operating system and master document prompt
+- **Owner:** codex
+- **Branch:** codex/T-agent-operating-system-v1
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+- Integrate the founder-supplied permanent mandate into the canonical
+  `AGENTS.md` without weakening current scope, verification, or merge rules.
+- Preserve the strict plan/do/verify/decide loop requested for implementation
+  work.
+- Store the io.them three-document generation prompt as a versioned project
+  artifact, with explicit precedence and evidence-label guidance.
+- Link the operating system and master prompt from the repository README.
+
+## Done when
+
+- `AGENTS.md` clearly states the permanent mandate, evidence discipline,
+  self-checking loop, and document-system precedence.
+- The master prompt is complete, copyable, and resolves the mobile-first versus
+  generic web-first conflict in favor of io.them's accepted North Star.
+- Repository documentation checks and `git diff --check` pass.
+- The update is pushed to a dedicated PR based on current `main`.
+
+## Verification
+
+- `node scripts/build_tasks_md.mjs --write`: passed; generated only this task's
+  quick-view row and detail block.
+- `node scripts/pre_flight.mjs --strict`: passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`: passed for 93
+  active task files.
+- `node --test scripts/tasks_active_frontmatter_eval.test.mjs scripts/tasks_sync_check.test.mjs`:
+  5 passed, 0 failed.
+- `node scripts/tasks_sync_check.mjs`: exited 0 with pre-existing legacy task
+  filename/front-matter warnings and no finding for this task.
+- Master-prompt contract scan found all three required documents, the evidence
+  legend, Contract Gate, Decision Triggers, and terminal handoff status.
+- Documentation link targets and `git diff --check`: passed.
+- iOS/backend runtime tests were not run because this change is documentation
+  and agent-operating doctrine only.
 
 ### T-backfill-v1-pillar-legacy — Backfill V1 pillar/effect on 13 legacy non-merged task files
 - **Owner:** claude
