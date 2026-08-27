@@ -755,6 +755,9 @@ struct RootExperienceView: View {
     @State private var onboardingSceneSeed = ""
     @State private var isMagicMomentSubmitting = false
     @State private var magicMomentOnboardingError = ""
+    @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
+    @AppStorage("auth_session_token_deletion_pending")
+    private var authSessionTokenDeletionPending: Bool = false
     @AppStorage("t11.magic_moment_last_duration_ms") private var magicMomentLastDurationMs: Double = 0
     @AppStorage("t12.magic_moment_perceived_response_ms") private var magicMomentPerceivedResponseMs: Double = 0
     @State private var showingMemories = false
@@ -3646,7 +3649,7 @@ struct RootExperienceView: View {
                         openAccount()
                     } label: {
                         Label(
-                            BackendAuthClient.currentAuthSessionState().isAuthenticated ? "Account" : "Sign In",
+                            authSignedIn && !authSessionTokenDeletionPending ? "Account" : "Sign In",
                             systemImage: "person.crop.circle"
                         )
                             .font(.system(size: 12, weight: .regular, design: .default))

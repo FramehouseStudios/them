@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import them
 
 final class BackendAccountDataControlsTests: XCTestCase {
@@ -78,17 +79,11 @@ final class BackendAccountDataControlsTests: XCTestCase {
         XCTAssertEqual(exportRequest.acceptHeader, "application/json")
     }
 
-    func testRequestAccountDeletionSendsDeleteToAccountRoute() async throws {
+    func testRequestAccountDeletionSendsReauthenticationWithoutBootstrapping() async throws {
         let recorder = AccountDataControlsRequestRecorder()
         AccountDataControlsURLProtocolStub.handler = { request in
             recorder.record(request)
             switch request.url?.path {
-            case "/session":
-                return AccountDataControlsHTTPStub(
-                    status: 200,
-                    headers: ["Content-Type": "application/json"],
-                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
-                )
             case "/account":
                 return AccountDataControlsHTTPStub(
                     status: 202,
@@ -118,10 +113,17 @@ final class BackendAccountDataControlsTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let api = BackendMemoryAPI(
             session: session,
-            baseURL: URL(string: "https://account-data-controls.test")!
+            baseURL: URL(string: "https://account-data-controls.test")!,
+            accountDeletionSessionHooks: BackendAccountDeletionSessionHooks(
+                clearLocalSession: { nil },
+                clearAfterSuccessfulDeletion: { _ in false }
+            )
         )
 
-        let response = try await api.requestAccountDeletion(reason: "Leaving")
+        let response = try await api.requestAccountDeletion(
+            reason: "Leaving",
+            proof: .password("current-password")
+        )
 
         XCTAssertEqual(response.status, "pending_deletion")
         XCTAssertEqual(response.hardDeleteAt, "2026-05-30T12:00:00.000Z")
@@ -130,6 +132,89 @@ final class BackendAccountDataControlsTests: XCTestCase {
         let accountRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/account" })
         XCTAssertEqual(accountRequest.method, "DELETE")
         XCTAssertEqual(accountRequest.bodyObject?["reason"] as? String, "Leaving")
+        XCTAssertEqual(accountRequest.bodyObject?["current_password"] as? String, "current-password")
+        XCTAssertFalse(recorder.requests.contains { $0.path == "/session" })
+    }
+
+    func testAccountDeletionAppleProofCarriesIdentityTokenAndNonce() throws {
+        let fields = try BackendAccountDeletionProof.apple(
+            identityToken: " apple-token ",
+            rawNonce: " raw-nonce "
+        ).requestFields()
+
+        XCTAssertEqual(fields["identity_token"], "apple-token")
+        XCTAssertEqual(fields["raw_nonce"], "raw-nonce")
+        XCTAssertNil(fields["current_password"])
+    }
+
+    func testAccountDeletionRejectsEmptyReauthenticationProof() {
+        XCTAssertThrowsError(try BackendAccountDeletionProof.password("").requestFields())
+        XCTAssertThrowsError(
+            try BackendAccountDeletionProof.apple(identityToken: "  ", rawNonce: nil).requestFields()
+        )
+    }
+
+    func testCapturedLogoutRequestUsesOnlyCapturedCredentials() throws {
+        let request = try BackendAuthClient.capturedLogoutRequest(
+            accessToken: " access-account-a ",
+            refreshToken: " refresh-account-a "
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: String]
+        )
+
+        XCTAssertEqual(request.url?.path, "/auth/logout")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-account-a")
+        XCTAssertEqual(object["refresh_token"], "refresh-account-a")
+    }
+
+    func testRefreshOnlyLogoutRequestCannotInheritAmbientAuthorization() throws {
+        let request = try BackendAuthClient.capturedLogoutRequest(
+            accessToken: "",
+            refreshToken: "refresh-account-a"
+        )
+
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testSuccessfulAccountDeletionClearsOnlyAReloginOfTheDeletedAccount() {
+        let deleted = BackendAuthUser(
+            userId: "user-a",
+            email: "a@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let sameAccount = BackendAuthUser(
+            userId: "user-a",
+            email: "new-address@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let differentAccount = BackendAuthUser(
+            userId: "user-b",
+            email: "b@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertTrue(BackendAuthClient.accountDeletionShouldClearCurrentSession(
+            deletedUser: deleted,
+            currentUser: sameAccount
+        ))
+        XCTAssertFalse(BackendAuthClient.accountDeletionShouldClearCurrentSession(
+            deletedUser: deleted,
+            currentUser: differentAccount
+        ))
     }
 
     func testBootstrapSessionCoalescesConcurrentInFlightRequests() async throws {
@@ -220,6 +305,25 @@ final class BackendAccountDataControlsTests: XCTestCase {
         XCTAssertEqual(first.clientToken, "client-shared")
         XCTAssertEqual(second.clientToken, "client-shared")
         XCTAssertEqual(recorder.requests.filter { $0.path == "/session" }.count, 1)
+    }
+
+    func testStaleBootstrapCannotPublishIdentityAfterSessionEpochChanges() {
+        let suiteName = "BackendAccountDataControlsTests.bootstrap.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let expectedEpoch = BackendAuthClient.authSessionEpoch(defaults: defaults)
+
+        XCTAssertTrue(BackendAuthClient.sessionBootstrapIdentityCommitIsAllowed(
+            expectedSessionEpoch: expectedEpoch,
+            defaults: defaults
+        ))
+
+        _ = BackendAuthClient.advanceAuthSessionEpoch(defaults: defaults)
+
+        XCTAssertFalse(BackendAuthClient.sessionBootstrapIdentityCommitIsAllowed(
+            expectedSessionEpoch: expectedEpoch,
+            defaults: defaults
+        ))
     }
 
     func testProjectCollaborationRequestsCanUseClientTokenOwnerWithoutAccountIdentityAfterTokenRotation() async throws {
@@ -588,6 +692,48 @@ final class BackendAccountDataControlsTests: XCTestCase {
                 "Backend error 502: Backend service unavailable. Please try again."
             )
         }
+    }
+}
+
+private actor AuthRefreshCallCounter {
+    private var value = 0
+
+    func increment() {
+        value += 1
+    }
+
+    func count() -> Int {
+        value
+    }
+}
+
+private actor AuthRefreshAsyncGate {
+    private var started = false
+    private var released = false
+    private var startedWaiter: CheckedContinuation<Void, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    func markStartedAndWait() async {
+        started = true
+        startedWaiter?.resume()
+        startedWaiter = nil
+        if released { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiter = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { continuation in
+            startedWaiter = continuation
+        }
+    }
+
+    func release() {
+        released = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
     }
 }
 
@@ -1091,7 +1237,9 @@ final class BackendCredentialMigrationTests: XCTestCase {
                 keychain[account] = value
                 return true
             },
-            deleteKeychain: { keychain.removeValue(forKey: $0) }
+            deleteKeychain: {
+                keychain.removeValue(forKey: $0)
+            }
         )
 
         XCTAssertTrue(wrote)
@@ -1121,6 +1269,355 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: "client_token_expiry"))
         XCTAssertNil(keychain["session_client_token_expiry"])
     }
+
+    func testLatestAuthSessionGenerationRejectsStaleCommit() {
+        let sessionEpoch = BackendAuthClient.authSessionEpoch(defaults: defaults)
+        let older = BackendAuthClient.reserveAuthSessionIntent(defaults: defaults)
+        let newer = BackendAuthClient.reserveAuthSessionIntent(defaults: defaults)
+        var committedGeneration: Int?
+
+        XCTAssertFalse(BackendAuthClient.authSessionCommitIfCurrent(
+            expectedGeneration: older,
+            defaults: defaults
+        ) {
+            committedGeneration = older
+            return true
+        })
+        XCTAssertTrue(BackendAuthClient.authSessionCommitIfCurrent(
+            expectedGeneration: newer,
+            defaults: defaults
+        ) {
+            committedGeneration = newer
+            return true
+        })
+        XCTAssertEqual(committedGeneration, newer)
+        XCTAssertEqual(BackendAuthClient.authSessionEpoch(defaults: defaults), sessionEpoch)
+    }
+
+    func testOnlyCanonicalInvalidRefreshTokenIsTerminal() {
+        XCTAssertTrue(BackendAuthClient.isTerminalRefreshRejection(
+            BackendMemoryAPIError.server(
+                status: 401,
+                message: "auth_refresh: invalid_refresh_token"
+            )
+        ))
+        XCTAssertTrue(BackendAuthClient.isTerminalRefreshRejection(
+            BackendMemoryAPIError.server(status: 401, message: "invalid_refresh_token")
+        ))
+        XCTAssertFalse(BackendAuthClient.isTerminalRefreshRejection(
+            BackendMemoryAPIError.server(status: 401, message: "Unauthorized")
+        ))
+        XCTAssertFalse(BackendAuthClient.isTerminalRefreshRejection(
+            BackendMemoryAPIError.server(status: 400, message: "invalid_refresh_token")
+        ))
+        XCTAssertFalse(BackendAuthClient.isTerminalRefreshRejection(
+            BackendMemoryAPIError.server(status: 403, message: "policy_denied")
+        ))
+    }
+
+    func testAuthSessionLeaseRequiresSameGenerationAndExactTokens() {
+        defaults.set(true, forKey: "auth_signed_in")
+        let generation = BackendAuthClient.advanceAuthSessionEpoch(defaults: defaults)
+        let lease = BackendAuthSessionLease(
+            sessionGeneration: generation,
+            userID: "user-a",
+            accessToken: "access-a",
+            refreshToken: "refresh-a"
+        )
+
+        XCTAssertTrue(BackendAuthClient.authSessionLeaseIsCurrent(
+            lease,
+            defaults: defaults,
+            currentAccessToken: { "access-a" },
+            currentRefreshToken: { "refresh-a" }
+        ))
+        XCTAssertFalse(BackendAuthClient.authSessionLeaseIsCurrent(
+            lease,
+            defaults: defaults,
+            currentAccessToken: { "access-b" },
+            currentRefreshToken: { "refresh-a" }
+        ))
+        _ = BackendAuthClient.advanceAuthSessionEpoch(defaults: defaults)
+        XCTAssertFalse(BackendAuthClient.authSessionLeaseIsCurrent(
+            lease,
+            defaults: defaults,
+            currentAccessToken: { "access-a" },
+            currentRefreshToken: { "refresh-a" }
+        ))
+    }
+
+    func testVerificationMetadataRejectsStaleAndCrossAccountResponses() {
+        defaults.set(true, forKey: "auth_signed_in")
+        let generation = BackendAuthClient.advanceAuthSessionEpoch(defaults: defaults)
+        let lease = BackendAuthSessionLease(
+            sessionGeneration: generation,
+            userID: "user-a",
+            accessToken: "access-a",
+            refreshToken: "refresh-a"
+        )
+
+        XCTAssertTrue(BackendAuthClient.emailVerificationMetadataCommitIsAllowed(
+            lease: lease,
+            responseUserID: "user-a",
+            defaults: defaults,
+            currentAccessToken: { "access-a" },
+            currentRefreshToken: { "refresh-a" },
+            currentUserID: { "user-a" }
+        ))
+        XCTAssertFalse(BackendAuthClient.emailVerificationMetadataCommitIsAllowed(
+            lease: lease,
+            responseUserID: "user-b",
+            defaults: defaults,
+            currentAccessToken: { "access-a" },
+            currentRefreshToken: { "refresh-a" },
+            currentUserID: { "user-a" }
+        ))
+        defaults.set(true, forKey: "auth_session_token_deletion_pending")
+        XCTAssertFalse(BackendAuthClient.emailVerificationMetadataCommitIsAllowed(
+            lease: lease,
+            responseUserID: "user-a",
+            defaults: defaults,
+            currentAccessToken: { "access-a" },
+            currentRefreshToken: { "refresh-a" },
+            currentUserID: { "user-a" }
+        ))
+    }
+
+    func testPendingAuthSessionDeletionCoversEveryIdentitySecretAndRetries() {
+        defaults.set("stale-access", forKey: "auth_access_token")
+        defaults.set("stale-refresh", forKey: "auth_refresh_token")
+        defaults.set("stale-user", forKey: "user_id")
+        defaults.set("stale-client", forKey: "client_token")
+        defaults.set("stale-expiry", forKey: "client_token_expiry")
+        defaults.set(true, forKey: "auth_signed_in")
+        defaults.set(true, forKey: "auth_session_token_deletion_pending")
+        var deletionSucceeds = false
+        var attemptedAccounts: [String] = []
+
+        XCTAssertFalse(BackendAuthClient.retryPendingAuthSessionTokenDeletion(
+            defaults: defaults,
+            deleteKeychain: { account in
+                attemptedAccounts.append(account)
+                return deletionSucceeds
+            }
+        ))
+        XCTAssertFalse(BackendAuthClient.authSessionTokenReadsAreAllowed(defaults: defaults))
+        XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+        XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+        XCTAssertNil(defaults.string(forKey: "auth_access_token"))
+        XCTAssertNil(defaults.string(forKey: "auth_refresh_token"))
+        XCTAssertNil(defaults.string(forKey: "user_id"))
+        XCTAssertNil(defaults.string(forKey: "client_token"))
+        XCTAssertNil(defaults.string(forKey: "client_token_expiry"))
+        XCTAssertEqual(
+            Set(attemptedAccounts),
+            Set([
+                "auth_access_token",
+                "auth_refresh_token",
+                "session_client_token",
+                "session_client_token_expiry",
+                "stable_user_id",
+            ])
+        )
+
+        deletionSucceeds = true
+        attemptedAccounts.removeAll()
+        XCTAssertTrue(BackendAuthClient.retryPendingAuthSessionTokenDeletion(
+            defaults: defaults,
+            deleteKeychain: { account in
+                attemptedAccounts.append(account)
+                return deletionSucceeds
+            }
+        ))
+        XCTAssertFalse(BackendAuthClient.authSessionTokenReadsAreAllowed(defaults: defaults))
+        XCTAssertFalse(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+        XCTAssertEqual(attemptedAccounts.count, 5)
+    }
+
+    func testAuthTokenPairPublishesOnlyAfterCrashSafeWrites() {
+        defaults.set(true, forKey: "auth_signed_in")
+        defaults.set("old-user", forKey: "auth_user_email")
+        var keychain: [String: String] = [
+            "auth_access_token": "old-access",
+            "auth_refresh_token": "old-refresh",
+            "stable_user_id": "old-user",
+            "session_client_token": "old-client",
+            "session_client_token_expiry": "old-expiry",
+        ]
+        var writeObservations = 0
+
+        let stored = BackendAuthClient.persistAuthTokenPair(
+            accessToken: "new-access",
+            refreshToken: "new-refresh",
+            defaults: defaults,
+            writeKeychain: { value, account in
+                XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+                XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+                XCTAssertNil(defaults.string(forKey: "auth_user_email"))
+                keychain[account] = value
+                writeObservations += 1
+                return true
+            },
+            deleteKeychain: { account in
+                keychain.removeValue(forKey: account)
+                return true
+            },
+            persistMetadata: {
+                XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+                XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+                defaults.set("new-user", forKey: "auth_user_email")
+                return true
+            }
+        )
+
+        XCTAssertTrue(stored)
+        XCTAssertEqual(writeObservations, 2)
+        XCTAssertEqual(keychain["auth_access_token"], "new-access")
+        XCTAssertEqual(keychain["auth_refresh_token"], "new-refresh")
+        XCTAssertNil(keychain["session_client_token"])
+        XCTAssertNil(keychain["stable_user_id"])
+        XCTAssertTrue(defaults.bool(forKey: "auth_signed_in"))
+        XCTAssertFalse(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+        XCTAssertEqual(defaults.string(forKey: "auth_user_email"), "new-user")
+    }
+
+    func testPartialAuthTokenWriteFailsClosedUntilCleanupCanFinish() {
+        defaults.set(true, forKey: "auth_signed_in")
+        defaults.set("old-user", forKey: "auth_user_email")
+        var replacementWriteStarted = false
+
+        let stored = BackendAuthClient.persistAuthTokenPair(
+            accessToken: "new-access",
+            refreshToken: "new-refresh",
+            defaults: defaults,
+            writeKeychain: { _, account in
+                replacementWriteStarted = true
+                return account == "auth_access_token"
+            },
+            deleteKeychain: { account in
+                if replacementWriteStarted, account == "auth_access_token" {
+                    return false
+                }
+                return true
+            },
+            persistMetadata: {
+                XCTFail("Metadata must not publish after a partial token write")
+                return false
+            }
+        )
+
+        XCTAssertFalse(stored)
+        XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+        XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+        XCTAssertNil(defaults.string(forKey: "auth_user_email"))
+        XCTAssertFalse(BackendAuthClient.authSessionTokenReadsAreAllowed(defaults: defaults))
+    }
+
+    func testAuthIdentityMetadataFailureRollsBackWrittenTokenPair() {
+        var keychain: [String: String] = [:]
+        var metadataAttempted = false
+
+        let stored = BackendAuthClient.persistAuthTokenPair(
+            accessToken: "new-access",
+            refreshToken: "new-refresh",
+            defaults: defaults,
+            writeKeychain: { value, account in
+                keychain[account] = value
+                return true
+            },
+            deleteKeychain: { account in
+                keychain.removeValue(forKey: account)
+                return true
+            },
+            persistMetadata: {
+                metadataAttempted = true
+                defaults.set("partially-persisted-user", forKey: "auth_user_email")
+                return false
+            }
+        )
+
+        XCTAssertFalse(stored)
+        XCTAssertTrue(metadataAttempted)
+        XCTAssertNil(keychain["auth_access_token"])
+        XCTAssertNil(keychain["auth_refresh_token"])
+        XCTAssertNil(defaults.string(forKey: "auth_user_email"))
+        XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+        XCTAssertFalse(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+    }
+
+    func testRefreshCoordinatorCoalescesConcurrentCallers() async throws {
+        let coordinator = BackendAuthRefreshCoordinator()
+        let counter = AuthRefreshCallCounter()
+        let key = BackendAuthRefreshCoordinator.Key(
+            lease: BackendAuthSessionLease(
+                sessionGeneration: 7,
+                userID: "user-a",
+                accessToken: "access-a",
+                refreshToken: "refresh-a"
+            )
+        )
+
+        let first = Task {
+            try await coordinator.run(key: key) {
+                await counter.increment()
+                try await Task.sleep(nanoseconds: 80_000_000)
+                return .signedOut
+            }
+        }
+        let second = Task {
+            try await coordinator.run(key: key) {
+                await counter.increment()
+                try await Task.sleep(nanoseconds: 80_000_000)
+                return .signedOut
+            }
+        }
+
+        let firstResult = try await first.value
+        let secondResult = try await second.value
+        let callCount = await counter.count()
+        XCTAssertEqual(firstResult, .signedOut)
+        XCTAssertEqual(secondResult, .signedOut)
+        XCTAssertEqual(callCount, 1)
+    }
+
+    func testRefreshCoordinatorDoesNotJoinADifferentSessionFlight() async throws {
+        let coordinator = BackendAuthRefreshCoordinator()
+        let gate = AuthRefreshAsyncGate()
+        let firstKey = BackendAuthRefreshCoordinator.Key(
+            lease: BackendAuthSessionLease(
+                sessionGeneration: 7,
+                userID: "user-a",
+                accessToken: "access-a",
+                refreshToken: "refresh-a"
+            )
+        )
+        let secondKey = BackendAuthRefreshCoordinator.Key(
+            lease: BackendAuthSessionLease(
+                sessionGeneration: 8,
+                userID: "user-b",
+                accessToken: "access-b",
+                refreshToken: "refresh-b"
+            )
+        )
+
+        let first = Task {
+            try await coordinator.run(key: firstKey) {
+                await gate.markStartedAndWait()
+                return .signedOut
+            }
+        }
+        await gate.waitUntilStarted()
+        let second = Task {
+            try await coordinator.run(key: secondKey) {
+                return .signedOut
+            }
+        }
+
+        let secondResult = try await second.value
+        XCTAssertEqual(secondResult, .signedOut)
+        await gate.release()
+        _ = try await first.value
+    }
 }
 
 final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
@@ -1136,7 +1633,10 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
                 keychain[account] = value
                 return true
             },
-            deleteKeychain: { keychain.removeValue(forKey: $0) }
+            deleteKeychain: {
+                keychain.removeValue(forKey: $0)
+                return true
+            }
         )
         let loaded = BackendRememberedLoginCredentialPolicy.load(
             enabled: true,
@@ -1162,7 +1662,10 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
                     keychain[account] = value
                     return true
                 },
-                deleteKeychain: { keychain.removeValue(forKey: $0) }
+                deleteKeychain: {
+                    keychain.removeValue(forKey: $0)
+                    return true
+                }
             )
         )
         let loaded = BackendRememberedLoginCredentialPolicy.load(
@@ -1189,7 +1692,10 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
                 attemptedWrite = true
                 return true
             },
-            deleteKeychain: { keychain.removeValue(forKey: $0) }
+            deleteKeychain: {
+                keychain.removeValue(forKey: $0)
+                return true
+            }
         )
 
         XCTAssertTrue(cleared)
@@ -1211,9 +1717,687 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
                 rememberEmail: true,
                 savePassword: true,
                 writeKeychain: { _, _ in false },
-                deleteKeychain: { _ in }
+                deleteKeychain: { _ in true }
             )
         )
+    }
+
+    func testDisablingRememberedLoginReportsDeletionFailure() {
+        var attemptedWrite = false
+
+        let cleared = BackendRememberedLoginCredentialPolicy.update(
+            email: "writer@example.invalid",
+            password: "secret",
+            rememberEmail: false,
+            savePassword: true,
+            writeKeychain: { _, _ in
+                attemptedWrite = true
+                return true
+            },
+            deleteKeychain: { _ in false }
+        )
+
+        XCTAssertFalse(cleared)
+        XCTAssertFalse(attemptedWrite)
+    }
+
+    func testPendingRememberedLoginDeletionRetriesUntilKeychainSucceeds() {
+        let suiteName = "BackendRememberedLoginDeletionTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_deletion_pending")
+        var deletionAttempts = 0
+
+        XCTAssertFalse(
+            BackendAuthClient.retryPendingRememberedLoginDeletion(
+                defaults: suiteDefaults,
+                deleteKeychain: { account in
+                    deletionAttempts += 1
+                    XCTAssertEqual(account, BackendRememberedLoginCredentialPolicy.keychainAccount)
+                    return false
+                }
+            )
+        )
+        XCTAssertEqual(deletionAttempts, 1)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+
+        XCTAssertTrue(
+            BackendAuthClient.retryPendingRememberedLoginDeletion(
+                defaults: suiteDefaults,
+                deleteKeychain: { _ in
+                    deletionAttempts += 1
+                    return true
+                }
+            )
+        )
+        XCTAssertEqual(deletionAttempts, 2)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testRememberedLoginBootstrapDoesNotDeleteWhenNoCleanupIsPending() {
+        let suiteName = "BackendRememberedLoginNoPendingDeletionTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        var attemptedDeletion = false
+
+        XCTAssertTrue(
+            BackendAuthClient.retryPendingRememberedLoginDeletion(
+                defaults: suiteDefaults,
+                deleteKeychain: { _ in
+                    attemptedDeletion = true
+                    return true
+                }
+            )
+        )
+        XCTAssertFalse(attemptedDeletion)
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+    }
+
+    func testTransientKeychainReadFailurePreservesRememberedLoginStateAndItem() {
+        let suiteName = "BackendRememberedLoginTransientReadTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        var attemptedDeletion = false
+
+        let result = BackendAuthClient.rememberedLoginCredentialLoadResult(
+            defaults: suiteDefaults,
+            readKeychain: { _ in .unavailable(errSecInteractionNotAllowed) },
+            deleteKeychain: { _ in
+                attemptedDeletion = true
+                return true
+            }
+        )
+
+        XCTAssertEqual(result, .unavailable(savePassword: true))
+        XCTAssertFalse(attemptedDeletion)
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testLegacySavedPasswordBackfillsExplicitRetentionIntentAfterSuccessfulRead() throws {
+        let suiteName = "BackendRememberedLoginLegacyIntentTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        let legacy = BackendRememberedLoginCredentials(
+            email: "writer@example.invalid",
+            password: "legacy-password"
+        )
+        let payload = String(data: try JSONEncoder().encode(legacy), encoding: .utf8)!
+
+        let result = BackendAuthClient.rememberedLoginCredentialLoadResult(
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value(payload) },
+            deleteKeychain: { _ in
+                XCTFail("A valid legacy credential should not be deleted")
+                return false
+            }
+        )
+
+        XCTAssertEqual(result, .loaded(legacy))
+        XCTAssertNotNil(suiteDefaults.object(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+    }
+
+    func testUnavailableLegacyCredentialWithUnknownRetentionIntentFailsClosed() {
+        let suiteName = "BackendRememberedLoginUnknownIntentTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        let generation = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+        var attemptedDeletion = false
+
+        let result = BackendAuthClient.rememberedLoginCredentialLoadResult(
+            defaults: suiteDefaults,
+            readKeychain: { _ in .unavailable(errSecInteractionNotAllowed) },
+            deleteKeychain: { _ in
+                attemptedDeletion = true
+                return false
+            }
+        )
+
+        XCTAssertEqual(result, .notRemembered)
+        XCTAssertTrue(attemptedDeletion)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+        XCTAssertGreaterThan(
+            BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults),
+            generation
+        )
+    }
+
+    func testCorruptRememberedLoginPayloadIsDisabledAndDeleted() {
+        let suiteName = "BackendRememberedLoginCorruptReadTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        var attemptedDeletion = false
+
+        let loaded = BackendAuthClient.rememberedLoginCredentials(
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value("not-json") },
+            deleteKeychain: { _ in
+                attemptedDeletion = true
+                return true
+            }
+        )
+
+        XCTAssertNil(loaded)
+        XCTAssertTrue(attemptedDeletion)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testRememberedLoginStateTransitionsAreFailClosedAroundKeychainWork() {
+        let suiteName = "BackendRememberedLoginTransitionTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+
+        XCTAssertTrue(
+            BackendAuthClient.persistRememberedLoginCredentials(
+                email: "writer@example.invalid",
+                password: "secret",
+                rememberEmail: true,
+                savePassword: true,
+                defaults: suiteDefaults,
+                writeKeychain: { _, account in
+                    XCTAssertEqual(account, BackendRememberedLoginCredentialPolicy.keychainAccount)
+                    XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+                    XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+                    return true
+                },
+                deleteKeychain: { _ in
+                    XCTFail("Successful write should not delete the new credential")
+                    return false
+                }
+            )
+        )
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+
+        XCTAssertFalse(
+            BackendAuthClient.clearRememberedLoginCredentials(
+                defaults: suiteDefaults,
+                deleteKeychain: { account in
+                    XCTAssertEqual(account, BackendRememberedLoginCredentialPolicy.keychainAccount)
+                    XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+                    XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+                    return false
+                }
+            )
+        )
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testClearedIntentGenerationPreventsStaleAuthenticationFromReenablingCredential() {
+        let suiteName = "BackendRememberedLoginStaleIntentTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        let staleGeneration = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+        BackendAuthClient.advanceRememberedLoginIntentGeneration(defaults: suiteDefaults)
+        _ = BackendAuthClient.clearRememberedLoginCredentials(
+            defaults: suiteDefaults,
+            deleteKeychain: { _ in true }
+        )
+        var attemptedWrite = false
+
+        let result = BackendAuthClient.persistRememberedLoginCredentialsIfCurrent(
+            email: "writer@example.invalid",
+            password: "stale-password",
+            rememberEmail: true,
+            savePassword: true,
+            expectedGeneration: staleGeneration,
+            defaults: suiteDefaults,
+            writeKeychain: { _, _ in
+                attemptedWrite = true
+                return true
+            },
+            deleteKeychain: { _ in true }
+        )
+
+        XCTAssertEqual(result, .superseded)
+        XCTAssertFalse(attemptedWrite)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+    }
+
+    func testLatestReservedAuthenticationIntentWinsOutOfOrderResponses() throws {
+        let suiteName = "BackendRememberedLoginReservedIntentTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        let olderIntent = BackendAuthClient.reserveRememberedLoginIntent(defaults: suiteDefaults)
+        let newerIntent = BackendAuthClient.reserveRememberedLoginIntent(defaults: suiteDefaults)
+        var writtenCredential: BackendRememberedLoginCredentials?
+
+        let olderResponse = BackendAuthClient.persistRememberedLoginCredentialsIfCurrent(
+            email: "older-account@example.invalid",
+            password: "older-password",
+            rememberEmail: true,
+            savePassword: true,
+            expectedGeneration: olderIntent,
+            defaults: suiteDefaults,
+            writeKeychain: { _, _ in
+                XCTFail("The older response must not write after a newer intent is reserved")
+                return true
+            },
+            deleteKeychain: { _ in true }
+        )
+        let newerResponse = BackendAuthClient.persistRememberedLoginCredentialsIfCurrent(
+            email: "newer-account@example.invalid",
+            password: "newer-password",
+            rememberEmail: true,
+            savePassword: true,
+            expectedGeneration: newerIntent,
+            defaults: suiteDefaults,
+            writeKeychain: { payload, _ in
+                writtenCredential = try? JSONDecoder().decode(
+                    BackendRememberedLoginCredentials.self,
+                    from: Data(payload.utf8)
+                )
+                return true
+            },
+            deleteKeychain: { _ in true }
+        )
+
+        XCTAssertEqual(olderResponse, .superseded)
+        XCTAssertEqual(newerResponse, .saved)
+        XCTAssertEqual(writtenCredential?.email, "newer-account@example.invalid")
+        XCTAssertEqual(writtenCredential?.password, "newer-password")
+    }
+
+    func testCurrentIntentRevokesReadsBeforeAdvancingGenerationAndWritingKeychain() {
+        let suiteName = "BackendRememberedLoginIntentOrderingTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        let generation = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+
+        let result = BackendAuthClient.persistRememberedLoginCredentialsIfCurrent(
+            email: "writer@example.invalid",
+            password: "new-password",
+            rememberEmail: true,
+            savePassword: true,
+            expectedGeneration: generation,
+            defaults: suiteDefaults,
+            writeKeychain: { _, _ in
+                XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+                XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+                XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+                XCTAssertGreaterThan(
+                    BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults),
+                    generation
+                )
+                return true
+            },
+            deleteKeychain: { _ in
+                XCTFail("Successful current-intent write should not delete the replacement credential")
+                return false
+            }
+        )
+
+        XCTAssertEqual(result, .saved)
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testDisableSavedPasswordAtomicallyRewritesEmailOnly() throws {
+        let suiteName = "BackendRememberedLoginDisablePasswordTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        let original = BackendRememberedLoginCredentials(
+            email: "writer@example.invalid",
+            password: "old-password"
+        )
+        let raw = String(data: try JSONEncoder().encode(original), encoding: .utf8)!
+        var rewritten: BackendRememberedLoginCredentials?
+
+        let result = BackendAuthClient.disableRememberedLoginPassword(
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value(raw) },
+            writeKeychain: { value, _ in
+                rewritten = try? JSONDecoder().decode(
+                    BackendRememberedLoginCredentials.self,
+                    from: Data(value.utf8)
+                )
+                return true
+            },
+            deleteKeychain: { _ in true }
+        )
+
+        XCTAssertEqual(result, .saved)
+        XCTAssertEqual(rewritten?.email, "writer@example.invalid")
+        XCTAssertNil(rewritten?.password)
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertNotNil(suiteDefaults.object(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+    }
+
+    func testPasswordResetDisablesUnavailableSavedPasswordAtomically() {
+        let suiteName = "BackendRememberedLoginResetUnavailableTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        let generation = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+        var attemptedWrite = false
+
+        let result = BackendAuthClient.updateRememberedLoginAfterPasswordReset(
+            email: "writer@example.invalid",
+            newPassword: "new-password",
+            expectedGeneration: generation,
+            defaults: suiteDefaults,
+            readKeychain: { _ in .unavailable(errSecInteractionNotAllowed) },
+            writeKeychain: { _, _ in
+                attemptedWrite = true
+                return true
+            },
+            deleteKeychain: { _ in false }
+        )
+
+        XCTAssertEqual(result, .disabled)
+        XCTAssertFalse(attemptedWrite)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+    }
+
+    func testConfirmedPasswordResetReconcilesMatchingSavedPasswordDespiteNewerWindowIntent() throws {
+        let suiteName = "BackendRememberedLoginAuthoritativeResetTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        _ = BackendAuthClient.reserveRememberedLoginIntent(defaults: suiteDefaults)
+        let remembered = BackendRememberedLoginCredentials(
+            email: "writer@example.invalid",
+            password: "revoked-password"
+        )
+        let raw = String(data: try JSONEncoder().encode(remembered), encoding: .utf8)!
+        var rewritten: BackendRememberedLoginCredentials?
+
+        let result = BackendAuthClient.reconcileRememberedLoginAfterPasswordReset(
+            email: "WRITER@example.invalid",
+            newPassword: "new-password",
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value(raw) },
+            writeKeychain: { value, _ in
+                rewritten = try? JSONDecoder().decode(
+                    BackendRememberedLoginCredentials.self,
+                    from: Data(value.utf8)
+                )
+                return true
+            },
+            deleteKeychain: { _ in true }
+        )
+
+        XCTAssertEqual(result, .saved)
+        XCTAssertEqual(rewritten?.email, "writer@example.invalid")
+        XCTAssertEqual(rewritten?.password, "new-password")
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_password_enabled"))
+    }
+
+    func testPasswordResetDoesNotRewriteADifferentRememberedAccount() throws {
+        let suiteName = "BackendRememberedLoginResetAccountBindingTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        let generation = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+        let remembered = BackendRememberedLoginCredentials(
+            email: "remembered@example.invalid",
+            password: "still-valid-for-remembered-account"
+        )
+        let raw = String(data: try JSONEncoder().encode(remembered), encoding: .utf8)!
+        var touchedKeychain = false
+
+        let result = BackendAuthClient.updateRememberedLoginAfterPasswordReset(
+            email: "reset-token-owner@example.invalid",
+            newPassword: "new-password-for-token-owner",
+            expectedGeneration: generation,
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value(raw) },
+            writeKeychain: { _, _ in
+                touchedKeychain = true
+                return true
+            },
+            deleteKeychain: { _ in
+                touchedKeychain = true
+                return true
+            }
+        )
+
+        XCTAssertEqual(result, .unchanged)
+        XCTAssertFalse(touchedKeychain)
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertEqual(
+            BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults),
+            generation
+        )
+    }
+
+    func testPasswordResetWithoutCanonicalEmailDeletesPasswordBearingCredential() throws {
+        let suiteName = "BackendRememberedLoginResetMissingIdentityTests.\(UUID().uuidString)"
+        guard let suiteDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer { suiteDefaults.removePersistentDomain(forName: suiteName) }
+        suiteDefaults.set(true, forKey: "auth_remembered_login_enabled")
+        suiteDefaults.set(true, forKey: "auth_remembered_login_password_enabled")
+        let generation = BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults)
+        let remembered = BackendRememberedLoginCredentials(
+            email: "remembered@example.invalid",
+            password: "obsolete-password"
+        )
+        let raw = String(data: try JSONEncoder().encode(remembered), encoding: .utf8)!
+        var attemptedWrite = false
+        var attemptedDeletion = false
+
+        let result = BackendAuthClient.updateRememberedLoginAfterPasswordReset(
+            email: "",
+            newPassword: "new-password",
+            expectedGeneration: generation,
+            defaults: suiteDefaults,
+            readKeychain: { _ in .value(raw) },
+            writeKeychain: { _, _ in
+                attemptedWrite = true
+                return true
+            },
+            deleteKeychain: { _ in
+                attemptedDeletion = true
+                return true
+            }
+        )
+
+        XCTAssertEqual(result, .disabled)
+        XCTAssertFalse(attemptedWrite)
+        XCTAssertTrue(attemptedDeletion)
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_enabled"))
+        XCTAssertFalse(suiteDefaults.bool(forKey: "auth_remembered_login_deletion_pending"))
+        XCTAssertGreaterThan(
+            BackendAuthClient.rememberedLoginIntentGeneration(defaults: suiteDefaults),
+            generation
+        )
+    }
+
+    func testPasswordResetResultPreservesCanonicalEmailAfterSessionIsCleared() {
+        let canonicalUser = BackendAuthUser(
+            userId: "user-reset-owner",
+            email: " Reset.Owner@Example.Invalid ",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let result = BackendAuthClient.passwordResetResult(
+            canonicalUser: canonicalUser,
+            sessionState: .signedOut
+        )
+
+        XCTAssertEqual(result.sessionState, .signedOut)
+        XCTAssertEqual(result.canonicalEmail, "reset.owner@example.invalid")
+        XCTAssertEqual(result.rememberedLoginResult, .unchanged)
+    }
+
+    func testLatePasswordResetPreservesANewerCommittedSameAccountLogin() {
+        let user = BackendAuthUser(
+            userId: "user-reset-owner",
+            email: "writer@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let intent = BackendPasswordResetIntent(authIntentGeneration: 4, sessionEpoch: 9)
+
+        XCTAssertTrue(BackendAuthClient.passwordResetShouldPreserveCurrentSession(
+            intent: intent,
+            currentAuthIntentGeneration: 6,
+            currentSessionEpoch: 10,
+            sessionStorageIsReadable: true,
+            canonicalUser: user,
+            currentUser: user
+        ))
+        XCTAssertFalse(BackendAuthClient.passwordResetShouldPreserveCurrentSession(
+            intent: intent,
+            currentAuthIntentGeneration: 6,
+            currentSessionEpoch: 9,
+            sessionStorageIsReadable: true,
+            canonicalUser: user,
+            currentUser: user
+        ), "A newer intent that never committed must not preserve the revoked old session")
+    }
+
+    func testPasswordResetPreservesADifferentCurrentAccount() {
+        let resetOwner = BackendAuthUser(
+            userId: "user-a",
+            email: "a@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let currentUser = BackendAuthUser(
+            userId: "user-b",
+            email: "b@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertTrue(BackendAuthClient.passwordResetShouldPreserveCurrentSession(
+            intent: BackendPasswordResetIntent(authIntentGeneration: 4, sessionEpoch: 9),
+            currentAuthIntentGeneration: 4,
+            currentSessionEpoch: 9,
+            sessionStorageIsReadable: true,
+            canonicalUser: resetOwner,
+            currentUser: currentUser
+        ))
+    }
+
+    func testPasswordResetAccountBindingUsesStableIDThenCanonicalEmailFallback() {
+        let stableA = BackendAuthUser(
+            userId: "user-a",
+            email: "writer@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let stableB = BackendAuthUser(
+            userId: "user-b",
+            email: "writer@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let emailFallbackA = BackendAuthUser(
+            userId: "",
+            email: " Writer@Example.Invalid ",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let emailFallbackB = BackendAuthUser(
+            userId: "",
+            email: "writer@example.invalid",
+            authProvider: "email",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertFalse(BackendAuthClient.authUsersReferToSameAccount(stableA, stableB))
+        XCTAssertTrue(BackendAuthClient.authUsersReferToSameAccount(emailFallbackA, emailFallbackB))
     }
 
 #if DEBUG
@@ -1249,6 +2433,60 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
         )
     }
 #endif
+}
+
+final class BackendAppleSignInNonceTests: XCTestCase {
+    func testNonceHashMatchesBackendRawNonceContract() {
+        XCTAssertEqual(
+            BackendAppleSignInNonce.sha256Base64URL("raw-client-nonce"),
+            "WCKZukLInCWUmtG7Z0RR8XrNAm1ZN2uewjntGSuXxIg"
+        )
+    }
+
+    func testGeneratedNonceUsesSecureBase64URLShapeAndIsUnique() throws {
+        let first = try BackendAppleSignInNonce.generateRawNonce()
+        let second = try BackendAppleSignInNonce.generateRawNonce()
+
+        XCTAssertEqual(first.count, 43)
+        XCTAssertNotEqual(first, second)
+        XCTAssertNotNil(first.range(of: #"^[A-Za-z0-9_-]{43}$"#, options: .regularExpression))
+    }
+
+    func testAppleRequestBodyCarriesOneShotRawNonceAndNormalizedClaims() {
+        let body = BackendAuthClient.appleSignInRequestBody(
+            identityToken: " token-value ",
+            authorizationCode: " auth-code ",
+            userIdentifier: " apple-user ",
+            rawNonce: " raw-client-nonce ",
+            email: " apple@example.com ",
+            givenName: " Ada ",
+            familyName: " Lovelace "
+        )
+
+        XCTAssertEqual(body["identity_token"], "token-value")
+        XCTAssertEqual(body["authorization_code"], "auth-code")
+        XCTAssertEqual(body["user_id"], "apple-user")
+        XCTAssertEqual(body["raw_nonce"], "raw-client-nonce")
+        XCTAssertEqual(body["email"], "apple@example.com")
+        XCTAssertEqual(body["given_name"], "Ada")
+        XCTAssertEqual(body["family_name"], "Lovelace")
+    }
+
+    func testAppleBackendErrorsMapToActionableMessages() {
+        XCTAssertEqual(
+            ProfileAppleSignInErrorPolicy.userMessage(for: "auth_apple: invalid_apple_nonce"),
+            "Apple sign in could not complete its security check. Please try again."
+        )
+        XCTAssertEqual(
+            ProfileAppleSignInErrorPolicy.userMessage(for: "auth_apple: apple_jwks_unavailable"),
+            "Apple sign in is temporarily unavailable while Apple’s verification service reconnects. Please try again."
+        )
+        XCTAssertEqual(
+            ProfileAppleSignInErrorPolicy.userMessage(for: "auth_apple: apple_subject_taken"),
+            "This email is already linked to a different Apple identity. Use the original Apple account or sign in with email."
+        )
+        XCTAssertNil(ProfileAppleSignInErrorPolicy.userMessage(for: "unrelated_error"))
+    }
 }
 
 private struct AccountDataControlsHTTPStub {

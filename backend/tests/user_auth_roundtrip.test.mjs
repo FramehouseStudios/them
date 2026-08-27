@@ -1041,6 +1041,46 @@ test("[user-auth-roundtrip] production Apple sign-in accepts raw nonce by compar
   assert.equal(res._status, 201);
 });
 
+test("[user-auth-roundtrip] Apple reauth proof accepts a fresh token and matching raw nonce", async () => {
+  const rawNonce = "raw-account-deletion-nonce";
+  const subject = "apple-account-deletion-subject";
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-account-deletion-kid",
+    subject,
+    email: "apple-delete@example.com",
+    nonce: sha256Base64Url(rawNonce),
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const signIn = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    raw_nonce: rawNonce,
+  }), signIn);
+  assert.equal(signIn._status, 201);
+  const user = usersByAppleSubject.get(subject);
+  assert.ok(user, "Apple-authenticated user should exist");
+  assert.equal(
+    await auth.verifyReauthProof(makeReq({
+      identity_token: fixture.token,
+      raw_nonce: rawNonce,
+    }), user),
+    true,
+  );
+  assert.equal(
+    await auth.verifyReauthProof(makeReq({
+      identity_token: fixture.token,
+      raw_nonce: "wrong-account-deletion-nonce",
+    }), user),
+    false,
+  );
+});
+
 test("[user-auth-roundtrip] production Apple sign-in rejects mismatched nonce", async () => {
   const fixture = buildAppleRs256Fixture({
     kid: "apple-prod-kid",

@@ -45,6 +45,79 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 4))
     }
 
+    func test_profile_remembered_login_restores_through_keychain_relaunch_and_disables() {
+        func openProfile(in app: XCUIApplication) {
+            let openAccount = app.buttons["home.open-account"]
+            XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
+            openAccount.tap()
+            XCTAssertTrue(app.switches["profile-auth-remember-me"].waitForExistence(timeout: 6))
+        }
+
+        func switchIsOn(_ element: XCUIElement) -> Bool {
+            let value = String(describing: element.value ?? "").lowercased()
+            return value == "1" || value == "true" || value == "on"
+        }
+
+        func waitForSwitch(_ element: XCUIElement, toBeOn expected: Bool) -> Bool {
+            let predicate = NSPredicate { object, _ in
+                guard let candidate = object as? XCUIElement else { return false }
+                return switchIsOn(candidate) == expected
+            }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+            return XCTWaiter.wait(for: [expectation], timeout: 3) == .completed
+        }
+
+        func assertRememberedLoginRestored(in app: XCUIApplication) {
+            let remember = app.switches["profile-auth-remember-me"]
+            let savePassword = app.switches["profile-auth-save-password"]
+            XCTAssertTrue(
+                waitForSwitch(remember, toBeOn: true),
+                "Remember me did not restore from persisted state."
+            )
+            XCTAssertTrue(
+                waitForSwitch(savePassword, toBeOn: true),
+                "Save password did not restore from persisted state."
+            )
+
+            let emailField = element(identifier: "profile-auth-email", in: app)
+            let passwordField = element(identifier: "profile-auth-password", in: app)
+            XCTAssertTrue(emailField.waitForExistence(timeout: 3))
+            XCTAssertTrue(passwordField.waitForExistence(timeout: 3))
+            XCTAssertEqual(emailField.value as? String, "studio-demo@io.them.invalid")
+            let passwordValue = (passwordField.value as? String) ?? ""
+            XCTAssertFalse(passwordValue.isEmpty)
+            XCTAssertNotEqual(passwordValue, "Enter password")
+        }
+
+        var app = launchApp(seedRememberedLogin: true)
+        openProfile(in: app)
+        assertRememberedLoginRestored(in: app)
+        app.terminate()
+
+        app = launchApp(resetState: false)
+        openProfile(in: app)
+        assertRememberedLoginRestored(in: app)
+
+        let remember = app.switches["profile-auth-remember-me"]
+        remember.tap()
+        XCTAssertTrue(waitForSwitch(remember, toBeOn: false), "Remember me did not turn off.")
+        app.terminate()
+
+        app = launchApp(resetState: false)
+        defer { app.terminate() }
+        openProfile(in: app)
+        XCTAssertTrue(
+            waitForSwitch(app.switches["profile-auth-remember-me"], toBeOn: false),
+            "Remember me unexpectedly returned after deletion and relaunch."
+        )
+        XCTAssertTrue(
+            waitForSwitch(app.switches["profile-auth-save-password"], toBeOn: false),
+            "Save password unexpectedly returned after deletion and relaunch."
+        )
+        let emailValue = element(identifier: "profile-auth-email", in: app).value as? String
+        XCTAssertNotEqual(emailValue, "studio-demo@io.them.invalid")
+    }
+
     func test_first_run_onboarding_unlocks_companion() {
         let app = launchApp(skipOnboarding: false)
 
@@ -1988,6 +2061,7 @@ final class V1SmokeUITests: XCTestCase {
         realtimeNetworkFaultStage: String? = nil,
         screenplaySaveNetworkFaultMarker: String? = nil,
         screenplaySaveExpireAuthOnce: Bool = false,
+        seedRememberedLogin: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
@@ -2083,6 +2157,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if screenplaySaveExpireAuthOnce {
             arguments.append("--ui-screenplay-save-expire-auth-once")
+        }
+        if seedRememberedLogin {
+            arguments.append("--ui-seed-remembered-login")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])

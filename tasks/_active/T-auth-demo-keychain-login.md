@@ -32,11 +32,14 @@ v1_effect: gives local reviewers a repeatable authenticated Profile flow while p
 
 ## Verification
 
-- `xcodebuild test ... BackendRememberedLoginCredentialPolicyTests ... BackendCredentialMigrationTests`: 27 passed, 0 failed.
-- `xcodebuild test ... test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple`: 1 passed, 0 failed.
-- Full `themTests` target: 455 passed, 0 failed.
+- Focused credential and authentication policy tests: 61 passed, 0 failed.
+- Focused account deletion, password reset, session bootstrap, and auth-race tests: 15 passed, 0 failed.
+- Signed Profile UI tests for demo separation and Keychain relaunch restoration: 2 passed, 0 failed.
+- Full `themTests` target: 495 passed, 0 failed, 0 skipped.
+- Exact replay of the formerly deadlocked first-page telemetry test: 1 passed, 0 failed.
+- Backend auth/account contracts: 37 passed, 0 failed.
 - iOS Simulator Release, macOS Scaffold Debug, and macOS Scaffold Release builds passed.
-- Release-binary scan found none of the demo email, password, or UI label.
+- Release-app scan found none of the demo email, password, or UI label.
 - Isolated local-backend smoke passed signup, refresh rotation, logout, repeat login, persistence, process restart, and repeat login.
 - `node scripts/pre_flight.mjs --strict`, active-task front-matter evaluation, and `git diff --check` passed.
 - Global strict task sync still reports repository-wide legacy/orphan debt; this task's row, owner, and status are synchronized and produce no finding.

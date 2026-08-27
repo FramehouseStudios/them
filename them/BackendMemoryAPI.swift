@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Security
 
 nonisolated extension Notification.Name {
@@ -6,6 +7,9 @@ nonisolated extension Notification.Name {
     static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
     static let themBackendIdentityPartitionChanged = Notification.Name(
         "io.them.them.backendIdentityPartitionChanged"
+    )
+    static let themRememberedLoginKeychainAvailable = Notification.Name(
+        "io.them.them.rememberedLoginKeychainAvailable"
     )
     static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
 }
@@ -20,12 +24,11 @@ nonisolated private func postBackendNotificationOnMain(
     userInfo: [AnyHashable: Any]
 ) {
     let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
-    if Thread.isMainThread {
+    // Always enqueue. Several identity mutations intentionally hold a serial
+    // state lock while publishing durable Keychain/defaults state; a
+    // synchronous observer must never be able to re-enter that lock.
+    DispatchQueue.main.async {
         NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
-    } else {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
-        }
     }
 }
 
@@ -953,6 +956,46 @@ nonisolated struct BackendAccountDeletionResponse: Decodable, Equatable {
     let recoveryWindowDays: Int?
 }
 
+nonisolated enum BackendAccountDeletionProof: Equatable, Sendable {
+    case password(String)
+    case apple(identityToken: String, rawNonce: String?)
+
+    func requestFields() throws -> [String: String] {
+        switch self {
+        case .password(let password):
+            guard !password.isEmpty else {
+                throw BackendMemoryAPIError.server(status: 400, message: "current_password_required")
+            }
+            return ["current_password": password]
+        case .apple(let identityToken, let rawNonce):
+            let normalizedToken = identityToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedNonce = (rawNonce ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedToken.isEmpty else {
+                throw BackendMemoryAPIError.server(status: 400, message: "apple_identity_token_required")
+            }
+            var fields = ["identity_token": normalizedToken]
+            if !normalizedNonce.isEmpty {
+                fields["raw_nonce"] = normalizedNonce
+            }
+            return fields
+        }
+    }
+}
+
+nonisolated struct BackendAccountDeletionSessionHooks: Sendable {
+    let clearLocalSession: @Sendable () -> BackendAuthUser?
+    let clearAfterSuccessfulDeletion: @Sendable (BackendAuthUser?) -> Bool
+
+    static let live = BackendAccountDeletionSessionHooks(
+        clearLocalSession: {
+            BackendAuthClient.clearLocalSessionForAccountDeletion()
+        },
+        clearAfterSuccessfulDeletion: { deletedUser in
+            BackendAuthClient.clearSessionAfterSuccessfulAccountDeletionIfSameAccount(deletedUser)
+        }
+    )
+}
+
 nonisolated struct BackendAccountExportArtifact: Equatable {
     let filename: String
     let contentType: String
@@ -1684,7 +1727,7 @@ nonisolated struct BackendScreenplayQuestionResolutionResponse: Decodable, Equat
     let backendBootId: String?
 }
 
-nonisolated struct BackendAuthUser: Codable, Hashable {
+nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let userId: String
     let email: String
     let authProvider: String?
@@ -1726,6 +1769,27 @@ nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendab
     }
 }
 
+nonisolated enum BackendKeychainStringReadResult: Equatable, Sendable {
+    case value(String)
+    case notFound
+    case unavailable(OSStatus)
+    case invalidData
+}
+
+nonisolated enum BackendRememberedLoginCredentialLoadResult: Equatable, Sendable {
+    case loaded(BackendRememberedLoginCredentials)
+    case notRemembered
+    case unavailable(savePassword: Bool)
+}
+
+nonisolated enum BackendRememberedLoginMutationResult: Equatable, Sendable {
+    case saved
+    case unchanged
+    case disabled
+    case failed
+    case superseded
+}
+
 nonisolated enum BackendRememberedLoginCredentialPolicy {
     static let keychainAccount = "auth_remembered_login"
 
@@ -1752,11 +1816,10 @@ nonisolated enum BackendRememberedLoginCredentialPolicy {
         rememberEmail: Bool,
         savePassword: Bool,
         writeKeychain: (String, String) -> Bool,
-        deleteKeychain: (String) -> Void
+        deleteKeychain: (String) -> Bool
     ) -> Bool {
         guard rememberEmail else {
-            deleteKeychain(keychainAccount)
-            return true
+            return deleteKeychain(keychainAccount)
         }
 
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1770,6 +1833,45 @@ nonisolated enum BackendRememberedLoginCredentialPolicy {
             return false
         }
         return writeKeychain(payload, keychainAccount)
+    }
+}
+
+nonisolated enum BackendAppleSignInNonceError: LocalizedError {
+    case invalidLength
+    case randomGenerationFailed(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLength:
+            return "Apple sign in could not create a valid security nonce."
+        case .randomGenerationFailed:
+            return "Apple sign in could not create secure random data."
+        }
+    }
+}
+
+nonisolated enum BackendAppleSignInNonce {
+    static func generateRawNonce(byteCount: Int = 32) throws -> String {
+        guard byteCount >= 16, byteCount <= 128 else {
+            throw BackendAppleSignInNonceError.invalidLength
+        }
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw BackendAppleSignInNonceError.randomGenerationFailed(status)
+        }
+        return base64URL(Data(bytes))
+    }
+
+    static func sha256Base64URL(_ rawNonce: String) -> String {
+        base64URL(Data(SHA256.hash(data: Data(rawNonce.utf8))))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
@@ -1874,7 +1976,7 @@ nonisolated struct BackendAuthSessionRevokeResponse: Decodable {
 
 }
 
-nonisolated struct BackendAuthSessionState: Equatable {
+nonisolated struct BackendAuthSessionState: Equatable, Sendable {
     let user: BackendAuthUser?
     let accessTokenPresent: Bool
     let refreshTokenPresent: Bool
@@ -1914,6 +2016,94 @@ nonisolated struct BackendAuthSessionState: Equatable {
         pendingEmailVerification: false,
         verificationRequired: false
     )
+}
+
+actor BackendAuthRefreshCoordinator {
+    struct Key: Hashable, Sendable {
+        let sessionGeneration: Int
+        let userID: String
+        let refreshTokenDigest: String
+
+        init(lease: BackendAuthSessionLease) {
+            sessionGeneration = lease.sessionGeneration
+            userID = lease.userID
+            refreshTokenDigest = BackendAppleSignInNonce.sha256Base64URL(lease.refreshToken)
+        }
+    }
+
+    private struct ActiveRefresh {
+        let id: UUID
+        let task: Task<BackendAuthSessionState, Error>
+    }
+
+    private var activeRefreshes: [Key: ActiveRefresh] = [:]
+
+    func run(
+        key: Key,
+        _ operation: @escaping @Sendable () async throws -> BackendAuthSessionState
+    ) async throws -> BackendAuthSessionState {
+        let active: ActiveRefresh
+        if let existing = activeRefreshes[key] {
+            active = existing
+        } else {
+            let created = ActiveRefresh(id: UUID(), task: Task { try await operation() })
+            activeRefreshes[key] = created
+            active = created
+        }
+        defer {
+            if activeRefreshes[key]?.id == active.id {
+                activeRefreshes.removeValue(forKey: key)
+            }
+        }
+        return try await active.task.value
+    }
+}
+
+nonisolated struct BackendPasswordResetResult: Equatable {
+    let sessionState: BackendAuthSessionState
+    let canonicalEmail: String
+    let rememberedLoginResult: BackendRememberedLoginMutationResult
+}
+
+nonisolated struct BackendAuthOperationIntent: Equatable, Sendable {
+    let sessionGeneration: Int
+    let rememberedLoginGeneration: Int
+}
+
+nonisolated struct BackendAuthSessionLease: Equatable, Sendable {
+    let sessionGeneration: Int
+    let userID: String
+    let accessToken: String
+    let refreshToken: String
+}
+
+nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
+    let sessionEpoch: Int
+    let userID: String
+    let clientToken: String
+    let accessToken: String
+}
+
+nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
+    let authIntentGeneration: Int
+    let sessionEpoch: Int
+}
+
+nonisolated enum BackendAuthEnvelopeCommitOutcome: Equatable {
+    case committed
+    case superseded
+    case storageFailed
+}
+
+nonisolated struct BackendEmailAuthenticationResult: Equatable {
+    let sessionState: BackendAuthSessionState
+    let rememberedLoginResult: BackendRememberedLoginMutationResult
+}
+
+nonisolated enum BackendInteractiveAuthCommitResult: Equatable {
+    case committed(BackendEmailAuthenticationResult)
+    case superseded
+    case storageFailed
 }
 
 nonisolated struct BackendEvolutionSyncSnapshot: Decodable {
@@ -3063,6 +3253,12 @@ nonisolated enum BackendAuthClient {
         static let authCurrentFamilyId = "auth_current_family_id"
         static let authSignedIn = "auth_signed_in"
         static let authRememberedLoginEnabled = "auth_remembered_login_enabled"
+        static let authRememberedLoginPasswordEnabled = "auth_remembered_login_password_enabled"
+        static let authRememberedLoginDeletionPending = "auth_remembered_login_deletion_pending"
+        static let authRememberedLoginIntentGeneration = "auth_remembered_login_intent_generation"
+        static let authSessionIntentGeneration = "auth_session_intent_generation"
+        static let authSessionEpoch = "auth_session_epoch"
+        static let authSessionTokenDeletionPending = "auth_session_token_deletion_pending"
         static let clientTokenCachedAt = "client_token_cached_at"
         static let clientTokenBaseURL = "client_token_base_url"
     }
@@ -3071,6 +3267,20 @@ nonisolated enum BackendAuthClient {
     private static let keychainService = "io.them.client"
     private static let authAccessTokenAccount = "auth_access_token"
     private static let authRefreshTokenAccount = "auth_refresh_token"
+    private static let authSessionSensitiveKeychainAccounts = [
+        authAccessTokenAccount,
+        authRefreshTokenAccount,
+        "session_client_token",
+        "session_client_token_expiry",
+        "stable_user_id",
+    ]
+    private static let rememberedLoginCredentialQueue = DispatchQueue(
+        label: "io.them.auth.remembered-login"
+    )
+    private static let authSessionStateQueue = DispatchQueue(
+        label: "io.them.auth.session-state"
+    )
+    private static let authRefreshCoordinator = BackendAuthRefreshCoordinator()
     private static let appTokenAccount = "app_token"
     private static let clientTokenAccount = "session_client_token"
     private static let clientTokenExpiryAccount = "session_client_token_expiry"
@@ -3084,16 +3294,27 @@ nonisolated enum BackendAuthClient {
     }()
 
     static func currentAuthSessionState() -> BackendAuthSessionState {
-        let accessTokenValue = accessToken() ?? ""
-        let refreshTokenValue = refreshToken() ?? ""
-        let accessExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authAccessExpiresAt)
-        let refreshExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authRefreshExpiresAt)
-        let currentSessionId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentSessionId) ?? ""
-        let currentFamilyId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentFamilyId) ?? ""
-        let pendingEmailVerification = UserDefaults.standard.bool(forKey: DefaultsKey.authPendingEmailVerification)
-        let verificationRequired = UserDefaults.standard.bool(forKey: DefaultsKey.authVerificationRequired)
+        authSessionStateQueue.sync {
+            currentAuthSessionStateLocked(defaults: .standard)
+        }
+    }
+
+    private static func currentAuthSessionStateLocked(
+        defaults: UserDefaults
+    ) -> BackendAuthSessionState {
+        guard authSessionStorageIsReadable(defaults: defaults) else {
+            return .signedOut
+        }
+        let accessTokenValue = accessTokenLocked(defaults: defaults) ?? ""
+        let refreshTokenValue = refreshTokenLocked(defaults: defaults) ?? ""
+        let accessExpiresAt = defaults.double(forKey: DefaultsKey.authAccessExpiresAt)
+        let refreshExpiresAt = defaults.double(forKey: DefaultsKey.authRefreshExpiresAt)
+        let currentSessionId = defaults.string(forKey: DefaultsKey.authCurrentSessionId) ?? ""
+        let currentFamilyId = defaults.string(forKey: DefaultsKey.authCurrentFamilyId) ?? ""
+        let pendingEmailVerification = defaults.bool(forKey: DefaultsKey.authPendingEmailVerification)
+        let verificationRequired = defaults.bool(forKey: DefaultsKey.authVerificationRequired)
         return BackendAuthSessionState(
-            user: storedAuthUser(),
+            user: storedAuthUserLocked(defaults: defaults),
             accessTokenPresent: !accessTokenValue.isEmpty,
             refreshTokenPresent: !refreshTokenValue.isEmpty,
             accessExpiresAt: accessExpiresAt,
@@ -3107,19 +3328,344 @@ nonisolated enum BackendAuthClient {
     }
 
     static func rememberedLoginCredentials() -> BackendRememberedLoginCredentials? {
-        let enabled = UserDefaults.standard.bool(forKey: DefaultsKey.authRememberedLoginEnabled)
-        guard enabled else {
-            deleteKeychainString(account: BackendRememberedLoginCredentialPolicy.keychainAccount)
-            return nil
-        }
-        guard let credentials = BackendRememberedLoginCredentialPolicy.load(
-            enabled: true,
-            readKeychain: readKeychainString
-        ) else {
-            clearRememberedLoginCredentials()
+        guard case .loaded(let credentials) = rememberedLoginCredentialLoadResult() else {
             return nil
         }
         return credentials
+    }
+
+    static func rememberedLoginIntentGeneration() -> Int {
+        rememberedLoginCredentialQueue.sync {
+            rememberedLoginIntentGeneration(defaults: .standard)
+        }
+    }
+
+    static func reserveRememberedLoginIntent() -> Int {
+        rememberedLoginCredentialQueue.sync {
+            reserveRememberedLoginIntent(defaults: .standard)
+        }
+    }
+
+    static func reserveRememberedLoginIntent(defaults: UserDefaults) -> Int {
+        advanceRememberedLoginIntentGeneration(defaults: defaults)
+    }
+
+    static func reserveAuthenticationIntent() -> BackendAuthOperationIntent {
+        authSessionStateQueue.sync {
+            let sessionGeneration = reserveAuthSessionIntent(defaults: .standard)
+            let rememberedGeneration = rememberedLoginCredentialQueue.sync {
+                reserveRememberedLoginIntent(defaults: .standard)
+            }
+            return BackendAuthOperationIntent(
+                sessionGeneration: sessionGeneration,
+                rememberedLoginGeneration: rememberedGeneration
+            )
+        }
+    }
+
+    static func reserveAuthSessionIntent() -> Int {
+        authSessionStateQueue.sync {
+            reserveAuthSessionIntent(defaults: .standard)
+        }
+    }
+
+    static func reserveAuthSessionIntent(defaults: UserDefaults) -> Int {
+        let current = authSessionIntentGeneration(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authSessionIntentGeneration)
+        return next
+    }
+
+    static func authSessionIntentGeneration(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authSessionIntentGeneration))
+    }
+
+    static func authSessionEpoch(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authSessionEpoch))
+    }
+
+    static func sessionBootstrapIdentityCommitIsAllowed(
+        expectedSessionEpoch: Int,
+        defaults: UserDefaults
+    ) -> Bool {
+        authSessionEpoch(defaults: defaults) == expectedSessionEpoch &&
+            !authSessionTokenDeletionIsPending(defaults: defaults)
+    }
+
+    @discardableResult
+    static func advanceAuthSessionEpoch(defaults: UserDefaults) -> Int {
+        let current = authSessionEpoch(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authSessionEpoch)
+        return next
+    }
+
+    @discardableResult
+    static func advanceAuthSessionEpoch() -> Int {
+        authSessionStateQueue.sync {
+            advanceAuthSessionEpoch(defaults: .standard)
+        }
+    }
+
+    static func currentAuthSessionEpoch() -> Int {
+        authSessionStateQueue.sync {
+            authSessionEpoch(defaults: .standard)
+        }
+    }
+
+    static func authSessionStorageIsReadable(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: DefaultsKey.authSignedIn) &&
+            !defaults.bool(forKey: DefaultsKey.authSessionTokenDeletionPending)
+    }
+
+    static func authSessionCommitIfCurrent(
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        commit: () -> Bool
+    ) -> Bool {
+        guard authSessionIntentGeneration(defaults: defaults) == expectedGeneration,
+              !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return false
+        }
+        return commit()
+    }
+
+    static func captureAuthSessionLease() -> BackendAuthSessionLease? {
+        authSessionStateQueue.sync {
+            guard authSessionStorageIsReadable(defaults: .standard) else { return nil }
+            let accessTokenValue = accessTokenLocked(defaults: .standard) ?? ""
+            let refreshTokenValue = refreshTokenLocked(defaults: .standard) ?? ""
+            let userID = storedAuthUserPayload(defaults: .standard)?.userId
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !userID.isEmpty,
+                  !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
+            return BackendAuthSessionLease(
+                sessionGeneration: authSessionEpoch(defaults: .standard),
+                userID: userID,
+                accessToken: accessTokenValue,
+                refreshToken: refreshTokenValue
+            )
+        }
+    }
+
+    static func requestIdentitySnapshot(
+        generateUserIDIfMissing: Bool
+    ) -> BackendAuthRequestIdentity {
+        authSessionStateQueue.sync {
+            requestIdentitySnapshotLocked(
+                generateUserIDIfMissing: generateUserIDIfMissing,
+                defaults: .standard
+            )
+        }
+    }
+
+    private static func requestIdentitySnapshotLocked(
+        generateUserIDIfMissing: Bool,
+        defaults: UserDefaults
+    ) -> BackendAuthRequestIdentity {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return BackendAuthRequestIdentity(
+                sessionEpoch: authSessionEpoch(defaults: defaults),
+                userID: "",
+                clientToken: "",
+                accessToken: ""
+            )
+        }
+
+        var userID = sharedUserIDLocked(defaults: defaults) ?? ""
+        if userID.isEmpty, generateUserIDIfMissing {
+            userID = generatedStableUserID()
+            if !persistSharedUserIDLocked(userID, defaults: defaults) {
+                userID = ""
+            }
+        }
+        return BackendAuthRequestIdentity(
+            sessionEpoch: authSessionEpoch(defaults: defaults),
+            userID: userID,
+            clientToken: sharedClientTokenLocked(defaults: defaults) ?? "",
+            accessToken: accessTokenLocked(defaults: defaults) ?? ""
+        )
+    }
+
+    static func commitSessionBootstrapIdentityIfCurrent(
+        expectedSessionEpoch: Int,
+        clientToken: String,
+        expiryRaw: String,
+        baseURLRaw: String,
+        userID: String?,
+        persistClientToken: Bool
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard sessionBootstrapIdentityCommitIsAllowed(
+                expectedSessionEpoch: expectedSessionEpoch,
+                defaults: .standard
+            ) else {
+                return false
+            }
+
+            let normalizedUserID = normalizedStoredUserID(userID)
+            if !normalizedUserID.isEmpty,
+               !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
+                return false
+            }
+            if persistClientToken,
+               !persistSharedClientTokenLocked(
+                    clientToken,
+                    expiryRaw: expiryRaw,
+                    baseURLRaw: baseURLRaw,
+                    defaults: .standard
+               ) {
+                return false
+            }
+            return sessionBootstrapIdentityCommitIsAllowed(
+                expectedSessionEpoch: expectedSessionEpoch,
+                defaults: .standard
+            )
+        }
+    }
+
+    static func authSessionLeaseIsCurrent(
+        _ lease: BackendAuthSessionLease,
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?
+    ) -> Bool {
+        guard authSessionStorageIsReadable(defaults: defaults),
+              authSessionEpoch(defaults: defaults) == lease.sessionGeneration else {
+            return false
+        }
+        if !lease.accessToken.isEmpty,
+           currentAccessToken()?.trimmingCharacters(in: .whitespacesAndNewlines) != lease.accessToken {
+            return false
+        }
+        if !lease.refreshToken.isEmpty,
+           currentRefreshToken()?.trimmingCharacters(in: .whitespacesAndNewlines) != lease.refreshToken {
+            return false
+        }
+        return true
+    }
+
+    static func emailVerificationMetadataCommitIsAllowed(
+        lease: BackendAuthSessionLease,
+        responseUserID: String,
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?,
+        currentUserID: () -> String?
+    ) -> Bool {
+        guard authSessionLeaseIsCurrent(
+            lease,
+            defaults: defaults,
+            currentAccessToken: currentAccessToken,
+            currentRefreshToken: currentRefreshToken
+        ) else {
+            return false
+        }
+        let normalizedCurrentUserID = (currentUserID() ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedResponseUserID = responseUserID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalizedCurrentUserID.isEmpty &&
+            normalizedCurrentUserID == lease.userID &&
+            normalizedResponseUserID == lease.userID
+    }
+
+    static func rememberedLoginIntentGeneration(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authRememberedLoginIntentGeneration))
+    }
+
+    @discardableResult
+    static func advanceRememberedLoginIntentGeneration(defaults: UserDefaults) -> Int {
+        let current = rememberedLoginIntentGeneration(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authRememberedLoginIntentGeneration)
+        return next
+    }
+
+    static func rememberedLoginCredentialLoadResult() -> BackendRememberedLoginCredentialLoadResult {
+        rememberedLoginCredentialQueue.sync {
+            rememberedLoginCredentialLoadResult(
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func rememberedLoginCredentials(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginCredentials? {
+        guard case .loaded(let credentials) = rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) else {
+            return nil
+        }
+        return credentials
+    }
+
+    static func rememberedLoginCredentialLoadResult(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginCredentialLoadResult {
+        let enabled = defaults.bool(forKey: DefaultsKey.authRememberedLoginEnabled)
+        let deletionPending = defaults.bool(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        guard enabled, !deletionPending else {
+            _ = clearRememberedLoginCredentials(
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            )
+            return .notRemembered
+        }
+
+        switch readKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount) {
+        case .unavailable:
+            // A when-unlocked item can be temporarily unreadable. Preserve
+            // both the item and its enabled state until Keychain is available,
+            // but only when the nonsecret password-retention intent is known.
+            // Older installs may not have this preference; fail closed rather
+            // than silently retaining an unknown password while locked.
+            guard defaults.object(forKey: DefaultsKey.authRememberedLoginPasswordEnabled) != nil else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .notRemembered
+            }
+            return .unavailable(
+                savePassword: defaults.bool(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+            )
+        case .notFound:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            recordRememberedLoginDeletionResult(true, defaults: defaults)
+            return .notRemembered
+        case .invalidData:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .notRemembered
+        case .value(let raw):
+            guard let credentials = BackendRememberedLoginCredentialPolicy.load(
+                enabled: true,
+                readKeychain: { _ in raw }
+            ) else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .notRemembered
+            }
+            // Backfill the explicit nonsecret intent for credentials created
+            // before the password-retention preference existed.
+            defaults.set(
+                credentials.hasSavedPassword,
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+            )
+            return .loaded(credentials)
+        }
     }
 
     @discardableResult
@@ -3129,25 +3675,401 @@ nonisolated enum BackendAuthClient {
         rememberEmail: Bool,
         savePassword: Bool
     ) -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            beginRememberedLoginCredentialMutation(defaults: .standard)
+            advanceRememberedLoginIntentGeneration(defaults: .standard)
+            return persistRememberedLoginCredentials(
+                email: email,
+                password: password,
+                rememberEmail: rememberEmail,
+                savePassword: savePassword,
+                defaults: .standard,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func persistRememberedLoginCredentials(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        // Disable reads before touching Keychain so an interrupted update can
+        // never make an older credential visible again. A successful write
+        // is the only path that re-enables remembered-login loading.
+        beginRememberedLoginCredentialMutation(defaults: defaults)
         let saved = BackendRememberedLoginCredentialPolicy.update(
             email: email,
             password: password,
             rememberEmail: rememberEmail,
             savePassword: savePassword,
-            writeKeychain: writeRememberedLoginKeychainString,
-            deleteKeychain: deleteKeychainString
+            writeKeychain: writeKeychain,
+            deleteKeychain: deleteKeychain
         )
         if rememberEmail && saved {
-            UserDefaults.standard.set(true, forKey: DefaultsKey.authRememberedLoginEnabled)
+            defaults.set(
+                savePassword && !password.isEmpty,
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+            )
+            defaults.set(true, forKey: DefaultsKey.authRememberedLoginEnabled)
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
         } else {
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+            if rememberEmail {
+                // A failed replacement can leave an older Keychain item in
+                // place. Hide it immediately and keep retrying deletion.
+                recordRememberedLoginDeletionResult(
+                    deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount),
+                    defaults: defaults
+                )
+            } else {
+                recordRememberedLoginDeletionResult(saved, defaults: defaults)
+            }
         }
         return saved
     }
 
-    static func clearRememberedLoginCredentials() {
-        deleteKeychainString(account: BackendRememberedLoginCredentialPolicy.keychainAccount)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+    static func persistRememberedLoginCredentialsIfCurrent(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        expectedGeneration: Int
+    ) -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            persistRememberedLoginCredentialsIfCurrent(
+                email: email,
+                password: password,
+                rememberEmail: rememberEmail,
+                savePassword: savePassword,
+                expectedGeneration: expectedGeneration,
+                defaults: .standard,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func persistRememberedLoginCredentialsIfCurrent(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        guard rememberedLoginIntentGeneration(defaults: defaults) == expectedGeneration else {
+            return .superseded
+        }
+        beginRememberedLoginCredentialMutation(defaults: defaults)
+        advanceRememberedLoginIntentGeneration(defaults: defaults)
+        return persistRememberedLoginCredentials(
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword,
+            defaults: defaults,
+            writeKeychain: writeKeychain,
+            deleteKeychain: deleteKeychain
+        ) ? .saved : .failed
+    }
+
+    static func disableRememberedLoginPassword() -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            disableRememberedLoginPassword(
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func disableRememberedLoginPassword(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: "",
+                rememberEmail: true,
+                savePassword: false,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .notRemembered:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .unchanged
+        case .unavailable:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        }
+    }
+
+    static func updateRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        expectedGeneration: Int
+    ) -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            updateRememberedLoginAfterPasswordReset(
+                email: email,
+                newPassword: newPassword,
+                expectedGeneration: expectedGeneration,
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func reconcileRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            guard remembered.hasSavedPassword else { return .unchanged }
+            guard !normalizedEmail.isEmpty else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            guard remembered.email == normalizedEmail else { return .unchanged }
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: newPassword,
+                rememberEmail: true,
+                savePassword: true,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .unavailable(let savedPassword) where savedPassword:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        case .notRemembered, .unavailable:
+            return .unchanged
+        }
+    }
+
+    static func updateRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        let generationIsCurrent = rememberedLoginIntentGeneration(defaults: defaults) == expectedGeneration
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard remembered.hasSavedPassword else {
+                return .unchanged
+            }
+            guard !normalizedEmail.isEmpty else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            guard remembered.email == normalizedEmail else { return .unchanged }
+            guard generationIsCurrent else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: newPassword,
+                rememberEmail: true,
+                savePassword: true,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .unavailable(let savedPassword) where savedPassword:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        case .notRemembered, .unavailable:
+            return .unchanged
+        }
+    }
+
+    @discardableResult
+    static func clearRememberedLoginCredentials() -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            beginRememberedLoginCredentialMutation(defaults: .standard)
+            advanceRememberedLoginIntentGeneration(defaults: .standard)
+            return clearRememberedLoginCredentials(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func clearRememberedLoginCredentials(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        // Revoke app access first; physical deletion can be retried if the
+        // Keychain is temporarily unavailable (for example, while locked).
+        beginRememberedLoginCredentialMutation(defaults: defaults)
+        let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
+        recordRememberedLoginDeletionResult(deleted, defaults: defaults)
+        return deleted
+    }
+
+    private static func beginRememberedLoginCredentialMutation(defaults: UserDefaults) {
+        defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+    }
+
+    private static func recordRememberedLoginDeletionResult(
+        _ deleted: Bool,
+        defaults: UserDefaults
+    ) {
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        }
+    }
+
+    @discardableResult
+    static func retryPendingRememberedLoginDeletion() -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            retryPendingRememberedLoginDeletion(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func retryPendingRememberedLoginDeletion(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        guard defaults.bool(forKey: DefaultsKey.authRememberedLoginDeletionPending) else {
+            return true
+        }
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+        let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
+        recordRememberedLoginDeletionResult(deleted, defaults: defaults)
+        return deleted
+    }
+
+    private static func commitEmailAuthenticationEnvelope(
+        _ payload: BackendAuthEnvelope,
+        intent: BackendAuthOperationIntent,
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) -> BackendInteractiveAuthCommitResult {
+        authSessionStateQueue.sync {
+            guard authSessionIntentGeneration(defaults: .standard) == intent.sessionGeneration else {
+                return .superseded
+            }
+            return rememberedLoginCredentialQueue.sync {
+                let rememberedIntentIsCurrent = rememberedLoginIntentGeneration(defaults: .standard)
+                    == intent.rememberedLoginGeneration
+                if rememberedIntentIsCurrent {
+                    // Hide the prior remembered credential before publishing
+                    // a new account session. A crash can never expose Session
+                    // B beside Account A's previously saved password.
+                    beginRememberedLoginCredentialMutation(defaults: .standard)
+                }
+                guard persistAuthEnvelope(payload) else {
+                    _ = reserveAuthSessionIntent(defaults: .standard)
+                    _ = advanceAuthSessionEpoch(defaults: .standard)
+                    postBackendNotificationOnMain(
+                        name: .themBackendIdentityPartitionChanged,
+                        userInfo: [:]
+                    )
+                    return .storageFailed
+                }
+                _ = reserveAuthSessionIntent(defaults: .standard)
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                let rememberedResult: BackendRememberedLoginMutationResult
+                if rememberedIntentIsCurrent {
+                    rememberedResult = persistRememberedLoginCredentialsIfCurrent(
+                        email: email,
+                        password: password,
+                        rememberEmail: rememberEmail,
+                        savePassword: savePassword,
+                        expectedGeneration: intent.rememberedLoginGeneration,
+                        defaults: .standard,
+                        writeKeychain: writeRememberedLoginKeychainString,
+                        deleteKeychain: deleteKeychainString
+                    )
+                } else {
+                    // Remember/save toggles are intentionally independent of
+                    // session intent. A newer toggle may suppress credential
+                    // persistence without discarding an otherwise valid login.
+                    rememberedResult = .superseded
+                }
+                return .committed(
+                    BackendEmailAuthenticationResult(
+                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                        rememberedLoginResult: rememberedResult
+                    )
+                )
+            }
+        }
     }
 
 #if DEBUG
@@ -3157,7 +4079,13 @@ nonisolated enum BackendAuthClient {
     }
 #endif
 
-    static func signUp(email: String, password: String) async throws -> BackendAuthSessionState {
+    static func signUp(
+        email: String,
+        password: String,
+        intent: BackendAuthOperationIntent,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) async throws -> BackendEmailAuthenticationResult {
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/signup")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -3165,12 +4093,34 @@ nonisolated enum BackendAuthClient {
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        switch commitEmailAuthenticationEnvelope(
+            payload,
+            intent: intent,
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword
+        ) {
+        case .committed(let result):
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            return result
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
     }
 
-    static func login(email: String, password: String) async throws -> BackendAuthSessionState {
+    static func login(
+        email: String,
+        password: String,
+        intent: BackendAuthOperationIntent,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) async throws -> BackendEmailAuthenticationResult {
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/login")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -3178,24 +4128,84 @@ nonisolated enum BackendAuthClient {
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        switch commitEmailAuthenticationEnvelope(
+            payload,
+            intent: intent,
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword
+        ) {
+        case .committed(let result):
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            return result
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
     }
 
     static func signInWithApple(
         identityToken: String,
         authorizationCode: String? = nil,
         userIdentifier: String,
+        rawNonce: String,
+        expectedSessionGeneration: Int,
         email: String? = nil,
         givenName: String? = nil,
         familyName: String? = nil
     ) async throws -> BackendAuthSessionState {
+        let body = appleSignInRequestBody(
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            userIdentifier: userIdentifier,
+            rawNonce: rawNonce,
+            email: email,
+            givenName: givenName,
+            familyName: familyName
+        )
+        guard body["raw_nonce"]?.isEmpty == false else {
+            throw BackendMemoryAPIError.server(status: 400, message: "apple_nonce_required")
+        }
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/apple")
-        var body: [String: Any] = [
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        switch persistInteractiveAuthEnvelopeIfCurrent(
+            payload,
+            expectedGeneration: expectedSessionGeneration
+        ) {
+        case .committed:
+            break
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
+        await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        return currentAuthSessionState()
+    }
+
+    static func appleSignInRequestBody(
+        identityToken: String,
+        authorizationCode: String? = nil,
+        userIdentifier: String,
+        rawNonce: String,
+        email: String? = nil,
+        givenName: String? = nil,
+        familyName: String? = nil
+    ) -> [String: String] {
+        var body = [
             "identity_token": identityToken.trimmingCharacters(in: .whitespacesAndNewlines),
             "user_id": userIdentifier.trimmingCharacters(in: .whitespacesAndNewlines),
+            "raw_nonce": rawNonce.trimmingCharacters(in: .whitespacesAndNewlines),
         ]
         let normalizedAuthorizationCode = (authorizationCode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedAuthorizationCode.isEmpty {
@@ -3213,11 +4223,7 @@ nonisolated enum BackendAuthClient {
         if !normalizedFamilyName.isEmpty {
             body["family_name"] = normalizedFamilyName
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        return body
     }
 
     static func refreshAuthSession(force: Bool = false) async throws -> BackendAuthSessionState {
@@ -3227,17 +4233,42 @@ nonisolated enum BackendAuthClient {
                 return current
             }
         }
-        let refreshTokenValue = refreshToken() ?? ""
-        guard !refreshTokenValue.isEmpty else {
+        guard let lease = captureAuthSessionLease(), !lease.refreshToken.isEmpty else {
             throw BackendMemoryAPIError.server(status: 401, message: "refresh_token_required")
         }
+        return try await authRefreshCoordinator.run(key: .init(lease: lease)) {
+            try await performRefreshAuthSession(lease: lease)
+        }
+    }
+
+    private static func performRefreshAuthSession(
+        lease: BackendAuthSessionLease
+    ) async throws -> BackendAuthSessionState {
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/refresh")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "refresh_token": refreshTokenValue,
+            "refresh_token": lease.refreshToken,
         ], options: [])
-        let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
+        let payload: BackendAuthEnvelope
+        do {
+            payload = try await run(request, as: BackendAuthEnvelope.self)
+        } catch {
+            if isTerminalRefreshRejection(error), invalidateAuthSessionIfLeaseCurrent(lease) {
+                await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            }
+            throw error
+        }
+        switch persistRefreshAuthEnvelopeIfCurrent(payload, lease: lease) {
+        case .committed:
+            break
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
 #if DEBUG
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
         UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
@@ -3246,39 +4277,175 @@ nonisolated enum BackendAuthClient {
         return currentAuthSessionState()
     }
 
+    static func isTerminalRefreshRejection(_ error: Error) -> Bool {
+        guard case BackendMemoryAPIError.server(let status, let message) = error,
+              status == 401 else { return false }
+        let normalized = message
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == "invalid_refresh_token" ||
+            normalized == "auth_refresh: invalid_refresh_token"
+    }
+
+    private static func revokeUncommittedAuthEnvelopeBestEffort(
+        _ payload: BackendAuthEnvelope
+    ) async {
+        let access = (payload.accessToken ?? payload.token ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let refresh = (payload.refreshToken ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !access.isEmpty || !refresh.isEmpty else { return }
+        do {
+            let request = try capturedLogoutRequest(
+                accessToken: access,
+                refreshToken: refresh
+            )
+            _ = try await run(request, as: BackendAuthEnvelope.self)
+        } catch {
+            // The local state has already rejected this credential pair. A
+            // best-effort server revocation must never resurrect or replace it.
+        }
+    }
+
+    private static func invalidateAuthSessionIfLeaseCurrent(_ lease: BackendAuthSessionLease) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionLeaseIsCurrent(
+                lease,
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+            ) else {
+                return false
+            }
+            _ = clearAuthSession(advanceGeneration: true)
+            return true
+        }
+    }
+
     static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
+        if authSessionTokenDeletionIsPending() {
+            _ = retryPendingAuthSessionTokenDeletion()
+            return currentAuthSessionState()
+        }
         let current = currentAuthSessionState()
         guard current.refreshTokenPresent else { return current }
         guard !current.isAuthenticated || current.accessExpired else { return current }
         return try await refreshAuthSession(force: true)
     }
 
-    static func logout() async throws {
-        let accessTokenValue = accessToken() ?? ""
-        let refreshTokenValue = refreshToken() ?? ""
-        var pendingError: Error?
-        if !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty {
-            do {
-                var request = try makeAuthWriteRequest(path: "/auth/logout")
-                request.httpBody = try JSONSerialization.data(withJSONObject: [
-                    "refresh_token": refreshTokenValue,
-                ], options: [])
-                _ = try await run(request, as: BackendAuthEnvelope.self)
-            } catch {
-                pendingError = error
-            }
+    static func logout() async throws -> Bool {
+        let local = authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
+            let access = accessTokenLocked(defaults: .standard) ?? ""
+            let refresh = refreshTokenLocked(defaults: .standard) ?? ""
+            let deleted = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            return (access, refresh, deleted)
         }
-        clearAuthSession()
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
-        if let pendingError {
-            throw pendingError
+
+        let capturedRequest: Result<URLRequest?, Error>
+        do {
+            if local.access.isEmpty, local.refresh.isEmpty {
+                capturedRequest = .success(nil)
+            } else {
+                capturedRequest = .success(try capturedLogoutRequest(
+                    accessToken: local.access,
+                    refreshToken: local.refresh
+                ))
+            }
+        } catch {
+            capturedRequest = .failure(error)
+        }
+
+        await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        switch capturedRequest {
+        case .success(let request?):
+            _ = try await run(request, as: BackendAuthEnvelope.self)
+        case .success(nil):
+            break
+        case .failure(let error):
+            throw error
+        }
+        return local.deleted
+    }
+
+    static func capturedLogoutRequest(
+        accessToken: String,
+        refreshToken: String
+    ) throws -> URLRequest {
+        let normalizedAccessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRefreshToken = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        var request = try makeAuthWriteRequest(path: "/auth/logout")
+        // Never inherit a bearer installed by a concurrent login. This
+        // request belongs only to the explicitly captured credential pair.
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        if !normalizedAccessToken.isEmpty {
+            request.setValue(
+                "Bearer \(normalizedAccessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "refresh_token": normalizedRefreshToken,
+        ], options: [])
+        return request
+    }
+
+    @discardableResult
+    static func clearLocalSessionForAccountDeletion() -> BackendAuthUser? {
+        authSessionStateQueue.sync {
+            let deletedUser = storedAuthUserPayload(defaults: .standard)
+            _ = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            rememberedLoginCredentialQueue.sync {
+                beginRememberedLoginCredentialMutation(defaults: .standard)
+                advanceRememberedLoginIntentGeneration(defaults: .standard)
+                _ = clearRememberedLoginCredentials(
+                    defaults: .standard,
+                    deleteKeychain: deleteKeychainString
+                )
+            }
+            return deletedUser
         }
     }
 
-    static func clearLocalSessionAfterAccountDeletion() async {
-        clearAuthSession()
-        clearRememberedLoginCredentials()
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+    @discardableResult
+    static func clearSessionAfterSuccessfulAccountDeletionIfSameAccount(
+        _ deletedUser: BackendAuthUser?
+    ) -> Bool {
+        return authSessionStateQueue.sync {
+            let currentUser = storedAuthUserPayload(defaults: .standard)
+            guard accountDeletionShouldClearCurrentSession(
+                deletedUser: deletedUser,
+                currentUser: currentUser
+            ) else {
+                return false
+            }
+            _ = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            rememberedLoginCredentialQueue.sync {
+                beginRememberedLoginCredentialMutation(defaults: .standard)
+                advanceRememberedLoginIntentGeneration(defaults: .standard)
+                _ = clearRememberedLoginCredentials(
+                    defaults: .standard,
+                    deleteKeychain: deleteKeychainString
+                )
+            }
+            return true
+        }
+    }
+
+    static func accountDeletionShouldClearCurrentSession(
+        deletedUser: BackendAuthUser?,
+        currentUser: BackendAuthUser?
+    ) -> Bool {
+        guard let deletedUser, let currentUser else { return false }
+        return authUsersReferToSameAccount(deletedUser, currentUser)
     }
 
     static func requestPasswordReset(email: String) async throws -> BackendAuthEnvelope {
@@ -3290,7 +4457,16 @@ nonisolated enum BackendAuthClient {
         return try await run(request, as: BackendAuthEnvelope.self)
     }
 
-    static func resetPassword(token: String, newPassword: String) async throws -> BackendAuthSessionState {
+    static func resetPassword(
+        token: String,
+        newPassword: String
+    ) async throws -> BackendPasswordResetResult {
+        let resetIntent = authSessionStateQueue.sync {
+            BackendPasswordResetIntent(
+                authIntentGeneration: reserveAuthSessionIntent(defaults: .standard),
+                sessionEpoch: authSessionEpoch(defaults: .standard)
+            )
+        }
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/reset_password")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -3298,14 +4474,101 @@ nonisolated enum BackendAuthClient {
             "new_password": newPassword,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        if payload.passwordReset == true {
-            clearAuthSession()
-            await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+        let canonicalUser = payload.user
+        guard payload.passwordReset == true else {
+            return passwordResetResult(
+                canonicalUser: canonicalUser,
+                sessionState: currentAuthSessionState()
+            )
         }
-        return currentAuthSessionState()
+
+        let committed = authSessionStateQueue.sync { () -> (BackendPasswordResetResult, Bool) in
+            let currentUser = storedAuthUserPayload(defaults: .standard)
+            let currentIntentGeneration = authSessionIntentGeneration(defaults: .standard)
+            let currentSessionEpoch = authSessionEpoch(defaults: .standard)
+            // A login that merely started (and may later fail) cannot protect
+            // the revoked old session. A newer login that actually committed
+            // advances both the interactive intent and the session epoch.
+            let preserveCurrentSession = passwordResetShouldPreserveCurrentSession(
+                intent: resetIntent,
+                currentAuthIntentGeneration: currentIntentGeneration,
+                currentSessionEpoch: currentSessionEpoch,
+                sessionStorageIsReadable: authSessionStorageIsReadable(defaults: .standard),
+                canonicalUser: canonicalUser,
+                currentUser: currentUser
+            )
+            let shouldClearSession = currentUser != nil && !preserveCurrentSession
+            if shouldClearSession {
+                _ = clearAuthSession(advanceGeneration: true)
+            }
+
+            return rememberedLoginCredentialQueue.sync {
+                let canonicalEmail = canonicalUser?.email
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                let rememberedResult: BackendRememberedLoginMutationResult
+                if preserveCurrentSession {
+                    rememberedResult = .unchanged
+                } else {
+                    rememberedResult = reconcileRememberedLoginAfterPasswordReset(
+                        email: canonicalEmail,
+                        newPassword: newPassword,
+                        defaults: .standard,
+                        readKeychain: readKeychainStringResult,
+                        writeKeychain: writeRememberedLoginKeychainString,
+                        deleteKeychain: deleteKeychainString
+                    )
+                }
+                return (
+                    passwordResetResult(
+                        canonicalUser: canonicalUser,
+                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                        rememberedLoginResult: rememberedResult
+                    ),
+                    shouldClearSession
+                )
+            }
+        }
+        if committed.1 {
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        }
+        return committed.0
+    }
+
+    static func passwordResetResult(
+        canonicalUser: BackendAuthUser?,
+        sessionState: BackendAuthSessionState,
+        rememberedLoginResult: BackendRememberedLoginMutationResult = .unchanged
+    ) -> BackendPasswordResetResult {
+        BackendPasswordResetResult(
+            sessionState: sessionState,
+            canonicalEmail: canonicalUser?.email
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? "",
+            rememberedLoginResult: rememberedLoginResult
+        )
+    }
+
+    static func passwordResetShouldPreserveCurrentSession(
+        intent: BackendPasswordResetIntent,
+        currentAuthIntentGeneration: Int,
+        currentSessionEpoch: Int,
+        sessionStorageIsReadable: Bool,
+        canonicalUser: BackendAuthUser?,
+        currentUser: BackendAuthUser?
+    ) -> Bool {
+        guard let currentUser else { return false }
+        if let canonicalUser,
+           !authUsersReferToSameAccount(canonicalUser, currentUser) {
+            return true
+        }
+        return currentAuthIntentGeneration != intent.authIntentGeneration &&
+            currentSessionEpoch != intent.sessionEpoch &&
+            sessionStorageIsReadable
     }
 
     static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+        let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
         var body: [String: Any] = [:]
@@ -3315,52 +4578,65 @@ nonisolated enum BackendAuthClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
-        }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
+        if let lease {
+            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
         return payload
     }
 
     static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+        let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/verify_email")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+        if let lease {
+            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
-        } else if var currentUser = storedAuthUser() {
-            currentUser = BackendAuthUser(
-                userId: currentUser.userId,
-                email: currentUser.email,
-                authProvider: currentUser.authProvider,
-                emailVerified: true,
-                emailVerifiedAt: Date().timeIntervalSince1970,
-                createdAt: currentUser.createdAt,
-                updatedAt: Date().timeIntervalSince1970
-            )
-            persistAuthUser(currentUser)
-        }
-        UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
         return currentAuthSessionState()
+    }
+
+    @discardableResult
+    private static func commitEmailVerificationMetadataIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        lease: BackendAuthSessionLease
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard let responseUser = payload.user,
+                  emailVerificationMetadataCommitIsAllowed(
+                    lease: lease,
+                    responseUserID: responseUser.userId,
+                    defaults: .standard,
+                    currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                    currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
+                    currentUserID: { storedAuthUserPayload(defaults: .standard)?.userId }
+                  ) else {
+                return false
+            }
+
+            let currentSessionId = (payload.currentSessionId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentSessionId.isEmpty {
+                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+            }
+            let currentFamilyId = (payload.currentFamilyId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentFamilyId.isEmpty {
+                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+            }
+            guard persistAuthUser(responseUser) else { return false }
+            UserDefaults.standard.set(
+                payload.pendingEmailVerification ?? !responseUser.emailVerified,
+                forKey: DefaultsKey.authPendingEmailVerification
+            )
+            UserDefaults.standard.set(
+                payload.verificationRequired ?? !responseUser.emailVerified,
+                forKey: DefaultsKey.authVerificationRequired
+            )
+            return true
+        }
     }
 
     private static func makeAuthWriteRequest(path: String) throws -> URLRequest {
@@ -3396,6 +4672,7 @@ nonisolated enum BackendAuthClient {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
+        let identity = requestIdentitySnapshot(generateUserIDIfMissing: false)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -3403,18 +4680,14 @@ nonisolated enum BackendAuthClient {
         if let token = appToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        if includeUserIdentity {
-            if let userId = sharedUserID(), !userId.isEmpty {
-                request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-            }
+        if includeUserIdentity, !identity.userID.isEmpty {
+            request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
         }
-        if includeClientToken {
-            if let clientToken = sharedClientToken(), !clientToken.isEmpty {
-                request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
-            }
+        if includeClientToken, !identity.clientToken.isEmpty {
+            request.setValue(identity.clientToken, forHTTPHeaderField: "X-Client-Token")
         }
-        if includeAuthToken, let token = accessToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if includeAuthToken, !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.setValue("them", forHTTPHeaderField: "X-Them-Client-Name")
         #if os(macOS)
@@ -3459,20 +4732,20 @@ nonisolated enum BackendAuthClient {
         return try decoder.decode(T.self, from: data)
     }
 
-    private static func storedAuthUser() -> BackendAuthUser? {
-        if let data = UserDefaults.standard.data(forKey: DefaultsKey.authUserPayload),
-           let user = try? JSONDecoder().decode(BackendAuthUser.self, from: data) {
+    private static func storedAuthUserLocked(defaults: UserDefaults) -> BackendAuthUser? {
+        guard authSessionStorageIsReadable(defaults: defaults) else { return nil }
+        if let user = storedAuthUserPayload(defaults: defaults) {
             return user
         }
 #if DEBUG
-        guard IOThemRuntime.isStudioAutomationSession else { return nil }
+        guard defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession else { return nil }
         let signedIn = preferenceStringValues(forKey: DefaultsKey.authSignedIn).contains { rawValue in
             let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return ["1", "true", "yes", "on"].contains(normalized)
         } || UserDefaults.standard.bool(forKey: DefaultsKey.authSignedIn)
         return BackendAuthDebugSessionPolicy.syntheticUser(
             signedIn: signedIn,
-            accessToken: accessToken() ?? "",
+            accessToken: accessTokenLocked(defaults: defaults) ?? "",
             userID: preferenceString(forKey: DefaultsKey.userId),
             email: preferenceString(forKey: DefaultsKey.authUserEmail)
         )
@@ -3481,97 +4754,347 @@ nonisolated enum BackendAuthClient {
 #endif
     }
 
-    private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) {
-        let normalizedAccessToken = (payload.accessToken ?? payload.token ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedAccessToken.isEmpty {
-#if os(macOS)
-            UserDefaults.standard.set(normalizedAccessToken, forKey: DefaultsKey.authAccessToken)
-#else
-            writeKeychainString(normalizedAccessToken, account: authAccessTokenAccount)
-#endif
-            let ttl = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
-            UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authAccessExpiresAt)
+    private static func storedAuthUserPayload(defaults: UserDefaults) -> BackendAuthUser? {
+        if let data = defaults.data(forKey: DefaultsKey.authUserPayload),
+           let user = try? JSONDecoder().decode(BackendAuthUser.self, from: data) {
+            return user
         }
-
-        let normalizedRefreshToken = (payload.refreshToken ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedRefreshToken.isEmpty {
-#if os(macOS)
-            UserDefaults.standard.set(normalizedRefreshToken, forKey: DefaultsKey.authRefreshToken)
-#else
-            writeKeychainString(normalizedRefreshToken, account: authRefreshTokenAccount)
-#endif
-            let ttl = max(60, payload.refreshExpiresIn ?? 0)
-            if ttl > 0 {
-                UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authRefreshExpiresAt)
-            }
-        }
-
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
-        }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
-        }
-        if payload.emailVerified == true, var currentUser = storedAuthUser() {
-            currentUser = BackendAuthUser(
-                userId: currentUser.userId,
-                email: currentUser.email,
-                authProvider: currentUser.authProvider,
-                emailVerified: true,
-                emailVerifiedAt: Date().timeIntervalSince1970,
-                createdAt: currentUser.createdAt,
-                updatedAt: Date().timeIntervalSince1970
-            )
-            persistAuthUser(currentUser)
-        }
-        UserDefaults.standard.set(payload.pendingEmailVerification ?? false, forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.set(payload.verificationRequired ?? false, forKey: DefaultsKey.authVerificationRequired)
-        let signedIn = (accessToken() != nil) && (storedAuthUser() != nil)
-        UserDefaults.standard.set(signedIn, forKey: DefaultsKey.authSignedIn)
+        return nil
     }
 
-    private static func persistAuthUser(_ user: BackendAuthUser) {
-        if let data = try? JSONEncoder().encode(user) {
-            UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
+    static func authUsersReferToSameAccount(
+        _ lhs: BackendAuthUser,
+        _ rhs: BackendAuthUser
+    ) -> Bool {
+        let leftUserID = lhs.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rightUserID = rhs.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !leftUserID.isEmpty, !rightUserID.isEmpty {
+            return leftUserID == rightUserID
         }
+        let leftEmail = lhs.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rightEmail = rhs.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !leftEmail.isEmpty && leftEmail == rightEmail
+    }
+
+    private static func persistInteractiveAuthEnvelopeIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        expectedGeneration: Int
+    ) -> BackendAuthEnvelopeCommitOutcome {
+        authSessionStateQueue.sync {
+            guard authSessionIntentGeneration(defaults: .standard) == expectedGeneration,
+                  !authSessionTokenDeletionIsPending(defaults: .standard) else {
+                return .superseded
+            }
+            guard persistAuthEnvelope(payload) else {
+                _ = reserveAuthSessionIntent(defaults: .standard)
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                postBackendNotificationOnMain(
+                    name: .themBackendIdentityPartitionChanged,
+                    userInfo: [:]
+                )
+                return .storageFailed
+            }
+            _ = reserveAuthSessionIntent(defaults: .standard)
+            _ = advanceAuthSessionEpoch(defaults: .standard)
+            return .committed
+        }
+    }
+
+    private static func persistRefreshAuthEnvelopeIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        lease: BackendAuthSessionLease
+    ) -> BackendAuthEnvelopeCommitOutcome {
+        authSessionStateQueue.sync {
+            guard authSessionLeaseIsCurrent(
+                lease,
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+            ) else {
+                return .superseded
+            }
+            guard persistAuthEnvelope(payload) else {
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                postBackendNotificationOnMain(
+                    name: .themBackendIdentityPartitionChanged,
+                    userInfo: [:]
+                )
+                return .storageFailed
+            }
+            _ = advanceAuthSessionEpoch(defaults: .standard)
+            return .committed
+        }
+    }
+
+    @discardableResult
+    private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) -> Bool {
+        let normalizedAccessToken = (payload.accessToken ?? payload.token ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRefreshToken = (payload.refreshToken ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAccessToken.isEmpty,
+              !normalizedRefreshToken.isEmpty,
+              let user = payload.user else {
+            _ = clearAuthSession()
+            return false
+        }
+
+        return persistAuthTokenPair(
+            accessToken: normalizedAccessToken,
+            refreshToken: normalizedRefreshToken,
+            defaults: .standard,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainString
+        ) {
+            let accessTTL = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970 + Double(accessTTL),
+                forKey: DefaultsKey.authAccessExpiresAt
+            )
+            let refreshTTL = max(60, payload.refreshExpiresIn ?? 0)
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970 + Double(refreshTTL),
+                forKey: DefaultsKey.authRefreshExpiresAt
+            )
+
+            let currentSessionId = (payload.currentSessionId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentSessionId.isEmpty {
+                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+            }
+            let currentFamilyId = (payload.currentFamilyId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentFamilyId.isEmpty {
+                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+            }
+            let verifiedUser: BackendAuthUser
+            if payload.emailVerified == true {
+                verifiedUser = BackendAuthUser(
+                    userId: user.userId,
+                    email: user.email,
+                    authProvider: user.authProvider,
+                    emailVerified: true,
+                    emailVerifiedAt: user.emailVerifiedAt ?? Date().timeIntervalSince1970,
+                    createdAt: user.createdAt,
+                    updatedAt: Date().timeIntervalSince1970
+                )
+            } else {
+                verifiedUser = user
+            }
+            guard persistAuthUser(verifiedUser) else { return false }
+            UserDefaults.standard.set(
+                payload.pendingEmailVerification ?? false,
+                forKey: DefaultsKey.authPendingEmailVerification
+            )
+            UserDefaults.standard.set(
+                payload.verificationRequired ?? false,
+                forKey: DefaultsKey.authVerificationRequired
+            )
+            return true
+        }
+    }
+
+    @discardableResult
+    private static func persistAuthUser(_ user: BackendAuthUser) -> Bool {
+        guard let data = try? JSONEncoder().encode(user) else { return false }
+        UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
         UserDefaults.standard.set(user.email, forKey: DefaultsKey.authUserEmail)
         UserDefaults.standard.set(user.emailVerified, forKey: DefaultsKey.authUserVerified)
-        persistSharedUserID(user.userId)
+        guard persistSharedUserIDLocked(
+            user.userId,
+            defaults: .standard,
+            allowDuringAuthMutation: true
+        ) else { return false }
         if user.emailVerified {
             UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
             UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
         }
+        return true
     }
 
-    private static func clearAuthSession() {
-        deleteKeychainString(account: authAccessTokenAccount)
-        deleteKeychainString(account: authRefreshTokenAccount)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserPayload)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserEmail)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserVerified)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authVerificationRequired)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authSignedIn)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentSessionId)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessToken)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshToken)
-        clearSharedClientToken()
-        clearSharedUserID()
+    private static func beginAuthSessionTokenMutation(defaults: UserDefaults) {
+        defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
+    }
+
+    @discardableResult
+    static func persistAuthTokenPair(
+        accessToken: String,
+        refreshToken: String,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool,
+        persistMetadata: () -> Bool
+    ) -> Bool {
+        let normalizedAccessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRefreshToken = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAccessToken.isEmpty, !normalizedRefreshToken.isEmpty else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+
+        // A prior interrupted deletion must be completed before a new token
+        // pair can become readable. Never clear its fail-closed marker merely
+        // because a replacement write was attempted.
+        if authSessionTokenDeletionIsPending(defaults: defaults) {
+            guard retryPendingAuthSessionTokenDeletion(
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            ) else {
+                return false
+            }
+        }
+
+        beginAuthSessionTokenMutation(defaults: defaults)
+        clearAuthSessionMetadata(defaults: defaults)
+        let priorIdentityDeleted = authSessionSensitiveKeychainAccounts.reduce(true) {
+            allDeleted,
+            account in
+            deleteKeychain(account) && allDeleted
+        }
+        guard priorIdentityDeleted else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+            return false
+        }
+        let accessWritten = writeKeychain(normalizedAccessToken, authAccessTokenAccount)
+        let refreshWritten = writeKeychain(normalizedRefreshToken, authRefreshTokenAccount)
+        guard accessWritten, refreshWritten else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+
+        guard persistMetadata() else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+        defaults.set(true, forKey: DefaultsKey.authSignedIn)
+        defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        return true
+    }
+
+    private static func clearAuthSessionMetadata(defaults: UserDefaults) {
+        defaults.removeObject(forKey: DefaultsKey.authUserPayload)
+        defaults.removeObject(forKey: DefaultsKey.authUserEmail)
+        defaults.removeObject(forKey: DefaultsKey.authUserVerified)
+        defaults.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
+        defaults.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
+        defaults.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
+        defaults.removeObject(forKey: DefaultsKey.authVerificationRequired)
+        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
+        defaults.removeObject(forKey: DefaultsKey.authCurrentSessionId)
+        defaults.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
+        defaults.removeObject(forKey: DefaultsKey.authAccessToken)
+        defaults.removeObject(forKey: DefaultsKey.authRefreshToken)
+        defaults.removeObject(forKey: DefaultsKey.userId)
+        defaults.removeObject(forKey: "client_token")
+        defaults.removeObject(forKey: "client_token_expiry")
+        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+    }
+
+    @discardableResult
+    static func invalidateAuthSessionStorage(
+        defaults: UserDefaults,
+        advanceGeneration: Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        beginAuthSessionTokenMutation(defaults: defaults)
+        if advanceGeneration {
+            _ = advanceAuthSessionEpoch(defaults: defaults)
+        }
+        clearAuthSessionMetadata(defaults: defaults)
+        let deleted = authSessionSensitiveKeychainAccounts.reduce(true) { allDeleted, account in
+            deleteKeychain(account) && allDeleted
+        }
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        }
+        return deleted
+    }
+
+    @discardableResult
+    private static func clearAuthSession(
+        advanceGeneration: Bool = false,
+        invalidateInteractiveIntents: Bool = false
+    ) -> Bool {
+        if invalidateInteractiveIntents {
+            _ = reserveAuthSessionIntent(defaults: .standard)
+        }
+        let deleted = invalidateAuthSessionStorage(
+            defaults: .standard,
+            advanceGeneration: advanceGeneration,
+            deleteKeychain: deleteKeychainString
+        )
+        postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        return deleted
+    }
+
+    static func authSessionTokenDeletionIsPending(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: DefaultsKey.authSessionTokenDeletionPending)
+    }
+
+    static func authSessionTokenReadsAreAllowed(defaults: UserDefaults = .standard) -> Bool {
+        authSessionStorageIsReadable(defaults: defaults)
+    }
+
+    @discardableResult
+    static func retryPendingAuthSessionTokenDeletion() -> Bool {
+        authSessionStateQueue.sync {
+            let wasPending = authSessionTokenDeletionIsPending()
+            let deleted = retryPendingAuthSessionTokenDeletion(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+            if wasPending {
+                postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+            }
+            return deleted
+        }
+    }
+
+    @discardableResult
+    static func retryPendingAuthSessionTokenDeletion(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        guard authSessionTokenDeletionIsPending(defaults: defaults) else { return true }
+        beginAuthSessionTokenMutation(defaults: defaults)
+        clearAuthSessionMetadata(defaults: defaults)
+        let deleted = authSessionSensitiveKeychainAccounts.reduce(true) { allDeleted, account in
+            deleteKeychain(account) && allDeleted
+        }
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        }
+        return deleted
     }
 
     fileprivate static func accessToken() -> String? {
+        authSessionStateQueue.sync {
+            accessTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func accessTokenLocked(defaults: UserDefaults) -> String? {
+        guard authSessionTokenReadsAreAllowed(defaults: defaults) else { return nil }
 #if DEBUG
-        if IOThemRuntime.isStudioAutomationSession {
+        if defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession {
             let debugAccessEnabled = preferenceStringValues(forKey: "auth_debug_access_token_enabled").contains { rawValue in
                 let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return ["1", "true", "yes", "on"].contains(normalized)
@@ -3585,16 +5108,18 @@ nonisolated enum BackendAuthClient {
             }
         }
 #endif
-        guard !IOThemRuntime.isRunningTests else { return nil }
-#if os(macOS)
-        let defaultsToken = UserDefaults.standard.string(forKey: DefaultsKey.authAccessToken) ?? ""
-        let trimmedDefaultsToken = defaultsToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDefaultsToken.isEmpty ? nil : trimmedDefaultsToken
-#else
+        guard defaults === UserDefaults.standard, !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-#endif
+        if !trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessToken)
+            return trimmed
+        }
+        return migrateLegacyAuthTokenIfNeeded(
+            defaultsKey: DefaultsKey.authAccessToken,
+            account: authAccessTokenAccount,
+            defaults: defaults
+        )
     }
 
     static func authorizationHeaderValue() -> String? {
@@ -3603,8 +5128,15 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func refreshToken() -> String? {
+        authSessionStateQueue.sync {
+            refreshTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func refreshTokenLocked(defaults: UserDefaults) -> String? {
+        guard authSessionTokenReadsAreAllowed(defaults: defaults) else { return nil }
 #if DEBUG
-        if IOThemRuntime.isStudioAutomationSession {
+        if defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession {
             let debugToken = preferenceString(forKey: "auth_debug_refresh_token")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !debugToken.isEmpty {
@@ -3612,16 +5144,36 @@ nonisolated enum BackendAuthClient {
             }
         }
 #endif
-        guard !IOThemRuntime.isRunningTests else { return nil }
-#if os(macOS)
-        let defaultsToken = UserDefaults.standard.string(forKey: DefaultsKey.authRefreshToken) ?? ""
-        let trimmedDefaultsToken = defaultsToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDefaultsToken.isEmpty ? nil : trimmedDefaultsToken
-#else
+        guard defaults === UserDefaults.standard, !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-#endif
+        if !trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshToken)
+            return trimmed
+        }
+        return migrateLegacyAuthTokenIfNeeded(
+            defaultsKey: DefaultsKey.authRefreshToken,
+            account: authRefreshTokenAccount,
+            defaults: defaults
+        )
+    }
+
+    private static func migrateLegacyAuthTokenIfNeeded(
+        defaultsKey: String,
+        account: String,
+        defaults: UserDefaults
+    ) -> String? {
+        let legacy = (defaults.string(forKey: defaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !legacy.isEmpty else { return nil }
+        guard writeKeychainString(legacy, account: account) else {
+            // Do not expose a plaintext fallback when secure migration is
+            // unavailable. The enabled session remains recoverable once
+            // Keychain becomes writable again.
+            return nil
+        }
+        defaults.removeObject(forKey: defaultsKey)
+        return legacy
     }
 
     @discardableResult
@@ -3662,6 +5214,13 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func readKeychainString(account: String) -> String? {
+        guard case .value(let value) = readKeychainStringResult(account: account) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func readKeychainStringResult(account: String) -> BackendKeychainStringReadResult {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -3671,17 +5230,32 @@ nonisolated enum BackendAuthClient {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if status == errSecItemNotFound {
+            return .notFound
+        }
+        guard status == errSecSuccess else {
+            return .unavailable(status)
+        }
+        guard let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return .invalidData
+        }
+        return .value(value)
     }
 
-    private static func deleteKeychainString(account: String) {
+    @discardableResult
+    private static func deleteKeychainString(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+
+    private static func deleteKeychainStringIgnoringResult(account: String) {
+        _ = deleteKeychainString(account: account)
     }
 
     private static func normalizedStoredUserID(_ raw: String?) -> String {
@@ -3908,14 +5482,22 @@ nonisolated enum BackendAuthClient {
     }
 
     static func sharedClientToken() -> String? {
+        authSessionStateQueue.sync {
+            sharedClientTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func sharedClientTokenLocked(defaults: UserDefaults) -> String? {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return nil }
         #if DEBUG
-        if let debugOverride = studioDebugClientTokenOverride() {
+        if defaults === UserDefaults.standard, let debugOverride = studioDebugClientTokenOverride() {
             return debugOverride
         }
         #endif
         return BackendCredentialMigration.readString(
             account: clientTokenAccount,
             defaultsKey: "client_token",
+            defaults: defaults,
             readKeychain: readKeychainString,
             writeKeychain: writeKeychainString
         )
@@ -3976,12 +5558,15 @@ nonisolated enum BackendAuthClient {
     #endif
 
     static func sharedClientTokenExpiry() -> String? {
-        BackendCredentialMigration.readString(
-            account: clientTokenExpiryAccount,
-            defaultsKey: "client_token_expiry",
-            readKeychain: readKeychainString,
-            writeKeychain: writeKeychainString
-        )
+        authSessionStateQueue.sync {
+            guard !authSessionTokenDeletionIsPending() else { return nil }
+            return BackendCredentialMigration.readString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                readKeychain: readKeychainString,
+                writeKeychain: writeKeychainString
+            )
+        }
     }
 
     static func sharedClientTokenCachedAt(defaults: UserDefaults = .standard) -> Date? {
@@ -4002,38 +5587,98 @@ nonisolated enum BackendAuthClient {
         expiryRaw: String?,
         baseURLRaw: String? = nil
     ) -> Bool {
-        let previousToken = sharedClientToken()
+        authSessionStateQueue.sync {
+            persistSharedClientTokenLocked(
+                token,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURLRaw,
+                defaults: .standard
+            )
+        }
+    }
+
+    @discardableResult
+    static func persistSharedClientTokenIfCurrent(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String? = nil,
+        expectedSessionEpoch: Int
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionEpoch(defaults: .standard) == expectedSessionEpoch else {
+                return false
+            }
+            return persistSharedClientTokenLocked(
+                token,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURLRaw,
+                defaults: .standard
+            )
+        }
+    }
+
+    @discardableResult
+    private static func persistSharedClientTokenLocked(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String?,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return false }
+        let previousToken = sharedClientTokenLocked(defaults: defaults)
         let wroteToken = BackendCredentialMigration.writeString(
             token,
             account: clientTokenAccount,
             defaultsKey: "client_token",
+            defaults: defaults,
             writeKeychain: writeKeychainString,
-            deleteKeychain: deleteKeychainString
+            deleteKeychain: deleteKeychainStringIgnoringResult
         )
+        let expiryStored: Bool
         if let expiryRaw {
-            _ = BackendCredentialMigration.writeString(
+            expiryStored = BackendCredentialMigration.writeString(
                 expiryRaw,
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
+                defaults: defaults,
                 writeKeychain: writeKeychainString,
-                deleteKeychain: deleteKeychainString
+                deleteKeychain: deleteKeychainStringIgnoringResult
             )
         } else {
             BackendCredentialMigration.deleteString(
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
-                deleteKeychain: deleteKeychainString
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
             )
+            expiryStored = true
+        }
+        guard wroteToken, expiryStored else {
+            BackendCredentialMigration.deleteString(
+                account: clientTokenAccount,
+                defaultsKey: "client_token",
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+            BackendCredentialMigration.deleteString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+            defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+            defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+            return false
         }
         if wroteToken {
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKey.clientTokenCachedAt)
+            defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.clientTokenCachedAt)
             let normalizedBaseURL = (baseURLRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if normalizedBaseURL.isEmpty {
-                UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+                defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
             } else {
-                UserDefaults.standard.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
+                defaults.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
             }
-            if sharedClientToken() != previousToken {
+            if sharedClientTokenLocked(defaults: defaults) != previousToken {
                 postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
             }
         }
@@ -4041,28 +5686,44 @@ nonisolated enum BackendAuthClient {
     }
 
     static func clearSharedClientToken() {
-        let previousToken = sharedClientToken()
+        authSessionStateQueue.sync {
+            clearSharedClientTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func clearSharedClientTokenLocked(defaults: UserDefaults) {
+        let previousToken = sharedClientTokenLocked(defaults: defaults)
         BackendCredentialMigration.deleteString(
             account: clientTokenAccount,
             defaultsKey: "client_token",
-            deleteKeychain: deleteKeychainString
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
         )
         BackendCredentialMigration.deleteString(
             account: clientTokenExpiryAccount,
             defaultsKey: "client_token_expiry",
-            deleteKeychain: deleteKeychainString
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
         )
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
-        if previousToken != nil, sharedClientToken() == nil {
+        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+        if previousToken != nil, sharedClientTokenLocked(defaults: defaults) == nil {
             postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
         }
     }
 
     static func sharedUserID() -> String? {
-        BackendCredentialMigration.readString(
+        authSessionStateQueue.sync {
+            sharedUserIDLocked(defaults: .standard)
+        }
+    }
+
+    private static func sharedUserIDLocked(defaults: UserDefaults) -> String? {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return nil }
+        return BackendCredentialMigration.readString(
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
+            defaults: defaults,
             readKeychain: readKeychainString,
             writeKeychain: writeKeychainString,
             normalize: normalizedStoredUserID
@@ -4071,31 +5732,74 @@ nonisolated enum BackendAuthClient {
 
     @discardableResult
     static func persistSharedUserID(_ userID: String) -> Bool {
-        let previousUserID = sharedUserID()
+        authSessionStateQueue.sync {
+            persistSharedUserIDLocked(userID, defaults: .standard)
+        }
+    }
+
+    @discardableResult
+    static func persistSharedUserIDIfCurrent(
+        _ userID: String,
+        expectedSessionEpoch: Int
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionEpoch(defaults: .standard) == expectedSessionEpoch else {
+                return false
+            }
+            return persistSharedUserIDLocked(userID, defaults: .standard)
+        }
+    }
+
+    @discardableResult
+    private static func persistSharedUserIDLocked(
+        _ userID: String,
+        defaults: UserDefaults,
+        allowDuringAuthMutation: Bool = false
+    ) -> Bool {
+        guard allowDuringAuthMutation || !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return false
+        }
+        let previousUserID = allowDuringAuthMutation ? nil : sharedUserIDLocked(defaults: defaults)
         let wroteUserID = BackendCredentialMigration.writeString(
             userID,
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
+            defaults: defaults,
             writeKeychain: writeKeychainString,
-            deleteKeychain: deleteKeychainString,
+            deleteKeychain: deleteKeychainStringIgnoringResult,
             normalize: normalizedStoredUserID
         )
-        if wroteUserID, sharedUserID() != previousUserID {
+        if wroteUserID,
+           (allowDuringAuthMutation || sharedUserIDLocked(defaults: defaults) != previousUserID) {
             postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
         }
         return wroteUserID
     }
 
     static func clearSharedUserID() {
-        let previousUserID = sharedUserID()
+        authSessionStateQueue.sync {
+            clearSharedUserIDLocked(defaults: .standard)
+        }
+    }
+
+    private static func clearSharedUserIDLocked(defaults: UserDefaults) {
+        let previousUserID = sharedUserIDLocked(defaults: defaults)
         BackendCredentialMigration.deleteString(
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
-            deleteKeychain: deleteKeychainString
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
         )
-        if previousUserID != nil, sharedUserID() == nil {
+        if previousUserID != nil, sharedUserIDLocked(defaults: defaults) == nil {
             postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
         }
+    }
+
+    private static func generatedStableUserID() -> String {
+        let compact = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return "usr_\(compact)"
     }
 
     private static func isUsableConfigValue(_ raw: String) -> Bool {
@@ -4339,10 +6043,15 @@ actor BackendMemoryAPI {
     }()
     private let session: URLSession
     private let baseURLOverride: URL?
+    private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
-    private var sessionBootstrapTask: (id: Int, task: Task<SessionBootstrapHTTPResult, Error>)?
+    private var sessionBootstrapTask: (
+        id: Int,
+        authSessionEpoch: Int,
+        task: Task<SessionBootstrapHTTPResult, Error>
+    )?
     private var nextSessionBootstrapTaskID: Int = 0
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
@@ -4363,22 +6072,23 @@ actor BackendMemoryAPI {
         let path: String
     }
 
-    init(session: URLSession = .shared, baseURL: URL? = nil) {
+    init(
+        session: URLSession = .shared,
+        baseURL: URL? = nil,
+        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live
+    ) {
         self.session = session
         self.baseURLOverride = baseURL
+        self.accountDeletionSessionHooks = accountDeletionSessionHooks
     }
 
     func currentSyncState() -> BackendSyncState {
         syncState
     }
 
-    func invalidateResolvedSession(clearSharedUserID: Bool = false) {
+    func invalidateResolvedSessionCaches() {
         invalidateReadCaches(clearSyncState: true)
         lastForcedSessionRefreshAt = nil
-        BackendAuthClient.clearSharedClientToken()
-        if clearSharedUserID {
-            BackendAuthClient.clearSharedUserID()
-        }
     }
 
     func authObservabilityEnabled() -> Bool {
@@ -4456,8 +6166,13 @@ actor BackendMemoryAPI {
             return storedSession
         }
         if let sessionBootstrapTask {
-            return try await completeSessionBootstrap(sessionBootstrapTask.task, id: sessionBootstrapTask.id)
+            return try await completeSessionBootstrap(
+                sessionBootstrapTask.task,
+                id: sessionBootstrapTask.id,
+                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch
+            )
         }
+        let expectedAuthSessionEpoch = BackendAuthClient.currentAuthSessionEpoch()
         var request = try makeRequest(path: "/session")
         request.httpMethod = "POST"
         let urlSession = session
@@ -4476,17 +6191,27 @@ actor BackendMemoryAPI {
                 path: requestPath
             )
         }
-        sessionBootstrapTask = (id: taskID, task: task)
-        return try await completeSessionBootstrap(task, id: taskID)
+        sessionBootstrapTask = (
+            id: taskID,
+            authSessionEpoch: expectedAuthSessionEpoch,
+            task: task
+        )
+        return try await completeSessionBootstrap(
+            task,
+            id: taskID,
+            expectedAuthSessionEpoch: expectedAuthSessionEpoch
+        )
     }
 
     private func completeSessionBootstrap(
         _ task: Task<SessionBootstrapHTTPResult, Error>,
-        id taskID: Int
+        id taskID: Int,
+        expectedAuthSessionEpoch: Int
     ) async throws -> BackendSessionResponse {
         do {
             let result = try await task.value
-            if sessionBootstrapTask?.id == taskID {
+            let ownsCompletion = sessionBootstrapTask?.id == taskID
+            if ownsCompletion {
                 sessionBootstrapTask = nil
             }
             validatePersonaContract(responsePersonaKey: result.responsePersonaKey, path: result.path)
@@ -4497,7 +6222,39 @@ actor BackendMemoryAPI {
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             let payload = try decoder.decode(BackendSessionResponse.self, from: result.data)
+            if !ownsCompletion {
+                guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch,
+                      cachedSession?.clientToken == payload.clientToken else {
+                    throw BackendMemoryAPIError.server(
+                        status: 409,
+                        message: "session_bootstrap_superseded"
+                    )
+                }
+                return payload
+            }
+            let expiry = Date().addingTimeInterval(TimeInterval(max(60, payload.expiresIn)))
+            let expiryRaw = ISO8601DateFormatter().string(from: expiry)
+            guard BackendAuthClient.commitSessionBootstrapIdentityIfCurrent(
+                expectedSessionEpoch: expectedAuthSessionEpoch,
+                clientToken: payload.clientToken,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURL().absoluteString,
+                userID: payload.userId,
+                persistClientToken: !BackendAuthClient.isStudioDebugClientTokenOverrideActive()
+            ) else {
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "session_bootstrap_superseded"
+                )
+            }
             cacheSession(payload)
+            guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch else {
+                invalidateReadCaches(clearSyncState: true)
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "session_bootstrap_superseded"
+                )
+            }
             updateSyncState(syncFromSession(payload), emitTurnEvent: false)
             return payload
         } catch {
@@ -4509,7 +6266,9 @@ actor BackendMemoryAPI {
     }
 
     private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
-        guard let token = clientToken(), !token.isEmpty else { return nil }
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let token = identity.clientToken
+        guard !token.isEmpty else { return nil }
         guard let cachedAt = BackendAuthClient.sharedClientTokenCachedAt(),
               now.timeIntervalSince(cachedAt) < sessionCacheTTL else {
             return nil
@@ -4525,9 +6284,12 @@ actor BackendMemoryAPI {
         }
         let secondsRemaining = expiry.timeIntervalSince(now)
         guard secondsRemaining > storedSessionRefreshSkew else { return nil }
+        guard BackendAuthClient.currentAuthSessionEpoch() == identity.sessionEpoch else {
+            return nil
+        }
 
         return BackendSessionResponse(
-            userId: BackendAuthClient.sharedUserID(),
+            userId: identity.userID.isEmpty ? nil : identity.userID,
             authenticated: nil,
             clientToken: token,
             sessionId: nil,
@@ -5075,17 +6837,28 @@ actor BackendMemoryAPI {
         )
     }
 
-    func requestAccountDeletion(reason: String = "") async throws -> BackendAccountDeletionResponse {
-        _ = try? await bootstrapSession(force: false)
+    func requestAccountDeletion(
+        reason: String = "",
+        proof: BackendAccountDeletionProof
+    ) async throws -> BackendAccountDeletionResponse {
+        let proofFields = try proof.requestFields()
         var request = try makeWriteRequest(path: "/account")
         request.httpMethod = "DELETE"
         let normalizedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "reason": String(normalizedReason.prefix(280)),
-        ], options: [])
-        let payload = try await run(request, as: BackendAccountDeletionResponse.self)
-        await BackendAuthClient.clearLocalSessionAfterAccountDeletion()
+        var body = proofFields
+        body["reason"] = String(normalizedReason.prefix(280))
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        // The fully authenticated request is captured first. Local secrets and
+        // remembered credentials are then revoked before transport so a crash
+        // or ambiguous network result cannot leave the account signed in.
+        let deletedUser = accountDeletionSessionHooks.clearLocalSession()
         invalidateReadCaches(clearSyncState: true)
+        lastForcedSessionRefreshAt = nil
+        let payload = try await run(request, as: BackendAccountDeletionResponse.self)
+        if accountDeletionSessionHooks.clearAfterSuccessfulDeletion(deletedUser) {
+            invalidateReadCaches(clearSyncState: true)
+            lastForcedSessionRefreshAt = nil
+        }
         return payload
     }
 
@@ -7388,6 +9161,9 @@ actor BackendMemoryAPI {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
+        let identity = BackendAuthClient.requestIdentitySnapshot(
+            generateUserIDIfMissing: includeUserIdentity
+        )
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -7395,14 +9171,14 @@ actor BackendMemoryAPI {
         if let token = appToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        if includeUserIdentity, let userId = userID(), !userId.isEmpty {
-            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        if includeUserIdentity, !identity.userID.isEmpty {
+            request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
         }
-        if includeClientToken, let clientToken = clientToken(), !clientToken.isEmpty {
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if includeClientToken, !identity.clientToken.isEmpty {
+            request.setValue(identity.clientToken, forHTTPHeaderField: "X-Client-Token")
         }
-        if includeAuthToken, let token = BackendAuthClient.accessToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if includeAuthToken, !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.setValue(clientNameHeaderValue, forHTTPHeaderField: "X-Them-Client-Name")
         request.setValue(clientPlatformHeaderValue, forHTTPHeaderField: "X-Them-Client-Platform")
@@ -8273,22 +10049,6 @@ actor BackendMemoryAPI {
     private func cacheSession(_ sessionPayload: BackendSessionResponse) {
         cachedSession = sessionPayload
         cachedSessionAt = Date()
-
-        if !BackendAuthClient.isStudioDebugClientTokenOverrideActive() {
-            let expiry = Date().addingTimeInterval(TimeInterval(max(60, sessionPayload.expiresIn)))
-            let expiryRaw = ISO8601DateFormatter().string(from: expiry)
-            BackendAuthClient.persistSharedClientToken(
-                sessionPayload.clientToken,
-                expiryRaw: expiryRaw,
-                baseURLRaw: baseURL().absoluteString
-            )
-        }
-        if let userId = sessionPayload.userId {
-            let normalized = normalizedUserID(userId)
-            if !normalized.isEmpty {
-                BackendAuthClient.persistSharedUserID(normalized)
-            }
-        }
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
            !assistant.isEmpty {
             UserDefaults.standard.set(assistant, forKey: DefaultsKey.assistantName)

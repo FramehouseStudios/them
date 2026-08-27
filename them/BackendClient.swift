@@ -2269,6 +2269,10 @@ final class BackendClient {
     private var cachedClientToken: String?
     private var cachedClientTokenExpiry: Date?
     private var cachedUserID: String?
+    // Initialized lazily on first request. `BackendClient` is created from a
+    // SwiftUI `@State` initializer, so construction must never synchronously
+    // wait on the auth queue while the view graph is being rendered.
+    private var cachedAuthSessionEpoch = -1
 
     // Health check cache — avoids a full /health round-trip before every /talk
     private let healthCacheTTL: TimeInterval = 30
@@ -5194,7 +5198,20 @@ final class BackendClient {
     }
 #endif
 
+    @discardableResult
+    private func synchronizeCachedIdentityEpoch() -> Int {
+        let currentEpoch = BackendAuthClient.currentAuthSessionEpoch()
+        if cachedAuthSessionEpoch != currentEpoch {
+            cachedAuthSessionEpoch = currentEpoch
+            cachedClientToken = nil
+            cachedClientTokenExpiry = nil
+            cachedUserID = nil
+        }
+        return currentEpoch
+    }
+
     private func resolveClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let expectedSessionEpoch = synchronizeCachedIdentityEpoch()
         let now = Date()
         let formatter = ISO8601DateFormatter()
         let sharedToken = readSharedClientToken()
@@ -5211,7 +5228,13 @@ final class BackendClient {
             let expiry = cachedClientTokenExpiry,
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
@@ -5224,7 +5247,13 @@ final class BackendClient {
         {
             cachedClientToken = token
             cachedClientTokenExpiry = expiry
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
@@ -5233,19 +5262,26 @@ final class BackendClient {
             if expiry.timeIntervalSince(now) > sessionRefreshSkew {
                 cachedClientToken = sharedToken
                 cachedClientTokenExpiry = expiry
-                if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
-                    writeKeychainString(sharedToken, account: keychainTokenAccount)
-                    writeKeychainString(formatter.string(from: expiry), account: keychainExpiryAccount)
+                guard writeSharedClientToken(
+                    sharedToken,
+                    expiry: expiry,
+                    expectedSessionEpoch: expectedSessionEpoch
+                ) else {
+                    throw BackendError.stage("session", "Session identity changed. Please retry.")
                 }
-                writeSharedClientToken(sharedToken, expiry: expiry)
                 return sharedToken
             }
         }
 
-        return try await refreshClientToken(for: baseURL, userID: userID)
+        return try await refreshClientToken(
+            for: baseURL,
+            userID: userID,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func resolveStudioRenderClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let expectedSessionEpoch = synchronizeCachedIdentityEpoch()
         let now = Date()
         let formatter = ISO8601DateFormatter()
         if
@@ -5253,7 +5289,13 @@ final class BackendClient {
             let expiry = cachedClientTokenExpiry,
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
@@ -5265,49 +5307,57 @@ final class BackendClient {
         {
             cachedClientToken = sharedToken
             cachedClientTokenExpiry = expiry
-            writeSharedClientToken(sharedToken, expiry: expiry)
+            guard writeSharedClientToken(
+                sharedToken,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return sharedToken
         }
 
-        return try await refreshClientToken(for: baseURL, userID: userID)
+        return try await refreshClientToken(
+            for: baseURL,
+            userID: userID,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func resolveStudioRenderUserID() -> String {
-        if let cached = cachedUserID, !cached.isEmpty {
-            writeSharedUserID(cached)
-            return cached
-        }
-        let stored = normalizeStoredUserID(readSharedUserID())
-        if !stored.isEmpty {
-            cachedUserID = stored
-            writeSharedUserID(stored)
-            return stored
-        }
-        let generated = generateStableUserID()
-        cachedUserID = generated
-        writeSharedUserID(generated)
-        return generated
+        resolveAtomicRequestUserID()
     }
 
     private func refreshClientToken(
         for baseURL: URL,
         userID: String,
+        expectedSessionEpoch: Int? = nil,
         allowAuthTokenRefresh: Bool = true
     ) async throws -> String {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let requestSessionEpoch = expectedSessionEpoch ?? identity.sessionEpoch
+        guard identity.sessionEpoch == requestSessionEpoch else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
+        let requestUserID = identity.userID.isEmpty ? userID : identity.userID
+        cachedAuthSessionEpoch = identity.sessionEpoch
+        cachedUserID = identity.userID.isEmpty ? nil : identity.userID
         var request = URLRequest(url: baseURL.appendingPathComponent("session"))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        if !userID.isEmpty {
-            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        if !requestUserID.isEmpty {
+            request.setValue(requestUserID, forHTTPHeaderField: "X-User-Id")
         }
         let appToken = appToken()
         print("APP_TOKEN info:", redactedTokenInfo(appToken))
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        if !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
@@ -5330,7 +5380,8 @@ final class BackendClient {
                    await refreshUserAuthForRetryIfPossible() {
                     return try await refreshClientToken(
                         for: baseURL,
-                        userID: userID,
+                        userID: resolveUserID(),
+                        expectedSessionEpoch: synchronizeCachedIdentityEpoch(),
                         allowAuthTokenRefresh: false
                     )
                 }
@@ -5348,10 +5399,15 @@ final class BackendClient {
             throw BackendError.stage("session", "Invalid session response payload.")
         }
 
+        guard BackendAuthClient.currentAuthSessionEpoch() == requestSessionEpoch else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
+
         if let rawUserID = obj["user_id"] as? String {
             let normalized = normalizeStoredUserID(rawUserID)
-            if !normalized.isEmpty {
-                writeUserID(normalized)
+            if !normalized.isEmpty,
+               !writeUserID(normalized, expectedSessionEpoch: requestSessionEpoch) {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
             }
         }
 
@@ -5363,7 +5419,13 @@ final class BackendClient {
         }
 
         let expiry = Date().addingTimeInterval(expiresIn)
-        persistResolvedClientToken(token, expiry: expiry)
+        guard persistResolvedClientToken(
+            token,
+            expiry: expiry,
+            expectedSessionEpoch: requestSessionEpoch
+        ) else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
 
         return token
     }
@@ -5380,16 +5442,28 @@ final class BackendClient {
         clearSharedClientToken()
     }
 
-    private func persistResolvedClientToken(_ token: String, expiry: Date) {
+    @discardableResult
+    private func persistResolvedClientToken(
+        _ token: String,
+        expiry: Date,
+        expectedSessionEpoch: Int = BackendAuthClient.currentAuthSessionEpoch()
+    ) -> Bool {
+        guard BackendAuthClient.currentAuthSessionEpoch() == expectedSessionEpoch else {
+            return false
+        }
         cachedClientToken = token
         cachedClientTokenExpiry = expiry
 
-        let expiryRaw = ISO8601DateFormatter().string(from: expiry)
-        if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
-            writeKeychainString(token, account: keychainTokenAccount)
-            writeKeychainString(expiryRaw, account: keychainExpiryAccount)
+        guard writeSharedClientToken(
+            token,
+            expiry: expiry,
+            expectedSessionEpoch: expectedSessionEpoch
+        ) else {
+            cachedClientToken = nil
+            cachedClientTokenExpiry = nil
+            return false
         }
-        writeSharedClientToken(token, expiry: expiry)
+        return true
     }
 
     private func performCraftRequest<T: Decodable>(
@@ -6597,27 +6671,32 @@ final class BackendClient {
     }
 
     private func resolveUserID() -> String {
-        if let cached = cachedUserID, !cached.isEmpty {
-            writeSharedUserID(cached)
-            return cached
-        }
-        let stored = normalizeStoredUserID(readSharedUserID())
-        if !stored.isEmpty {
-            cachedUserID = stored
-            writeSharedUserID(stored)
-            return stored
-        }
-        let generated = generateStableUserID()
-        cachedUserID = generated
-        writeSharedUserID(generated)
-        return generated
+        resolveAtomicRequestUserID()
     }
 
-    private func writeUserID(_ userID: String) {
+    private func resolveAtomicRequestUserID() -> String {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        cachedAuthSessionEpoch = identity.sessionEpoch
+        cachedUserID = identity.userID.isEmpty ? nil : identity.userID
+        return identity.userID
+    }
+
+    @discardableResult
+    private func writeUserID(
+        _ userID: String,
+        expectedSessionEpoch: Int
+    ) -> Bool {
         let normalized = normalizeStoredUserID(userID)
-        guard !normalized.isEmpty else { return }
+        guard !normalized.isEmpty else { return false }
+        guard BackendAuthClient.persistSharedUserIDIfCurrent(
+            normalized,
+            expectedSessionEpoch: expectedSessionEpoch
+        ) else {
+            return false
+        }
+        cachedAuthSessionEpoch = expectedSessionEpoch
         cachedUserID = normalized
-        writeSharedUserID(normalized)
+        return true
     }
 
     private func generateStableUserID() -> String {
@@ -6648,24 +6727,38 @@ final class BackendClient {
         BackendAuthClient.sharedUserID()
     }
 
-    private func writeSharedClientToken(_ token: String, expiry: Date?) {
+    @discardableResult
+    private func writeSharedClientToken(
+        _ token: String,
+        expiry: Date?,
+        expectedSessionEpoch: Int = BackendAuthClient.currentAuthSessionEpoch()
+    ) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             clearSharedClientToken()
-            return
+            return false
         }
         let raw = expiry.map { ISO8601DateFormatter().string(from: $0) }
-        BackendAuthClient.persistSharedClientToken(trimmed, expiryRaw: raw, baseURLRaw: baseURL.absoluteString)
+        return BackendAuthClient.persistSharedClientTokenIfCurrent(
+            trimmed,
+            expiryRaw: raw,
+            baseURLRaw: baseURL.absoluteString,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func clearSharedClientToken() {
         BackendAuthClient.clearSharedClientToken()
     }
 
-    private func writeSharedUserID(_ userID: String) {
+    @discardableResult
+    private func writeSharedUserID(_ userID: String) -> Bool {
         let trimmed = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        BackendAuthClient.persistSharedUserID(trimmed)
+        guard !trimmed.isEmpty else { return false }
+        return BackendAuthClient.persistSharedUserIDIfCurrent(
+            trimmed,
+            expectedSessionEpoch: cachedAuthSessionEpoch
+        )
     }
 
     private func persistSharedBackendBaseURL(_ url: URL) {

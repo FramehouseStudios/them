@@ -13,9 +13,23 @@ nonisolated enum UITestLaunchConfiguration {
            !arguments.contains("--ui-preserve-state"),
            let bundleID = Bundle.main.bundleIdentifier {
             defaults.removePersistentDomain(forName: bundleID)
+            if defaults === UserDefaults.standard {
+                BackendAuthClient.clearRememberedLoginCredentials()
+            }
             ScreenplayLiveDraftFileStore.remove()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
+        }
+
+        if arguments.contains("--ui-seed-remembered-login"),
+           defaults === UserDefaults.standard {
+            let account = BackendLocalDemoAccount.standard
+            _ = BackendAuthClient.persistRememberedLoginCredentials(
+                email: account.email,
+                password: account.password,
+                rememberEmail: true,
+                savePassword: true
+            )
         }
 
         defaults.set("stub", forKey: "studio_debug_submit_transport_mode")

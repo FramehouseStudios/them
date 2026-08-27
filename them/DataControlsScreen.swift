@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AuthenticationServices
 #if os(macOS)
 import AppKit
 #endif
@@ -126,6 +127,11 @@ struct DataControlsScreen: View {
     @State private var statusMessage = ""
     @State private var stateVersion = ""
     @State private var showingV1LaunchDoctor = false
+    @State private var showingAccountDeletionReauth = false
+    @State private var accountDeletionAuthProvider = "email"
+    @State private var accountDeletionPassword = ""
+    @State private var accountDeletionError = ""
+    @State private var accountDeletionAppleRawNonce: String?
     #if DEBUG
     @State private var didInstallOutlineRecoveryUITestFixture = false
     #endif
@@ -185,7 +191,11 @@ struct DataControlsScreen: View {
                 title: Text(action.title),
                 message: Text(action.message),
                 primaryButton: .destructive(Text(action.confirmLabel)) {
-                    runAction(action)
+                    if action == .deleteAccount {
+                        presentAccountDeletionReauthentication()
+                    } else {
+                        runAction(action)
+                    }
                 },
                 secondaryButton: .cancel()
             )
@@ -225,6 +235,9 @@ struct DataControlsScreen: View {
                 showingV1LaunchDoctor = false
             }
             .frame(minWidth: 760, minHeight: 680)
+        }
+        .sheet(isPresented: $showingAccountDeletionReauth) {
+            accountDeletionReauthenticationSheet
         }
         .sheet(item: $inspectingOutlineRecovery) { chain in
             ScreenplayOutlineMutationRecoveryDetailView(
@@ -375,6 +388,82 @@ struct DataControlsScreen: View {
                 action: .deleteAccount
             )
         }
+    }
+
+    private var accountDeletionReauthenticationSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Confirm it’s you")
+                    .font(.system(size: 28, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.95))
+
+                Text(
+                    accountDeletionAuthProvider == "apple"
+                        ? "Continue with Apple again before scheduling permanent account deletion."
+                        : "Enter your current account password before scheduling permanent account deletion."
+                )
+                .font(.system(size: 15, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.74))
+
+                if accountDeletionAuthProvider == "apple" {
+                    SignInWithAppleButton(
+                        .signIn,
+                        onRequest: configureAccountDeletionAppleRequest,
+                        onCompletion: handleAccountDeletionAppleAuthorization
+                    )
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .accessibilityIdentifier("data.delete.account.apple.reauthenticate")
+                } else {
+                    SecureField("Current password", text: $accountDeletionPassword)
+                        .textContentType(.password)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white.opacity(0.30))
+                        )
+                        .accessibilityIdentifier("data.delete.account.current.password")
+
+                    Button(role: .destructive) {
+                        submitPasswordAccountDeletion()
+                    } label: {
+                        Text("Verify and Delete Account")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(accountDeletionPassword.isEmpty || isBusy)
+                    .accessibilityIdentifier("data.delete.account.confirm")
+                }
+
+                if !accountDeletionError.isEmpty {
+                    Text(accountDeletionError)
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundStyle(Color.red.opacity(0.88))
+                        .accessibilityIdentifier("data.delete.account.error")
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .frame(maxWidth: 520, minHeight: 260, alignment: .topLeading)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        clearAccountDeletionReauthentication()
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled(isBusy)
     }
 
     private var offlineOutboxStatus: some View {
@@ -1004,7 +1093,92 @@ struct DataControlsScreen: View {
     }
 
     @MainActor
-    private func runAction(_ action: DataControlAction) {
+    private func presentAccountDeletionReauthentication() {
+        let session = BackendAuthClient.currentAuthSessionState()
+        guard session.isAuthenticated else {
+            statusMessage = "Sign in before requesting account deletion."
+            return
+        }
+        accountDeletionAuthProvider = (session.user?.authProvider ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "apple" ? "apple" : "email"
+        accountDeletionPassword = ""
+        accountDeletionError = ""
+        accountDeletionAppleRawNonce = nil
+        showingAccountDeletionReauth = true
+    }
+
+    @MainActor
+    private func clearAccountDeletionReauthentication() {
+        accountDeletionPassword = ""
+        accountDeletionError = ""
+        accountDeletionAppleRawNonce = nil
+        showingAccountDeletionReauth = false
+    }
+
+    @MainActor
+    private func submitPasswordAccountDeletion() {
+        let password = accountDeletionPassword
+        guard !password.isEmpty else {
+            accountDeletionError = "Enter your current password."
+            return
+        }
+        clearAccountDeletionReauthentication()
+        runAction(.deleteAccount, accountDeletionProof: .password(password))
+    }
+
+    @MainActor
+    private func configureAccountDeletionAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        accountDeletionError = ""
+        accountDeletionAppleRawNonce = nil
+        do {
+            let rawNonce = try BackendAppleSignInNonce.generateRawNonce()
+            accountDeletionAppleRawNonce = rawNonce
+            request.requestedScopes = []
+            request.nonce = BackendAppleSignInNonce.sha256Base64URL(rawNonce)
+        } catch {
+            accountDeletionError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func handleAccountDeletionAppleAuthorization(
+        _ result: Result<ASAuthorization, Error>
+    ) {
+        switch result {
+        case .success(let authorization):
+            guard let rawNonce = accountDeletionAppleRawNonce, !rawNonce.isEmpty else {
+                accountDeletionError = "Apple could not complete the security check. Please try again."
+                return
+            }
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let identityToken = String(data: tokenData, encoding: .utf8),
+                  !identityToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                accountDeletionAppleRawNonce = nil
+                accountDeletionError = "Apple did not provide a usable identity token."
+                return
+            }
+            clearAccountDeletionReauthentication()
+            runAction(
+                .deleteAccount,
+                accountDeletionProof: .apple(identityToken: identityToken, rawNonce: rawNonce)
+            )
+        case .failure(let error):
+            accountDeletionAppleRawNonce = nil
+            if (error as? ASAuthorizationError)?.code == .canceled {
+                accountDeletionError = ""
+            } else {
+                accountDeletionError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func runAction(
+        _ action: DataControlAction,
+        accountDeletionProof: BackendAccountDeletionProof? = nil
+    ) {
         guard runningAction == nil else { return }
         runningAction = action
         statusMessage = ""
@@ -1029,7 +1203,16 @@ struct DataControlsScreen: View {
                     _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
                     await refreshMemoryStats(force: true)
                 case .deleteAccount:
-                    let result = try await BackendMemoryAPI.shared.requestAccountDeletion(reason: "Requested from Data Controls")
+                    guard let accountDeletionProof else {
+                        throw BackendMemoryAPIError.server(
+                            status: 400,
+                            message: "account_deletion_reauthentication_required"
+                        )
+                    }
+                    let result = try await BackendMemoryAPI.shared.requestAccountDeletion(
+                        reason: "Requested from Data Controls",
+                        proof: accountDeletionProof
+                    )
                     ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
                     clearOutlineRecoveryPresentation()
                     stateVersion = ""
