@@ -239,6 +239,18 @@ import {
   writeJsonFileAtomic,
 } from "./lib/utils.js";
 
+// Validate the deployment shape before opening stores or starting background
+// work. Production and unknown environment names must fail on configuration,
+// not on whichever persistence/provider subsystem initializes first.
+if (SHOULD_START_SERVER) {
+  try {
+    assertProductionEnv();
+  } catch (error) {
+    console.error(String(error?.message || error));
+    process.exit(1);
+  }
+}
+
 const ALLOWED_TTS_VOICES = new Set([
   "alloy",
   "ash",
@@ -5174,10 +5186,7 @@ let didLogMp3Signature = false;
 let elevenLabsBlockedUntilMs = 0;
 let elevenLabsBlockedReason = "";
 
-if (!OPENAI_API_KEY && NODE_ENV === "production") {
-  console.error("Missing OPENAI_API_KEY in environment.");
-  process.exit(1);
-} else if (!OPENAI_API_KEY) {
+if (!OPENAI_API_KEY && (NODE_ENV === "development" || NODE_ENV === "test")) {
   console.warn("[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors until configured.");
 }
 
@@ -33400,7 +33409,22 @@ const handleTalkRequest = createTalkHandler({
   wrapSystemPromptWithCreativeMemory,
 });
 
-app.post("/talk", providerBudgetGuard.middleware("talk"));
+function requireOpenAIProviderForTalk(_req, res, next) {
+  if (OPENAI_API_KEY) return next();
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(503).json({
+    stage: "talk",
+    code: "provider_not_configured",
+    retryable: false,
+    error: "Writing provider is not configured.",
+  });
+}
+
+app.post(
+  "/talk",
+  requireOpenAIProviderForTalk,
+  providerBudgetGuard.middleware("talk")
+);
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -33632,10 +33656,6 @@ process.once("SIGINT", () => handleTerminationSignal("SIGINT"));
 process.once("SIGTERM", () => handleTerminationSignal("SIGTERM"));
 
 if (SHOULD_START_SERVER) {
-  // Production env guard: refuse to boot a prod server without the secrets
-  // and infra we depend on (Postgres, JWT signing, OpenAI, app token).
-  // No-ops in non-production environments.
-  assertProductionEnv();
   // T-known-domains-startup-check: cheap boot-time invariant on the
   // persistence-adapter KNOWN_DOMAINS export. Logs (does not throw)
   // so a deploy with a corrupted constant fails diagnostics loudly

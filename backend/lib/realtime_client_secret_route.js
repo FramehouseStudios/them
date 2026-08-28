@@ -396,6 +396,20 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     const requestedModel = String(req.body?.model || "").trim();
     const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
     const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
+    const configuredProvider = String(getRealtimeProviderEnv() || "openai").trim().toLowerCase() || "openai";
+    const effectiveProvider = requestedProvider || configuredProvider;
+    if (effectiveProvider === "openai" && !String(OPENAI_API_KEY || "").trim()) {
+      incrementErrorCounter("realtime_supplier_unauthorized");
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "realtime_auth",
+        code: "realtime_supplier_unauthorized",
+        realtime_provider: "openai",
+        fallback: false,
+        degraded: true,
+        error: "Realtime provider is not configured.",
+      });
+    }
     const grounded = await resolveProjectGrounding({
       req,
       rid,
@@ -411,7 +425,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
       try {
         supplier = await createRealtimeSupplier({
-          provider: requestedProvider || getRealtimeProviderEnv() || "openai",
+          provider: effectiveProvider,
           apiKey: OPENAI_API_KEY,
           defaultModel: OPENAI_REALTIME_MODEL,
           defaultVoice: OPENAI_REALTIME_VOICE,

@@ -46,6 +46,7 @@ export async function startBackend({
   dataDir = createTestDataDir(),
   env = {},
   port: requestedPort = null,
+  unsetEnv = [],
 } = {}) {
   const port = requestedPort == null ? await getFreePort() : Number(requestedPort);
   const stdout = [];
@@ -75,6 +76,9 @@ export async function startBackend({
     PERSISTENCE_JSON_ROOT: path.join(dataDir, "persistence"),
     ...env,
   };
+  for (const key of unsetEnv) {
+    delete childEnv[key];
+  }
   const child = spawn(process.execPath, ["index.js"], {
     cwd: BACKEND_DIR,
     env: childEnv,

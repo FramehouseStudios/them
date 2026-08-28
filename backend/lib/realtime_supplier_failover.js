@@ -24,6 +24,10 @@
 const NON_FALLBACK_CODES = new Set([
   // 400-class — the caller asked for something we can't even attempt.
   "realtime_supplier_unknown_provider",
+  // Missing/invalid credentials are configuration failures, not a reason to
+  // manufacture a successful stub session for a caller who chose the real
+  // provider (or accepted the server default).
+  "realtime_supplier_unauthorized",
 ]);
 
 function shouldAttemptFallback(allowFallback, err) {

@@ -7,11 +7,13 @@ import { parseBool, parsePositiveInt, resolveStorePath } from "./lib/utils.js";
 const MAX_FILE_MB = 25;
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
+const NODE_ENV = String(process.env.NODE_ENV || "development").trim().toLowerCase() || "development";
 const PORT = process.env.PORT || 3000;
-const HOST = String(process.env.HOST || "").trim();
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const HOST = String(
+  process.env.HOST || (NODE_ENV === "production" ? "" : "127.0.0.1")
+).trim();
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const APP_TOKEN = process.env.APP_TOKEN || "";
-const NODE_ENV = process.env.NODE_ENV || "development";
 const CORS_ALLOW_ORIGIN = String(process.env.CORS_ALLOW_ORIGIN || "").trim();
 const API_SCHEMA_VERSION = parsePositiveInt(process.env.API_SCHEMA_VERSION, 1);
 const BACKEND_BUILD = String(process.env.BACKEND_BUILD || "dev").trim() || "dev";
@@ -75,11 +77,26 @@ const SHOULD_START_SERVER = process.env.RUN_SERVER == null
   ? true
   : parseBool(process.env.RUN_SERVER);
 
+// Structured request logging uses route templates only. JSON is the production
+// default for log aggregation; local runs stay readable unless explicitly
+// overridden.
+const LOG_FORMAT = String(
+  process.env.LOG_FORMAT || (NODE_ENV === "production" ? "json" : "text")
+).trim().toLowerCase();
+const LOG_LEVEL = String(process.env.LOG_LEVEL || "info").trim().toLowerCase();
+
 // Production startup guard. Throws a clear, multi-line error listing every
 // missing required environment variable. Callable from app/index startup or
 // from tests with a process-like env arg. Returns nothing on success.
 function assertProductionEnv(env = process.env) {
-  if ((env.NODE_ENV || "") !== "production") return;
+  const nodeEnv = String(env.NODE_ENV || "development").trim().toLowerCase() || "development";
+  if (nodeEnv === "development" || nodeEnv === "test") return;
+  if (nodeEnv !== "production") {
+    throw new Error(
+      `Refusing to boot: unsupported NODE_ENV=${JSON.stringify(nodeEnv)}. ` +
+      "Use development/test locally or production with the complete release configuration."
+    );
+  }
   const missing = [];
   if (!String(env.DATABASE_URL || "").trim()) {
     missing.push("DATABASE_URL — production must run against Postgres, not the JSON adapter.");
@@ -127,6 +144,8 @@ export {
   JWT_SECRET,
   JWT_TTL_SECONDS,
   HOST,
+  LOG_FORMAT,
+  LOG_LEVEL,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   NODE_ENV,

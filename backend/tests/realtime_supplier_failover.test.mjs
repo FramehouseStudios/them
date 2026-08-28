@@ -75,6 +75,10 @@ test("[failover] shouldAttemptFallback returns false for 400-class codes (unknow
   assert.equal(shouldAttemptFallback(true, { code: "realtime_supplier_unknown_provider" }), false);
 });
 
+test("[failover] shouldAttemptFallback returns false for missing or rejected credentials", () => {
+  assert.equal(shouldAttemptFallback(true, { code: "realtime_supplier_unauthorized" }), false);
+});
+
 test("[failover] shouldAttemptFallback returns true for generic 502-class failures", () => {
   assert.equal(shouldAttemptFallback(true, { code: "realtime_supplier_request_failed" }), true);
   assert.equal(shouldAttemptFallback(true, {}), true);
@@ -246,6 +250,13 @@ test("[failover-route] unpinned provider falls back to stub when OpenAI mint fai
     },
   });
   try {
+    const anonymous = await apiRequest(server, "/realtime/client_secret", {
+      method: "POST",
+      json: { instructions: "Keep it spare.", voice: "marin" },
+    });
+    assert.equal(anonymous.status, 401, "cost path must reject anonymous callers");
+    assert.equal(anonymous.json?.error, "user_auth_required");
+
     const token = await signupAndGetToken(server, "failover-unpinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",

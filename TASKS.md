@@ -755,11 +755,14 @@
 | T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | claude | review           |
 | T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review           |
 | T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | claude | review           |
+| T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex  | review           |
+| T-pii-safe-request-logs                 | Redact PII from structured request logs                                                   | codex  | review           |
 | T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | claude | review           |
 | T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review           |
 | T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
 | T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | claude | review           |
 | T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | claude | review           |
+| T-screenplay-idor-regression            | Prove cross-account screenplay project isolation                                         | codex  | review           |
 | T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | claude | review           |
 | T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review           |
 | T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | claude | review           |
@@ -2203,6 +2206,94 @@ existing smoke.
   (#256 schema batch 4).
 - FDX export deeper coverage when its smoke lands.
 
+### T-local-backend-no-provider-boot — Keep local backend bootable without provider credentials
+- **Owner:** codex
+- **Branch:** codex/T-local-backend-no-provider-boot
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Normalize the optional local `OPENAI_API_KEY` configuration to the
+  string-valued dependency contract used by extracted realtime routes.
+- Reserve the process-level missing-provider-key refusal for production; local
+  development must boot so auth, persistence, diagnostics, and degraded states
+  remain testable without private credentials.
+- Preserve the documented request-time 503 response for `POST /realtime/call`
+  when the key is unavailable, without disabling the existing explicit
+  degraded/stub behavior on routes that support it.
+- Add a process-level regression that starts the real development backend with
+  `OPENAI_API_KEY` absent.
+
+## Done When
+
+- The development backend reaches `/health` without `OPENAI_API_KEY`.
+- `POST /realtime/call` returns the documented 503 envelope instead of
+  crashing during route mount.
+- Focused backend tests, strict pre-flight, task-frontmatter validation, and
+  `git diff --check` pass.
+
+## Verification
+
+- `node --test backend/tests/backend_startup_without_openai_key.test.mjs backend/tests/realtime_call_route.test.mjs`
+  - Passed 20/20, including a process-level production fail-closed regression.
+- `cd backend && npm test`
+  - Passed 1218, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 93 task files.
+- Live Mac app smoke against the repaired local startup behavior
+  - Local backend reached `http://127.0.0.1:3001` without a provider key.
+  - Account creation/sign-in succeeded.
+  - Data Controls changed from connection/auth failures to `No companion memory yet.`
+
+### T-pii-safe-request-logs — Redact PII from structured request logs
+- **Owner:** codex
+- **Branch:** codex/T-pii-safe-request-logs
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Replace the two-line access logger that copied `req.url`, including query
+  parameters, into backend logs.
+- Emit one structured completion record containing only the request method,
+  developer-defined route template, response status, latency, safe response
+  metadata, and a strictly validated request identifier.
+- Never log concrete URLs, query strings, bodies, request headers, or arbitrary
+  request identifiers; use a neutral marker for unmatched and early-rejected
+  requests.
+- Keep failed health probes visible while filtering successful probe noise, and
+  support JSON/text formats plus severity thresholds.
+
+## Done When
+
+- Raw and percent-encoded query PII cannot reach either log format.
+- Dynamic path values and attacker-shaped request IDs cannot reach access logs.
+- A real Express request proves the middleware resolves the matched route
+  template only after routing completes.
+- Focused and full backend tests, strict pre-flight, task-frontmatter
+  validation, syntax checks, and `git diff --check` pass.
+
+## Verification
+
+- `cd backend && node --test tests/request_logger.test.mjs`
+  - Passed 16/16, including live Express route-template, CORS rejection, and
+    aborted-response regressions.
+- `cd backend && npm test`
+  - Passed 1234, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 94 task files.
+- `node --check backend/lib/request_logger.js`
+  - Passed.
+- `node --check backend/middleware/auth.js`
+  - Passed.
+- `git diff --check`
+  - Passed.
+
 ### T-protocol-infra-batch — Tighten backend extraction protocol helpers
 - **Owner:** claude
 - **Branch:** claude/T-protocol-infra-batch
@@ -2433,6 +2524,54 @@ input, `\r\n` normalization, blank-line collapsing, and determinism.
 `POST /screenplay/export` accepts `format=md` and `format=markdown`,
 returns `text/markdown; charset=utf-8` with a `.md` Content-Disposition;
 the conversion helper is tested; `npm test` green.
+
+### T-screenplay-idor-regression — Prove cross-account screenplay project isolation
+- **Owner:** codex
+- **Branch:** codex/T-screenplay-idor-regression
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Port the useful test-only IDOR coverage from stale launch-safety PR #364
+  onto the current release line without resurrecting its divergent branch.
+- Create two real accounts against the spawned backend and seed private title,
+  outline, comment, and draft sentinels for the owner.
+- Prove a second valid account cannot enumerate or directly read the project,
+  cannot mutate it through any current resource write route, and cannot bypass
+  ownership with a spoofed `X-User-Id` header.
+- Prove a collection upsert that reuses the owner's project id creates a
+  separate attacker-owned record instead of crossing the owner namespace.
+- Prove an anonymous header-only attacker remains unauthenticated and rejected
+  writes leave the owner's project unchanged.
+
+## Done When
+
+- Project, outline, collaborator, and comment reads return `404` cross-account
+  without private content in the response.
+- Outline, scene, beat, collaborator, comment, and version writes return `404`
+  cross-account; project DELETE remains an exact `405` with `Allow: GET`.
+- A same-id collection upsert returns `201` for a separate attacker-owned
+  record and exposes none of the owner's private content.
+- The owner still sees every private sentinel, with exactly one version, one
+  comment, zero collaborators, and no attacker content.
+- Focused and full backend tests, strict pre-flight, task-frontmatter
+  validation, syntax checks, and `git diff --check` pass.
+
+## Verification
+
+- `cd backend && node --test tests/screenplay_project_idor.integration.test.mjs`
+  - Passed 1/1.
+- `cd backend && npm test`
+  - Passed 1235, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 95 task files.
+- `node --check backend/tests/screenplay_project_idor.integration.test.mjs`
+  - Passed.
+- `git diff --check`
+  - Passed.
 
 ### T-talk-error-counter-zero-fix — Fix talk_error_counter falsy-zero bug in errorRatePerHour math
 - **Owner:** claude
