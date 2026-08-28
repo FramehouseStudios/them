@@ -16,8 +16,9 @@ v1_effect: lets the real app reach local auth, memory, and degraded realtime sur
 - Reserve the process-level missing-provider-key refusal for production; local
   development must boot so auth, persistence, diagnostics, and degraded states
   remain testable without private credentials.
-- Preserve the documented request-time 503 response for provider-backed paths
-  when the key is unavailable.
+- Preserve the documented request-time 503 response for `POST /realtime/call`
+  when the key is unavailable, without disabling the existing explicit
+  degraded/stub behavior on routes that support it.
 - Add a process-level regression that starts the real development backend with
   `OPENAI_API_KEY` absent.
 

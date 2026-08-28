@@ -50,22 +50,29 @@ test("[startup] production still exits when OPENAI_API_KEY is absent", async (t)
     stdio: ["ignore", "ignore", "pipe"],
   });
   child.stderr.on("data", (chunk) => stderr.push(String(chunk || "")));
-  t.after(() => {
-    if (child.exitCode == null) child.kill("SIGKILL");
+  t.after(async () => {
+    if (child.exitCode == null) {
+      child.kill("SIGKILL");
+      await once(child, "close").catch(() => {});
+    }
   });
 
   let timeout;
-  const exit = await Promise.race([
-    once(child, "exit"),
-    new Promise((_, reject) => {
-      timeout = setTimeout(
-        () => reject(new Error("Production backend did not exit")),
-        5000
-      );
-      timeout.unref();
-    }),
-  ]);
-  clearTimeout(timeout);
+  let exit;
+  try {
+    exit = await Promise.race([
+      once(child, "close"),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Production backend did not exit")),
+          5000
+        );
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   assert.equal(exit[0], 1);
   assert.equal(exit[1], null);

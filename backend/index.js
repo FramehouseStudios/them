@@ -3129,7 +3129,7 @@ if (!OPENAI_API_KEY && NODE_ENV === "production") {
   process.exit(1);
 } else if (!OPENAI_API_KEY) {
   console.warn(
-    "[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors until configured."
+    "[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors or explicit degraded/stub responses until configured."
   );
 }
 
