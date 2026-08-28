@@ -46,4 +46,16 @@ final class ScreenplayOutlineMutationOwnerPartitionTests: XCTestCase {
         XCTAssertNotEqual(unresolvedOne, unresolvedTwo)
         XCTAssertFalse(unresolvedOne.contains("project-1"))
     }
+
+    func testRecoveryScopeCanBeCachedWithoutReReadingLiveAuthDuringViewRendering() {
+        let scope = ScreenplayOutlineMutationOwnerPartition.recoveryScope(
+            userPartition: "user:writer-42",
+            clientToken: "sensitive-client-token"
+        )
+
+        XCTAssertTrue(scope.contains("user:writer-42"))
+        XCTAssertEqual(scope.count, 2)
+        XCTAssertTrue(scope.contains { $0.hasPrefix("client:") })
+        XCTAssertFalse(scope.contains { $0.contains("sensitive-client-token") })
+    }
 }

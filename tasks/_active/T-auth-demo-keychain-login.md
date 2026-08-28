@@ -21,6 +21,9 @@ v1_effect: gives local reviewers a repeatable authenticated Profile flow while p
 - Normalize backend millisecond session timestamps before rendering account
   activity so a valid current session never appears tens of thousands of years
   in the future.
+- Keep authenticated Data Controls responsive by caching its recovery-owner
+  scope outside SwiftUI rendering and deferring legacy token cleanup until the
+  auth session read has released its queue.
 - Do not add a backend demo endpoint, production credential, or auth bypass.
 
 ## Done when
@@ -32,6 +35,8 @@ v1_effect: gives local reviewers a repeatable authenticated Profile flow while p
 - Release or non-loopback configurations cannot surface or invoke demo login.
 - Current-session activity displays the real calendar date for both legacy
   second timestamps and backend millisecond timestamps.
+- Data Controls opens and remains interactive for a remembered signed-in
+  account while backend identity and memory refreshes run concurrently.
 - Focused credential/auth tests, iPhone and macOS builds, local backend smoke,
   strict pre-flight, and `git diff --check` pass.
 
@@ -42,13 +47,22 @@ v1_effect: gives local reviewers a repeatable authenticated Profile flow while p
   passed, 0 failed.
 - Focused account deletion, password reset, session bootstrap, and auth-race tests: 15 passed, 0 failed.
 - Signed Profile UI tests for demo separation and Keychain relaunch restoration: 2 passed, 0 failed.
-- Full `themTests` target: 496 passed, 0 failed, 0 skipped.
+- Focused remembered-login and recovery-owner partition tests: 29 passed, 0
+  failed, 0 skipped.
+- Full `themTests` target: 497 passed, 0 failed, 0 skipped.
 - Exact replay of the formerly deadlocked first-page telemetry test: 1 passed, 0 failed.
 - Backend auth/account contracts: 37 passed, 0 failed.
 - iOS Simulator Release, macOS Scaffold Debug, and macOS Scaffold Release builds passed.
 - Rebuilt macOS Scaffold Debug app relaunched into the same authenticated local
   account and rendered the active session as `Aug 27, 2026` instead of year
   `58625`.
+- Process sampling reproduced the Data Controls freeze as a main-thread/auth
+  session queue lock inversion. The rebuilt app then opened Data Controls,
+  refreshed memory shape, opened Launch Doctor, exported its report, returned
+  home, and reopened Account without a freeze.
+- Launch Doctor records Screenplay Studio passed with a cold-reopened clean
+  Fountain draft at `/Users/halfmutantfilms/Documents/Launch Doctor Studio Smoke.fountain`;
+  the JSON and Markdown reports were exported to Downloads.
 - Release-app scan found none of the demo email, password, or UI label.
 - Isolated local-backend smoke passed signup, refresh rotation, logout, repeat login, persistence, process restart, and repeat login.
 - `node scripts/pre_flight.mjs --strict`, active-task front-matter evaluation, and `git diff --check` passed.

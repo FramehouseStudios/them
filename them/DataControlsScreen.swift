@@ -113,6 +113,7 @@ struct DataControlsScreen: View {
     @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
     @State private var outlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] = []
+    @State private var outlineRecoveryOwnerScope: Set<String> = []
     @State private var outlineRecoveryError = ""
     @State private var isRefreshingOutlineRecovery = false
     @State private var runningOutlineRecoveryID: String?
@@ -889,8 +890,9 @@ struct DataControlsScreen: View {
     }
 
     private var visibleOutlineRecoveryChains: [ScreenplayOutlineMutationRecoveryChain] {
-        let ownerScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
-        return outlineRecoveryChains.filter { ownerScope.contains($0.parkedHead.ownerUserId) }
+        outlineRecoveryChains.filter {
+            outlineRecoveryOwnerScope.contains($0.parkedHead.ownerUserId)
+        }
     }
 
     private func isCurrentOutlineRecoveryChain(
@@ -987,6 +989,7 @@ struct DataControlsScreen: View {
         }
         for _ in 0..<2 {
             let requestedScope = ScreenplayOutlineMutationOwnerPartition.currentRecoveryScope()
+            outlineRecoveryOwnerScope = requestedScope
             do {
                 let recoveredChains = try await ScreenplayOutlineMutationOutbox.shared.recoveryChains(
                     ownerUserIds: requestedScope

@@ -27,8 +27,18 @@ nonisolated enum ScreenplayOutlineMutationOwnerPartition {
     }
 
     static func currentRecoveryScope() -> Set<String> {
-        var partitions: Set<String> = [currentUser()]
-        let currentClientToken = (BackendAuthClient.sharedClientToken() ?? "")
+        recoveryScope(
+            userPartition: currentUser(),
+            clientToken: BackendAuthClient.sharedClientToken()
+        )
+    }
+
+    static func recoveryScope(
+        userPartition: String,
+        clientToken: String?
+    ) -> Set<String> {
+        var partitions: Set<String> = [userPartition]
+        let currentClientToken = (clientToken ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !currentClientToken.isEmpty {
             partitions.insert(client(token: currentClientToken, fallbackProjectId: ""))

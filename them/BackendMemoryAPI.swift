@@ -5112,7 +5112,9 @@ nonisolated enum BackendAuthClient {
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessToken)
+            scheduleLegacyAuthTokenDefaultsCleanup(
+                defaultsKey: DefaultsKey.authAccessToken
+            )
             return trimmed
         }
         return migrateLegacyAuthTokenIfNeeded(
@@ -5148,7 +5150,9 @@ nonisolated enum BackendAuthClient {
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshToken)
+            scheduleLegacyAuthTokenDefaultsCleanup(
+                defaultsKey: DefaultsKey.authRefreshToken
+            )
             return trimmed
         }
         return migrateLegacyAuthTokenIfNeeded(
@@ -5172,8 +5176,24 @@ nonisolated enum BackendAuthClient {
             // Keychain becomes writable again.
             return nil
         }
-        defaults.removeObject(forKey: defaultsKey)
+        scheduleLegacyAuthTokenDefaultsCleanup(
+            defaultsKey: defaultsKey
+        )
         return legacy
+    }
+
+    private static func scheduleLegacyAuthTokenDefaultsCleanup(
+        defaultsKey: String
+    ) {
+        guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return }
+        // Token reads run under authSessionStateQueue. UserDefaults publishes
+        // synchronously into SwiftUI, so mutating it while a view is waiting on
+        // that queue can invert the locks and freeze the window. Cleanup is
+        // intentionally deferred until the main run loop is outside the read.
+        DispatchQueue.main.async {
+            guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return }
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+        }
     }
 
     @discardableResult
