@@ -8,7 +8,11 @@ const MAX_FILE_MB = 25;
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 const PORT = process.env.PORT || 3000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Provider-backed routes accept an empty key in local development and return
+// their documented 503 envelopes at request time. Keep the exported config
+// value string-typed even when the variable is absent so route mount guards do
+// not turn an optional local provider into a process-wide startup failure.
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "");
 const APP_TOKEN = process.env.APP_TOKEN || "";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const CORS_ALLOW_ORIGIN = String(process.env.CORS_ALLOW_ORIGIN || "").trim();

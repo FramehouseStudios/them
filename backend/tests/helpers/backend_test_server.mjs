@@ -45,6 +45,7 @@ async function waitForServer(baseUrl, timeoutMs = 15000) {
 export async function startBackend({
   dataDir = createTestDataDir(),
   env = {},
+  unsetEnv = [],
 } = {}) {
   const port = await getFreePort();
   const stdout = [];
@@ -73,6 +74,9 @@ export async function startBackend({
     PERSISTENCE_JSON_ROOT: path.join(dataDir, "persistence"),
     ...env,
   };
+  for (const key of unsetEnv) {
+    delete childEnv[key];
+  }
   const child = spawn(process.execPath, ["index.js"], {
     cwd: BACKEND_DIR,
     env: childEnv,

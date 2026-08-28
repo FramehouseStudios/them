@@ -753,6 +753,7 @@
 | T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | claude | review           |
 | T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review           |
 | T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | claude | review           |
+| T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex  | review           |
 | T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | claude | review           |
 | T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review           |
 | T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
@@ -2042,6 +2043,47 @@ existing smoke.
 - Schema doc `docs/schemas/fountain-export.md` lands separately
   (#256 schema batch 4).
 - FDX export deeper coverage when its smoke lands.
+
+### T-local-backend-no-provider-boot — Keep local backend bootable without provider credentials
+- **Owner:** codex
+- **Branch:** codex/T-local-backend-no-provider-boot
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Normalize the optional local `OPENAI_API_KEY` configuration to the
+  string-valued dependency contract used by extracted realtime routes.
+- Reserve the process-level missing-provider-key refusal for production; local
+  development must boot so auth, persistence, diagnostics, and degraded states
+  remain testable without private credentials.
+- Preserve the documented request-time 503 response for provider-backed paths
+  when the key is unavailable.
+- Add a process-level regression that starts the real development backend with
+  `OPENAI_API_KEY` absent.
+
+## Done When
+
+- The development backend reaches `/health` without `OPENAI_API_KEY`.
+- `POST /realtime/call` returns the documented 503 envelope instead of
+  crashing during route mount.
+- Focused backend tests, strict pre-flight, task-frontmatter validation, and
+  `git diff --check` pass.
+
+## Verification
+
+- `node --test backend/tests/backend_startup_without_openai_key.test.mjs backend/tests/realtime_call_route.test.mjs`
+  - Passed 19/19.
+- `cd backend && npm test`
+  - Passed 1217, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 93 task files.
+- Live Mac app smoke against the repaired local startup behavior
+  - Local backend reached `http://127.0.0.1:3001` without a provider key.
+  - Account creation/sign-in succeeded.
+  - Data Controls changed from connection/auth failures to `No companion memory yet.`
 
 ### T-protocol-infra-batch — Tighten backend extraction protocol helpers
 - **Owner:** claude
