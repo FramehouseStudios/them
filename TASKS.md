@@ -2378,8 +2378,10 @@ the conversion helper is tested; `npm test` green.
 - Create two real accounts against the spawned backend and seed private title,
   outline, comment, and draft sentinels for the owner.
 - Prove a second valid account cannot enumerate or directly read the project,
-  cannot mutate it through any current project write route, and cannot bypass
+  cannot mutate it through any current resource write route, and cannot bypass
   ownership with a spoofed `X-User-Id` header.
+- Prove a collection upsert that reuses the owner's project id creates a
+  separate attacker-owned record instead of crossing the owner namespace.
 - Prove an anonymous header-only attacker remains unauthenticated and rejected
   writes leave the owner's project unchanged.
 
@@ -2389,8 +2391,10 @@ the conversion helper is tested; `npm test` green.
   without private content in the response.
 - Outline, scene, beat, collaborator, comment, and version writes return `404`
   cross-account; project DELETE remains an exact `405` with `Allow: GET`.
-- The owner still sees the original title and draft, with exactly one version
-  and one comment and no attacker content.
+- A same-id collection upsert returns `201` for a separate attacker-owned
+  record and exposes none of the owner's private content.
+- The owner still sees every private sentinel, with exactly one version, one
+  comment, zero collaborators, and no attacker content.
 - Focused and full backend tests, strict pre-flight, task-frontmatter
   validation, syntax checks, and `git diff --check` pass.
 

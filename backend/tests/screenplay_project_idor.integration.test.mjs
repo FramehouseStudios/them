@@ -59,7 +59,7 @@ test("[screenplay-idor] a valid user cannot access another user's project by id"
     assert.ok(projectId, "Alice project id");
 
     const aliceWrites = [
-      ["outline", { acts: [{ id: "act-private", label: privateOutline }] }],
+      ["outline", { acts: [{ id: "act-private", title: privateOutline }] }],
       ["comments", { text: privateComment, author_email: alice.email }],
       ["version", { draft: `FADE IN:\n\nINT. PRIVATE ROOM - NIGHT\n\n${privateDraft}` }],
     ];
@@ -121,6 +121,20 @@ test("[screenplay-idor] a valid user cannot access another user's project by id"
     assert.ok(!bobProjectIds.includes(projectId), "Bob list cannot enumerate Alice's project");
     assertNoPrivateContent(bobList, secrets, "Bob project list");
 
+    // The collection upsert accepts caller-supplied project ids. Reusing
+    // Alice's id is allowed only as a new Bob-owned record; it must never find
+    // or update Alice's record across the owner namespace boundary.
+    const bobSameId = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers: bobSpoofHeaders,
+      json: { project_id: projectId, title: "BOB_HIJACK", activate: false },
+    });
+    assert.equal(bobSameId.status, 201, "Same id creates a separate Bob-owned project");
+    assert.equal(bobSameId.json?.created, true);
+    assert.equal(bobSameId.json?.project?.id, projectId);
+    assert.equal(bobSameId.json?.project?.title, "BOB_HIJACK");
+    assertNoPrivateContent(bobSameId, secrets, "Bob same-id collection upsert");
+
     const anonymous = await apiRequest(server, `/screenplay/projects/${projectId}`, {
       headers: { "X-User-Id": alice.userId },
     });
@@ -136,8 +150,11 @@ test("[screenplay-idor] a valid user cannot access another user's project by id"
     const alicePayload = JSON.stringify(aliceRead.json || {});
     assert.equal(aliceRead.json?.project?.version_count, 1, "Rejected writes add no owner versions");
     assert.equal(aliceRead.json?.project?.comment_count, 1, "Rejected writes add no owner comments");
-    assert.ok(alicePayload.includes(privateTitle), "Owner title remains intact");
-    assert.ok(alicePayload.includes(privateDraft), "Owner draft remains intact");
+    assert.equal(aliceRead.json?.project?.collaborator_count, 0, "Rejected writes add no collaborators");
+    for (const secret of secrets) {
+      assert.ok(alicePayload.includes(secret), `Owner sentinel remains intact: ${secret}`);
+    }
+    assert.ok(!alicePayload.includes(bob.email), "Rejected collaborator write adds no attacker email");
     assert.ok(!alicePayload.includes("BOB_HIJACK"), "Rejected mutations changed no owner data");
   } finally {
     await server.stop();
