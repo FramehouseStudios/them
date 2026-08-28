@@ -2400,6 +2400,21 @@ final class BackendRememberedLoginCredentialPolicyTests: XCTestCase {
         XCTAssertTrue(BackendAuthClient.authUsersReferToSameAccount(emailFallbackA, emailFallbackB))
     }
 
+    func testEpochDateNormalizationAcceptsBackendSecondsAndMilliseconds() {
+        let timestampSeconds = 1_775_000_000.0
+
+        XCTAssertEqual(
+            themDateFromEpoch(timestampSeconds).timeIntervalSince1970,
+            timestampSeconds,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            themDateFromEpoch(timestampSeconds * 1_000).timeIntervalSince1970,
+            timestampSeconds,
+            accuracy: 0.001
+        )
+    }
+
 #if DEBUG
     func testLocalDemoAccountIsDebugLoopbackOnly() {
         XCTAssertEqual(BackendLocalDemoAccount.standard.email, "studio-demo@io.them.invalid")

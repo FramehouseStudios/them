@@ -1848,7 +1848,7 @@ struct ProfileAccountScreen: View {
     private func sessionDetailLine(_ session: BackendAuthManagedSession) -> String {
         var parts: [String] = []
         if let updatedAt = session.updatedAt, updatedAt > 0 {
-            parts.append("Seen \(Date(timeIntervalSince1970: updatedAt).formatted(date: .abbreviated, time: .shortened))")
+            parts.append("Seen \(themDateFromEpoch(updatedAt).formatted(date: .abbreviated, time: .shortened))")
         }
         if let version = session.device?.clientVersion, !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parts.append("v\(version)")
