@@ -754,6 +754,7 @@
 | T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review           |
 | T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | claude | review           |
 | T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex  | review           |
+| T-pii-safe-request-logs                 | Redact PII from structured request logs                                                   | codex  | review           |
 | T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | claude | review           |
 | T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review           |
 | T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
@@ -2085,6 +2086,52 @@ existing smoke.
   - Local backend reached `http://127.0.0.1:3001` without a provider key.
   - Account creation/sign-in succeeded.
   - Data Controls changed from connection/auth failures to `No companion memory yet.`
+
+### T-pii-safe-request-logs — Redact PII from structured request logs
+- **Owner:** codex
+- **Branch:** codex/T-pii-safe-request-logs
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Replace the two-line access logger that copied `req.url`, including query
+  parameters, into backend logs.
+- Emit one structured completion record containing only the request method,
+  developer-defined route template, response status, latency, safe response
+  metadata, and a strictly validated request identifier.
+- Never log concrete URLs, query strings, bodies, request headers, or arbitrary
+  request identifiers; use a neutral marker for unmatched and early-rejected
+  requests.
+- Keep failed health probes visible while filtering successful probe noise, and
+  support JSON/text formats plus severity thresholds.
+
+## Done When
+
+- Raw and percent-encoded query PII cannot reach either log format.
+- Dynamic path values and attacker-shaped request IDs cannot reach access logs.
+- A real Express request proves the middleware resolves the matched route
+  template only after routing completes.
+- Focused and full backend tests, strict pre-flight, task-frontmatter
+  validation, syntax checks, and `git diff --check` pass.
+
+## Verification
+
+- `cd backend && node --test tests/request_logger.test.mjs`
+  - Passed 16/16, including live Express route-template, CORS rejection, and
+    aborted-response regressions.
+- `cd backend && npm test`
+  - Passed 1234, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 94 task files.
+- `node --check backend/lib/request_logger.js`
+  - Passed.
+- `node --check backend/middleware/auth.js`
+  - Passed.
+- `git diff --check`
+  - Passed.
 
 ### T-protocol-infra-batch — Tighten backend extraction protocol helpers
 - **Owner:** claude
