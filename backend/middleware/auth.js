@@ -58,8 +58,8 @@ function appTokenMiddleware(req, res, next) {
 
 function applyAppMiddleware(app) {
   app.use(requestIdMiddleware);
-  app.use(corsMiddleware);
   app.use(requestLoggerMiddleware);
+  app.use(corsMiddleware);
   app.use(appTokenMiddleware);
   return app;
 }

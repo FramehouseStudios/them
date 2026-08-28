@@ -16,7 +16,13 @@ import {
   safeRequestId,
   createRequestLoggerMiddleware,
 } from "../lib/request_logger.js";
-import { requestIdMiddleware, requestLoggerMiddleware } from "../middleware/auth.js";
+import {
+  appTokenMiddleware,
+  applyAppMiddleware,
+  corsMiddleware,
+  requestIdMiddleware,
+  requestLoggerMiddleware,
+} from "../middleware/auth.js";
 
 function mockRes(statusCode, headers = {}) {
   const listeners = {};
@@ -186,19 +192,42 @@ test("[req-log] middleware emits one line on finish, routed by severity", () => 
   assert.equal(nextCalled, true);
   tick = 1200;
   res.emit("finish");
+  res.emit("close");
   assert.equal(lines.error.length, 1);
   assert.equal(lines.log.length, 0);
   assert.equal(JSON.parse(lines.error[0]).latency_ms, 200);
 });
 
+test("[req-log] close-before-finish logs one aborted request without duplication", () => {
+  const lines = { log: [], warn: [], error: [] };
+  const sink = { log: (l) => lines.log.push(l), warn: (l) => lines.warn.push(l), error: (l) => lines.error.push(l) };
+  let tick = 1000;
+  const mw = createRequestLoggerMiddleware({ format: "json", level: "info", now: () => tick, sink });
+  const req = { method: "POST", path: "/talk/private-value", requestId: "0123456789abcdef" };
+  const res = mockRes(200);
+  mw(req, res, () => {});
+  tick = 1050;
+  res.emit("close");
+  res.emit("finish");
+
+  assert.equal(lines.warn.length, 1);
+  assert.equal(lines.log.length, 0);
+  assert.equal(lines.error.length, 0);
+  const record = JSON.parse(lines.warn[0]);
+  assert.equal(record.aborted, true);
+  assert.equal(record.level, "warn");
+  assert.equal(record.path, "<unmatched>");
+  assert.equal(record.latency_ms, 50);
+  assert.ok(!lines.warn[0].includes("private-value"));
+});
+
 test("[req-log] Express integration logs the matched template, not concrete PII", async () => {
   const lines = [];
-  const originalLog = console.log;
-  console.log = (...args) => lines.push(args.join(" "));
+  const sink = { log: (line) => lines.push(line), warn: (line) => lines.push(line), error: (line) => lines.push(line) };
 
   const app = express();
   app.use(requestIdMiddleware);
-  app.use(requestLoggerMiddleware);
+  app.use(createRequestLoggerMiddleware({ format: "json", level: "info", sink }));
   app.get("/private/:accountId", (_req, res) => res.status(200).json({ ok: true }));
 
   const server = await new Promise((resolve) => {
@@ -219,9 +248,55 @@ test("[req-log] Express integration logs the matched template, not concrete PII"
       assert.ok(!lines[0].includes(forbidden), `Express access log leaked: ${forbidden}`);
     }
   } finally {
-    console.log = originalLog;
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
   }
+});
+
+test("[req-log] CORS early reject logs one neutral record without origin/query PII", async () => {
+  const lines = [];
+  const sink = { log: (line) => lines.push(line), warn: (line) => lines.push(line), error: (line) => lines.push(line) };
+
+  const app = express();
+  app.use(requestIdMiddleware);
+  app.use(createRequestLoggerMiddleware({ format: "json", level: "info", sink }));
+  app.use(corsMiddleware);
+  app.get("/private/:accountId", (_req, res) => res.status(200).json({ ok: true }));
+
+  const server = await new Promise((resolve) => {
+    const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
+  });
+
+  try {
+    const address = server.address();
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/private/alice%40example.com?token=sk-live-secret`,
+      { method: "OPTIONS", headers: { Origin: "https://alice.example.com" } }
+    );
+    assert.equal(response.status, 403);
+    await response.text();
+
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /OPTIONS <unmatched> -> 403|"path":"<unmatched>"/);
+    for (const forbidden of ["alice", "example.com", "Origin", "token", "sk-live-secret", "%40"]) {
+      assert.ok(!lines[0].includes(forbidden), `CORS reject log leaked: ${forbidden}`);
+    }
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test("[req-log] production middleware order logs CORS and token early rejects", () => {
+  const mounted = [];
+  const app = { use: (middleware) => mounted.push(middleware) };
+  assert.equal(applyAppMiddleware(app), app);
+  assert.deepEqual(mounted, [
+    requestIdMiddleware,
+    requestLoggerMiddleware,
+    corsMiddleware,
+    appTokenMiddleware,
+  ]);
 });

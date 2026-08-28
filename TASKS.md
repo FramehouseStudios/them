@@ -2118,9 +2118,10 @@ existing smoke.
 ## Verification
 
 - `cd backend && node --test tests/request_logger.test.mjs`
-  - Passed 13/13, including a live Express route-template regression.
+  - Passed 16/16, including live Express route-template, CORS rejection, and
+    aborted-response regressions.
 - `cd backend && npm test`
-  - Passed 1231, skipped 1, failed 0.
+  - Passed 1234, skipped 1, failed 0.
 - `node scripts/pre_flight.mjs --strict`
   - Passed with no findings.
 - `node scripts/tasks_active_frontmatter_eval.mjs --strict`
