@@ -760,6 +760,7 @@
 | T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
 | T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | claude | review           |
 | T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | claude | review           |
+| T-screenplay-idor-regression            | Prove cross-account screenplay project isolation                                         | codex  | review           |
 | T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | claude | review           |
 | T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review           |
 | T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | claude | review           |
@@ -2363,6 +2364,50 @@ input, `\r\n` normalization, blank-line collapsing, and determinism.
 `POST /screenplay/export` accepts `format=md` and `format=markdown`,
 returns `text/markdown; charset=utf-8` with a `.md` Content-Disposition;
 the conversion helper is tested; `npm test` green.
+
+### T-screenplay-idor-regression — Prove cross-account screenplay project isolation
+- **Owner:** codex
+- **Branch:** codex/T-screenplay-idor-regression
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+- Port the useful test-only IDOR coverage from stale launch-safety PR #364
+  onto the current release line without resurrecting its divergent branch.
+- Create two real accounts against the spawned backend and seed private title,
+  outline, comment, and draft sentinels for the owner.
+- Prove a second valid account cannot enumerate or directly read the project,
+  cannot mutate it through any current project write route, and cannot bypass
+  ownership with a spoofed `X-User-Id` header.
+- Prove an anonymous header-only attacker remains unauthenticated and rejected
+  writes leave the owner's project unchanged.
+
+## Done When
+
+- Project, outline, collaborator, and comment reads return `404` cross-account
+  without private content in the response.
+- Outline, scene, beat, collaborator, comment, and version writes return `404`
+  cross-account; project DELETE remains an exact `405` with `Allow: GET`.
+- The owner still sees the original title and draft, with exactly one version
+  and one comment and no attacker content.
+- Focused and full backend tests, strict pre-flight, task-frontmatter
+  validation, syntax checks, and `git diff --check` pass.
+
+## Verification
+
+- `cd backend && node --test tests/screenplay_project_idor.integration.test.mjs`
+  - Passed 1/1.
+- `cd backend && npm test`
+  - Passed 1235, skipped 1, failed 0.
+- `node scripts/pre_flight.mjs --strict`
+  - Passed with no findings.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict`
+  - Passed 95 task files.
+- `node --check backend/tests/screenplay_project_idor.integration.test.mjs`
+  - Passed.
+- `git diff --check`
+  - Passed.
 
 ### T-talk-error-counter-zero-fix — Fix talk_error_counter falsy-zero bug in errorRatePerHour math
 - **Owner:** claude
