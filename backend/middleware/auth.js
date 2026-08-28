@@ -36,9 +36,10 @@ function corsMiddleware(req, res, next) {
   next();
 }
 
-// Structured, PII-safe request logger (logs req.path only — never the query
-// string, body, or headers — as JSON in prod or text in dev, one line per
-// request, level-gated, health-probe-filtered). See lib/request_logger.js.
+// Structured, PII-safe request logger (logs the matched route template only —
+// never a concrete URL, query string, body, or headers — as JSON in prod or
+// text in dev, one line per request, level-gated, health-probe-filtered).
+// See lib/request_logger.js.
 const requestLoggerMiddleware = createRequestLoggerMiddleware({
   format: LOG_FORMAT,
   level: LOG_LEVEL,

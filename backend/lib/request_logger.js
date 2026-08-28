@@ -5,10 +5,11 @@
 // with no level control and no health-check filtering.
 //
 // This logger emits ONE line per request, on response finish, containing only
-// non-PII request metadata: method, PATH ONLY (never the query string), status,
-// latency, byte count, content-type, and the request id. It never reads the
-// request body, query, or headers, so tokens, emails, transcripts, screenplay
-// text, and Authorization headers cannot appear in logs by construction.
+// non-PII request metadata: method, the developer-defined ROUTE TEMPLATE (never
+// a concrete URL or query string), status, latency, byte count, content-type,
+// and a strictly validated request id. It never reads the request body, query,
+// or headers, so tokens, emails, transcripts, screenplay text, Authorization
+// headers, and user-controlled path segments cannot appear in access logs.
 //
 //   - JSON output (LOG_FORMAT=json) for log aggregators, or a human-readable
 //     line for local dev (LOG_FORMAT=text);
@@ -18,6 +19,7 @@
 
 const LEVEL_SEVERITY = Object.freeze({ error: 0, warn: 1, info: 2, debug: 3 });
 const DEFAULT_SKIP_PATHS = Object.freeze(["/healthz", "/health"]);
+const UNMATCHED_ROUTE = "<unmatched>";
 
 function normalizeLevel(level, fallback = "info") {
   const l = String(level || "").trim().toLowerCase();
@@ -34,10 +36,35 @@ function severityForStatus(status) {
 // Pathname only — strips any query string so PII in query params never lands
 // in logs. Express sets req.path; fall back to splitting req.url defensively.
 function pathOnly(req) {
-  if (req && typeof req.path === "string" && req.path) return req.path;
-  const url = String(req?.url || req?.originalUrl || "");
-  const q = url.indexOf("?");
-  return q === -1 ? url : url.slice(0, q);
+  const candidate = String(req?.path || req?.url || req?.originalUrl || "");
+  const q = candidate.indexOf("?");
+  return q === -1 ? candidate : candidate.slice(0, q);
+}
+
+// Express populates req.route only after a route matches. Its path is the
+// developer-defined template (for example, /projects/:projectId), so it keeps
+// routing context without copying user-controlled path segments. Early rejects
+// and 404s deliberately use a neutral marker instead of the concrete URL.
+function safeRouteTemplate(req) {
+  const routePath = req?.route?.path;
+  if (typeof routePath !== "string") return UNMATCHED_ROUTE;
+  const normalized = pathOnly({ path: routePath });
+  if (!normalized.startsWith("/") || normalized.length > 512 || /[\r\n]/.test(normalized)) {
+    return UNMATCHED_ROUTE;
+  }
+  return normalized;
+}
+
+// The active middleware mints 16-character hex request IDs. Also accept
+// canonical UUIDs for forward compatibility with trusted load balancers, but
+// never copy an arbitrary header-derived string into logs.
+function safeRequestId(value) {
+  const raw = String(value || "").trim();
+  if (/^[a-f0-9]{16}$/i.test(raw)) return raw;
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(raw)) {
+    return raw;
+  }
+  return undefined;
 }
 
 function buildRequestLogRecord(req, res, { startedAt = 0, now = Date.now() } = {}) {
@@ -46,9 +73,9 @@ function buildRequestLogRecord(req, res, { startedAt = 0, now = Date.now() } = {
   return {
     ts: new Date(now).toISOString(),
     level: severityForStatus(status),
-    request_id: String(req?.requestId || "") || undefined,
+    request_id: safeRequestId(req?.requestId),
     method: String(req?.method || ""),
-    path: pathOnly(req),
+    path: safeRouteTemplate(req),
     status,
     latency_ms: startedAt ? Math.max(0, now - startedAt) : 0,
     bytes: getHeader("Content-Length") != null ? String(getHeader("Content-Length")) : undefined,
@@ -103,8 +130,11 @@ function createRequestLoggerMiddleware({
 export {
   LEVEL_SEVERITY,
   DEFAULT_SKIP_PATHS,
+  UNMATCHED_ROUTE,
   severityForStatus,
   pathOnly,
+  safeRouteTemplate,
+  safeRequestId,
   buildRequestLogRecord,
   shouldLogRequest,
   formatRequestLog,
