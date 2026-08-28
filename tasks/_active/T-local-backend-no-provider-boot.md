@@ -32,9 +32,9 @@ v1_effect: lets the real app reach local auth, memory, and degraded realtime sur
 ## Verification
 
 - `node --test backend/tests/backend_startup_without_openai_key.test.mjs backend/tests/realtime_call_route.test.mjs`
-  - Passed 19/19.
+  - Passed 20/20, including a process-level production fail-closed regression.
 - `cd backend && npm test`
-  - Passed 1217, skipped 1, failed 0.
+  - Passed 1218, skipped 1, failed 0.
 - `node scripts/pre_flight.mjs --strict`
   - Passed with no findings.
 - `node scripts/tasks_active_frontmatter_eval.mjs --strict`
