@@ -1,0 +1,1 @@
+{"at":"2026-08-28T01:59:11.175Z","by":"codex","kind":"pr_opened","pr":371,"comment":"Opened Tier-2 local backend startup repair after live Launch Doctor smoke exposed a no-provider-key crash; development now boots and provider routes fail closed at request time, with 1217 backend tests passed and 1 skipped."}
