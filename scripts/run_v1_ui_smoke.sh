@@ -42,9 +42,13 @@ build_args+=(
   -configuration "$CONFIGURATION"
   -destination "$destination"
   "-only-testing:${ONLY_TESTING}"
-  CODE_SIGNING_ALLOWED=NO
-  CODE_SIGNING_REQUIRED=NO
+  -parallel-testing-enabled NO
+  -maximum-concurrent-test-simulator-destinations 1
   "$@"
 )
 
+# Keep Xcode's normal simulator "Sign to Run Locally" behavior. The V1 UI
+# suite exercises remembered credentials in Apple Keychain, and an unsigned
+# simulator app is not entitled to use that storage. Keep the stateful UI
+# stories on one destination so relaunch assertions cannot race a test clone.
 "${XCODEBUILD_BIN}" "${build_args[@]}"

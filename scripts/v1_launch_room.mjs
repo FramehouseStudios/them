@@ -79,19 +79,20 @@ function extractOpenDecisionTitles(markdown) {
 
 function summarizeReleaseProof(markdown) {
   if (!markdown) return null;
-  const result = markdown.match(/^Failed:\s+(.+)$/m)?.[1]?.replace(/`/g, "") || "unknown";
-  const blockingStart = markdown.indexOf("## Blocking Checks");
+  const result = markdown.match(/^(?:Result:|Failed:)\s+(.+)$/m)?.[1]?.replace(/[`.]/g, "") || "unknown";
+  const blockingHeading = markdown.match(/^## (?:Blocking Checks|Human Clearance Required)$/m)?.[0] || "";
+  const blockingStart = blockingHeading ? markdown.indexOf(blockingHeading) : -1;
   const blockingRest = blockingStart === -1 ? "" : markdown.slice(blockingStart);
-  const nextSection = blockingRest.search(/\n## (Warning|Final Preflight Command Shape|Build Log|Boundary)\b/);
+  const nextSection = blockingRest.slice(blockingHeading.length).search(/\n## /);
   const blockSection = blockingStart === -1
     ? ""
-    : blockingRest.slice(0, nextSection === -1 ? undefined : nextSection);
+    : blockingRest.slice(0, nextSection === -1 ? undefined : blockingHeading.length + nextSection);
   const blockers = [];
   let active = null;
   for (const line of blockSection.split("\n")) {
-    if (line.startsWith("- ")) {
+    if (/^(?:- |\d+\. )/.test(line)) {
       if (active) blockers.push(active.trim());
-      active = line.slice(2).trim();
+      active = line.replace(/^(?:- |\d+\. )/, "").trim();
     } else if (active && /^\s{2,}\S/.test(line)) {
       active += ` ${line.trim()}`;
     }

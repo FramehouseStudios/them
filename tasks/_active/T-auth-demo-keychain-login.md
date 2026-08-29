@@ -61,7 +61,7 @@ v1_effect: gives local reviewers a repeatable authenticated Profile flow while p
   refreshed memory shape, opened Launch Doctor, exported its report, returned
   home, and reopened Account without a freeze.
 - Launch Doctor records Screenplay Studio passed with a cold-reopened clean
-  Fountain draft at `/Users/halfmutantfilms/Documents/Launch Doctor Studio Smoke.fountain`;
+  operator-provided Fountain draft outside the repository (the local path and document are not tracked);
   the JSON and Markdown reports were exported to Downloads.
 - Release-app scan found none of the demo email, password, or UI label.
 - Isolated local-backend smoke passed signup, refresh rotation, logout, repeat login, persistence, process restart, and repeat login.

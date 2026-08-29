@@ -3759,6 +3759,13 @@ Detail:
         guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
               exchange.target == .voicePin else { return }
         reloadStudioAskNoteExchange(exchange)
+        // Reuse restores the ask and route without letting the keyboard cover
+        // the adjacent Creative Partner actions. The writer can tap the
+        // composer when they are ready to edit or send it again.
+        Task { @MainActor in
+            await Task.yield()
+            studioPromptFocused = false
+        }
     }
 
     private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
@@ -4160,6 +4167,22 @@ private var directionOneThemPanel: some View {
 
         pendingScreenplayQuestionPrompt
         directionOneCompactComposerSection
+
+        // Keep the current creative exchange and its Reuse/To Page actions
+        // adjacent to the composer on compact iPhone rails. Passive memory and
+        // craft collections can grow much taller and must not bury this live
+        // routing control below the reachable scroll range.
+        ScreenplayStudioCreativePartnerView(
+            presentation: creativePartnerPresentation,
+            actions: ScreenplayStudioCreativePartnerActions(
+                onSelectMode: selectCreativePartnerMode,
+                onReuseVoicePin: reuseCreativePartnerVoicePin,
+                onSendVoicePinToPage: sendCreativePartnerVoicePinToPage,
+                onClearThread: clearCompanionThreadHistory,
+                onClearMemory: liveDraftBridge.clearCompanionMemory
+            )
+        )
+
         directionOneCreativeInstinctsCard
 
         ScreenplayStudioCharacterMemoryView(
@@ -4186,17 +4209,6 @@ private var directionOneThemPanel: some View {
                 onDismiss: { card in
                     Task { await vm.dismissAcceptedCraftTwist(card) }
                 }
-            )
-        )
-
-        ScreenplayStudioCreativePartnerView(
-            presentation: creativePartnerPresentation,
-            actions: ScreenplayStudioCreativePartnerActions(
-                onSelectMode: selectCreativePartnerMode,
-                onReuseVoicePin: reuseCreativePartnerVoicePin,
-                onSendVoicePinToPage: sendCreativePartnerVoicePinToPage,
-                onClearThread: clearCompanionThreadHistory,
-                onClearMemory: liveDraftBridge.clearCompanionMemory
             )
         )
     }

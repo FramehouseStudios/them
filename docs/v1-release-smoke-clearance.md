@@ -1,5 +1,10 @@
 # V1 Release Smoke Clearance
 
+> Historical evidence only (May 2026). Superseded on 2026-08-28 by
+> `docs/v1-release-preflight-proof.md` and
+> `docs/v1-build-test-readiness.md`. Do not use the 5-test or old preflight
+> counts below for release approval.
+
 This is the T139 launch-blocker evidence packet. It records what Codex could
 truthfully clear locally and what remains blocked by missing release inputs or
 manual human smoke proof.

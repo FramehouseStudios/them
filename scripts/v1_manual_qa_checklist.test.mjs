@@ -24,21 +24,27 @@ test("[v1-manual-qa] --json emits the five V1 manual gates", () => {
   assert.equal(payload.manualFlows.length, 5);
   assert.deepEqual(
     payload.manualFlows.map((f) => f.pillar),
-    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "Cross-Platform Release Readiness"],
+    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iPhone Release Readiness"],
   );
-  assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
-  assert.ok(payload.parked.some((p) => /core memory export is approved/.test(p.reason)));
+  assert.ok(payload.parked.some((p) => p.prs.includes("#99")));
+  assert.ok(payload.parked.some((p) => /destructive memory delete remains post-V1/.test(p.reason)));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
   assert.ok(payload.platformPosture.includes("iPhone TestFlight remains the App Store release lane."));
-  assert.ok(payload.platformPosture.includes("macOS is an active desktop Studio shell and must pass Mac desktop preflight/build checks alongside iPhone."));
-  assert.match(payload.currentLocalProof, /2026-05-28/);
-  assert.match(payload.currentLocalProof, /authenticated backend smoke/);
+  assert.ok(payload.platformPosture.includes("The Mac Studio scaffold is outside V1 and is available only as an explicit opt-in diagnostic lane."));
+  assert.match(payload.currentLocalProof, /2026-08-28/);
+  assert.match(payload.currentLocalProof, /providerless-startup/);
+  assert.match(payload.currentLocalProof, /497\/497 iOS unit tests/);
+  assert.match(payload.currentLocalProof, /31 tests with 24 passed/);
   assert.match(payload.currentLocalProof, /APP_TOKEN_RELEASE/);
-  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "Cross-Platform Release Readiness");
+  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "iPhone Release Readiness");
   assert.ok(releaseFlow);
-  assert.ok(releaseFlow.steps.some((step) => /Apple Development Team ID and production APP_TOKEN_RELEASE/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY/.test(step)));
   assert.ok(releaseFlow.steps.some((step) => /https:\/\/api\.them\.io/.test(step)));
-  assert.ok(releaseFlow.steps.some((step) => /Mac desktop/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /com\.apple\.developer\.applesignin/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /physical iPhone/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /actual Apple ID/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /PrivacyInfo\.xcprivacy/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /AUTH_APPLE_AUDIENCE/.test(step)));
   assert.ok(!releaseFlow.steps.some((step) => /hosted backend URL, and production app token/.test(step)));
 });
 
@@ -47,9 +53,10 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
   assert.match(r.stdout, /## Platform Posture/);
-  assert.match(r.stdout, /macOS is an active desktop Studio shell/);
+  assert.match(r.stdout, /Mac Studio scaffold is outside V1/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
-  assert.match(r.stdout, /#212/);
+  assert.match(r.stdout, /#99/);
+  assert.doesNotMatch(r.stdout, /#212/);
 });
 
 test("[v1-manual-qa] --prompt emits a Launch Doctor result block template", () => {
@@ -60,7 +67,7 @@ test("[v1-manual-qa] --prompt emits a Launch Doctor result block template", () =
   assert.match(r.stdout, /^Screenplay Studio: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.match(r.stdout, /^Creative Memory: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.match(r.stdout, /^Realtime: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
-  assert.match(r.stdout, /^Cross-Platform Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^iPhone Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.doesNotMatch(r.stdout, /## Manual App Flows/);
 });
 

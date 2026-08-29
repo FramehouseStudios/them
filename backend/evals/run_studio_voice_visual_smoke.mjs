@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { createStudioOwnedAppController } from "./studio_eval_debug_utils.mjs";
 
-const BACKEND_DIR = "/Users/halfmutantfilms/Desktop/io.them/them/backend";
+const BACKEND_DIR = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-home.png";
 
 function assert(condition, message) {

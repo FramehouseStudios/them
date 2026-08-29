@@ -29,7 +29,7 @@ test("[run-release-preflight] fails clearly when local release config is missing
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Missing local release config/);
   assert.match(r.stderr, /Release\.local\.env\.example/);
-  assert.match(r.stderr, /DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE/);
+  assert.match(r.stderr, /DEVELOPMENT_TEAM_ID, APP_TOKEN_RELEASE, and OPENAI_API_KEY/);
   assert.doesNotMatch(r.stderr, /fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN_RELEASE/i);
 });
 
@@ -41,9 +41,35 @@ test("[run-release-preflight] rejects placeholder local release config before pr
 
   const r = run({ RELEASE_ENV_FILE: envPath });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /missing real private value\(s\): DEVELOPMENT_TEAM_ID APP_TOKEN_RELEASE/);
+  assert.match(r.stderr, /missing real private value\(s\): DEVELOPMENT_TEAM_ID APP_TOKEN_RELEASE OPENAI_API_KEY/);
   assert.doesNotMatch(r.stderr, /BACKEND_URL/);
   assert.doesNotMatch(r.stdout, /App Store Preflight/);
+});
+
+test("[run-release-preflight] rejects a group/world-readable release config before sourcing it", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-mode-"));
+  const envPath = path.join(directory, "Release.local.env");
+  const secret = "mode-leak-token_1234567890";
+  fs.writeFileSync(envPath, `APP_TOKEN_RELEASE=${secret}\n`, { mode: 0o644 });
+  fs.chmodSync(envPath, 0o644);
+
+  const r = run({ RELEASE_ENV_FILE: envPath });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /must have mode 600 \(found 644\)/);
+  assert.doesNotMatch(`${r.stdout}\n${r.stderr}`, new RegExp(secret));
+});
+
+test("[run-release-preflight] rejects a release config symlink before sourcing it", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-link-"));
+  const target = path.join(directory, "target.env");
+  const envPath = path.join(directory, "Release.local.env");
+  fs.writeFileSync(target, "APP_TOKEN_RELEASE=symlink-token_1234567890\n", { mode: 0o600 });
+  fs.symlinkSync(target, envPath);
+
+  const r = run({ RELEASE_ENV_FILE: envPath });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /must not be a symlink/);
+  assert.doesNotMatch(`${r.stdout}\n${r.stderr}`, /symlink-token_1234567890/);
 });
 
 test("[run-release-preflight] enables the deterministic voice latency gate by default", () => {
@@ -58,7 +84,7 @@ test("[run-release-preflight] enables cross-platform voice network-fault smokes 
   assert.match(scriptSource, /Skipping voice network-fault gate/);
 });
 
-test("[run-release-preflight] gates adaptive Studio writer-block rescue across platforms", () => {
+test("[run-release-preflight] gates adaptive Studio writer-block rescue", () => {
   assert.match(
     scriptSource,
     /RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE="\$\{RUN_STUDIO_INSTINCT_WRITER_BLOCK_GATE:-1\}"/,
@@ -69,15 +95,11 @@ test("[run-release-preflight] gates adaptive Studio writer-block rescue across p
   );
   assert.match(scriptSource, /Skipping Studio instinct writer-block gate/);
 
-  assert.match(workflowSource, /name: Verify Clementine Studio Writer Block Rescue/);
-  assert.match(workflowSource, /working-directory: backend/);
-  assert.match(workflowSource, /run: npm run eval:studio-instinct-writer-block-ui/);
   assert.match(workflowSource, /name: Upload Clementine Studio Evidence/);
   assert.match(workflowSource, /if: always\(\)/);
   assert.match(workflowSource, /name: clementine-studio-writer-block-evidence/);
   assert.match(workflowSource, /\/tmp\/them-smoke\/studio-instinct-writer-block\//);
-  assert.match(workflowSource, /MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release/);
-  assert.match(workflowSource, /MAC_DESKTOP_ACTION: archive/);
+  assert.match(workflowSource, /RUN_MAC_DESKTOP_PREFLIGHT: 0/);
 });
 
 test("[run-release-preflight] gates writer-block craft quality before UI evidence", () => {
@@ -95,12 +117,7 @@ test("[run-release-preflight] gates writer-block craft quality before UI evidenc
       scriptSource.indexOf("run eval:studio-instinct-writer-block-ui"),
   );
 
-  assert.match(workflowSource, /name: Verify Clementine Writer Block Quality Contract/);
-  assert.match(workflowSource, /run: npm run eval:writer-block-rescue/);
-  assert.ok(
-    workflowSource.indexOf("run: npm run eval:writer-block-rescue") <
-      workflowSource.indexOf("run: npm run eval:studio-instinct-writer-block-ui"),
-  );
+  assert.match(workflowSource, /run: bash \.\/scripts\/run_release_preflight\.sh/);
 });
 
 test("[run-release-preflight] gates live structural story quality before UI evidence", () => {
@@ -123,14 +140,35 @@ test("[run-release-preflight] gates live structural story quality before UI evid
   assert.match(workflowSource, /name: Require OpenAI Provider Secret/);
   assert.match(workflowSource, /name: Score Live Story And Correction Quality/);
   assert.match(workflowSource, /run: npm run eval:live-studio-story-quality/);
-  assert.ok(
-    workflowSource.indexOf("run: npm run eval:live-studio-story-quality") <
-      workflowSource.indexOf("run: npm run eval:studio-instinct-writer-block-ui"),
-  );
+  assert.match(workflowSource, /needs: live-structural-canary/);
 });
 
-test("[run-release-preflight] archives the production Mac app by default", () => {
+test("[run-release-preflight] keeps the Mac scaffold outside the iPhone V1 gate by default", () => {
+  assert.match(scriptSource, /RUN_MAC_DESKTOP_PREFLIGHT="\$\{RUN_MAC_DESKTOP_PREFLIGHT:-0\}"/);
   assert.match(scriptSource, /MAC_DESKTOP_CONFIGURATION="\$\{MAC_DESKTOP_CONFIGURATION:-Mac Scaffold Release\}"/);
   assert.match(scriptSource, /MAC_DESKTOP_ACTION="\$\{MAC_DESKTOP_ACTION:-archive\}"/);
   assert.match(scriptSource, /scripts\/desktop_preflight\.sh/);
+  assert.match(scriptSource, /Mac scaffold is outside the iPhone-only V1 release gate/);
+});
+
+test("[run-release-preflight] runs the signed iPhone V1 UI suite by default", () => {
+  assert.match(scriptSource, /RUN_V1_UI_SMOKE_GATE="\$\{RUN_V1_UI_SMOKE_GATE:-1\}"/);
+  assert.match(scriptSource, /scripts\/run_v1_ui_smoke\.sh/);
+  assert.match(scriptSource, /Skipping signed iPhone V1 UI smoke/);
+});
+
+test("[run-release-preflight] requires OpenAI for every enabled OpenAI consumer", () => {
+  assert.match(scriptSource, /RUN_QUALITY_GATE="\$\{RUN_QUALITY_GATE:-1\}"/);
+  assert.match(scriptSource, /RUN_EVAL="\$\{RUN_EVAL:-1\}"/);
+  assert.match(scriptSource, /RUN_TALK_RECOVERY_GATE="\$\{RUN_TALK_RECOVERY_GATE:-1\}"/);
+  assert.match(scriptSource, /RUN_SPECULATIVE_REUSE_GATE="\$\{RUN_SPECULATIVE_REUSE_GATE:-1\}"/);
+  assert.match(scriptSource, /RUN_SMOKE="\$\{RUN_SMOKE:-1\}"/);
+  assert.match(scriptSource, /RUN_LIVE_STUDIO_STRUCTURAL_CANARY.*requires_openai/s);
+  assert.match(scriptSource, /RUN_QUALITY_GATE.*RUN_EVAL.*RUN_TALK_RECOVERY_GATE.*RUN_SPECULATIVE_REUSE_GATE.*RUN_SMOKE.*requires_openai/s);
+});
+
+test("[run-release-preflight] checks the exact privacy URL shipped in Info-Release.plist", () => {
+  assert.match(scriptSource, /plutil -extract PRIVACY_POLICY_URL raw/);
+  assert.match(scriptSource, /PRIVACY_POLICY_URL.*does not match the URL shipped in Info-Release\.plist/);
+  assert.match(scriptSource, /--url="\$\{shipped_privacy_url\}"/);
 });

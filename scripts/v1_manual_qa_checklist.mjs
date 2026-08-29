@@ -46,18 +46,18 @@ const artifact = {
     {
       name: "iOS V1 UI smoke",
       command: "scripts/run_v1_ui_smoke.sh",
-      proves: "The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory recall, and realtime stub fallback before human visual/audio signoff.",
+      proves: "The 31-test sequential XCUITest suite covers the connected V1 app, including locally signed Keychain relaunch, Creative Partner routing, talk-to-screenplay, export/restore, memory, realtime, and recovery states. Fixture-gated skips remain explicit and do not count as human signoff.",
     },
     {
       name: "Release preflight",
       command: "scripts/run_release_preflight.sh",
-      proves: "Release settings, private signing/token inputs, live backend URL, active Mac desktop scaffold build, privacy manifest, iPhone TestFlight posture, and the Release iPhone build are ready for archive checks.",
+      proves: "Release settings, private signing/token inputs, live backend and shipped privacy-policy URLs, privacy manifest, AppIcon, iPhone-only TestFlight posture, and the Release iPhone build are ready for signed archive checks.",
     },
   ],
-  currentLocalProof: "Current local proof, 2026-05-28 America/Los_Angeles: strict pre-flight, canon/V1 smokes, backend tests, authenticated backend smoke through `/session`, `/history`, `/memories`, and `/talk`, free/local quality gate, unsigned Release iPhone Simulator build, and iOS Debug unit/UI tests all passed. `scripts/appstore_preflight.sh` and `scripts/run_release_preflight.sh` correctly remain red without paid/private release inputs: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN_RELEASE`, and a Release entitlements confirmation warning before upload. `them/Release.local.env.example`, `scripts/release_config_status.mjs`, and `scripts/run_release_preflight.sh` keep the private release switch-flip path explicit without printing secrets.",
+  currentLocalProof: "Current local proof, 2026-08-28 America/Los_Angeles: the integrated release line includes current `main`; 497/497 iOS unit tests passed; the locally signed simulator V1 UI suite completed 31 tests with 24 passed, 7 explicit fixture/server-gated skips, and 0 failed; focused providerless-startup, PII-safe request logging, and screenplay ownership tests passed; release config/AppIcon/public-surface contracts passed; and a clean unsigned iPhone Release build was exercised with a dummy ignored config. The gate intentionally remains red until a human approves the branch's Email Address privacy declaration, supplies DEVELOPMENT_TEAM_ID and production APP_TOKEN_RELEASE, approves a dedicated iOS Sign in with Apple entitlement/capability, deploys the backend and privacy policy, and completes distribution-signed physical-device/App Store Connect checks.",
   platformPosture: [
     "iPhone TestFlight remains the App Store release lane.",
-    "macOS is an active desktop Studio shell and must pass Mac desktop preflight/build checks alongside iPhone.",
+    "The Mac Studio scaffold is outside V1 and is available only as an explicit opt-in diagnostic lane.",
   ],
   manualFlows: [
     {
@@ -108,29 +108,28 @@ const artifact = {
       passCriteria: "Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.",
     },
     {
-      pillar: "Cross-Platform Release Readiness",
-      goal: "real release config -> live backend -> iPhone and Mac preflights -> exported Launch Doctor proof -> human signoff",
+      pillar: "iPhone Release Readiness",
+      goal: "real release config -> live public surfaces -> signed iPhone archive -> exported Launch Doctor proof -> human signoff",
       steps: [
         "Create the ignored Release.local.env from the checked-in template.",
-        "Fill in the Apple Development Team ID and production APP_TOKEN_RELEASE.",
-        "Keep the hosted backend URL at https://api.them.io unless the release backend changes.",
-        "Run the release preflight and confirm live backend, Mac desktop, and iPhone build checks are green.",
-        "Export Launch Doctor JSON/Markdown from the app or CLI fallback.",
-        "Record final human signoff before TestFlight or external review.",
+        "Fill in DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY; keep the file mode 600.",
+        "Deploy the production backend with Postgres, every migration, the canonical auth-store marker, one V1 backend instance, and real DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, and AUTH_APPLE_AUDIENCE; APP_TOKEN must match APP_TOKEN_RELEASE.",
+        "Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 io.them content without redirects or parked-domain material.",
+        "Approve a dedicated iOS entitlement containing com.apple.developer.applesignin = [Default], enable Sign in with Apple for io.them.them in the Apple portal, regenerate provisioning, and wire only that file to iphoneos Release.",
+        "Review and approve the Email Address declaration in PrivacyInfo.xcprivacy, approve or replace the generated AppIcon, and complete App Store privacy/export-compliance metadata.",
+        "Add GitHub Actions secrets APP_TOKEN_RELEASE and DEVELOPMENT_TEAM_ID, verify OPENAI_API_KEY, then run scripts/run_release_preflight.sh without disabling any gate and require the rc-* workflow to pass.",
+        "Archive and Validate the distribution-signed iPhone app, upload it to TestFlight, and install the build on a physical iPhone.",
+        "Verify real Sign in with Apple using an actual Apple ID, server-backed email signup/sign-in, session restoration, Remember Me/Keychain opt-in and opt-out, sign-out, and account deletion. The DEBUG .invalid demo account is not an Apple or production account.",
+        "Run all five manual flows on the TestFlight build, export Launch Doctor JSON/Markdown, and record final human signoff before external review.",
       ],
-      passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.",
+      passCriteria: "Public surfaces, signed archive validation, physical-device flows, Launch Doctor proof, metadata, and human sign-off are all green before TestFlight/external review.",
     },
   ],
   parked: [
     {
       item: "Creative-memory delete implementation",
-      prs: ["#94", "#99"],
-      reason: "Privacy decision is resolved; core memory export is approved/tracked in #94, while #99 delete implementation remains post-V1 unless Codex assigns it.",
-    },
-    {
-      item: "Auth route extraction",
-      prs: ["#212"],
-      reason: "Tier-3 auth work remains do-not-merge until explicitly cleared.",
+      prs: ["#99"],
+      reason: "The privacy decision and core export work are merged; destructive memory delete remains post-V1 unless Codex assigns it.",
     },
   ],
 };

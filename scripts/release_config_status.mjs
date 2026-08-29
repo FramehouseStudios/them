@@ -44,8 +44,35 @@ function trimQuotes(value) {
   return out.trim();
 }
 
-function parseEnvFile(file) {
-  if (!fs.existsSync(file)) return {};
+function inspectPrivateEnvFile(file) {
+  try {
+    const stat = fs.lstatSync(file);
+    const mode = stat.mode & 0o777;
+    const regularFile = stat.isFile();
+    const symlink = stat.isSymbolicLink();
+    return {
+      exists: true,
+      regularFile,
+      symlink,
+      mode,
+      secure: regularFile && !symlink && mode === 0o600,
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        exists: false,
+        regularFile: false,
+        symlink: false,
+        mode: null,
+        secure: false,
+      };
+    }
+    throw error;
+  }
+}
+
+function parseEnvFile(file, inspection = inspectPrivateEnvFile(file)) {
+  if (!inspection.secure) return {};
   const values = {};
   const text = fs.readFileSync(file, "utf8");
   for (const line of text.split(/\r?\n/)) {
@@ -129,7 +156,7 @@ function parseProjectReleaseBuildSettings() {
   return {};
 }
 
-function loadReleaseBuildSettings({ team, backendUrl, appToken }) {
+function loadReleaseBuildSettings({ team }) {
   const args = [
     "-project",
     projectPath,
@@ -142,8 +169,6 @@ function loadReleaseBuildSettings({ team, backendUrl, appToken }) {
     "-showBuildSettings",
   ];
   if (team) args.push(`DEVELOPMENT_TEAM_ID=${team}`);
-  if (backendUrl) args.push(`BACKEND_URL=${backendUrl}`);
-  if (appToken) args.push(`APP_TOKEN_RELEASE=${appToken}`);
 
   const result = spawnSync("xcodebuild", args, {
     cwd: repoRoot,
@@ -172,8 +197,9 @@ function makeCheck(id, ok, message, details = {}) {
 
 function buildStatus(opts) {
   const envFile = opts.envFile;
-  const envFileValues = parseEnvFile(envFile);
-  const envFileExists = fs.existsSync(envFile);
+  const envFileInspection = inspectPrivateEnvFile(envFile);
+  const envFileValues = parseEnvFile(envFile, envFileInspection);
+  const envFileExists = envFileInspection.exists;
   const defaultEnvFileIgnored = gitCheckIgnore(defaultEnvFile);
   const defaultEnvExampleExists = fs.existsSync(defaultEnvExampleFile);
 
@@ -185,13 +211,19 @@ function buildStatus(opts) {
     ? { ok: true, skipped: true, settings: {}, error: "" }
     : loadReleaseBuildSettings({
       team: teamInput.value,
-      backendUrl: backendInput.value,
-      appToken: tokenInput.value,
     });
 
   const releaseTeam = trimQuotes(xcode.settings.DEVELOPMENT_TEAM || teamInput.value);
-  const releaseBackendUrl = trimQuotes(xcode.settings.BACKEND_URL || backendInput.value);
-  const releaseAppToken = trimQuotes(xcode.settings.APP_TOKEN || tokenInput.value);
+  // The planned env-file value is authoritative because the release wrapper
+  // persists it into Release.local.xcconfig before building. Never validate a
+  // one-off xcodebuild override that a later Organizer archive would not use.
+  const releaseBackendUrl = trimQuotes(backendInput.value || xcode.settings.BACKEND_URL);
+  // Never place APP_TOKEN_RELEASE in xcodebuild argv, where process listings can
+  // expose it. Direct secret input is authoritative; the ignored xcconfig is
+  // the canonical bridge when Xcode itself must consume the value.
+  const releaseAppToken = !isPlaceholder(tokenInput.value)
+    ? tokenInput.value
+    : trimQuotes(xcode.settings.APP_TOKEN);
   const buildSettingsSource = xcode.ok
     ? "Xcode Release build settings"
     : xcode.fallback
@@ -221,6 +253,30 @@ function buildStatus(opts) {
       ? "them/Release.local.env is ignored by git."
       : "them/Release.local.env is not ignored by git.",
     { path: "them/Release.local.env" },
+  ));
+
+  const envFileSecurityOk = !envFileExists || envFileInspection.secure;
+  let envFileSecurityMessage = "Release env file is absent; shell-only input has no local file to validate.";
+  if (envFileExists && envFileInspection.secure) {
+    envFileSecurityMessage = `Release env file is a regular non-symlink file with mode 600: ${rel(envFile)}.`;
+  } else if (envFileInspection.symlink) {
+    envFileSecurityMessage = `Release env file must not be a symlink: ${rel(envFile)}.`;
+  } else if (envFileExists && !envFileInspection.regularFile) {
+    envFileSecurityMessage = `Release env path must be a regular file: ${rel(envFile)}.`;
+  } else if (envFileExists) {
+    envFileSecurityMessage = `Release env file must have mode 600 (found ${(envFileInspection.mode ?? 0).toString(8)}): ${rel(envFile)}.`;
+  }
+  checks.push(makeCheck(
+    "release-env-file-security",
+    envFileSecurityOk,
+    envFileSecurityMessage,
+    {
+      path: rel(envFile),
+      exists: envFileExists,
+      regularFile: envFileInspection.regularFile,
+      symlink: envFileInspection.symlink,
+      mode: envFileInspection.mode === null ? "" : envFileInspection.mode.toString(8),
+    },
   ));
 
   const teamOk = !isPlaceholder(releaseTeam) && /^[A-Z0-9]{10}$/.test(releaseTeam);
@@ -295,7 +351,7 @@ function buildStatus(opts) {
   const blockers = checks.filter((check) => !check.ok).map((check) => check.message);
   const failedIds = new Set(checks.filter((check) => !check.ok).map((check) => check.id));
   const missingInputs = [
-    failedIds.has("release-env-file") ? rel(envFile) : "",
+    failedIds.has("release-env-file") || failedIds.has("release-env-file-security") ? rel(envFile) : "",
     failedIds.has("development-team") ? "DEVELOPMENT_TEAM_ID" : "",
     failedIds.has("backend-url") ? "BACKEND_URL" : "",
     failedIds.has("app-token-release") ? "APP_TOKEN_RELEASE" : "",
@@ -304,6 +360,10 @@ function buildStatus(opts) {
   if (failedIds.has("release-env-file")) {
     nextSteps.push(`Create ${rel(envFile)} from ${rel(defaultEnvExampleFile)}.`);
     nextSteps.push(`Set permissions with: chmod 600 ${rel(envFile)}`);
+  } else if (failedIds.has("release-env-file-security")) {
+    nextSteps.push(envFileInspection.symlink
+      ? `Replace ${rel(envFile)} with a regular file, then run: chmod 600 ${rel(envFile)}`
+      : `Set permissions with: chmod 600 ${rel(envFile)}`);
   }
   if (missingInputs.some((input) => input !== rel(envFile))) {
     nextSteps.push(`Fill missing private inputs: ${missingInputs.filter((input) => input !== rel(envFile)).join(", ")}.`);
@@ -316,6 +376,10 @@ function buildStatus(opts) {
     envFile: {
       path: rel(envFile),
       exists: envFileExists,
+      regularFile: envFileInspection.regularFile,
+      symlink: envFileInspection.symlink,
+      mode: envFileInspection.mode === null ? "" : envFileInspection.mode.toString(8),
+      secure: envFileInspection.secure,
       defaultPathIgnored: defaultEnvFileIgnored,
       examplePath: rel(defaultEnvExampleFile),
       exampleExists: defaultEnvExampleExists,

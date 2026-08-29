@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 
-const BACKEND_DIR = "/Users/halfmutantfilms/Desktop/io.them/them/backend";
+const BACKEND_DIR = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 
 function assert(condition, message) {
   if (!condition) {

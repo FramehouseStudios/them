@@ -46,7 +46,7 @@ function runSmoke({ xcconfigPath = "" } = {}) {
   return { args, destination, result };
 }
 
-test("[v1-ui-smoke] runs without an optional xcconfig under nounset", () => {
+test("[v1-ui-smoke] preserves simulator signing for Keychain coverage", () => {
   const { args, destination, result } = runSmoke();
 
   assert.equal(result.status, 0, result.stderr);
@@ -54,7 +54,19 @@ test("[v1-ui-smoke] runs without an optional xcconfig under nounset", () => {
   assert.equal(args[0], "test");
   assert.ok(args.includes(destination));
   assert.ok(args.includes("-only-testing:themUITests"));
-  assert.ok(args.includes("CODE_SIGNING_ALLOWED=NO"));
+  assert.equal(args.includes("CODE_SIGNING_ALLOWED=NO"), false);
+  assert.equal(args.includes("CODE_SIGNING_REQUIRED=NO"), false);
+  assert.deepEqual(
+    args.slice(args.indexOf("-parallel-testing-enabled"), args.indexOf("-parallel-testing-enabled") + 2),
+    ["-parallel-testing-enabled", "NO"],
+  );
+  assert.deepEqual(
+    args.slice(
+      args.indexOf("-maximum-concurrent-test-simulator-destinations"),
+      args.indexOf("-maximum-concurrent-test-simulator-destinations") + 2,
+    ),
+    ["-maximum-concurrent-test-simulator-destinations", "1"],
+  );
   assert.ok(args.includes("-resultBundlePath"));
   assert.equal(args.includes("-xcconfig"), false);
 });

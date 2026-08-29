@@ -33,6 +33,10 @@ Launch Doctor evidence, and document exact results.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
 - `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed, 108 tests, 0 failures.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
-- `scripts/appstore_preflight.sh` failed with the expected real release blockers: missing Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`; signed Release build skipped because `DEVELOPMENT_TEAM_ID` is not configured.
+- At that historical run, `scripts/appstore_preflight.sh` failed for the then-unset
+  Development Team, backend, and token inputs; the current contract fixes the
+  hosted backend at `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`. The signed Release build was skipped because
+  `DEVELOPMENT_TEAM_ID` was not configured.
 - `cd backend && npm run v1:status` reported 19/25 V1 checklist items complete.
 - `node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs` wrote the blocked Launch Doctor report.

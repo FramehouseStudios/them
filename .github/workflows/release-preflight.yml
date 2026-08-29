@@ -9,7 +9,9 @@ on:
     secrets:
       OPENAI_API_KEY:
         required: true
-      APP_TOKEN:
+      APP_TOKEN_RELEASE:
+        required: true
+      DEVELOPMENT_TEAM_ID:
         required: true
 
 permissions:
@@ -53,6 +55,7 @@ jobs:
 
   release-preflight:
     name: Release Preflight
+    needs: live-structural-canary
     runs-on: macos-latest
     env:
       RUN_QUALITY_GATE: 1
@@ -63,8 +66,14 @@ jobs:
       RUN_TALK_RECOVERY_GATE: 1
       RUN_ALERT: 1
       RUN_LOAD: 0
+      RUN_LIVE_STUDIO_STRUCTURAL_CANARY: 0
+      RUN_MAC_DESKTOP_PREFLIGHT: 0
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      APP_TOKEN_RELEASE: ${{ secrets.APP_TOKEN_RELEASE }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN_RELEASE }}
+      DEVELOPMENT_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM_ID }}
+      BACKEND_URL: ${{ vars.BACKEND_URL || 'https://api.them.io' }}
+      PRIVACY_POLICY_URL: ${{ vars.PRIVACY_POLICY_URL || 'https://them.io/privacy' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,8 +84,11 @@ jobs:
           if [[ -z "${OPENAI_API_KEY:-}" ]]; then
             missing+=("OPENAI_API_KEY")
           fi
-          if [[ -z "${APP_TOKEN:-}" ]]; then
-            missing+=("APP_TOKEN")
+          if [[ -z "${APP_TOKEN_RELEASE:-}" ]]; then
+            missing+=("APP_TOKEN_RELEASE")
+          fi
+          if [[ -z "${DEVELOPMENT_TEAM_ID:-}" ]]; then
+            missing+=("DEVELOPMENT_TEAM_ID")
           fi
           if (( ${#missing[@]} > 0 )); then
             {
@@ -99,22 +111,14 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Ensure gate scripts are executable
-        run: chmod +x ./scripts/quality_gate.sh ./scripts/appstore_preflight.sh ./scripts/desktop_preflight.sh
+        run: chmod +x ./scripts/quality_gate.sh ./scripts/appstore_preflight.sh ./scripts/run_release_preflight.sh
 
       - name: Install backend dependencies
         working-directory: backend
-        run: npm install
+        run: npm ci
 
       - name: Run Release Preflight With Quality Gate
-        run: bash ./scripts/appstore_preflight.sh
-
-      - name: Verify Clementine Writer Block Quality Contract
-        working-directory: backend
-        run: npm run eval:writer-block-rescue
-
-      - name: Verify Clementine Studio Writer Block Rescue
-        working-directory: backend
-        run: npm run eval:studio-instinct-writer-block-ui
+        run: bash ./scripts/run_release_preflight.sh
 
       - name: Upload Clementine Studio Evidence
         if: always()
@@ -124,12 +128,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: /tmp/them-smoke/studio-instinct-writer-block/
-
-      - name: Run Mac Desktop Preflight
-        env:
-          MAC_DESKTOP_CONFIGURATION: Mac Scaffold Release
-          MAC_DESKTOP_ACTION: archive
-        run: bash ./scripts/desktop_preflight.sh
 
       - name: Verify Quality Gate Was Enforced
         run: |
@@ -168,13 +166,13 @@ jobs:
             echo "- Trigger: ${{ github.event_name }}"
             echo "- Ref: ${{ github.ref }}"
             echo "- RUN_QUALITY_GATE: enforced"
-            echo "- Backend/app gate: enforced before iPhone and Mac desktop preflight"
+            echo "- Backend/app gate: enforced before iPhone release preflight"
             echo "- Clementine quality gate: every rescue proves playable specificity, causal advancement, character cost, and correct act progression"
             echo "- Live structural canary: Scene Doctor and feature architecture pass canon continuity, act causality, character arc, and payoff quality"
-            echo "- Clementine Studio gate: instinct correction changes rescue rank while due canon remains protected on iPhone and macOS"
-            echo "- Mac desktop preflight: production scaffold archive"
+            echo "- Clementine Studio gate: instinct correction changes rescue rank while due canon remains protected"
+            echo "- Platform posture: iPhone-only V1; Mac scaffold is outside this release gate"
             echo "- Release-candidate tag convention: \`rc-*\`"
-            echo "- Required workflow secrets with current defaults: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
+            echo "- Required workflow secrets: \`OPENAI_API_KEY\`, \`APP_TOKEN_RELEASE\`, \`DEVELOPMENT_TEAM_ID\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Failure Artifacts

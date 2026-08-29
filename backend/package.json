@@ -6,7 +6,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "TEST_SPAWN_BACKEND=1 node --test tests/*.test.mjs",
+    "test": "TEST_SPAWN_BACKEND=1 node --test --test-concurrency=1 tests/*.test.mjs",
     "test:talk-recovery": "TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs",
     "start": "node index.js",
     "start:local": "PORT=3000 node index.js",

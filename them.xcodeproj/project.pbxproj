@@ -35,6 +35,7 @@
 				"RELEASE_RUNBOOK.md",
 				"Release.local.env",
 				"Release.local.env.example",
+				"Release.local.xcconfig",
 				".env",
 				".env.local",
 				".env.production",
@@ -725,6 +726,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
+					"Release.local.xcconfig",
 					".claude",
 					".claude/*",
 					".codex_tmp",
@@ -786,6 +788,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
+					"Release.local.xcconfig",
 					".claude",
 					".claude/*",
 					".codex_tmp",
@@ -839,6 +842,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
+					"Release.local.xcconfig",
 					".claude",
 					".claude/*",
 					".codex_tmp",
@@ -903,6 +907,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
+					"Release.local.xcconfig",
 					".claude",
 					".claude/*",
 					".codex_tmp",

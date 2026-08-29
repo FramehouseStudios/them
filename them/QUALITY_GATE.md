@@ -1,6 +1,6 @@
 # io.them Quality Gate
 
-Last updated: 2026-05-28
+Last updated: 2026-08-28
 
 ## Purpose
 - `scripts/quality_gate.sh` is the main backend/app gate entrypoint.
@@ -10,7 +10,8 @@ Last updated: 2026-05-28
 ## Default Policy
 - `RUN_QUALITY_GATE` stays opt-in for `scripts/appstore_preflight.sh`.
 - Reason: App Store preflight should stay focused on release build, signing, entitlements, privacy manifest, and plist correctness by default.
-- Release automation and checked-in CI should prefer `RUN_QUALITY_GATE=1` when invoking `scripts/appstore_preflight.sh` so a release candidate does not skip backend gates by accident.
+- The human-facing `scripts/run_release_preflight.sh` wrapper defaults `RUN_QUALITY_GATE=1`; release signoff must use that wrapper without disabling gates.
+- Release automation and checked-in CI set `RUN_QUALITY_GATE=1` when invoking `scripts/appstore_preflight.sh` so a release candidate cannot skip backend gates by accident.
 - Checked-in release automation template: `.github/workflows/release-preflight.yml`
 - Release trigger policy: `.github/workflows/release-preflight.yml` stays manually callable and reusable, and now also runs on push tags matching `rc-*`. Use a protected `rc-*` tag pattern for release candidates.
 - CI enforcement details live in [docs/quality-gate-enforcement.md](../docs/quality-gate-enforcement.md). The release workflow includes a `Verify Quality Gate Was Enforced` step after preflight; it fails if `RUN_QUALITY_GATE` is not `1` or `/tmp/them-quality-gate-backend.log` is missing or empty.
@@ -40,7 +41,9 @@ RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
   - With the current default workflow settings, both `.github/workflows/quality-gate.yml` and `.github/workflows/release-preflight.yml` expect it.
 - `APP_TOKEN`
   - Required when speculative reuse, smoke, or ops alert checks stay enabled.
-  - With the current default workflow settings, both checked-in workflows expect it.
+  - `.github/workflows/quality-gate.yml` expects `APP_TOKEN` directly.
+- `APP_TOKEN_RELEASE` and `DEVELOPMENT_TEAM_ID`
+  - Required by `.github/workflows/release-preflight.yml`; that workflow maps `APP_TOKEN_RELEASE` to `APP_TOKEN` for backend gates before producing the iPhone Release build.
 - If you manually disable the dependent sections in `quality-gate.yml`, you can relax the corresponding secret requirement for that run.
 - Both checked-in workflows now fail fast with a short Actions summary if the required secrets are missing, before dependency install or shell-script execution begins.
 - If another workflow calls these via `workflow_call`, pass the secrets explicitly or use `secrets: inherit`.
@@ -50,7 +53,7 @@ RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
 | --- | --- | --- | --- |
 | Local | `scripts/quality_gate.sh` | Run the whole backend/app gate directly when you want full regression coverage. | `RUN_SERVER=1` if the backend is not already running. |
 | CI gate | `.github/workflows/quality-gate.yml` | Use the checked-in workflow template as the repo-owned gate path. Manual runs can skip expensive sections with workflow inputs instead of editing YAML. | `OPENAI_API_KEY`, `APP_TOKEN`, `RUN_SERVER=1` |
-| Release automation | `.github/workflows/release-preflight.yml` | Enforce `RUN_QUALITY_GATE=1` when running release preflight in automation. Auto-runs on `rc-*` tags and stays callable manually. | `OPENAI_API_KEY`, `APP_TOKEN`, `RUN_QUALITY_GATE=1` |
+| Release automation | `.github/workflows/release-preflight.yml` | Enforce the dependent live canary and `RUN_QUALITY_GATE=1` before the iPhone-only release preflight. Auto-runs on `rc-*` tags and stays callable manually. | `OPENAI_API_KEY`, `APP_TOKEN_RELEASE`, `DEVELOPMENT_TEAM_ID`, `RUN_QUALITY_GATE=1` |
 | Release preflight | `scripts/appstore_preflight.sh` | Keep local preflight opt-in, but default release automation to include the gate first. | `RUN_QUALITY_GATE=1` |
 
 ## Common Commands
@@ -58,6 +61,12 @@ RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
 
 ```bash
 ./scripts/quality_gate.sh
+```
+
+- Full iPhone release wrapper (quality gate is on by default):
+
+```bash
+./scripts/run_release_preflight.sh
 ```
 
 - Quality gate without prompt regression:
@@ -79,8 +88,8 @@ cd backend
 npm run eval:gate
 ```
 
-## Desktop and iOS App Tests
-- Use these commands for the shared app/unit-test gate after client changes. macOS local tests disable code signing because the Debug app host has sandbox entitlements but local CI does not require a development certificate.
+## iOS V1 and Optional Desktop App Tests
+- iPhone is the V1 release lane. Use the iOS command for the shared app/unit-test gate after client changes. The macOS command is a separate scaffold diagnostic and is not a V1 release requirement.
 
 ```bash
 xcodebuild -project them.xcodeproj -scheme them -configuration Debug -sdk macosx -destination "platform=macOS" -derivedDataPath /tmp/io-them-mac-tests CODE_SIGNING_ALLOWED=NO test
@@ -142,7 +151,7 @@ jobs:
 | --- | --- | --- |
 | Full gate via `secrets: inherit` | A parent workflow wants the repo-default gate behavior without repeating every secret. | Call `.github/workflows/quality-gate.yml` and use `secrets: inherit`. |
 | Reduced gate via explicit inputs | A parent workflow wants to skip expensive sections like prompt eval or talk recovery. | Call `.github/workflows/quality-gate.yml` with `run_eval: false`, `run_talk_recovery_gate: false`, and any other needed toggles. |
-| Release preflight via explicit required secrets | A parent workflow wants to delegate release preflight but keep secret flow explicit. | Call `.github/workflows/release-preflight.yml` and pass `OPENAI_API_KEY` plus `APP_TOKEN` under `secrets:`. |
+| Release preflight via explicit required secrets | A parent workflow wants to delegate release preflight but keep secret flow explicit. | Call `.github/workflows/release-preflight.yml` and pass `OPENAI_API_KEY`, `APP_TOKEN_RELEASE`, and `DEVELOPMENT_TEAM_ID` under `secrets:`. |
 
 ## Reusable Release Workflow Example
 - Example caller that reuses `.github/workflows/release-preflight.yml` and passes the required secrets explicitly:
@@ -153,16 +162,17 @@ jobs:
     uses: ./.github/workflows/release-preflight.yml
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      APP_TOKEN_RELEASE: ${{ secrets.APP_TOKEN_RELEASE }}
+      DEVELOPMENT_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM_ID }}
 ```
 
 - Use this pattern when a parent workflow should own the trigger but still delegate the actual release preflight to the checked-in reusable workflow.
-- `.github/workflows/release-preflight.yml` requires both secrets when called via `workflow_call`.
+- `.github/workflows/release-preflight.yml` requires all three secrets when called via `workflow_call`.
 
 ## CI Troubleshooting
 - Missing secrets before the gate starts:
   - Look for `Status: failed before gate execution` or `Status: failed before preflight execution` in the Actions summary.
-  - Fix `OPENAI_API_KEY` and/or `APP_TOKEN` in repo secrets, or pass them explicitly when using `workflow_call`.
+  - For `quality-gate.yml`, fix `OPENAI_API_KEY` and/or `APP_TOKEN`. For `release-preflight.yml`, fix `OPENAI_API_KEY`, `APP_TOKEN_RELEASE`, and/or `DEVELOPMENT_TEAM_ID`, or pass those exact names explicitly through `workflow_call`.
 - Backend/app gate failed after startup:
   - Open the uploaded artifact that contains `/tmp/them-quality-gate-backend.log`.
   - Expected contents: backend boot logs, eval/smoke startup output, and the last backend-side failure lines before the gate stopped.

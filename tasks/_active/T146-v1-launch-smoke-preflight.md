@@ -28,8 +28,11 @@ concrete backend failure.
 
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- At that historical run, `scripts/appstore_preflight.sh` failed with
+  `fail=3 warn=1` for the then-unset Development Team, backend, and token
+  inputs. The current contract fixes the hosted backend at
+  `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`.
 - `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
   smokes.
 - `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`

@@ -65,6 +65,8 @@ test("[release-config-status] release env template stays secret-free and complet
   assert.match(body, /^DEVELOPMENT_TEAM_ID=/m);
   assert.match(body, /^BACKEND_URL=https:\/\/api\.them\.io$/m);
   assert.match(body, /^APP_TOKEN_RELEASE=/m);
+  assert.match(body, /^OPENAI_API_KEY=/m);
+  assert.match(body, /^PRIVACY_POLICY_URL=https:\/\/them\.io\/privacy$/m);
   assert.doesNotMatch(body, /sk-|super-secret|wrapped-secret|Bearer\s+/i);
 });
 
@@ -78,14 +80,14 @@ test("[release-docs] operator docs point at the iPhone release wrapper", () => {
   assert.match(combined, /scripts\/run_release_preflight\.sh/);
   assert.match(combined, /them\/Release\.local\.env\.example/);
   assert.match(combined, /Keep `BACKEND_URL=https:\/\/api\.them\.io`/);
-  assert.match(combined, /Mac desktop preflight|desktop preflight/i);
+  assert.match(combined, /Mac Studio scaffold is outside V1|macOS command is a separate scaffold diagnostic/i);
   assert.doesNotMatch(combined, /macOS App Store/);
   assert.doesNotMatch(combined, /macOS is dormant scaffolding/);
   assert.doesNotMatch(combined, /\/Users\/halfmutantfilms\/Desktop\/io\.them/);
   assert.doesNotMatch(combined, /Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`/);
   assert.doesNotMatch(combined, /Set `(?:DEVELOPMENT_TEAM_ID|APP_TOKEN_RELEASE)` in .*Config\.xcconfig/);
   assert.doesNotMatch(combined, /Release APP_TOKEN is missing/);
-  assert.match(combined, /Do not put production tokens in tracked `Config\.xcconfig`/);
+  assert.match(combined, /Do not put production values in tracked `Config\.xcconfig`/);
 });
 
 test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN_RELEASE", () => {
@@ -100,6 +102,7 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
       "",
     ].join("\n"),
   );
+  fs.chmodSync(envFile, 0o600);
 
   const relEnvFile = path.relative(repoRoot, envFile);
   const r = run(["--json", "--no-xcodebuild", `--release-env-file=${relEnvFile}`], {
@@ -117,6 +120,53 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
   assert.doesNotMatch(r.stdout, /super-secret-release-token-123456/);
 });
 
+test("[release-config-status] rejects insecure permissions without reading private values", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-config-mode-"));
+  const envFile = path.join(dir, "Release.local.env");
+  const secret = "insecure-release-token-123456";
+  fs.writeFileSync(
+    envFile,
+    `DEVELOPMENT_TEAM_ID=ABCDE12345\nBACKEND_URL=https://api.them.io\nAPP_TOKEN_RELEASE=${secret}\n`,
+    { mode: 0o644 },
+  );
+  fs.chmodSync(envFile, 0o644);
+
+  const r = run(["--json", "--no-xcodebuild", `--release-env-file=${envFile}`], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "",
+    APP_TOKEN_RELEASE: "",
+  });
+  assert.equal(r.status, 1, r.stderr);
+  const payload = JSON.parse(r.stdout);
+  const security = payload.checks.find((check) => check.id === "release-env-file-security");
+  assert.equal(security.ok, false);
+  assert.equal(security.mode, "644");
+  assert.match(security.message, /must have mode 600/);
+  assert.doesNotMatch(r.stdout, new RegExp(secret));
+});
+
+test("[release-config-status] rejects a symlink without reading its target", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-config-link-"));
+  const target = path.join(dir, "target.env");
+  const envFile = path.join(dir, "Release.local.env");
+  const secret = "linked-release-token-123456";
+  fs.writeFileSync(target, `APP_TOKEN_RELEASE=${secret}\n`, { mode: 0o600 });
+  fs.symlinkSync(target, envFile);
+
+  const r = run(["--json", "--no-xcodebuild", `--release-env-file=${envFile}`], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "",
+    APP_TOKEN_RELEASE: "",
+  });
+  assert.equal(r.status, 1, r.stderr);
+  const payload = JSON.parse(r.stdout);
+  const security = payload.checks.find((check) => check.id === "release-env-file-security");
+  assert.equal(security.ok, false);
+  assert.equal(security.symlink, true);
+  assert.match(security.message, /must not be a symlink/);
+  assert.doesNotMatch(r.stdout, new RegExp(secret));
+});
+
 test("[run-release-preflight] stops at config status without leaking sourced token", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-wrapper-"));
   const envFile = path.join(dir, "Release.local.env");
@@ -129,6 +179,7 @@ test("[run-release-preflight] stops at config status without leaking sourced tok
       "",
     ].join("\n"),
   );
+  fs.chmodSync(envFile, 0o600);
 
   const binDir = path.join(dir, "bin");
   fs.mkdirSync(binDir);
@@ -166,6 +217,7 @@ test("[run-release-preflight] skips live backend and desktop preflight when conf
       "",
     ].join("\n"),
   );
+  fs.chmodSync(envFile, 0o600);
 
   const desktopMarker = path.join(dir, "desktop-ran");
   const r = spawnSync("bash", [wrapper], {

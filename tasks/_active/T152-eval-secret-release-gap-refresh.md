@@ -41,8 +41,11 @@ are still absent locally.
   and `playful_banter_humor` missed case minima.
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- At that historical run, `scripts/appstore_preflight.sh` failed with
+  `fail=3 warn=1` for the then-unset Development Team, backend, and token
+  inputs. The current contract fixes the hosted backend at
+  `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`.
 - `security find-identity -v -p codesigning` reported `0 valid identities
   found`.
 - `node scripts/release_config_status.mjs` reported missing local release
