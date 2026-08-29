@@ -22,3 +22,4 @@
 {"at":"2026-08-29T03:44:56.635Z","by":"codex","kind":"pr_closed","pr":367,"comment":"Closed as superseded by integrated V1 human-clearance PR #374; head commit and final UI-smoke repairs are included there."}
 {"at":"2026-08-29T03:44:56.715Z","by":"codex","kind":"pr_closed","pr":368,"comment":"Closed as superseded by integrated V1 human-clearance PR #374; durable auth work is included there."}
 {"at":"2026-08-29T03:44:56.791Z","by":"codex","kind":"pr_closed","pr":369,"comment":"Closed as superseded by integrated Tier-3 PR #374; DEBUG loopback demo and Keychain work are included there, with do-not-merge preserved on #374."}
+{"at":"2026-08-29T03:48:36.097Z","by":"codex","kind":"review_ready","pr":374,"comment":"All GitHub checks green: migrations, backend image, full quality gate, and merge-policy guard. Tier 3/do-not-merge remains for human Apple, privacy, deployment, App Store, TestFlight, and physical-device clearance."}
