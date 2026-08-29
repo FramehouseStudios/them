@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-28T22:02:00.000Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-08-29T03:43:37.089Z",
+  "updatedBy": "unknown",
   "openPullRequests": [
     {
       "number": 354,
@@ -1654,6 +1654,18 @@
       "branch": "claude/T07-eval-quality-repair",
       "blocker": null,
       "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
+    },
+    {
+      "number": 374,
+      "title": "release: integrate V1 to human-clearance boundary",
+      "owner": "codex",
+      "tier": 3,
+      "status": "review",
+      "branch": "codex/T-v1-human-clearance",
+      "blocker": "Human approval and release-owner operations are required before merge.",
+      "blocker_kind": "needs_human",
+      "reviewer_note": "Review the AppIcon and inherited Email Address privacy declaration, then complete Apple signing, live deployment, App Store, TestFlight, and physical-iPhone clearance.",
+      "expected_action": "Keep do-not-merge until every human-clearance step in docs/v1-release-preflight-proof.md is green."
     }
   ],
   "blockers": [
