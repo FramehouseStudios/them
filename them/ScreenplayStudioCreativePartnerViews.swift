@@ -65,6 +65,7 @@ struct ScreenplayStudioCreativePartnerCopy: Equatable {
     let emptyVoicePinDetail: String
     let contextTitle: String
     let contextDetail: String
+    let emptyContextDetail: String
     let clearThreadButtonTitle: String
     let clearMemoryButtonTitle: String
     let reuseButtonTitle: String
@@ -83,10 +84,11 @@ struct ScreenplayStudioCreativePartnerCopy: Equatable {
         emptyVoicePinDetail: "Dictate or send a note to keep it off the page.",
         contextTitle: "Context",
         contextDetail: "Thread memory, routing, and screenplay fixes stay attached to this same partner surface.",
+        emptyContextDetail: "Nothing is stored yet. Clear controls appear only when this partner has a thread or memory to remove.",
         clearThreadButtonTitle: "Clear Thread",
         clearMemoryButtonTitle: "Clear Memory",
-        reuseButtonTitle: "Reuse",
-        toPageButtonTitle: "To Page"
+        reuseButtonTitle: "Reuse Ask",
+        toPageButtonTitle: "Prepare for Page"
     )
 }
 
@@ -159,6 +161,8 @@ struct ScreenplayStudioCreativePartnerPresentation: Equatable {
     let routePills: [ScreenplayStudioCreativePartnerMetaPillPresentation]
     let metrics: [ScreenplayStudioCreativePartnerMetricPresentation]
     let voicePin: ScreenplayStudioCreativePartnerVoicePinPresentation
+    let canClearThread: Bool
+    let canClearMemory: Bool
 }
 
 struct ScreenplayStudioCreativePartnerActions {
@@ -176,6 +180,8 @@ enum ScreenplayStudioCreativePartnerPresentationPlanner {
         routesToPage: Bool,
         recentTurnCount: Int,
         queuedFixCount: Int,
+        hasCompanionThread: Bool,
+        hasCompanionMemory: Bool,
         voicePinTurns: [ScreenplayStudioCreativePartnerVoicePinTurnInput],
         exchanges: [ScreenplayStudioCreativePartnerVoicePinExchangeInput],
         now: Date = Date()
@@ -233,7 +239,9 @@ enum ScreenplayStudioCreativePartnerPresentationPlanner {
                     exchanges: exchanges,
                     now: now
                 )
-            )
+            ),
+            canClearThread: hasCompanionThread,
+            canClearMemory: hasCompanionMemory
         )
     }
 
@@ -324,111 +332,256 @@ struct ScreenplayStudioCreativePartnerView: View {
     let presentation: ScreenplayStudioCreativePartnerPresentation
     let actions: ScreenplayStudioCreativePartnerActions
 
+    @State private var pendingClearTarget: ClearTarget?
+
+    private enum ClearTarget: Equatable {
+        case thread
+        case memory
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(presentation.copy.title)
-                            .font(IOThemTypography.UI.prominentCallout)
-                            .foregroundStyle(Color.herText.opacity(0.90))
-                        Text(presentation.copy.subtitle)
-                            .font(IOThemTypography.UI.labelRegular)
-                            .foregroundStyle(Color.herText.opacity(0.50))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 8) {
-                            metaPill(
-                                presentation.copy.modeMetaLabel,
-                                value: presentation.selectedModeShortTitle
-                            )
-                            targetBadge
-                            workflowBadge
-                        }
-
-                        HStack(spacing: 6) {
-                            ForEach(presentation.metrics) { metric in
-                                metricPill(metric)
-                            }
-                        }
-                    }
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(presentation.copy.modeSectionTitle)
-                        .font(IOThemTypography.UI.label)
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        ForEach(presentation.routePills) { pill in
-                            metaPill(pill.label, value: pill.value)
-                        }
-                    }
-                }
-            }
-
-            modePicker
-
-            Text(presentation.selectedModeSummary)
-                .font(IOThemTypography.UI.caption)
-                .foregroundStyle(Color.herText.opacity(0.62))
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("studio.them.mode.summary")
+            creativePartnerHeader
+            routeAndActivitySummary
+            modeSection
 
             sectionDivider
             voicePinSection
             sectionDivider
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(presentation.copy.contextTitle)
-                        .font(IOThemTypography.UI.label)
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Text(presentation.copy.contextDetail)
-                        .font(IOThemTypography.UI.labelRegular)
-                        .foregroundStyle(Color.herText.opacity(0.50))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 8) {
-                    Button(presentation.copy.clearThreadButtonTitle, action: actions.onClearThread)
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("studio.them.creative-partner.clear-thread")
-
-                    Button(presentation.copy.clearMemoryButtonTitle, action: actions.onClearMemory)
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("studio.them.creative-partner.clear-memory")
-                }
-                .controlSize(.small)
-                .foregroundStyle(Color.herText.opacity(0.82))
-            }
+            contextSection
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.them.creative-partner")
     }
 
-    private var modePicker: some View {
-        Picker(
-            presentation.copy.modePickerLabel,
-            selection: Binding(
-                get: { presentation.selectedModeRawValue },
-                set: actions.onSelectMode
-            )
-        ) {
-            ForEach(presentation.modeOptions) { mode in
-                Text(mode.title)
-                    .tag(mode.rawValue)
-                    .accessibilityIdentifier("studio.them.mode.\(mode.rawValue)")
+    private var creativePartnerHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(presentation.copy.title)
+                .font(IOThemTypography.UI.prominentCallout)
+                .foregroundStyle(Color.herText.opacity(0.94))
+            Text(presentation.copy.subtitle)
+                .font(IOThemTypography.UI.labelRegular)
+                .foregroundStyle(Color.herText.opacity(0.68))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var routeAndActivitySummary: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: presentation.route.targetSystemImage)
+                    .accessibilityHidden(true)
+                Text(presentation.route.workflowLabel)
+                Text("to")
+                    .foregroundStyle(Color.herText.opacity(0.46))
+                Text(presentation.route.targetLabel)
+            }
+            .font(IOThemTypography.UI.captionStrong)
+            .foregroundStyle(targetTint.opacity(0.92))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("studio.them.route.summary")
+
+            VStack(alignment: .leading, spacing: 6) {
+                metaRow(
+                    presentation.copy.modeMetaLabel,
+                    value: presentation.selectedModeShortTitle,
+                    identifier: "studio.them.meta.mode"
+                )
+                ForEach(presentation.routePills) { pill in
+                    metaRow(
+                        pill.label,
+                        value: pill.value,
+                        identifier: "studio.them.meta.\(pill.label.lowercased())"
+                    )
+                }
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(presentation.metrics) { metric in
+                    metricSummary(metric)
+                }
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accessibilityIdentifier("studio.them.modePicker")
+    }
+
+    private var modeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(presentation.copy.modeSectionTitle)
+                .font(IOThemTypography.UI.label)
+                .foregroundStyle(Color.herText.opacity(0.72))
+
+            VStack(spacing: 7) {
+                ForEach(presentation.modeOptions) { mode in
+                    modeButton(mode)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(presentation.copy.modePickerLabel)
+            .accessibilityIdentifier("studio.them.modePicker")
+
+            Text(presentation.selectedModeSummary)
+                .font(IOThemTypography.UI.caption)
+                .foregroundStyle(Color.herText.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("studio.them.mode.summary")
+        }
+    }
+
+    private var contextSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(presentation.copy.contextTitle)
+                .font(IOThemTypography.UI.label)
+                .foregroundStyle(Color.herText.opacity(0.72))
+            Text(presentation.copy.contextDetail)
+                .font(IOThemTypography.UI.labelRegular)
+                .foregroundStyle(Color.herText.opacity(0.66))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if presentation.canClearThread || presentation.canClearMemory {
+                if pendingClearTarget != nil {
+                    clearConfirmationPanel
+                } else {
+                    clearActionButtons
+                }
+            } else {
+                Text(presentation.copy.emptyContextDetail)
+                    .font(IOThemTypography.UI.labelRegular)
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.them.creative-partner.context.empty")
+            }
+        }
+    }
+
+    private var clearActionButtons: some View {
+        VStack(spacing: 8) {
+            if presentation.canClearThread {
+                Button(role: .destructive) {
+                    pendingClearTarget = .thread
+                } label: {
+                    Label(presentation.copy.clearThreadButtonTitle, systemImage: "text.bubble")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Opens a confirmation. Screenplay pages stay intact.")
+                .accessibilityIdentifier("studio.them.creative-partner.clear-thread")
+            }
+
+            if presentation.canClearMemory {
+                Button(role: .destructive) {
+                    pendingClearTarget = .memory
+                } label: {
+                    Label(presentation.copy.clearMemoryButtonTitle, systemImage: "brain.head.profile")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Opens a confirmation. Project facts stay intact.")
+                .accessibilityIdentifier("studio.them.creative-partner.clear-memory")
+            }
+        }
+        .controlSize(.regular)
+    }
+
+    private var clearConfirmationPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(clearConfirmationTitle, systemImage: "exclamationmark.triangle")
+                .font(IOThemTypography.UI.calloutStrong)
+                .foregroundStyle(Color.herText.opacity(0.90))
+
+            Text(clearConfirmationMessage)
+                .font(IOThemTypography.UI.caption)
+                .foregroundStyle(Color.herText.opacity(0.68))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    pendingClearTarget = nil
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("studio.them.creative-partner.clear.cancel")
+
+                Button(clearConfirmationButtonTitle, role: .destructive) {
+                    confirmPendingClear()
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier(clearConfirmationButtonIdentifier)
+            }
+            .controlSize(.regular)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.herText.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.red.opacity(0.24), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.them.creative-partner.clear.confirmation")
+    }
+
+    private var clearConfirmationButtonTitle: String {
+        switch pendingClearTarget {
+        case .thread:
+            return presentation.copy.clearThreadButtonTitle
+        case .memory:
+            return presentation.copy.clearMemoryButtonTitle
+        case nil:
+            return "Clear"
+        }
+    }
+
+    private var clearConfirmationButtonIdentifier: String {
+        switch pendingClearTarget {
+        case .thread:
+            return "studio.them.creative-partner.clear-thread.confirm"
+        case .memory:
+            return "studio.them.creative-partner.clear-memory.confirm"
+        case nil:
+            return "studio.them.creative-partner.clear.confirm"
+        }
+    }
+
+    private func confirmPendingClear() {
+        let target = pendingClearTarget
+        pendingClearTarget = nil
+        switch target {
+        case .thread:
+            actions.onClearThread()
+        case .memory:
+            actions.onClearMemory()
+        case nil:
+            break
+        }
+    }
+
+    private var clearConfirmationTitle: String {
+        switch pendingClearTarget {
+        case .thread:
+            return "Clear this Voice Pin thread?"
+        case .memory:
+            return "Clear this companion memory?"
+        case nil:
+            return "Confirm clear"
+        }
+    }
+
+    private var clearConfirmationMessage: String {
+        switch pendingClearTarget {
+        case .thread:
+            return "This removes the Voice Pin conversation. Screenplay pages stay intact."
+        case .memory:
+            return "This removes learned companion context. Screenplay pages and project facts stay intact."
+        case nil:
+            return "Screenplay pages and project facts stay intact."
+        }
     }
 
     private var sectionDivider: some View {
@@ -437,85 +590,92 @@ struct ScreenplayStudioCreativePartnerView: View {
             .frame(height: 1)
     }
 
-    private func metricPill(
+    private func metricSummary(
         _ metric: ScreenplayStudioCreativePartnerMetricPresentation
     ) -> some View {
-        HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(metric.value)
-                .font(IOThemTypography.UI.monoMicro)
-                .foregroundStyle(Color.herText.opacity(0.76))
+                .font(IOThemTypography.UI.compactTitle)
+                .foregroundStyle(Color.herText.opacity(0.88))
             Text(metric.label)
                 .font(IOThemTypography.UI.microMedium)
-                .foregroundStyle(Color.herText.opacity(0.48))
+                .foregroundStyle(Color.herText.opacity(0.58))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.30))
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
-        )
-        .clipShape(Capsule())
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("studio.them.metric.\(metric.label.lowercased())")
     }
 
-    private func metaPill(_ label: String, value: String) -> some View {
-        HStack(spacing: 4) {
+    private func metaRow(
+        _ label: String,
+        value: String,
+        identifier: String
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
-                .font(IOThemTypography.UI.nanoMedium)
-                .foregroundStyle(Color.herText.opacity(0.40))
+                .font(IOThemTypography.UI.microMedium)
+                .foregroundStyle(Color.herText.opacity(0.52))
+            Spacer(minLength: 8)
             Text(value)
-                .font(IOThemTypography.UI.monoNanoRegular)
-                .foregroundStyle(Color.herText.opacity(0.54))
+                .font(IOThemTypography.UI.labelMedium)
+                .foregroundStyle(Color.herText.opacity(0.76))
+                .multilineTextAlignment(.trailing)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
     }
 
-    private var targetBadge: some View {
-        HStack(spacing: 6) {
-            Image(systemName: presentation.route.targetSystemImage)
-                .font(IOThemTypography.UI.nano)
-            Text(presentation.route.targetLabel)
-                .font(IOThemTypography.UI.micro)
+    private func modeButton(
+        _ mode: ScreenplayStudioCreativePartnerModePresentation
+    ) -> some View {
+        let isSelected = mode.rawValue == presentation.selectedModeRawValue
+
+        return Button {
+            actions.onSelectMode(mode.rawValue)
+        } label: {
+            HStack(spacing: 10) {
+                Text(mode.title)
+                    .font(IOThemTypography.UI.captionStrong)
+                    .foregroundStyle(Color.herText.opacity(isSelected ? 0.94 : 0.78))
+                Spacer(minLength: 8)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.92))
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? Color.herStudioActiveFill.opacity(0.14)
+                            : Color.white.opacity(0.22)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(
+                        isSelected
+                            ? Color.herStudioActiveFill.opacity(0.36)
+                            : Color.herShellStroke.opacity(0.18),
+                        lineWidth: 1
+                    )
+            )
         }
-        .foregroundStyle(targetTint.opacity(0.92))
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(targetTint.opacity(0.12))
-        .overlay(
-            Capsule()
-                .stroke(targetTint.opacity(0.24), lineWidth: 1)
-        )
-        .clipShape(Capsule())
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("\(mode.title). \(mode.summary)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityIdentifier("studio.them.mode.\(mode.rawValue)")
     }
 
     private var targetTint: Color {
         switch presentation.route {
         case .page: return .green
         case .voicePin: return .blue
-        }
-    }
-
-    private var workflowBadge: some View {
-        Text(presentation.route.workflowLabel)
-            .font(IOThemTypography.UI.micro)
-            .foregroundStyle(workflowTint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(workflowTint.opacity(0.10))
-            .overlay(
-                Capsule()
-                    .stroke(workflowTint.opacity(0.18), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-    }
-
-    private var workflowTint: Color {
-        switch presentation.route {
-        case .page: return Color.herStudioActiveFill.opacity(0.92)
-        case .voicePin: return Color.blue.opacity(0.88)
         }
     }
 
@@ -552,38 +712,43 @@ struct ScreenplayStudioCreativePartnerView: View {
         _ latest: ScreenplayStudioCreativePartnerLatestVoicePinPresentation
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(latest.userAskLabel)
-                    .font(IOThemTypography.UI.captionStrong)
-                    .foregroundStyle(Color.herText.opacity(0.84))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text(latest.timeAgo)
-                    .font(IOThemTypography.UI.microMedium)
-                    .foregroundStyle(Color.herText.opacity(0.40))
-            }
+            Text(latest.userAskLabel)
+                .font(IOThemTypography.UI.captionStrong)
+                .foregroundStyle(Color.herText.opacity(0.86))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(latest.timeAgo)
+                .font(IOThemTypography.UI.microMedium)
+                .foregroundStyle(Color.herText.opacity(0.52))
 
             Text(latest.outputExcerpt)
                 .font(IOThemTypography.UI.labelRegular)
-                .foregroundStyle(Color.herText.opacity(0.58))
-                .lineLimit(4)
+                .foregroundStyle(Color.herText.opacity(0.68))
+                .lineLimit(6)
                 .accessibilityLabel(latest.accessibilityLabel)
                 .accessibilityIdentifier("studio.voice-pin.latest.output")
 
-            HStack(spacing: 8) {
-                Button(presentation.copy.reuseButtonTitle) {
+            VStack(spacing: 8) {
+                Button {
                     actions.onReuseVoicePin(latest.exchangeID)
+                } label: {
+                    Label(presentation.copy.reuseButtonTitle, systemImage: "arrow.uturn.backward")
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
                 .font(IOThemTypography.UI.labelMedium)
+                .accessibilityHint("Loads this ask back into the composer without sending it.")
                 .accessibilityIdentifier("studio.them.voice-pin.latest.reuse")
 
-                Button(presentation.copy.toPageButtonTitle) {
+                Button {
                     actions.onSendVoicePinToPage(latest.exchangeID)
+                } label: {
+                    Label(presentation.copy.toPageButtonTitle, systemImage: "doc.text")
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.borderedProminent)
                 .font(IOThemTypography.UI.labelMedium)
-                .foregroundStyle(Color.accentColor.opacity(0.84))
+                .accessibilityHint("Loads this ask into the composer and selects the Page destination.")
                 .accessibilityIdentifier("studio.them.voice-pin.latest.to-page")
             }
         }
@@ -617,8 +782,8 @@ struct ScreenplayStudioCreativePartnerView: View {
                     .foregroundStyle(Color.herText.opacity(0.66))
                 Text(presentation.copy.emptyVoicePinDetail)
                     .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.42))
-                    .lineLimit(1)
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)

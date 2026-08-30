@@ -346,11 +346,143 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
-        let characterMemory = app.descendants(matching: .any)["studio.them.character-memory"]
-        for _ in 0..<12 where !characterMemory.exists {
-            drawer.swipeUp()
+        let creativePartner = element(identifier: "studio.them.creative-partner", in: app)
+        XCTAssertTrue(
+            revealInStudioDrawer(creativePartner, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+            "Creative Partner did not become reachable in the phone-width rail."
+        )
+        XCTAssertGreaterThan(
+            creativePartner.frame.width,
+            180,
+            "Creative Partner collapsed into a character-width column: \(creativePartner.frame)"
+        )
+        assertHorizontallyContained(
+            creativePartner,
+            in: drawer,
+            message: "Creative Partner escaped the inspector drawer"
+        )
+
+        for identifier in [
+            "studio.them.route.summary",
+            "studio.them.meta.mode",
+            "studio.them.meta.memory",
+            "studio.them.meta.output",
+        ] {
+            let row = element(identifier: identifier, in: app)
+            XCTAssertTrue(
+                revealInStudioDrawer(row, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+                "Missing readable Creative Partner row: \(identifier)"
+            )
+            XCTAssertGreaterThan(
+                row.frame.width,
+                120,
+                "\(identifier) collapsed into a character-width column: \(row.frame)"
+            )
+            XCTAssertLessThanOrEqual(
+                row.frame.height,
+                56,
+                "\(identifier) wrapped vertically instead of reading as a row: \(row.frame)"
+            )
+            assertHorizontallyContained(
+                row,
+                in: creativePartner,
+                message: "\(identifier) escaped the Creative Partner card"
+            )
         }
-        XCTAssertTrue(characterMemory.waitForExistence(timeout: 4))
+
+        let metricIdentifiers = [
+            "studio.them.metric.turns",
+            "studio.them.metric.pins",
+            "studio.them.metric.fixes",
+        ]
+        let metrics = metricIdentifiers.map { element(identifier: $0, in: app) }
+        for (identifier, metric) in zip(metricIdentifiers, metrics) {
+            XCTAssertTrue(
+                revealInStudioDrawer(metric, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+                "Missing Creative Partner metric: \(identifier)"
+            )
+            XCTAssertLessThanOrEqual(
+                metric.frame.height,
+                56,
+                "\(identifier) wrapped into an unreadable vertical stack: \(metric.frame)"
+            )
+            assertHorizontallyContained(
+                metric,
+                in: creativePartner,
+                message: "\(identifier) escaped the Creative Partner card"
+            )
+        }
+        XCTAssertGreaterThan(
+            metrics[1].frame.midX - metrics[0].frame.midX,
+            40,
+            "Turns and Pins collapsed into the same character column: \(metrics.map(\.frame))"
+        )
+        XCTAssertGreaterThan(
+            metrics[2].frame.midX - metrics[1].frame.midX,
+            40,
+            "Pins and Fixes collapsed into the same character column: \(metrics.map(\.frame))"
+        )
+
+        let modeButtons = [
+            element(identifier: "studio.them.mode.coach", in: app),
+            element(identifier: "studio.them.mode.co_writer", in: app),
+            element(identifier: "studio.them.mode.comfort", in: app),
+        ]
+        for modeButton in modeButtons {
+            XCTAssertTrue(
+                revealInStudioDrawer(modeButton, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+                "A Creative Partner mode was not reachable: \(modeButton.identifier)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                modeButton.frame.height,
+                44,
+                "Mode control missed the minimum touch target: \(modeButton.frame)"
+            )
+            XCTAssertLessThanOrEqual(
+                modeButton.frame.height,
+                58,
+                "Mode control wrapped into a character column: \(modeButton.frame)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                modeButton.frame.width,
+                140,
+                "Mode control was too narrow to read: \(modeButton.frame)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                modeButton.frame.width / max(modeButton.frame.height, 1),
+                2.5,
+                "Mode control has a vertical character-column aspect ratio: \(modeButton.frame)"
+            )
+            assertHorizontallyContained(
+                modeButton,
+                in: creativePartner,
+                message: "Mode control escaped the Creative Partner card"
+            )
+        }
+
+        let emptyContext = element(identifier: "studio.them.creative-partner.context.empty", in: app)
+        XCTAssertTrue(
+            revealInStudioDrawer(emptyContext, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "An empty Companion rail did not explain why there were no clear controls."
+        )
+        XCTAssertFalse(
+            app.buttons["studio.them.creative-partner.clear-thread"].exists,
+            "Clear Thread must not be rendered when there is no companion thread."
+        )
+        XCTAssertFalse(
+            app.buttons["studio.them.creative-partner.clear-memory"].exists,
+            "Clear Memory must not be rendered when there is no companion memory."
+        )
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "companion-rail-readable-phone-width.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let characterMemory = app.descendants(matching: .any)["studio.them.character-memory"]
+        XCTAssertTrue(
+            revealInStudioDrawer(characterMemory, drawer: drawer, scrollingUp: true, maxSwipes: 16)
+        )
         XCTAssertTrue(app.buttons["studio.them.character-memory.refresh"].exists)
         XCTAssertTrue(
             app.descendants(matching: .any)["studio.them.character-memory.card.lucy-0"].exists
@@ -376,44 +508,21 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.keep"].exists)
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
-        let creativePartner = app.descendants(matching: .any)["studio.them.creative-partner"]
-        for _ in 0..<12 where !creativePartner.exists {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(creativePartner.waitForExistence(timeout: 4))
-
-        let modePicker = app.descendants(matching: .any)["studio.them.modePicker"]
-        for _ in 0..<8 where !modePicker.exists {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(modePicker.waitForExistence(timeout: 4))
-
-        let voicePin = app.descendants(matching: .any)["studio.them.voice-pin"]
-        for _ in 0..<8 where !voicePin.exists {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(voicePin.waitForExistence(timeout: 4))
-
-        let emptyVoicePin = app.descendants(matching: .any)["studio.them.voice-pin.empty"]
-        let latestVoicePin = app.descendants(matching: .any)["studio.them.voice-pin.latest"]
-        for _ in 0..<8 where !emptyVoicePin.exists && !latestVoicePin.exists {
-            drawer.swipeUp()
-        }
+        let dismissReversal = app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"]
         XCTAssertTrue(
-            emptyVoicePin.waitForExistence(timeout: 1) ||
-                latestVoicePin.waitForExistence(timeout: 1),
-            "Creative Partner did not expose an empty or latest Voice Pin state."
+            revealInStudioDrawer(dismissReversal, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "The unaccepted reversal Dismiss action was not reachable."
         )
-
-        let clearThread = app.buttons["studio.them.creative-partner.clear-thread"]
-        let clearMemory = app.buttons["studio.them.creative-partner.clear-memory"]
-        for _ in 0..<8 where !clearThread.isHittable || !clearMemory.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(clearThread.waitForExistence(timeout: 4))
-        XCTAssertTrue(clearMemory.waitForExistence(timeout: 4))
-        XCTAssertTrue(clearThread.isEnabled)
-        XCTAssertTrue(clearMemory.isEnabled)
+        XCTAssertTrue(dismissReversal.isEnabled)
+#if os(macOS)
+        dismissReversal.click()
+#else
+        dismissReversal.tap()
+#endif
+        XCTAssertTrue(
+            waitForDisappearance(of: reversalCard, timeout: 5),
+            "Dismissing an unaccepted reversal left its card in the rail."
+        )
 
         let surfaceMix = app.descendants(matching: .any)["studio.them.surface-mix"]
         for _ in 0..<12 where !surfaceMix.exists {
@@ -422,12 +531,70 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(surfaceMix.waitForExistence(timeout: 4))
     }
 
+    func test_live_intent_try_this_ask_loads_the_companion_composer() {
+        let app = launchApp(
+            openStudio: true,
+            openExportTools: true,
+            routeVoicePin: true,
+            seedCompanionSignal: true
+        )
+        defer { app.terminate() }
+
+        let themTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(themTab.waitForExistence(timeout: 8))
+        if !themTab.isSelected {
+#if os(macOS)
+            themTab.click()
+#else
+            themTab.tap()
+#endif
+        }
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let useLiveIntent = element(identifier: "studio.them.live-intent.use-prompt", in: app)
+        XCTAssertTrue(
+            revealFrameInStudioDrawer(useLiveIntent, drawer: drawer, maxSwipes: 36),
+            "A signal-producing Studio turn did not expose a real Try this ask action."
+        )
+#if os(macOS)
+        useLiveIntent.click()
+#else
+        useLiveIntent.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+#endif
+        XCTAssertTrue(
+            staticText(containing: "Loaded the live ask into the companion composer", in: app)
+                .waitForExistence(timeout: 4),
+            "Try this ask did not report that it loaded the live prompt."
+        )
+
+        let promptField = element(identifier: "studio.prompt.field", in: app)
+        for _ in 0..<24 where !promptField.isHittable {
+            drawer.swipeDown()
+        }
+        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForTextInputValue(
+                in: promptField,
+                containing: "give me three stronger turns for this sequence",
+                timeout: 5
+            ),
+            "Try this ask did not load the seeded story prompt. Field value: \(String(describing: promptField.value))"
+        )
+        let pinRoute = element(identifier: "studio.prompt.routing.voicePin", in: app)
+        XCTAssertTrue(pinRoute.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForSelection(of: pinRoute, timeout: 4),
+            "Try this ask did not route back to Voice Pin."
+        )
+    }
+
     func test_creative_partner_mode_reuse_and_to_page_callbacks() {
         let prompt = "Help me choose the smallest playable next move for Lucy."
         let app = launchApp(
             openStudio: true,
             openCommandBar: true,
             routeVoicePin: true,
+            seedCompanionSignal: true,
             autoSubmitVoicePinPrompt: prompt
         )
         defer { app.terminate() }
@@ -448,31 +615,45 @@ final class V1SmokeUITests: XCTestCase {
         }
 
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
-        let coWriterMode = element(identifier: "studio.them.mode.co_writer", in: app)
-        for _ in 0..<20 where !coWriterMode.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(waitForHittability(of: coWriterMode, timeout: 5))
+        let promptField = element(identifier: "studio.prompt.field", in: app)
+        let pinRoute = element(identifier: "studio.prompt.routing.voicePin", in: app)
+
+        let modeExpectations = [
+            ("co_writer", "Warm creative partnership"),
+            ("comfort", "Soothing, grounding"),
+            ("coach", "Practical support"),
+        ]
+        for (rawMode, expectedSummary) in modeExpectations {
+            let mode = element(identifier: "studio.them.mode.\(rawMode)", in: app)
+            XCTAssertTrue(
+                revealFullyInStudioDrawer(mode, drawer: drawer, maxSwipes: 20),
+                "Companion mode was not fully reachable: \(rawMode), frame=\(mode.frame), drawer=\(drawer.frame)"
+            )
 #if os(macOS)
-        coWriterMode.click()
+            mode.click()
 #else
-        coWriterMode.tap()
+            mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
-        XCTAssertTrue(
-            waitForAccessibilityText(
-                identifier: "studio.them.mode.summary",
-                containing: "Warm creative partnership",
-                in: app,
-                timeout: 5
-            ),
-            "The extracted mode picker did not update its current presentation."
-        )
+            XCTAssertTrue(
+                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 3),
+                "Selecting \(rawMode) did not expose its selected state to accessibility."
+            )
+            XCTAssertTrue(
+                waitForAccessibilityText(
+                    identifier: "studio.them.mode.summary",
+                    containing: expectedSummary,
+                    in: app,
+                    timeout: 5
+                ),
+                "Selecting \(rawMode) did not update the Creative Partner summary."
+            )
+        }
 
         let reuse = app.buttons["studio.them.voice-pin.latest.reuse"]
-        for _ in 0..<12 where !reuse.isHittable {
-            drawer.swipeUp()
-        }
-        XCTAssertTrue(waitForHittability(of: reuse, timeout: 5))
+        XCTAssertTrue(
+            revealInStudioDrawer(reuse, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "Reuse Ask was not reachable."
+        )
 #if os(macOS)
         reuse.click()
 #else
@@ -484,7 +665,6 @@ final class V1SmokeUITests: XCTestCase {
             "Reuse did not reach the current exchange handler."
         )
 
-        let promptField = element(identifier: "studio.prompt.field", in: app)
         for _ in 0..<20 where !promptField.isHittable {
             drawer.swipeDown()
         }
@@ -493,7 +673,6 @@ final class V1SmokeUITests: XCTestCase {
             waitForTextInputValue(in: promptField, containing: prompt, timeout: 5),
             "Reuse did not reload the current Voice Pin prompt. Field value: \(String(describing: promptField.value))"
         )
-        let pinRoute = element(identifier: "studio.prompt.routing.voicePin", in: app)
         XCTAssertTrue(pinRoute.waitForExistence(timeout: 4))
         XCTAssertTrue(
             waitForSelection(of: pinRoute, timeout: 4),
@@ -524,6 +703,89 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForSelection(of: pageRoute, timeout: 4),
             "To Page did not re-route the current exchange to the page."
+        )
+#if os(iOS)
+        XCTAssertTrue(
+            dismissKeyboardIfPresent(in: app),
+            "The Studio keyboard remained over the destructive companion controls."
+        )
+#endif
+
+        let clearThread = app.buttons["studio.them.creative-partner.clear-thread"]
+        XCTAssertTrue(
+            revealInStudioDrawer(clearThread, drawer: drawer, scrollingUp: true, maxSwipes: 24),
+            "Clear Thread was not exposed after the isolated fixture created a companion thread."
+        )
+        XCTAssertTrue(clearThread.isEnabled)
+#if os(macOS)
+        clearThread.click()
+#else
+        clearThread.tap()
+#endif
+        var confirmThread = app.buttons["studio.them.creative-partner.clear-thread.confirm"]
+        if !confirmThread.waitForExistence(timeout: 2) {
+            confirmThread = hittableElement(
+                in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Thread"))
+            ) ?? app.buttons["Clear Thread"]
+        }
+        XCTAssertTrue(waitForHittability(of: confirmThread, timeout: 4))
+#if os(macOS)
+        confirmThread.click()
+#else
+        confirmThread.tap()
+#endif
+        XCTAssertTrue(
+            staticText(containing: "Cleared the Voice Pin thread", in: app)
+                .waitForExistence(timeout: 4),
+            "Clear Thread did not report an observable mutation."
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: clearThread, timeout: 5),
+            "Clear Thread remained after the only companion thread was removed."
+        )
+        XCTAssertTrue(
+            waitForDisappearance(
+                of: element(identifier: "studio.them.voice-pin.latest", in: app),
+                timeout: 5
+            ),
+            "Clear Thread left the removed Voice Pin visible."
+        )
+
+        let clearMemory = app.buttons["studio.them.creative-partner.clear-memory"]
+        XCTAssertTrue(
+            revealInStudioDrawer(clearMemory, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "Clear Memory was not exposed after the isolated fixture created companion memory."
+        )
+        XCTAssertTrue(clearMemory.isEnabled)
+#if os(macOS)
+        clearMemory.click()
+#else
+        clearMemory.tap()
+#endif
+        var confirmMemory = app.buttons["studio.them.creative-partner.clear-memory.confirm"]
+        if !confirmMemory.waitForExistence(timeout: 2) {
+            confirmMemory = hittableElement(
+                in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Memory"))
+            ) ?? app.buttons["Clear Memory"]
+        }
+        XCTAssertTrue(waitForHittability(of: confirmMemory, timeout: 4))
+#if os(macOS)
+        confirmMemory.click()
+#else
+        confirmMemory.tap()
+#endif
+        XCTAssertTrue(
+            staticText(containing: "Cleared companion memory", in: app).waitForExistence(timeout: 4),
+            "Clear Memory did not report an observable mutation."
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: clearMemory, timeout: 5),
+            "Clear Memory remained after companion memory was removed."
+        )
+        XCTAssertTrue(
+            element(identifier: "studio.them.creative-partner.context.empty", in: app)
+                .waitForExistence(timeout: 5),
+            "The cleared Companion rail did not return to its explicit empty context state."
         )
     }
 
@@ -2062,6 +2324,7 @@ final class V1SmokeUITests: XCTestCase {
         screenplaySaveNetworkFaultMarker: String? = nil,
         screenplaySaveExpireAuthOnce: Bool = false,
         seedRememberedLogin: Bool = false,
+        seedCompanionSignal: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
@@ -2160,6 +2423,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if seedRememberedLogin {
             arguments.append("--ui-seed-remembered-login")
+        }
+        if seedCompanionSignal {
+            arguments.append("--ui-seed-companion-signal")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])
@@ -2476,6 +2742,160 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
+    }
+
+    @discardableResult
+    private func revealInStudioDrawer(
+        _ target: XCUIElement,
+        drawer: XCUIElement,
+        scrollingUp: Bool,
+        maxSwipes: Int
+    ) -> Bool {
+        if target.exists, target.isHittable {
+            return true
+        }
+        for _ in 0..<maxSwipes {
+            if target.exists, target.isHittable {
+                return true
+            }
+            if scrollingUp {
+                drawer.swipeUp()
+            } else {
+                drawer.swipeDown()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+        return waitForHittability(of: target, timeout: 2)
+    }
+
+    @discardableResult
+    private func revealFullyInStudioDrawer(
+        _ target: XCUIElement,
+        drawer: XCUIElement,
+        maxSwipes: Int
+    ) -> Bool {
+        func isFullyVisible() -> Bool {
+            target.exists &&
+                target.isHittable &&
+                target.frame.minY >= drawer.frame.minY + 8 &&
+                target.frame.maxY <= drawer.frame.maxY - 24
+        }
+
+        if isFullyVisible() {
+            return true
+        }
+        for _ in 0..<maxSwipes {
+            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
+                drawer.swipeDown()
+            } else {
+                drawer.swipeUp()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+            if isFullyVisible() {
+                return true
+            }
+        }
+        return isFullyVisible()
+    }
+
+    @discardableResult
+    private func revealFrameInStudioDrawer(
+        _ target: XCUIElement,
+        drawer: XCUIElement,
+        maxSwipes: Int
+    ) -> Bool {
+        func isFullyVisible() -> Bool {
+            target.exists &&
+                !target.frame.isEmpty &&
+                target.frame.minY >= drawer.frame.minY + 8 &&
+                target.frame.maxY <= drawer.frame.maxY - 24
+        }
+
+        if isFullyVisible() {
+            return true
+        }
+        for _ in 0..<maxSwipes {
+            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
+                drawer.swipeDown()
+            } else {
+                drawer.swipeUp()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+            if isFullyVisible() {
+                return true
+            }
+        }
+        return isFullyVisible()
+    }
+
+    private func assertHorizontallyContained(
+        _ child: XCUIElement,
+        in container: XCUIElement,
+        message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThanOrEqual(
+            child.frame.minX,
+            container.frame.minX - 1,
+            "\(message): child=\(child.frame), container=\(container.frame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            child.frame.maxX,
+            container.frame.maxX + 1,
+            "\(message): child=\(child.frame), container=\(container.frame)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForAccessibilityValue(
+        of element: XCUIElement,
+        equalTo expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let normalizedExpected = expected
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        func hasExpectedValue() -> Bool {
+            guard element.exists else { return false }
+            let normalizedValue = String(describing: element.value ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return normalizedValue == normalizedExpected
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if hasExpectedValue() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return hasExpectedValue()
+    }
+
+    private func dismissKeyboardIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return true }
+
+        let commandBarToggle = app.buttons["studio.commandbar.toggle"]
+        if waitForHittability(of: commandBarToggle, timeout: 2) {
+            commandBarToggle.tap()
+            if waitForDisappearance(of: keyboard, timeout: 3) {
+                return true
+            }
+        }
+
+        keyboard.swipeDown()
+        return waitForDisappearance(of: keyboard, timeout: 3)
+#else
+        return true
+#endif
     }
 
     private func waitForSelection(

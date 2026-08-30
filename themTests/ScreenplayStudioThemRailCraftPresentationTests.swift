@@ -156,9 +156,9 @@ final class ScreenplayStudioThemRailCraftPresentationTests: XCTestCase {
             return XCTFail("Expected projected reversal cards.")
         }
         XCTAssertEqual(enabledCards.map(\.severity), [.high, .medium, .neutral])
-        XCTAssertEqual(enabledCards.map(\.keepLabel), ["Keep", "Kept", "Keep"])
-        XCTAssertEqual(enabledCards.map(\.keepSystemImage), ["pin", "checkmark.circle.fill", "pin"])
-        XCTAssertEqual(enabledCards.map(\.isKeepEnabled), [true, false, true])
+        XCTAssertEqual(enabledCards.map(\.dismissLabel), ["Dismiss", "Unkeep", "Dismiss"])
+        XCTAssertEqual(enabledCards.map(\.dismissSystemImage), ["xmark.circle", "pin.slash", "xmark.circle"])
+        XCTAssertEqual(enabledCards.map(\.showsKeepAction), [true, false, true])
         XCTAssertEqual(enabledCards.map(\.isDismissEnabled), [true, true, true])
         XCTAssertEqual(enabledCards.map(\.showsMutationProgress), [false, false, false])
 
@@ -171,20 +171,20 @@ final class ScreenplayStudioThemRailCraftPresentationTests: XCTestCase {
         guard case .cards(let mutatingCards) = mutating.content else {
             return XCTFail("Expected mutating reversal cards.")
         }
-        XCTAssertEqual(mutatingCards.map(\.isKeepEnabled), [false, false])
+        XCTAssertEqual(mutatingCards.map(\.showsKeepAction), [false, false])
         XCTAssertEqual(mutatingCards.map(\.isDismissEnabled), [false, false])
         XCTAssertEqual(mutatingCards.map(\.showsMutationProgress), [true, true])
 
         let noProject = reversalPresentation(
             hasResponse: true,
-            cards: [available],
+            cards: [available, accepted],
             hasSelectedProject: false
         )
         guard case .cards(let noProjectCards) = noProject.content else {
             return XCTFail("Expected a reversal card without project actions.")
         }
-        XCTAssertEqual(noProjectCards.map(\.isKeepEnabled), [false])
-        XCTAssertEqual(noProjectCards.map(\.isDismissEnabled), [false])
+        XCTAssertEqual(noProjectCards.map(\.showsKeepAction), [false, false])
+        XCTAssertEqual(noProjectCards.map(\.isDismissEnabled), [true, false])
     }
 
     private func characterPresentation(

@@ -4438,7 +4438,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func hydrateBackendCompanionState(force: Bool = false) async {
-        guard !IOThemRuntime.isRunningTests else { return }
+        guard !IOThemRuntime.isRunningTests, !IOThemRuntime.isRunningUITests else { return }
         if isHydratingBackendCompanionState && !force { return }
         isHydratingBackendCompanionState = true
         defer { isHydratingBackendCompanionState = false }
@@ -6122,25 +6122,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func setCompanionMode(_ mode: StudioCompanionMode) {
-        if companionMode != mode {
-            companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
-                updatedAt: Date(),
-                totalTurns: companionAnalytics.totalTurns,
-                homeTurns: companionAnalytics.homeTurns,
-                studioTurns: companionAnalytics.studioTurns,
-                voiceTurns: companionAnalytics.voiceTurns,
-                typedTurns: companionAnalytics.typedTurns,
-                modeSwitches: companionAnalytics.modeSwitches + 1,
-                memoryClears: companionAnalytics.memoryClears,
-                threadClears: companionAnalytics.threadClears,
-                lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
-                lastSourceRaw: companionAnalytics.lastSourceRaw,
-                firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
-                firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
-                firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
-                firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
-            )
-        }
+        guard companionMode != mode else { return }
+        companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
+            updatedAt: Date(),
+            totalTurns: companionAnalytics.totalTurns,
+            homeTurns: companionAnalytics.homeTurns,
+            studioTurns: companionAnalytics.studioTurns,
+            voiceTurns: companionAnalytics.voiceTurns,
+            typedTurns: companionAnalytics.typedTurns,
+            modeSwitches: companionAnalytics.modeSwitches + 1,
+            memoryClears: companionAnalytics.memoryClears,
+            threadClears: companionAnalytics.threadClears,
+            lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
+            lastSourceRaw: companionAnalytics.lastSourceRaw,
+            firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+            firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+            firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+            firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
+        )
         companionMode = mode
         if companionSignalState.hasContent {
             companionSignalState = CreativeCompanionSignalEngine.retone(
@@ -6153,6 +6152,47 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func clearCompanionMemory() {
+        applyLocalCompanionMemoryClear()
+        schedulePersistBackendCompanionState()
+    }
+
+    func clearCompanionMemoryAndSync() async throws {
+        let pendingSyncTask = companionBackendSyncTask
+        pendingSyncTask?.cancel()
+        companionBackendSyncTask = nil
+
+        let previousRecentTurns = companionRecentTurns
+        let previousSignalState = companionSignalState
+        let previousAnalytics = companionAnalytics
+
+        applyLocalCompanionMemoryClear()
+        let clearedAnalytics = companionAnalytics
+
+        // Drain the canceled write before sending the authoritative clear so an
+        // older snapshot cannot land after the cleared state.
+        if let pendingSyncTask {
+            await pendingSyncTask.value
+        }
+
+        guard !IOThemRuntime.isRunningTests, !IOThemRuntime.isRunningUITests else { return }
+
+        do {
+            _ = try await BackendMemoryAPI.shared.updateScreenplayCompanionState(
+                mode: companionMode,
+                recentTurns: [],
+                analytics: clearedAnalytics,
+                signals: .empty
+            )
+        } catch {
+            companionRecentTurns = previousRecentTurns
+            companionSignalState = previousSignalState
+            companionAnalytics = previousAnalytics
+            schedulePersistBackendCompanionState()
+            throw error
+        }
+    }
+
+    private func applyLocalCompanionMemoryClear() {
         companionRecentTurns = []
         companionSignalState = .empty
         companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
@@ -6172,7 +6212,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
             firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
         )
-        schedulePersistBackendCompanionState()
     }
 
     func clearCompanionPinHistory() {

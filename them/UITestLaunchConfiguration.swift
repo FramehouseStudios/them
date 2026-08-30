@@ -91,6 +91,7 @@ nonisolated enum UITestLaunchConfiguration {
         guard arguments.contains("--ui-testing") else { return false }
         return arguments.contains("--ui-show-draft-conflict")
             || arguments.contains("--ui-show-pending-screenplay-question")
+            || arguments.contains("--ui-seed-companion-signal")
             || hasStructuralStudioFixture(arguments: arguments)
     }
 

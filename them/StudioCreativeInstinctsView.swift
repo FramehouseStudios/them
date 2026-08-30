@@ -233,6 +233,7 @@ final class StudioCreativeInstinctsModel: ObservableObject {
 
 struct StudioCreativeInstinctsView: View {
     let projectTitle: String
+    let hasSelectedProject: Bool
     let preferences: [BackendStoryMovePreference]
     let isLoading: Bool
     let updatingFamily: String
@@ -258,7 +259,7 @@ struct StudioCreativeInstinctsView: View {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 26, height: 26)
-                } else {
+                } else if hasSelectedProject {
                     Button(action: onRefresh) {
                         Image(systemName: "arrow.clockwise")
                             .font(IOThemTypography.UI.caption.weight(.semibold))
@@ -270,24 +271,32 @@ struct StudioCreativeInstinctsView: View {
                     .accessibilityIdentifier("studio.story-preferences.refresh")
                 }
 
-                Button {
-                    showsResetConfirmation = true
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(IOThemTypography.UI.caption.weight(.semibold))
-                        .frame(width: 26, height: 26)
+                if !preferences.isEmpty {
+                    Button {
+                        showsResetConfirmation = true
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(IOThemTypography.UI.caption.weight(.semibold))
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!updatingFamily.isEmpty)
+                    .help("Reset creative preference learning")
+                    .accessibilityLabel("Reset creative preference learning")
+                    .accessibilityIdentifier("studio.story-preferences.reset-all")
                 }
-                .buttonStyle(.plain)
-                .disabled(preferences.isEmpty || !updatingFamily.isEmpty)
-                .help("Reset creative preference learning")
-                .accessibilityLabel("Reset creative preference learning")
-                .accessibilityIdentifier("studio.story-preferences.reset-all")
             }
 
             if preferences.isEmpty, !isLoading {
-                Text("No creative preference evidence yet.")
+                Text(
+                    hasSelectedProject
+                        ? "No creative preference evidence yet."
+                        : "Create or select a project to learn creative preferences."
+                )
                     .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.herText.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.story-preferences.empty")
             } else {
                 ForEach(preferences.prefix(6)) { preference in
                     StudioCreativeInstinctRow(
@@ -308,6 +317,7 @@ struct StudioCreativeInstinctsView: View {
                     Button("Try Again", action: onRefresh)
                         .font(IOThemTypography.UI.label)
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("studio.story-preferences.try-again")
                 }
                 .accessibilityIdentifier("studio.story-preferences.error")
             }
@@ -318,7 +328,9 @@ struct StudioCreativeInstinctsView: View {
             titleVisibility: .visible
         ) {
             Button("Reset Preferences", role: .destructive, action: onResetAll)
+                .accessibilityIdentifier("studio.story-preferences.reset-confirm")
             Button("Cancel", role: .cancel) {}
+                .accessibilityIdentifier("studio.story-preferences.reset-cancel")
         } message: {
             Text("Story facts and screenplay canon stay intact.")
         }
@@ -420,11 +432,17 @@ private struct StudioCreativeInstinctRow: View {
                 } label: {
                     Label("Suggest Less Like This", systemImage: "minus.circle")
                 }
+                .accessibilityIdentifier(
+                    "studio.story-preference.\(preference.family).avoid"
+                )
                 Button(role: .destructive) {
                     onUpdate(preference, "reset")
                 } label: {
                     Label("Forget This Preference", systemImage: "arrow.counterclockwise")
                 }
+                .accessibilityIdentifier(
+                    "studio.story-preference.\(preference.family).reset"
+                )
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(IOThemTypography.UI.body.weight(.medium))

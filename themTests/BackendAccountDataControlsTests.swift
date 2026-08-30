@@ -1111,6 +1111,11 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
         XCTAssertTrue(
             UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ["them", "--ui-testing", "--ui-seed-companion-signal"]
+            )
+        )
+        XCTAssertTrue(
+            UITestLaunchConfiguration.shouldBypassStudioHydration(
                 arguments: ["them", "--ui-testing", "-studio_debug_seed_structural_token", "42"]
             )
         )

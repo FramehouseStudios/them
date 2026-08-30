@@ -65,9 +65,9 @@ struct ScreenplayStudioReversalCardPresentation: Identifiable, Equatable {
 
     let card: ScreenplayCraftTwistCardState
     let severity: ScreenplayStudioReversalSeverityPresentation
-    let keepLabel: String
-    let keepSystemImage: String
-    let isKeepEnabled: Bool
+    let dismissLabel: String
+    let dismissSystemImage: String
+    let showsKeepAction: Bool
     let isDismissEnabled: Bool
     let showsMutationProgress: Bool
 }
@@ -149,10 +149,10 @@ enum ScreenplayStudioReversalCardsPresentationPlanner {
                 ScreenplayStudioReversalCardPresentation(
                     card: card,
                     severity: severity(from: card.severity),
-                    keepLabel: card.isAccepted ? "Kept" : "Keep",
-                    keepSystemImage: card.isAccepted ? "checkmark.circle.fill" : "pin",
-                    isKeepEnabled: hasSelectedProject && !isMutating && !card.isAccepted,
-                    isDismissEnabled: hasSelectedProject && !isMutating,
+                    dismissLabel: card.isAccepted ? "Unkeep" : "Dismiss",
+                    dismissSystemImage: card.isAccepted ? "pin.slash" : "xmark.circle",
+                    showsKeepAction: hasSelectedProject && !isMutating && !card.isAccepted,
+                    isDismissEnabled: !isMutating && (!card.isAccepted || hasSelectedProject),
                     showsMutationProgress: isMutating
                 )
             })
@@ -206,14 +206,21 @@ struct ScreenplayStudioCharacterMemoryView: View {
                             .font(IOThemTypography.UI.captionStrong)
                             .foregroundStyle(Color.herText.opacity(0.78))
                         Spacer(minLength: 0)
-                        Button(action: actions.onRefresh) {
-                            Image(systemName: "arrow.clockwise")
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityLabel("Refreshing character memory")
+                                .accessibilityIdentifier("studio.them.character-memory.refreshing")
+                        } else {
+                            Button(action: actions.onRefresh) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("Refresh character memory")
+                            .accessibilityLabel("Refresh character memory")
+                            .accessibilityIdentifier("studio.them.character-memory.refresh")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Refresh character memory")
-                        .accessibilityLabel("Refresh character memory")
-                        .accessibilityIdentifier("studio.them.character-memory.refresh")
                     }
 
                     characterMemoryContent
@@ -222,6 +229,11 @@ struct ScreenplayStudioCharacterMemoryView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("studio.them.character-memory")
         }
+    }
+
+    private var isLoading: Bool {
+        if case .loading = presentation.content { return true }
+        return false
     }
 
     @ViewBuilder
@@ -433,15 +445,27 @@ struct ScreenplayStudioReversalCardsView: View {
                     .foregroundStyle(Color.herText.opacity(0.48))
             }
             Spacer(minLength: 0)
-            Button(action: actions.onRefresh) {
-                Image(systemName: "arrow.clockwise")
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Refreshing reversal cards")
+                    .accessibilityIdentifier("studio.them.reversal-cards.refreshing")
+            } else {
+                Button(action: actions.onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Refresh reversal cards")
+                .accessibilityLabel("Refresh reversal cards")
+                .accessibilityIdentifier("studio.them.reversal-cards.refresh")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Refresh reversal cards")
-            .accessibilityLabel("Refresh reversal cards")
-            .accessibilityIdentifier("studio.them.reversal-cards.refresh")
         }
+    }
+
+    private var isLoading: Bool {
+        if case .loading = presentation.content { return true }
+        return false
     }
 
     @ViewBuilder
@@ -536,20 +560,21 @@ struct ScreenplayStudioReversalCardsView: View {
             }
 
             HStack(spacing: 8) {
-                Button {
-                    actions.onKeep(card)
-                } label: {
-                    Label(presentation.keepLabel, systemImage: presentation.keepSystemImage)
+                if presentation.showsKeepAction {
+                    Button {
+                        actions.onKeep(card)
+                    } label: {
+                        Label("Keep", systemImage: "pin")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("studio.them.reversal-card.\(card.id).keep")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!presentation.isKeepEnabled)
-                .accessibilityIdentifier("studio.them.reversal-card.\(card.id).keep")
 
                 Button {
                     actions.onDismiss(card)
                 } label: {
-                    Label("Dismiss", systemImage: "xmark.circle")
+                    Label(presentation.dismissLabel, systemImage: presentation.dismissSystemImage)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

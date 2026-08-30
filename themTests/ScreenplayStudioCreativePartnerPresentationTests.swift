@@ -37,10 +37,14 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
             presentation.copy.contextDetail,
             "Thread memory, routing, and screenplay fixes stay attached to this same partner surface."
         )
+        XCTAssertEqual(
+            presentation.copy.emptyContextDetail,
+            "Nothing is stored yet. Clear controls appear only when this partner has a thread or memory to remove."
+        )
         XCTAssertEqual(presentation.copy.clearThreadButtonTitle, "Clear Thread")
         XCTAssertEqual(presentation.copy.clearMemoryButtonTitle, "Clear Memory")
-        XCTAssertEqual(presentation.copy.reuseButtonTitle, "Reuse")
-        XCTAssertEqual(presentation.copy.toPageButtonTitle, "To Page")
+        XCTAssertEqual(presentation.copy.reuseButtonTitle, "Reuse Ask")
+        XCTAssertEqual(presentation.copy.toPageButtonTitle, "Prepare for Page")
 
         XCTAssertEqual(presentation.modeOptions.map(\.rawValue), ["coach", "co_writer", "comfort"])
         XCTAssertEqual(presentation.modeOptions.map(\.title), ["Coach", "Co-writer", "Comfort"])
@@ -62,6 +66,25 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.metrics.map(\.label), ["Turns", "Pins", "Fixes"])
         XCTAssertEqual(presentation.metrics.map(\.value), ["12", "2", "4"])
+    }
+
+    func testClearActionsAppearOnlyForStateTheyCanActuallyRemove() {
+        let empty = makePresentation()
+        XCTAssertFalse(empty.canClearThread)
+        XCTAssertFalse(empty.canClearMemory)
+
+        let memoryOnly = makePresentation(
+            recentTurnCount: 1,
+            hasCompanionMemory: true
+        )
+        XCTAssertFalse(memoryOnly.canClearThread)
+        XCTAssertTrue(memoryOnly.canClearMemory)
+
+        let threadOnly = makePresentation(
+            hasCompanionThread: true
+        )
+        XCTAssertTrue(threadOnly.canClearThread)
+        XCTAssertFalse(threadOnly.canClearMemory)
     }
 
     func testPageAndVoicePinRoutesProjectCanonicalBadgesAndExactlyTwoRoutePills() {
@@ -328,6 +351,8 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
         routesToPage: Bool = false,
         recentTurnCount: Int = 0,
         queuedFixCount: Int = 0,
+        hasCompanionThread: Bool = false,
+        hasCompanionMemory: Bool = false,
         voicePinTurns: [ScreenplayStudioCreativePartnerVoicePinTurnInput] = [],
         exchanges: [ScreenplayStudioCreativePartnerVoicePinExchangeInput] = [],
         now: Date = Date(timeIntervalSince1970: 100_000)
@@ -338,6 +363,8 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
             routesToPage: routesToPage,
             recentTurnCount: recentTurnCount,
             queuedFixCount: queuedFixCount,
+            hasCompanionThread: hasCompanionThread,
+            hasCompanionMemory: hasCompanionMemory,
             voicePinTurns: voicePinTurns,
             exchanges: exchanges,
             now: now

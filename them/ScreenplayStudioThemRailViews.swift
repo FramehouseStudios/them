@@ -19,6 +19,7 @@ struct ScreenplayStudioLiveIntentPresentation: Equatable {
     let intentLabel: String?
     let presenceDetail: String?
     let proactivePrompt: String?
+    let proactiveIntentKind: CreativeIntentKind?
 }
 
 enum ScreenplayStudioMomentumPresentation: Equatable {
@@ -52,6 +53,7 @@ struct ScreenplayStudioThemRailPresentation: Equatable {
 
 struct ScreenplayStudioThemRailActions {
     let onRefreshMomentum: () -> Void
+    let onUseLiveIntentPrompt: (String, CreativeIntentKind?) -> Void
 }
 
 enum ScreenplayStudioThemRailPresentationPlanner {
@@ -86,7 +88,10 @@ enum ScreenplayStudioThemRailPresentationPlanner {
                 : signalState.presence.title,
             intentLabel: optionalRawText(signalState.intent.label),
             presenceDetail: optionalRawText(signalState.presence.detail),
-            proactivePrompt: optionalRawText(signalState.proactiveSuggestion?.prompt ?? "")
+            proactivePrompt: optionalRawText(signalState.proactiveSuggestion?.prompt ?? ""),
+            proactiveIntentKind: signalState.proactiveSuggestion == nil
+                ? nil
+                : signalState.intent.kind
         )
     }
 
@@ -150,9 +155,12 @@ struct ScreenplayStudioThemRailView<LeadingContent: View, TrailingContent: View>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            leadingContent
             ScreenplayStudioThemRailOverviewView(presentation: presentation.overview)
-            ScreenplayStudioLiveIntentView(presentation: presentation.liveIntent)
+            ScreenplayStudioLiveIntentView(
+                presentation: presentation.liveIntent,
+                onUsePrompt: actions.onUseLiveIntentPrompt
+            )
+            leadingContent
             ScreenplayStudioMomentumView(
                 presentation: presentation.momentum,
                 onRefresh: actions.onRefreshMomentum
@@ -196,24 +204,32 @@ struct ScreenplayStudioThemRailOverviewView: View {
 
 struct ScreenplayStudioLiveIntentView: View {
     let presentation: ScreenplayStudioLiveIntentPresentation
+    let onUsePrompt: (String, CreativeIntentKind?) -> Void
 
     var body: some View {
         if presentation.isVisible {
             intelligenceCollectionCard(title: "Live Intent", icon: "dot.radiowaves.left.and.right") {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(presentation.presenceTitle)
-                            .font(IOThemTypography.UI.calloutStrong)
-                            .foregroundStyle(Color.herText.opacity(0.88))
-                        Spacer(minLength: 0)
-                        if let intentLabel = presentation.intentLabel {
-                            Text(intentLabel)
-                                .font(IOThemTypography.UI.label)
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.14))
-                                .clipShape(Capsule())
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            Text(presentation.presenceTitle)
+                                .font(IOThemTypography.UI.calloutStrong)
+                                .foregroundStyle(Color.herText.opacity(0.88))
+                                .fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            if let intentLabel = presentation.intentLabel {
+                                intentText(intentLabel)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(presentation.presenceTitle)
+                                .font(IOThemTypography.UI.calloutStrong)
+                                .foregroundStyle(Color.herText.opacity(0.88))
+                            if let intentLabel = presentation.intentLabel {
+                                intentText(intentLabel)
+                            }
                         }
                     }
 
@@ -225,15 +241,49 @@ struct ScreenplayStudioLiveIntentView: View {
                     }
 
                     if let proactivePrompt = presentation.proactivePrompt {
-                        Text(proactivePrompt)
-                            .font(IOThemTypography.UI.captionMedium)
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
+                        Button {
+                            onUsePrompt(proactivePrompt, presentation.proactiveIntentKind)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("Try this ask", systemImage: "arrow.up.right")
+                                    .font(IOThemTypography.UI.microMedium)
+                                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
+                                Text(proactivePrompt)
+                                    .font(IOThemTypography.UI.captionMedium)
+                                    .foregroundStyle(Color.herText.opacity(0.84))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.herStudioActiveFill.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.herStudioActiveFill.opacity(0.20), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Try this ask. \(proactivePrompt)")
+                        .accessibilityHint("Loads this ask into the companion composer without sending it.")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("studio.them.live-intent.use-prompt")
                     }
                 }
             }
-            .accessibilityIdentifier("studio.them.live-intent")
         }
+    }
+
+    private func intentText(_ value: String) -> some View {
+        Text(value)
+            .font(IOThemTypography.UI.label)
+            .foregroundStyle(Color.herText.opacity(0.74))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -312,6 +362,8 @@ struct ScreenplayStudioMomentumView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .help("Refresh momentum signal")
+                        .accessibilityLabel("Refresh momentum")
+                        .accessibilityIdentifier("studio.them.momentum.refresh")
                     }
 
                     GeometryReader { geometry in
@@ -346,6 +398,8 @@ struct ScreenplayStudioMomentumView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .help("Refresh momentum history")
+                        .accessibilityLabel("Refresh momentum")
+                        .accessibilityIdentifier("studio.them.momentum.refresh")
                     }
                 }
 
@@ -394,9 +448,19 @@ struct ScreenplayStudioSurfaceMixView: View {
 
     var body: some View {
         intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
-            HStack(spacing: 8) {
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8)
+                ],
+                spacing: 8
+            ) {
                 ForEach(presentation.stats) { stat in
                     directionOneMiniStat(stat.label, value: stat.value)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier(
+                            "studio.them.surface-mix.\(stat.label.lowercased())"
+                        )
                 }
             }
 

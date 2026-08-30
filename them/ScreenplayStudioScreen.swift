@@ -167,6 +167,7 @@ struct ScreenplayStudioScreen: View {
     @State private var highlightedStudioExchangeID: UUID?
     @AppStorage("studio.ask.note.history.v2") private var studioAskNoteHistoryStorage = ""
     @AppStorage("studio.ask.note.selection.v1") private var studioAskNoteSelectionStorage = ""
+    @AppStorage("studio.ask.note.cleared.backend.voicepin.ids.v1") private var studioClearedBackendVoicePinIDsStorage = ""
     @AppStorage("studio.write.anchor.records.v1") private var studioWriteAnchorStorage = ""
     @AppStorage("studio.diff.keep-current.v1") private var studioDiffAcknowledgedStorage = ""
     @AppStorage("studio.diff.keep-current.writeids.v1") private var studioDiffAcknowledgedWriteIDStorage = ""
@@ -2222,6 +2223,15 @@ Replace is best when this file should become the script you edit. Append is safe
                     proxy.scrollTo("studio.pending-question.anchor", anchor: .top)
                 }
             }
+            .onChange(of: isDirectionOneComposerExpanded) { _, isExpanded in
+                guard isExpanded else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeOut(duration: 0.20)) {
+                        proxy.scrollTo("studio.composer.anchor", anchor: .top)
+                    }
+                }
+            }
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil
@@ -3739,15 +3749,68 @@ Detail:
         return liveDraftBridge.companionMode
     }
 
+    private var hasCompanionThreadHistory: Bool {
+        studioAskNoteHistory.contains { $0.target == .voicePin }
+    }
+
     private func clearCompanionThreadHistory() {
-        studioAskNoteHistory.removeAll { exchange in
-            guard exchange.target == .voicePin else { return false }
-            let domain = resolvedMemoryDomain(for: exchange)
-            return domain == .companion || domain == .mixed
+        guard hasCompanionThreadHistory else {
+            vm.infoText = "There is no companion thread to clear."
+            return
         }
+
+        let clearedBackendIDs = Set(
+            studioAskNoteHistory
+                .filter { $0.target == .voicePin }
+                .map { normalizedBackendThreadID($0.backendThreadID) }
+                .filter { !$0.isEmpty }
+        )
+        addClearedBackendVoicePinIDs(clearedBackendIDs)
+        studioAskNoteHistory.removeAll { $0.target == .voicePin }
         liveDraftBridge.clearCompanionPinHistory()
         highlightedStudioExchangeID = studioAskNoteHistory.first?.id
-        vm.infoText = "Cleared the companion-side thread history."
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
+        vm.infoText = "Cleared the Voice Pin thread. Screenplay pages were kept."
+    }
+
+    private func clearCreativePartnerMemory() {
+        let hasMemory = liveDraftBridge.companionSignalState.hasContent ||
+            !liveDraftBridge.companionRecentTurns.isEmpty
+        guard hasMemory else {
+            vm.infoText = "There is no companion memory to clear."
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await liveDraftBridge.clearCompanionMemoryAndSync()
+                vm.infoText = "Cleared companion memory. Screenplay pages and project facts were kept."
+            } catch {
+                vm.infoText = "Could not clear companion memory. Try again when io.them is online."
+            }
+        }
+    }
+
+    private func useLiveIntentPrompt(
+        _ rawPrompt: String,
+        intentKind: CreativeIntentKind?
+    ) {
+        guard let plan = ScreenplayStudioLiveIntentComposerPlanner.make(
+            rawPrompt: rawPrompt,
+            intentKind: intentKind
+        ) else {
+            vm.infoText = "No live ask is available yet."
+            return
+        }
+
+        openStudioCommandBar(
+            prefill: plan.prompt,
+            routingMode: plan.routingMode,
+            intent: plan.intent
+        )
+        vm.infoText = plan.routingMode == .page
+            ? "Loaded the live page move into the composer."
+            : "Loaded the live ask into the companion composer."
     }
 
     private func selectCreativePartnerMode(rawValue: String) {
@@ -3759,13 +3822,6 @@ Detail:
         guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
               exchange.target == .voicePin else { return }
         reloadStudioAskNoteExchange(exchange)
-        // Reuse restores the ask and route without letting the keyboard cover
-        // the adjacent Creative Partner actions. The writer can tap the
-        // composer when they are ready to edit or send it again.
-        Task { @MainActor in
-            await Task.yield()
-            studioPromptFocused = false
-        }
     }
 
     private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
@@ -3774,7 +3830,8 @@ Detail:
         openStudioCommandBar(
             prefill: exchange.prompt,
             routingMode: .page,
-            intent: .rewrite
+            intent: .rewrite,
+            focusComposer: false
         )
     }
 
@@ -4120,6 +4177,8 @@ private var directionOneThemPanel: some View {
         isMutating: vm.isAcceptedCraftTwistMutating,
         hasSelectedProject: vm.selectedProject != nil
     )
+    let hasCompanionMemory = liveDraftBridge.companionSignalState.hasContent ||
+        !liveDraftBridge.companionRecentTurns.isEmpty
     let creativePartnerPresentation = ScreenplayStudioCreativePartnerPresentationPlanner.make(
         modes: StudioCompanionMode.allCases.map { mode in
             ScreenplayStudioCreativePartnerModeInput(
@@ -4133,6 +4192,8 @@ private var directionOneThemPanel: some View {
         routesToPage: currentStudioPromptTarget == .page,
         recentTurnCount: liveDraftBridge.companionRecentTurns.count,
         queuedFixCount: queuedIntelligenceFixes.count,
+        hasCompanionThread: hasCompanionThreadHistory,
+        hasCompanionMemory: hasCompanionMemory,
         voicePinTurns: voicePinTurns.map { turn in
             ScreenplayStudioCreativePartnerVoicePinTurnInput(
                 id: turn.id,
@@ -4158,6 +4219,9 @@ private var directionOneThemPanel: some View {
         actions: ScreenplayStudioThemRailActions(
             onRefreshMomentum: {
                 Task { await vm.refreshBlockSignal(source: "Manual check") }
+            },
+            onUseLiveIntentPrompt: { prompt, intentKind in
+                useLiveIntentPrompt(prompt, intentKind: intentKind)
             }
         )
     ) {
@@ -4167,6 +4231,7 @@ private var directionOneThemPanel: some View {
 
         pendingScreenplayQuestionPrompt
         directionOneCompactComposerSection
+            .id("studio.composer.anchor")
 
         // Keep the current creative exchange and its Reuse/To Page actions
         // adjacent to the composer on compact iPhone rails. Passive memory and
@@ -4179,7 +4244,7 @@ private var directionOneThemPanel: some View {
                 onReuseVoicePin: reuseCreativePartnerVoicePin,
                 onSendVoicePinToPage: sendCreativePartnerVoicePinToPage,
                 onClearThread: clearCompanionThreadHistory,
-                onClearMemory: liveDraftBridge.clearCompanionMemory
+                onClearMemory: clearCreativePartnerMemory
             )
         )
 
@@ -4207,7 +4272,11 @@ private var directionOneThemPanel: some View {
                     Task { await vm.acceptCraftTwist(card) }
                 },
                 onDismiss: { card in
-                    Task { await vm.dismissAcceptedCraftTwist(card) }
+                    if card.isAccepted {
+                        Task { await vm.dismissAcceptedCraftTwist(card) }
+                    } else {
+                        vm.dismissCraftTwistSuggestion(card)
+                    }
                 }
             )
         )
@@ -4223,6 +4292,7 @@ private var directionOneCreativeInstinctsCard: some View {
     intelligenceCollectionCard(title: "Creative Instincts", icon: "brain.head.profile") {
         StudioCreativeInstinctsView(
             projectTitle: vm.selectedProject?.title ?? "",
+            hasSelectedProject: vm.selectedProject != nil,
             preferences: creativeInstincts.preferences,
             isLoading: creativeInstincts.isLoading,
             updatingFamily: creativeInstincts.updatingFamily,
@@ -8185,7 +8255,7 @@ Current draft version:
                 "Destination",
                 selection: Binding(
                     get: { studioPromptRoutingMode },
-                    set: { studioPromptRoutingMode = $0 }
+                    set: selectStudioPromptRoutingMode
                 )
             ) {
                 ForEach(PromptRoutingMode.allCases) { mode in
@@ -8201,14 +8271,53 @@ Current draft version:
     }
 
     private var studioPromptIntentControl: some View {
-        Picker("Intent", selection: $studioPromptIntent) {
+        Picker(
+            "Intent",
+            selection: Binding(
+                get: { studioPromptIntent },
+                set: selectStudioPromptIntent
+            )
+        ) {
             ForEach(StudioPromptIntent.allCases) { intent in
                 Text(intent.title)
                     .tag(intent)
+                    .accessibilityIdentifier("studio.prompt.intent.\(intent.rawValue)")
             }
         }
-        .pickerStyle(.segmented)
+        .pickerStyle(.menu)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .labelsHidden()
+        .accessibilityLabel("Response intent")
+        .accessibilityHint("Changes how io.them responds to the next request.")
+        .accessibilityIdentifier("studio.prompt.intent")
+    }
+
+    private func selectStudioPromptRoutingMode(_ mode: PromptRoutingMode) {
+        studioPromptRoutingMode = mode
+        switch mode {
+        case .automatic:
+            studioPromptIntent = .advice
+        case .page:
+            studioPromptIntent = .rewrite
+        case .voicePin:
+            if studioPromptIntent == .rewrite {
+                studioPromptIntent = .voicePin
+            }
+        }
+    }
+
+    private func selectStudioPromptIntent(_ intent: StudioPromptIntent) {
+        studioPromptIntent = intent
+        switch intent {
+        case .advice:
+            if studioPromptRoutingMode == .page {
+                studioPromptRoutingMode = .voicePin
+            }
+        case .rewrite:
+            studioPromptRoutingMode = .page
+        case .voicePin:
+            studioPromptRoutingMode = .voicePin
+        }
     }
 
     private func compactRoutingLabel(for mode: PromptRoutingMode) -> String {
@@ -10073,9 +10182,12 @@ Return revised screenplay lines only.
     }
 
     private func reloadStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
-        studioPromptSeed = exchange.prompt
-        studioPromptRoutingMode = exchange.target == .page ? .page : .voicePin
-        studioPromptFocused = true
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: exchange.target == .page ? .page : .voicePin,
+            intent: restoredStudioPromptIntent(for: exchange),
+            focusComposer: false
+        )
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = exchange.target == .page
@@ -10083,9 +10195,20 @@ Return revised screenplay lines only.
             : "Loaded this Voice Pin ask back into io.them."
     }
 
+    private func restoredStudioPromptIntent(
+        for exchange: StudioAskNoteExchange
+    ) -> StudioPromptIntent {
+        guard exchange.target == .voicePin else { return .rewrite }
+        return resolvedMemoryDomain(for: exchange) == .companion ? .voicePin : .advice
+    }
+
     private func pinStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
-        studioPromptSeed = exchange.prompt
-        studioPromptFocused = true
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: exchange.target == .page ? .page : .voicePin,
+            intent: restoredStudioPromptIntent(for: exchange),
+            focusComposer: false
+        )
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = "Pinned this ask back into the composer."
@@ -11408,9 +11531,13 @@ Return revised screenplay lines only.
         local: [StudioAskNoteExchange],
         remote: [StudioAskNoteExchange]
     ) -> [StudioAskNoteExchange] {
+        let clearedVoicePinBackendIDs = clearedBackendVoicePinIDs()
         var seenIndices: [String: Int] = [:]
         var merged: [StudioAskNoteExchange] = []
         for exchange in (local + remote).sorted(by: { $0.timestamp > $1.timestamp }) {
+            if isClearedBackendVoicePinExchange(exchange, clearedIDs: clearedVoicePinBackendIDs) {
+                continue
+            }
             let key = studioThreadDedupKey(exchange)
             if let existingIndex = seenIndices[key] {
                 merged[existingIndex] = mergeStudioThreadExchange(merged[existingIndex], with: exchange)
@@ -11604,6 +11731,51 @@ Return revised screenplay lines only.
         let key = activeStudioAskNoteHistoryKey
         persistFullThreadBrowseState(for: key)
         persistStudioAskNoteHistory(studioAskNoteHistory, for: key)
+    }
+
+    private func clearedBackendVoicePinIDs() -> Set<String> {
+        let clean = studioClearedBackendVoicePinIDsStorage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty,
+              let data = clean.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(
+            decoded
+                .map { normalizedBackendThreadID($0) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    private func persistClearedBackendVoicePinIDs(_ ids: Set<String>) {
+        let normalizedIDs = Array(
+            Set(ids.map { normalizedBackendThreadID($0) }.filter { !$0.isEmpty })
+        )
+            .sorted()
+        guard !normalizedIDs.isEmpty else {
+            studioClearedBackendVoicePinIDsStorage = ""
+            return
+        }
+        guard let data = try? JSONEncoder().encode(normalizedIDs),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        studioClearedBackendVoicePinIDsStorage = encoded
+    }
+
+    private func addClearedBackendVoicePinIDs(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        var cleared = clearedBackendVoicePinIDs()
+        cleared.formUnion(ids)
+        persistClearedBackendVoicePinIDs(cleared)
+    }
+
+    private func isClearedBackendVoicePinExchange(
+        _ exchange: StudioAskNoteExchange,
+        clearedIDs: Set<String>
+    ) -> Bool {
+        guard exchange.target == .voicePin else { return false }
+        let backendID = normalizedBackendThreadID(exchange.backendThreadID)
+        return !backendID.isEmpty && clearedIDs.contains(backendID)
     }
 
     private func persistStudioAskNoteHistory(_ entries: [StudioAskNoteExchange], for key: String) {
@@ -12236,6 +12408,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
+            intent: studioPromptIntent,
             successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil
@@ -12266,6 +12439,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
+            intent: studioPromptIntent,
             successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
@@ -12755,6 +12929,7 @@ Return revised screenplay lines only.
         displayText: String? = nil,
         source: StudioPromptSource = .typed,
         routingMode: PromptRoutingMode,
+        intent: StudioPromptIntent? = nil,
         successMessage: String,
         clearSeedOnSuccess: Bool,
         sendingSuggestionID: String?,
@@ -12779,7 +12954,9 @@ Return revised screenplay lines only.
                 recentStudioContext: restoredStudioContextForSubmission
             )
         }
-        let submittedText = featureContinuationPrompt ?? text
+        let baseSubmittedText = featureContinuationPrompt ?? text
+        let compatibleIntent = intent?.compatible(routesToPage: routesToPage)
+        let submittedText = compatibleIntent?.preparing(baseSubmittedText) ?? baseSubmittedText
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
         let pendingQuestionAtSubmission = vm.pendingScreenplayQuestion
         let pendingQuestionIDAtSubmission = pendingQuestionAtSubmission?.id
@@ -12980,7 +13157,10 @@ Return revised screenplay lines only.
                     return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinPromptStorageKey)?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 }()
-                guard latestPrompt.isEmpty || latestPrompt == text || latestPrompt == promptSummary else { return nil }
+                guard latestPrompt.isEmpty ||
+                        latestPrompt == text ||
+                        latestPrompt == promptSummary ||
+                        latestPrompt == submittedText else { return nil }
                 let latest = {
                     let bridgeReply = liveDraftBridge.latestVoicePinReply.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !bridgeReply.isEmpty { return bridgeReply }
@@ -14526,6 +14706,7 @@ Look at the city.
         if arguments.contains("--ui-open-commandbar") {
             openStudioCommandBar()
         }
+        applyUITestCompanionSignalFixtureIfNeeded(arguments)
         applyUITestDraftConflictFixtureIfNeeded()
         applyUITestPendingScreenplayQuestionFixtureIfNeeded()
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
@@ -14568,6 +14749,37 @@ Look at the city.
     }
 
     #if DEBUG
+    private func applyUITestCompanionSignalFixtureIfNeeded(_ arguments: [String]) {
+        guard arguments.contains("--ui-seed-companion-signal") else { return }
+        let now = Date()
+        liveDraftBridge.latestMemoryDomain = .project
+        liveDraftBridge.applyCompanionSignalState(
+            CreativeCompanionSignalState(
+                intent: CreativeIntentSnapshot(
+                    kind: .storyDevelopment,
+                    label: "Story Development",
+                    summary: "Hold the creative thread and make the next story choice concrete.",
+                    nextMove: "Pressure-test the next three turns before drafting.",
+                    confidence: 0.96,
+                    sourceText: "Give me three stronger turns for this sequence.",
+                    updatedAt: now
+                ),
+                presence: CreativePresenceSnapshot(
+                    title: "Calm Coach",
+                    detail: "Holding the creative thread and keeping the next story choice concrete.",
+                    updatedAt: now
+                ),
+                proactiveSuggestion: CreativeProactiveSuggestion(
+                    category: "Story",
+                    prompt: "Ask: give me three stronger turns for this sequence",
+                    reason: "A concrete next ask should be reusable from the Companion rail.",
+                    updatedAt: now
+                )
+            ),
+            persist: false
+        )
+    }
+
     private func applyUITestSaveNetworkFaultIfNeeded() async {
         let arguments = ProcessInfo.processInfo.arguments
         guard IOThemRuntime.isRunningUITests,

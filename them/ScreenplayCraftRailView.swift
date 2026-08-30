@@ -38,6 +38,24 @@ struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
     }
 }
 
+enum ScreenplayCraftTwistDismissalOutcome {
+    case unavailable
+    case alreadyDismissed
+    case dismissed(remaining: [ScreenplayCraftTwistSuggestion])
+}
+
+enum ScreenplayCraftTwistDismissal {
+    static func resolve(
+        cardID: String,
+        response: ScreenplayCraftTwistSuggestResponse?
+    ) -> ScreenplayCraftTwistDismissalOutcome {
+        guard let response else { return .unavailable }
+        let remaining = response.twists.filter { $0.id != cardID }
+        guard remaining.count != response.twists.count else { return .alreadyDismissed }
+        return .dismissed(remaining: remaining)
+    }
+}
+
 struct ScreenplayCraftLoglineRailState: Equatable {
     let currentLogline: String
     let sourceLabel: String

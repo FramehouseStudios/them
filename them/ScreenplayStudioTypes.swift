@@ -32,6 +32,35 @@ extension ScreenplayStudioScreen {
             case .voicePin: return "Voice Pin"
             }
         }
+
+        var promptInstruction: String {
+            switch self {
+            case .advice:
+                return "Intent: Give concise, actionable story advice that directly answers the writer."
+            case .rewrite:
+                return "Intent: Produce screenplay-ready rewritten material that directly answers the writer."
+            case .voicePin:
+                return "Intent: Hold this as concise companion-side development guidance, not final page copy."
+            }
+        }
+
+        func preparing(_ prompt: String) -> String {
+            let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanPrompt.isEmpty else { return "" }
+            return "\(promptInstruction)\n\nWriter request: \(cleanPrompt)"
+        }
+
+        func compatible(routesToPage: Bool) -> StudioPromptIntent {
+            if routesToPage {
+                return .rewrite
+            }
+            switch self {
+            case .rewrite:
+                return .advice
+            case .advice, .voicePin:
+                return self
+            }
+        }
     }
 
     enum DraftImportMode: String {
@@ -632,5 +661,51 @@ extension ScreenplayStudioScreen {
         let startLine: Int
         let endLine: Int
         let sceneLabel: String?
+    }
+}
+
+struct ScreenplayStudioLiveIntentComposerPlan: Equatable {
+    let prompt: String
+    let routingMode: ScreenplayStudioScreen.PromptRoutingMode
+    let intent: ScreenplayStudioScreen.StudioPromptIntent
+}
+
+enum ScreenplayStudioLiveIntentComposerPlanner {
+    static func make(
+        rawPrompt: String,
+        intentKind: CreativeIntentKind?
+    ) -> ScreenplayStudioLiveIntentComposerPlan? {
+        let trimmed = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = removingActionPrefix(from: trimmed)
+        guard !prompt.isEmpty else { return nil }
+
+        switch intentKind {
+        case .screenplayPageWrite:
+            return ScreenplayStudioLiveIntentComposerPlan(
+                prompt: prompt,
+                routingMode: .page,
+                intent: .rewrite
+            )
+        case .companionSupport, .reflectiveSupport:
+            return ScreenplayStudioLiveIntentComposerPlan(
+                prompt: prompt,
+                routingMode: .voicePin,
+                intent: .voicePin
+            )
+        case .storyDevelopment, .mixedSupport, .practicalSupport, nil:
+            return ScreenplayStudioLiveIntentComposerPlan(
+                prompt: prompt,
+                routingMode: .voicePin,
+                intent: .advice
+            )
+        }
+    }
+
+    private static func removingActionPrefix(from value: String) -> String {
+        for prefix in ["ask:", "say:"] where value.lowercased().hasPrefix(prefix) {
+            return String(value.dropFirst(prefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return value
     }
 }

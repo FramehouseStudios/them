@@ -4752,6 +4752,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    func dismissCraftTwistSuggestion(_ card: ScreenplayCraftTwistCardState) {
+        switch ScreenplayCraftTwistDismissal.resolve(cardID: card.id, response: craftTwists) {
+        case .unavailable:
+            craftTwistInfoText = "That reversal is no longer available."
+        case .alreadyDismissed:
+            craftTwistInfoText = "That reversal is already dismissed."
+        case .dismissed(let remaining):
+            guard let response = craftTwists else { return }
+            craftTwists = ScreenplayCraftTwistSuggestResponse(
+                schemaVersion: response.schemaVersion,
+                frameworkId: response.frameworkId,
+                currentBeatId: response.currentBeatId,
+                source: response.source,
+                twists: remaining
+            )
+            craftTwistErrorText = ""
+            craftTwistInfoText = "Dismissed \(card.label) for this suggestion pass."
+        }
+    }
+
     func dismissAcceptedCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
         guard !isAcceptedCraftTwistMutating else { return }
         guard let project = selectedProject else {
@@ -4770,15 +4790,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard selectedProject?.id == project.id else { return }
             acceptedCraftTwists.removeAll { $0.twist.id == card.id }
             acceptedCraftTwistErrorText = ""
-            acceptedCraftTwistInfoText = "Dismissed \(card.label)."
+            acceptedCraftTwistInfoText = "Unkept \(card.label)."
         } catch {
-            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
             acceptedCraftTwistErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: "Manual check",
                 subject: "this reversal"
             )
-            acceptedCraftTwistInfoText = "Dismissed locally."
+            acceptedCraftTwistInfoText = "Could not unkeep this reversal; the kept state is unchanged."
         }
     }
 
