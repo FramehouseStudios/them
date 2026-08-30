@@ -8,6 +8,7 @@ import {
   importFromFountain,
   parseTitlePage,
   isSceneHeading,
+  isCentered,
   isTransition,
   isCharacterCue,
   isParenthetical,
@@ -45,16 +46,26 @@ test("[import] isSceneHeading recognizes INT./EXT./forced", () => {
   assert.equal(isSceneHeading("She walks."), false);
 });
 
-test("[import] isTransition recognizes CUT TO: and >...< forms", () => {
+test("[import] centered text is distinct from a forced transition", () => {
+  assert.equal(isCentered("> THE END <"), true);
+  assert.equal(isCentered(">THE END<"), true);
+  assert.equal(isCentered("> BURN TO WHITE"), false);
+});
+
+test("[import] isTransition recognizes CUT TO: and forced > forms", () => {
   assert.equal(isTransition("CUT TO:"), true);
   assert.equal(isTransition("FADE TO:"), true);
-  assert.equal(isTransition("> SMASH CUT TO <"), true);
+  assert.equal(isTransition("> BURN TO WHITE"), true);
+  assert.equal(isTransition("> THE END <"), false);
+  assert.equal(isTransition("@CUT TO:"), false);
   assert.equal(isTransition("just some action."), false);
 });
 
 test("[import] isCharacterCue requires ALL CAPS + non-empty next line", () => {
   assert.equal(isCharacterCue("JUNE", "Hello."), true);
   assert.equal(isCharacterCue("JUNE (V.O.)", "Hello."), true);
+  assert.equal(isCharacterCue("@McCLANE", "Welcome."), true);
+  assert.equal(isCharacterCue("BEN ^", "Now."), true);
   assert.equal(isCharacterCue("June", "Hello."), false);          // not caps
   assert.equal(isCharacterCue("JUNE", ""), false);                // empty next
   assert.equal(isCharacterCue("INT. KITCHEN", "She walks."), false); // scene heading
@@ -123,6 +134,51 @@ test("[import] forced action with ! prefix strips the prefix", () => {
   const out = importFromFountain(`INT. X - DAY\n\n!ALL CAPS ACTION.\n`);
   const action = out.scenes[0].lines.find((l) => l.kind === "action");
   assert.equal(action.text, "ALL CAPS ACTION.");
+});
+
+test("[import] preserves centered text, forced transitions, lyrics, and forced cues", () => {
+  const out = importFromFountain([
+    "INT. STAGE - NIGHT",
+    "",
+    "> THE END <",
+    "",
+    "> BURN TO WHITE",
+    "",
+    "@McCLANE",
+    "Welcome.",
+    "",
+    "SINGER",
+    "~Somewhere beyond the lights",
+  ].join("\n"));
+  const lines = out.scenes[0].lines;
+  assert.deepEqual(lines.find((line) => line.kind === "centered"), {
+    kind: "centered",
+    text: "THE END",
+  });
+  assert.deepEqual(lines.find((line) => line.kind === "transition"), {
+    kind: "transition",
+    text: "BURN TO WHITE",
+    forced: true,
+  });
+  assert.deepEqual(lines.find((line) => line.kind === "lyrics"), {
+    kind: "lyrics",
+    text: "Somewhere beyond the lights",
+  });
+  const forcedCue = lines.find((line) => line.kind === "character" && line.name === "McCLANE");
+  assert.equal(forcedCue?.forced, true);
+  assert.deepEqual(forcedCue?.dialogue, ["Welcome."]);
+});
+
+test("[import] normalizes clipboard separators, BOM, and dual-dialogue cues", () => {
+  const out = importFromFountain(
+    "\uFEFFINT. ROOM - DAY\u2028\u2028ANNA\u2028Go.\u2029\u2029BEN ^\u0085Now.",
+  );
+  const cues = out.scenes[0].lines.filter((line) => line.kind === "character");
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].name, "ANNA");
+  assert.equal(cues[1].name, "BEN");
+  assert.equal(cues[1].dualDialogue, true);
+  assert.deepEqual(cues[1].dialogue, ["Now."]);
 });
 
 test("[import] # sections + = synopses are captured", () => {

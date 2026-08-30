@@ -15,7 +15,9 @@
 //         lines: [
 //           { kind: "action", text },
 //           { kind: "character", name, parenthetical?, dialogue: string|string[] },
-//           { kind: "transition", text },
+//           { kind: "transition", text, forced?: boolean },
+//           { kind: "centered", text },
+//           { kind: "lyrics", text },
 //           { kind: "section", level?, text },     // emitted as <Paragraph Type="General">
 //           { kind: "synopsis", text },            // emitted as <Paragraph Type="General">
 //           { kind: "blank" }
@@ -107,8 +109,18 @@ function serializeTransition(line) {
   const t = trim(line?.text);
   if (!t) return "";
   const upper = t.toUpperCase();
-  const formatted = upper.endsWith("TO:") ? upper : `${upper.replace(/:$/, "")} TO:`;
+  const formatted = line?.forced === true
+    ? upper.replace(/^>\s*/, "")
+    : (upper.endsWith("TO:") ? upper : `${upper.replace(/:$/, "")} TO:`);
   return paragraph("Transition", formatted);
+}
+
+function serializeCentered(line) {
+  return paragraph("General", line?.text, { Alignment: "Center" });
+}
+
+function serializeLyrics(line) {
+  return paragraph("Lyrics", line?.text);
 }
 
 function serializeSection(line) {
@@ -131,6 +143,8 @@ function serializeLine(line) {
     case "action":     return serializeAction(line);
     case "character":  return serializeCharacter(line);
     case "transition": return serializeTransition(line);
+    case "centered":   return serializeCentered(line);
+    case "lyrics":     return serializeLyrics(line);
     case "section":    return serializeSection(line);
     case "synopsis":   return serializeSynopsis(line);
     case "blank":      return "";
@@ -200,6 +214,8 @@ export {
   serializeAction,
   serializeCharacter,
   serializeTransition,
+  serializeCentered,
+  serializeLyrics,
   serializeSection,
   serializeSynopsis,
   serializeScene,

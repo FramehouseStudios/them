@@ -61,6 +61,27 @@ documented in the module header of
 `backend/lib/fountain_export.js`. `scenes` may be omitted (the
 output is then a title-only Fountain document).
 
+### Supported line elements
+
+The canonical `lines` array accepts these additive shapes:
+
+| `kind` | Required fields | Optional semantics |
+| --- | --- | --- |
+| `action` | `text` | All-caps action is forced with `!` when needed |
+| `character` | `name`, `dialogue` | `parenthetical`, `forced`, `dualDialogue` |
+| `transition` | `text` | `forced` preserves transitions that do not end in `TO:` |
+| `centered` | `text` | Renders as `> text <` |
+| `lyrics` | `text` | Renders with the `~` lyric marker |
+| `section` | `text` | `level` is clamped to 1–3 |
+| `synopsis` | `text` | Renders with the `=` marker |
+| `blank` | none | Accepted as an explicit no-content element |
+
+`dialogue` may be a string or an array of strings. Ambiguous character
+cues—for example a character named `CUT TO:`—are automatically forced with
+`@` so a subsequent import retains the character element. Import also
+normalizes CRLF, CR, Unicode line/paragraph separators, next-line characters,
+and an initial byte-order mark before classifying elements.
+
 ## Validation
 
 | HTTP | `error` | When |
@@ -131,6 +152,9 @@ these.
 
 ## Changelog
 
+- v1 (compatible extension, 2026-08-30) — preserve centered text, lyrics,
+  forced/ambiguous character cues, forced transitions, and Fountain dual-dialogue
+  markers; normalize cross-platform clipboard line separators.
 - v1 — initial documented shape, matched line-by-line against
   `mountFountainExportRoute` in
   `backend/lib/fountain_export_route.js`. Earlier draft invented

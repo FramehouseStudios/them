@@ -11,8 +11,11 @@
 //         heading?: string,
 //         lines: [
 //           { kind: "action", text },
-//           { kind: "character", name, parenthetical?, dialogue: string[] },
-//           { kind: "transition", text },
+//           { kind: "character", name, parenthetical?, dialogue: string[],
+//             forced?: boolean, dualDialogue?: boolean },
+//           { kind: "transition", text, forced?: boolean },
+//           { kind: "centered", text },
+//           { kind: "lyrics", text },
 //           { kind: "section", level, text },
 //           { kind: "synopsis", text }
 //         ]
@@ -26,7 +29,7 @@
 // Spec: https://fountain.io/syntax — V1 covers the common case:
 // title pages, scene headings (INT./EXT.), action, character cues +
 // parentheticals + dialogue, transitions ending in TO:, # sections,
-// = synopses, and `!` forced action.
+// = synopses, centered text, lyrics, dual dialogue, and forced elements.
 
 const TITLE_FIELDS = Object.freeze({
   "title": "title",
@@ -39,6 +42,13 @@ const TITLE_FIELDS = Object.freeze({
   "notes": "notes",
 });
 
+const FOUNTAIN_LINE_SEPARATORS = /\r\n?|\u2028|\u2029|\u0085/g;
+
+function normalizeFountainText(text) {
+  const raw = typeof text === "string" ? text : "";
+  return raw.replace(/^\uFEFF/, "").replace(FOUNTAIN_LINE_SEPARATORS, "\n");
+}
+
 function isSceneHeading(line) {
   if (!line) return false;
   const trimmed = line.trim();
@@ -46,12 +56,23 @@ function isSceneHeading(line) {
     || /^\./.test(trimmed); // Fountain forced scene heading
 }
 
+function isCentered(line) {
+  if (!line) return false;
+  const trimmed = line.trim();
+  return trimmed.length > 2 && trimmed.startsWith(">") && trimmed.endsWith("<");
+}
+
 function isTransition(line) {
   if (!line) return false;
   const trimmed = line.trim();
   if (!trimmed) return false;
-  // ALL CAPS ending in "TO:" or beginning with ">"
-  if (/^> /.test(trimmed)) return true;
+  // `@` explicitly forces a character cue, even when the name itself
+  // resembles a transition such as `CUT TO:`.
+  if (trimmed.startsWith("@")) return false;
+  // Centered text also uses angle brackets and must be resolved first.
+  if (isCentered(trimmed)) return false;
+  // ALL CAPS ending in "TO:" or a transition forced with `>`.
+  if (trimmed.startsWith(">")) return true;
   if (trimmed === trimmed.toUpperCase() && /\bTO:$/.test(trimmed)) return true;
   return false;
 }
@@ -60,16 +81,31 @@ function isCharacterCue(line, nextLine) {
   if (!line) return false;
   const trimmed = line.trim();
   if (!trimmed) return false;
+  const forced = trimmed.startsWith("@");
+  let candidate = forced ? trimmed.slice(1).trim() : trimmed;
+  candidate = candidate.replace(/\s*\^\s*$/, "").trim();
+  if (!candidate) return false;
   // Must be ALL CAPS with a letter; cannot be a scene heading or
   // transition; the next non-empty line must be dialogue or
   // parenthetical (i.e. non-empty and not another cue / heading).
-  if (isSceneHeading(trimmed) || isTransition(trimmed)) return false;
-  if (!/[A-Z]/.test(trimmed)) return false;
-  if (trimmed !== trimmed.toUpperCase()) return false;
+  if (!forced && (isSceneHeading(candidate) || isTransition(candidate) || isCentered(candidate))) {
+    return false;
+  }
+  if (!/[A-Za-z]/.test(candidate)) return false;
+  if (!forced && candidate !== candidate.toUpperCase()) return false;
   // Allow trailing parenthetical extension on the cue line ("JUNE (V.O.)").
-  const cueRegex = /^[A-Z][A-Z0-9 .'\-()@]+$/;
-  if (!cueRegex.test(trimmed)) return false;
+  const cueRegex = /^[A-Za-z][A-Za-z0-9 .'\-():]+$/;
+  if (!cueRegex.test(candidate)) return false;
   if (typeof nextLine !== "string" || !nextLine.trim()) return false;
+  const next = nextLine.trim();
+  // Explicit Fountain element markers are never dialogue. This keeps an
+  // all-caps action immediately before a lyric/section from swallowing it.
+  if (
+    isSceneHeading(next)
+    || isTransition(next)
+    || isCentered(next)
+    || /^(?:~|!|#{1,3} |={1,2} )/.test(next)
+  ) return false;
   return true;
 }
 
@@ -177,10 +213,30 @@ function parseBody(rawLines, startIdx) {
       continue;
     }
 
-    // > transition <
+    // > centered text <
+    if (isCentered(trimmed)) {
+      ensureScene().lines.push({
+        kind: "centered",
+        text: trimmed.slice(1, -1).trim(),
+      });
+      i += 1;
+      continue;
+    }
+
+    // Transition, including a `>`-forced transition that does not end in TO:.
     if (isTransition(trimmed)) {
-      const text = trimmed.replace(/^> /, "").replace(/ <$/, "");
-      ensureScene().lines.push({ kind: "transition", text });
+      const forced = trimmed.startsWith(">");
+      const text = forced ? trimmed.slice(1).trim() : trimmed;
+      const entry = { kind: "transition", text };
+      if (forced) entry.forced = true;
+      ensureScene().lines.push(entry);
+      i += 1;
+      continue;
+    }
+
+    // ~ lyrics
+    if (trimmed.startsWith("~")) {
+      ensureScene().lines.push({ kind: "lyrics", text: trimmed.slice(1).trim() });
       i += 1;
       continue;
     }
@@ -196,6 +252,10 @@ function parseBody(rawLines, startIdx) {
     if (isCharacterCue(line, rawLines[i + 1])) {
       // Parse cue + optional parenthetical + dialogue lines.
       let cueLine = trimmed;
+      const forced = cueLine.startsWith("@");
+      if (forced) cueLine = cueLine.slice(1).trim();
+      const dualDialogue = /\^\s*$/.test(cueLine);
+      if (dualDialogue) cueLine = cueLine.replace(/\s*\^\s*$/, "").trim();
       let parenthetical = null;
       // Trailing parenthetical extension on the cue itself: "JUNE (V.O.)"
       const parenInCue = cueLine.match(/^(.+?)\s*(\([^)]+\))\s*$/);
@@ -223,7 +283,13 @@ function parseBody(rawLines, startIdx) {
           continue;
         }
         // A new cue / heading / transition ends dialogue.
-        if (isSceneHeading(dTrim) || isTransition(dTrim) || isCharacterCue(dLine, rawLines[i + 1])) {
+        if (
+          isSceneHeading(dTrim)
+          || isTransition(dTrim)
+          || isCentered(dTrim)
+          || dTrim.startsWith("~")
+          || isCharacterCue(dLine, rawLines[i + 1])
+        ) {
           break;
         }
         dialogue.push(dTrim);
@@ -231,6 +297,8 @@ function parseBody(rawLines, startIdx) {
       }
       const entry = { kind: "character", name, dialogue };
       if (parenthetical) entry.parenthetical = parenthetical;
+      if (forced) entry.forced = true;
+      if (dualDialogue) entry.dualDialogue = true;
       ensureScene().lines.push(entry);
       continue;
     }
@@ -243,9 +311,7 @@ function parseBody(rawLines, startIdx) {
 }
 
 function importFromFountain(text) {
-  const raw = typeof text === "string" ? text : "";
-  // Normalize line endings.
-  const lines = raw.replace(/\r\n?/g, "\n").split("\n");
+  const lines = normalizeFountainText(text).split("\n");
   const { title, consumedLineCount } = parseTitlePage(lines);
   const scenes = parseBody(lines, consumedLineCount);
   const out = { scenes };
@@ -255,9 +321,11 @@ function importFromFountain(text) {
 
 export {
   importFromFountain,
+  normalizeFountainText,
   parseTitlePage,
   parseBody,
   isSceneHeading,
+  isCentered,
   isTransition,
   isCharacterCue,
   isParenthetical,

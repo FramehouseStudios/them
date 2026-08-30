@@ -41,6 +41,16 @@ consume the same `{ title?, scenes? }` document and just emit
 different output formats. See `docs/schemas/fountain-export.md`
 for the request body description.
 
+The additive `centered` and `lyrics` line kinds render as an FDX `General`
+paragraph with `Alignment="Center"` and an FDX `Lyrics` paragraph,
+respectively. A transition with `forced: true` preserves its supplied text
+without inventing a `TO:` suffix.
+
+`dualDialogue` is retained by the shared canonical request and by Fountain
+round trips. The current FDX exporter deliberately emits its character and
+dialogue content as ordinary sequential paragraphs; it does not yet claim
+Final Draft dual-dialogue grouping support.
+
 ## Validation
 
 | HTTP | `error` | When |
@@ -108,6 +118,9 @@ evolve its body limit / cache headers independently.
 
 ## Changelog
 
+- v1 (compatible extension, 2026-08-30) — add centered and lyrics paragraphs,
+  preserve forced transition text, and document the current dual-dialogue
+  degradation explicitly.
 - v1 — initial documented shape, matched line-by-line against
   `mountFDXExportRoute` in `backend/lib/fdx_export_route.js`
   (#90 era). Mirrors `fountain-export.md` so iOS consumers can

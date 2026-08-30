@@ -12,6 +12,8 @@ import {
   serializeAction,
   serializeCharacter,
   serializeTransition,
+  serializeCentered,
+  serializeLyrics,
   serializeSection,
   serializeSynopsis,
 } from "../lib/fountain_export.js";
@@ -70,6 +72,21 @@ test("[fountain] character cue includes parenthetical + dialogue lines", () => {
   assert.equal(lines[3], "Not now.");
 });
 
+test("[fountain] ambiguous and dual-dialogue character cues keep their element meaning", () => {
+  assert.equal(
+    serializeCharacter({ kind: "character", name: "CUT TO:", dialogue: "Not a transition." }),
+    "@CUT TO:\nNot a transition.",
+  );
+  assert.equal(
+    serializeCharacter({ kind: "character", name: "McClane", dialogue: "Welcome.", forced: true }),
+    "@MCCLANE\nWelcome.",
+  );
+  assert.equal(
+    serializeCharacter({ kind: "character", name: "Ben", dialogue: "Now.", dualDialogue: true }),
+    "BEN ^\nNow.",
+  );
+});
+
 test("[fountain] character cue with empty dialogue is dropped", () => {
   assert.equal(serializeCharacter({ kind: "character", name: "JUNE", dialogue: "" }), "");
   assert.equal(serializeCharacter({ kind: "character", name: "JUNE", dialogue: [] }), "");
@@ -79,6 +96,18 @@ test("[fountain] transitions are upper-cased and end with TO:", () => {
   assert.equal(serializeTransition({ kind: "transition", text: "cut" }), "CUT TO:");
   assert.equal(serializeTransition({ kind: "transition", text: "CUT TO:" }), "CUT TO:");
   assert.equal(serializeTransition({ kind: "transition", text: "fade to:" }), "FADE TO:");
+});
+
+test("[fountain] forced transitions preserve their exact meaning without inventing TO:", () => {
+  assert.equal(
+    serializeTransition({ kind: "transition", text: "Burn to white", forced: true }),
+    "> BURN TO WHITE",
+  );
+});
+
+test("[fountain] centered text and lyrics use their Fountain sigils", () => {
+  assert.equal(serializeCentered({ kind: "centered", text: "THE END" }), "> THE END <");
+  assert.equal(serializeLyrics({ kind: "lyrics", text: "Somewhere" }), "~Somewhere");
 });
 
 test("[fountain] sections + synopses use Fountain's prefix tokens", () => {
@@ -128,6 +157,36 @@ test("[fountain] determinism: same input → same output", () => {
     scenes: [{ heading: "INT. X - DAY", lines: [{ kind: "action", text: "x" }] }],
   };
   assert.equal(exportToFountain(input), exportToFountain(input));
+});
+
+test("[fountain] import/export preserves OpenDraft interoperability edge cases", async () => {
+  const { importFromFountain } = await import("../lib/fountain_import.js");
+  const source = [
+    "INT. STAGE - NIGHT",
+    "",
+    "> THE END <",
+    "",
+    "> BURN TO WHITE",
+    "",
+    "@CUT TO:",
+    "Not a transition.",
+    "",
+    "ANNA",
+    "Go.",
+    "",
+    "BEN ^",
+    "Now.",
+    "",
+    "SINGER",
+    "~Somewhere beyond the lights",
+  ].join("\n");
+  const reparsed = importFromFountain(exportToFountain(importFromFountain(source)));
+  const lines = reparsed.scenes[0].lines;
+  assert.ok(lines.some((line) => line.kind === "centered" && line.text === "THE END"));
+  assert.ok(lines.some((line) => line.kind === "transition" && line.text === "BURN TO WHITE"));
+  assert.ok(lines.some((line) => line.kind === "character" && line.name === "CUT TO:"));
+  assert.ok(lines.some((line) => line.kind === "character" && line.name === "BEN" && line.dualDialogue));
+  assert.ok(lines.some((line) => line.kind === "lyrics" && line.text === "Somewhere beyond the lights"));
 });
 
 // ---------- route ----------

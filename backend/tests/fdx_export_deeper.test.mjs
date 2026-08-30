@@ -86,6 +86,23 @@ test("[fdx-deeper] title page treats whitespace-only fields as empty", () => {
   // (Tolerant check — doesn't break if FDX adds Author with empty text.)
 });
 
+test("[fdx-deeper] centered text, lyrics, and forced transitions preserve semantics", () => {
+  const xml = exportToFDX({
+    scenes: [{
+      heading: "INT. STAGE - NIGHT",
+      lines: [
+        { kind: "centered", text: "THE END" },
+        { kind: "lyrics", text: "Somewhere beyond the lights" },
+        { kind: "transition", text: "BURN TO WHITE", forced: true },
+      ],
+    }],
+  });
+  assert.match(xml, /<Paragraph Type="General" Alignment="Center"><Text>THE END<\/Text><\/Paragraph>/);
+  assert.match(xml, /<Paragraph Type="Lyrics"><Text>Somewhere beyond the lights<\/Text><\/Paragraph>/);
+  assert.match(xml, /<Paragraph Type="Transition"><Text>BURN TO WHITE<\/Text><\/Paragraph>/);
+  assert.doesNotMatch(xml, /BURN TO WHITE TO:/);
+});
+
 // ---------- unknown line kind ----------
 
 test("[fdx-deeper] unknown line kind is silently dropped (defensive)", () => {
