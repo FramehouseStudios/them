@@ -41,6 +41,8 @@ Do not let an old roadmap, branch name, ownership label, or pasted prompt overri
 10. When blocked by human-only authority, document the exact clearance step and continue with the next safe unblocked task.
 11. Exhaust safe in-scope options before declaring a blocker; prefer the smallest viable path that preserves product behavior and user trust.
 12. Leave the code, tests, decisions, and handoff state clearer than you found them so the next Codex pass can continue without rediscovery.
+13. Use one established pattern for each cross-cutting concern. Before adding another auth, configuration, error, logging, persistence, or HTTP pattern, identify the canonical implementation and extend it; a second pattern requires an explicit migration reason.
+14. Remove dead code only after proving it unused repository-wide. Use git history instead of commented-out implementations, and either resolve TODOs now or attach them to a concrete tracked task.
 
 ## Self-checking loop
 
@@ -100,6 +102,11 @@ If a proposal fails this gate, narrow it, park it, or remove it.
 - Keep unresolved pricing, packaging, model IDs, routing thresholds, voice providers, and retention targets configurable. Do not turn an open commercial decision into hard-coded product logic.
 - Treat identity, user/project authorization, and collaborator separation as structural constraints. Never rely on a caller-supplied identifier or UI convention as the only authorization boundary.
 - Preserve durable session, generation, mutation, and cost evidence where it is needed for reconciliation. User work must not disappear silently after crashes, retries, conflicts, or relaunches.
+- Give each cross-cutting rule, constant, protocol, and API contract one canonical owner. Other files should import or link to that owner rather than repeat values that can drift.
+- Evolve public and client/server contracts additively by default. Keep one stable error envelope, preserve existing fields and semantics, use correct HTTP methods/status codes, and make retried writes idempotent where duplicate side effects could harm users or spend money.
+- A breaking contract change requires an explicit version, migration path, compatibility window, and rollback plan. Never surprise an older client with a renamed field, tighter requirement, changed error shape, or new auth expectation.
+- Prefer managed production services when they meet the measured requirement. Self-hosting needs an accepted decision that quantifies the gap, operational owner, backup/restore plan, incident burden, cost, and exit criteria.
+- Prefer short-lived, least-privilege identity for deployment automation, including OpenID Connect federation where supported. Never commit credentials or use a long-lived secret when a scoped temporary credential is available.
 - Do not add microservices, Kafka-style event buses, Kubernetes, a warehouse, predictive training pipelines, or a new native platform without a measured trigger and an accepted decision.
 
 Complexity is justified only when current evidence shows at least one of: independent scaling pressure, an isolation/security boundary, a distinct failure domain, sustained queue/backpressure loss, or an ownership/deployment bottleneck that the modular monolith cannot safely solve.
@@ -130,6 +137,8 @@ The app must help users:
 - understand loading, error, auth, and offline states without confusion;
 - finish real work faster than they could in a blank document.
 
+Interactive product work must also remain readable and recoverable: controls need accessible labels, visible focus and sufficient contrast; keyboard and assistive-technology paths must work where supported; loading and progress feedback must match the expected wait; validation appears next to its cause; failures preserve user input, explain what was saved, and offer a real recovery action. Never hide latency or failure behind an optimistic state unless rollback is implemented and understandable.
+
 The product must never claim guaranteed screenplay success, ownership of writer IP, copyright or chain-of-title advice, automatic completion of every feature, or replacement of human creative relationships and professional collaborators.
 
 ## Verification expectations
@@ -143,6 +152,8 @@ The product must never claim guaranteed screenplay success, ownership of writer 
 Report skipped verification plainly. Never claim a test passed if it was not run.
 
 For end-to-end claims, verify the strongest available chain: user action → app state → request contract → authorization → persistence → restored response. If credentials, paid providers, signing, or physical-device access are unavailable, verify the deterministic layers, label the live step unverified, and provide the exact clearance action.
+
+Before merging auth, migration, billing/cost, release, destructive-data, or external-provider changes, run a short adversarial pass grounded in current artifacts. Challenge retries, crashes, timeouts, stale responses, partial writes, revoked access, offline behavior, duplicate delivery, rollback, and provider disappearance as applicable. Classify each material concern as answered, partially addressed, not covered, or uncertain; fix uncovered critical risks and cite the evidence behind every answered claim.
 
 ## Human-only surfaces
 
