@@ -125,6 +125,74 @@ final class BackendTalkDiagnosticsTests: XCTestCase {
         XCTAssertEqual(recorder.requests.map(\.path), ["/memory/stats"])
     }
 
+    func testTurnMetadataRetriesAndRestoresOversizedScreenplayBatch() async throws {
+        let recorder = TalkDiagnosticsRequestRecorder()
+        let screenplayText = (1...90).map { index in
+            """
+            INT. EDITING ROOM \(index) - NIGHT
+
+            Mara threads reel \(index) through the flatbed while Eli guards the door.
+
+            MARA
+            The truth changes shape every time we cut it. \(index)
+            """
+        }.joined(separator: "\n\n")
+        XCTAssertGreaterThan(screenplayText.count, 8_000)
+
+        TalkDiagnosticsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            if recorder.requests.count == 1 {
+                return TalkDiagnosticsHTTPStub(
+                    status: 503,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{"error":"temporary"}"#.utf8)
+                )
+            }
+            let body = try JSONSerialization.data(withJSONObject: [
+                "turn_id": "turn-long-batch",
+                "screenplay_output": [
+                    "target": "page",
+                    "format": "hollywood",
+                    "source": "studio_target",
+                    "text": screenplayText,
+                    "lines": [],
+                    "quality": [
+                        "ok": true,
+                        "reason": "ok",
+                        "source": "studio_target",
+                        "confidence": "authoritative",
+                    ],
+                ],
+                "render_contract": [
+                    "reply_role": "preview",
+                    "authoritative_page_text_available": true,
+                    "sync_ready": true,
+                ],
+            ])
+            return TalkDiagnosticsHTTPStub(
+                status: 200,
+                headers: ["Content-Type": "application/json"],
+                body: body
+            )
+        }
+
+        let client = makeBackendClient()
+        let output = try await client.fetchScreenplayOutputForTesting(
+            baseURL: URL(string: "https://talk-diagnostics.test")!,
+            userID: "user-long-batch",
+            clientToken: "session-long-batch",
+            turnID: "turn-long-batch"
+        )
+
+        XCTAssertEqual(recorder.requests.map(\.path), [
+            "/talk/turn/turn-long-batch",
+            "/talk/turn/turn-long-batch",
+        ])
+        XCTAssertEqual(output?.target, "page")
+        XCTAssertEqual(output?.text, screenplayText)
+        XCTAssertTrue(output?.writesToPage == true)
+    }
+
     private func makeTalkDiagnosticsAPI() -> BackendMemoryAPI {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TalkDiagnosticsURLProtocolStub.self]
@@ -132,6 +200,20 @@ final class BackendTalkDiagnosticsTests: XCTestCase {
         return BackendMemoryAPI(
             session: session,
             baseURL: URL(string: "https://talk-diagnostics.test")!
+        )
+    }
+
+    private func makeBackendClient() -> BackendClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TalkDiagnosticsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let baseURL = URL(string: "https://talk-diagnostics.test")!
+        return BackendClient(
+            baseURL: baseURL,
+            fallbackURL: baseURL,
+            urlSession: session,
+            persistBackendBaseURL: false,
+            attachUserIDHeader: false
         )
     }
 }

@@ -5,6 +5,11 @@
 // no module-level mutable state and no setter-shaped exports.
 
 import { File } from "node:buffer";
+import {
+  normalizeOpenAIUsage,
+  normalizeOpenAITextResponseRaw,
+  requestOpenAIText,
+} from "./openai_text_generation.js";
 
 function requireFunction(name, fn) {
   if (typeof fn !== "function") {
@@ -95,26 +100,29 @@ function createChatSupplier({
     async stream(args = {}) {
       return streamFirstSentence(args);
     },
-    async chat({ model, temperature, maxTokens, messages } = {}) {
-      let chatResp;
+    async chat({
+      model,
+      temperature,
+      maxTokens,
+      messages,
+      apiMode = "chat_completions",
+      reasoningEffort = "",
+      fallbackModel = "",
+    } = {}) {
+      let requestResult;
       try {
-        chatResp = await fetcher(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model,
-              temperature,
-              max_tokens: maxTokens,
-              messages,
-            }),
-          },
-          CHAT_TIMEOUT_MS
-        );
+        requestResult = await requestOpenAIText({
+          apiKey: OPENAI_API_KEY,
+          apiMode,
+          model,
+          messages,
+          temperature,
+          maxTokens,
+          reasoningEffort,
+          fallbackModel,
+          fetchWithTimeout: fetcher,
+          timeoutMs: CHAT_TIMEOUT_MS,
+        });
       } catch (err) {
         if (isAbort(err)) {
           throw timeoutError("chat", "Chat completion timed out.");
@@ -122,9 +130,23 @@ function createChatSupplier({
         throw err;
       }
 
+      const rawText = await requestResult.response.text();
+      let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+      try {
+        usage = normalizeOpenAIUsage(JSON.parse(rawText || "{}"));
+      } catch {
+        // Malformed provider JSON is handled by the caller's existing response guard.
+      }
       return {
-        response: chatResp,
-        rawText: await chatResp.text(),
+        response: requestResult.response,
+        rawText: normalizeOpenAITextResponseRaw(rawText, requestResult.apiMode, {
+          model: requestResult.model,
+        }),
+        model: requestResult.model,
+        apiMode: requestResult.apiMode,
+        reasoningEffort: requestResult.reasoningEffort,
+        fallbackUsed: requestResult.fallbackUsed,
+        usage,
       };
     },
   });

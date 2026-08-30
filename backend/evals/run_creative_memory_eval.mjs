@@ -2,12 +2,24 @@
 //
 // Eval skeleton for the creative memory tier (T08).
 //
-// Two regression cases:
+// Eight regression cases:
 //   1. memory-absent — cold user; the assembled prompt must NOT
 //      include a creative_memory block.
 //   2. memory-present — seeded user; the prompt must include a
 //      creative_memory block referencing the seeded character and
 //      tone signal.
+//   3. semantic-backfill — legacy episodes gain vectors and later
+//      paraphrases recover the right project memory.
+//   4. canon-authority — assistant proposals cannot silently mutate
+//      writer-authored character canon.
+//   5. accepted-page — generated page continuity becomes authoritative
+//      only after Studio reports that exact page as committed.
+//   6. replacement-canon — an explicit writer correction replaces accepted
+//      page truth and survives a cold store restore with provenance.
+//   7. structured-canon — explicit Character Bible and Story Spine corrections
+//      survive stale client sync and a cold store restore.
+//   8. confirmed-learning — direct answers to planned screenplay questions
+//      populate structured memory and enter a cold-session model prompt.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -88,8 +100,397 @@ async function caseSeededUser() {
   check("memory-present: prompt mentions wry tone", prompt.includes("default: wry"));
 }
 
+async function caseSemanticLegacyBackfill() {
+  const persistence = freshPersistence();
+  const legacyStore = createCreativeMemoryStore({ persistence });
+  await legacyStore.recordEpisodicMemory({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara seals the affidavit behind a loose courthouse tile.",
+    text: "The sworn statement proves the judge threatened Eli.",
+  });
+  await legacyStore.recordEpisodicMemory({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara misses Eli's birthday dinner.",
+    text: "The untouched cake hardens beside the kitchen sink.",
+  });
+
+  const legacyMemory = await legacyStore.getCreativeMemoryForPrompt({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    query: "Which hidden sworn proof can expose the judge?",
+    maxEpisodicMemories: 1,
+  });
+  check(
+    "semantic-backfill: legacy recall remains available before migration",
+    legacyMemory?.episodicSelection?.strategy === "deterministic_fallback",
+  );
+
+  const embeddingModel = "eval-story-embedding";
+  const upgradedStore = createCreativeMemoryStore({
+    persistence,
+    embeddingModel,
+    embedTexts: async (inputs) => inputs.map((input) =>
+      String(input || "").toLowerCase().includes("affidavit") ? [1, 0, 0] : [0, 1, 0]),
+    embedQuery: async () => ({ model: embeddingModel, vector: [1, 0, 0] }),
+  });
+  const receipt = await upgradedStore.backfillEpisodicEmbeddings({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  check(
+    "semantic-backfill: persisted legacy episodes receive embeddings",
+    receipt.ok === true && receipt.updated === 2,
+    `receipt: ${JSON.stringify(receipt)}`,
+  );
+
+  const recalled = await upgradedStore.getCreativeMemoryForPrompt({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    query: "Which hidden sworn proof can expose the judge?",
+    maxEpisodicMemories: 1,
+  });
+  check(
+    "semantic-backfill: later turn uses hybrid semantic recall",
+    recalled?.episodicSelection?.strategy === "hybrid_embedding" &&
+      recalled?.episodicSelection?.coverageRatio === 1,
+    `selection: ${JSON.stringify(recalled?.episodicSelection)}`,
+  );
+  check(
+    "semantic-backfill: paraphrase retrieves the affidavit memory",
+    /affidavit/i.test(recalled?.episodicMemories?.[0]?.summary || ""),
+    `memory: ${JSON.stringify(recalled?.episodicMemories?.[0])}`,
+  );
+}
+
+async function caseWriterCanonAuthority() {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "canon-user",
+    transcript: "My protagonist is named Mara. Mara is Eli's mother.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  const proposal = await store.recordTriggersFromTalkTurn({
+    userId: "canon-user",
+    transcript: "What other relationship would raise the stakes in this story?",
+    reply: "Actually, no, Mara is Eli's sister, not his mother.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "canon-user",
+    projectId: "rain-docket",
+    query: "What is Mara's relationship to Eli?",
+  });
+  const mara = memory?.characters?.find((character) => character.name === "Mara");
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's feature.",
+  });
+  check(
+    "canon-authority: assistant proposal does not become a correction",
+    proposal.corrections === 0,
+    `proposal: ${JSON.stringify(proposal)}`,
+  );
+  check(
+    "canon-authority: writer-authored relationship remains canonical",
+    mara?.bible?.canon?.some((item) => /Mara is Eli's mother/.test(item)) === true,
+    `bible: ${JSON.stringify(mara?.bible)}`,
+  );
+  check(
+    "canon-authority: assistant-only relationship never reaches the next prompt",
+    !prompt.includes("sister"),
+    `prompt:\n${prompt}`,
+  );
+}
+
+async function caseAcceptedPagePromotion() {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const page = "INT. COURTHOUSE - DAY\n\nMARA\nPut the affidavit on the record.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "accepted-page-user",
+    transcript: "Write the hearing turn.",
+    reply: page,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  const draftMemory = await store.getCreativeMemoryForPrompt({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    query: "affidavit hearing",
+  });
+  const draftPrompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: draftMemory,
+    userInput: "Continue the hearing.",
+  });
+  const receipt = await store.promoteAcceptedGeneratedPageMemory({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    acceptedPageText: page,
+  });
+  const acceptedMemory = await store.getCreativeMemoryForPrompt({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    query: "affidavit hearing",
+  });
+  const acceptedPrompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: acceptedMemory,
+    userInput: "Continue the hearing.",
+  });
+  check(
+    "accepted-page: generated output starts as provisional draft continuity",
+    draftPrompt.includes("DRAFT_PAGE:"),
+    `prompt:\n${draftPrompt}`,
+  );
+  check(
+    "accepted-page: exact Studio commit promotes one durable episode",
+    receipt.ok === true && receipt.promoted === 1,
+    `receipt: ${JSON.stringify(receipt)}`,
+  );
+  check(
+    "accepted-page: promoted episode is authoritative and hides its private hash",
+    acceptedPrompt.includes("ACCEPTED_PAGE:") &&
+      !Object.hasOwn(acceptedMemory?.episodicMemories?.[0] || {}, "contentHash"),
+    `prompt:\n${acceptedPrompt}`,
+  );
+}
+
+async function caseReplacementCanonRestore() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = "INT. ARCHIVE - NIGHT\n\nMara burns the only affidavit before the cameras arrive.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "replacement-canon-user",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "replacement-canon-user",
+    transcript: "Actually, Mara never burns the affidavit. It survives in Eli's ferry locker.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "replacement-canon-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Where is the surviving affidavit?",
+  });
+  const writerFact = memory?.acceptedCausalFacts?.find((item) => (
+    item.authority === "writer_correction"
+  ));
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue the screenplay.",
+  });
+  check(
+    "replacement-canon: correction records one durable authoritative fact",
+    correction.writerCanonFactsRecorded === 1 && Boolean(writerFact),
+    `correction: ${JSON.stringify(correction)}\nmemory: ${JSON.stringify(memory)}`,
+  );
+  check(
+    "replacement-canon: cold restore preserves replacement provenance",
+    writerFact?.sourceCorrectionId === correction.canonCorrectionReceiptId &&
+      writerFact?.replacesFacts?.[0] === "Mara burns the only affidavit before the cameras arrive.",
+    `writer fact: ${JSON.stringify(writerFact)}`,
+  );
+  check(
+    "replacement-canon: prompt prioritizes writer truth and omits retired page fact",
+    prompt.includes("AUTHORITATIVE_WRITER_CANON") &&
+      prompt.includes("It survives in Eli's ferry locker") &&
+      !prompt.includes("BINDING_FACT [irreversible_consequence") &&
+      prompt.includes("Writer corrections outrank older page evidence"),
+    `prompt:\n${prompt}`,
+  );
+}
+
+async function caseStructuredCanonRestore() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordCharacterMention({
+    userId: "structured-canon-user",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: { arc: { falseBelief: "perfect proof can save everyone" } },
+  });
+  await store.recordProjectContinuity({
+    userId: "structured-canon-user",
+    continuity: {
+      projectId: "blue-key",
+      projectTitle: "Blue Key",
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+  });
+  const page = "INT. ARCHIVE - NIGHT\n\nMara destroys the blue key before leaving.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "structured-canon-user",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-archive" },
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "structured-canon-user",
+    transcript: "Actually, Mara never destroys the blue key. Mara's false belief is that truth will get Eli killed, not that perfect proof can save everyone. The unresolved setup is the blue key in Eli's locker. The Act III payoff is Mara uses the blue key to open the sealed archive.",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    source: "talk_turn",
+  });
+
+  await store.recordCharacterMention({
+    userId: "structured-canon-user",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: { arc: { falseBelief: "perfect proof can save everyone" } },
+  });
+  await store.recordProjectContinuity({
+    userId: "structured-canon-user",
+    continuity: {
+      projectId: "blue-key",
+      projectTitle: "Blue Key",
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "structured-canon-user",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    query: "Continue Mara toward the blue-key payoff.",
+  });
+  const mara = memory?.characters?.find((character) => character.name === "Mara");
+  const project = memory?.projectContinuity;
+  const structuredUpdates = memory?.acceptedCausalFacts?.flatMap((item) => (
+    Array.isArray(item.structuredUpdates) ? item.structuredUpdates : []
+  )) || [];
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's screenplay.",
+  });
+
+  check(
+    "structured-canon: correction promotes Character Bible authority with provenance",
+    correction.corrections === 1 &&
+      mara?.bible?.arc?.falseBelief === "truth will get Eli killed" &&
+      mara?.bible?.authoritativeFields?.[0]?.sourceCorrectionId,
+    `correction: ${JSON.stringify(correction)}\ncharacter: ${JSON.stringify(mara)}`,
+  );
+  check(
+    "structured-canon: stale client sync cannot revive replaced story fields",
+    JSON.stringify(project?.unresolvedSetups) === JSON.stringify(["the blue key in Eli's locker"]) &&
+      JSON.stringify(project?.actThreePayoffPath) === JSON.stringify([
+        "Mara uses the blue key to open the sealed archive",
+      ]),
+    `project: ${JSON.stringify(project)}`,
+  );
+  check(
+    "structured-canon: cold prompt restores explicit writer fields",
+    structuredUpdates.includes("Mara.falseBelief: truth will get Eli killed") &&
+      prompt.includes("authoritative_fields:") &&
+      prompt.includes("the blue key in Eli's locker") &&
+      prompt.includes("Mara uses the blue key to open the sealed archive"),
+    `updates: ${JSON.stringify(structuredUpdates)}\nprompt:\n${prompt}`,
+  );
+}
+
+async function caseConfirmedLearningPromotion() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const characterResult = await store.recordTriggersFromTalkTurn({
+    userId: "confirmed-learning-user",
+    transcript: "Freedom.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-8-character.want",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "character.want",
+      targetLabel: "Mara's dramatic want",
+      anchor: "Mara",
+      question: "What does Mara want badly enough to keep choosing danger instead of safety?",
+      authority: "writer_clarification",
+    },
+  });
+  const projectResult = await store.recordTriggersFromTalkTurn({
+    userId: "confirmed-learning-user",
+    transcript: "Can Mara save Eli without controlling him?",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-9-project.central_question",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "project.central_question",
+      targetLabel: "the feature's central dramatic question",
+      anchor: "Split Ferries",
+      question: "What dramatic question should every sequence tighten?",
+      authority: "writer_clarification",
+    },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "confirmed-learning-user",
+    projectId: "split-ferries",
+    query: "Continue Mara's feature using what she wants and the central question.",
+  });
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's feature.",
+  });
+
+  check(
+    "confirmed-learning: planned answers promote into both structured domains",
+    characterResult.learningAnswersPromoted === 1 &&
+      projectResult.learningAnswersPromoted === 1 &&
+      memory?.characters?.[0]?.bible?.arc?.want === "Freedom" &&
+      memory?.projectContinuity?.centralQuestion === "Can Mara save Eli without controlling him?",
+    `character: ${JSON.stringify(characterResult)}\nproject: ${JSON.stringify(projectResult)}\nmemory: ${JSON.stringify(memory)}`,
+  );
+  check(
+    "confirmed-learning: cold model prompt receives Character Bible and Story Spine recall",
+    prompt.includes("want=Freedom") &&
+      prompt.includes("central_question: Can Mara save Eli without controlling him?"),
+    `prompt:\n${prompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
+await caseSemanticLegacyBackfill();
+await caseWriterCanonAuthority();
+await caseAcceptedPagePromotion();
+await caseReplacementCanonRestore();
+await caseStructuredCanonRestore();
+await caseConfirmedLearningPromotion();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

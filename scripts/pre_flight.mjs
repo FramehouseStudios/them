@@ -22,6 +22,7 @@
 // any finding. Run from repo root.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -208,6 +209,28 @@ function checkSecretHygiene() {
     }
   }
 
+  const pbxproj = path.join(repoRoot, "them.xcodeproj", "project.pbxproj");
+  const xcodeEnvBundleExclusions = [
+    "Release.local.env",
+    "Release.local.env.example",
+    ".env",
+    ".env.local",
+    ".env.production",
+  ];
+  if (fs.existsSync(pbxproj)) {
+    const pbxprojText = fs.readFileSync(pbxproj, "utf8");
+    for (const file of xcodeEnvBundleExclusions) {
+      if (!pbxprojText.includes(`"${file}"`)) {
+        add(
+          "secret-hygiene",
+          "them.xcodeproj/project.pbxproj",
+          null,
+          `Xcode synchronized target does not exclude them/${file}; add it to membershipExceptions so local env files cannot be copied into the app bundle`,
+        );
+      }
+    }
+  }
+
   const secretPatterns = [
     ["openai-project-key", /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g],
     ["openai-secret-key", /\bsk-[A-Za-z0-9_-]{32,}\b/g],
@@ -258,6 +281,7 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
         [/Postgres eval gate/i, "PR #33/#359 eval work is merged; do not list a Postgres eval gate as parked V1 work"],
         [/OPENAI_API_KEY secret fixed by a human/i, "GitHub OPENAI_API_KEY is no longer the active V1 handoff blocker"],
         [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+        [/production app token/i, "release readiness steps must name APP_TOKEN_RELEASE, not vague production app token wording"],
       ],
     },
     {
@@ -265,12 +289,27 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       patterns: [
         [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; Claude should not be told to repair that lane"],
         [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+        [/missing release `?BACKEND_URL|Provide the hosted release `?BACKEND_URL|Release `BACKEND_URL` is placeholder or unset/i, "Release BACKEND_URL is already hosted as https://api.them.io; do not list it as a missing private input"],
+        [/production app token/i, "release smoke clearance must name APP_TOKEN_RELEASE, not vague production app token wording"],
       ],
     },
     {
       file: "docs/v1-six-week-launch-plan.md",
       patterns: [
         [/Launch Doctor report says Talk, Studio, Memory, and Realtime are\s+passed/i, "Launch Doctor gate text must include iOS Release Readiness"],
+        [/hosted release backend URL|production app token/i, "superseded launch-plan text must name only current private release inputs"],
+      ],
+    },
+    {
+      file: "docs/v1-two-week-free-first-schedule.md",
+      patterns: [
+        [/missing release `?BACKEND_URL|hosted production backend URL|production app token/i, "active schedule must treat BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
+      ],
+    },
+    {
+      file: "docs/v1-release-preflight-proof.md",
+      patterns: [
+        [/`APP_TOKEN` is placeholder or unset for Release|production app token/i, "release preflight proof must name APP_TOKEN_RELEASE for the operator-owned secret"],
       ],
     },
     {
@@ -278,12 +317,51 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       patterns: [
         [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "Claude inbox must not reopen merged #33/#359 eval-quality work"],
         [/\b0\/4\b|four-flow/i, "Claude inbox must describe the five-gate Launch Doctor state"],
+        [/hosted release\s+`BACKEND_URL`|production `APP_TOKEN`/i, "Claude inbox must not ask for stale release BACKEND_URL/APP_TOKEN inputs"],
+      ],
+    },
+    {
+      file: "docs/coordination.json",
+      patterns: [
+        [/release BACKEND_URL, and APP_TOKEN|Release BACKEND_URL, and Release APP_TOKEN/i, "coordination state must treat release BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
+      ],
+    },
+    {
+      file: "TASKS.md",
+      patterns: [
+        [/hosted backend URL, and\s+production app token|Release `?BACKEND_URL`?, and Release `?APP_TOKEN`?/i, "task handoff text must treat release BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
       ],
     },
     {
       file: "scripts/v1_launch_room.mjs",
       patterns: [
         [/Talk, Studio, Memory, and Realtime smoke result/i, "launch room human option must include iOS Release Readiness"],
+      ],
+    },
+    {
+      file: "them/APP_STORE_SUBMISSION_CHECKLIST.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "release checklist must use repo-relative paths, not a stale local checkout path"],
+        [/Fill `DEVELOPMENT_TEAM_ID` and `BACKEND_URL`|Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`|production app token/i, "release checklist must ask for DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only"],
+      ],
+    },
+    {
+      file: "them/RELEASE_RUNBOOK.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "release runbook must use repo-relative paths, not a stale local checkout path"],
+        [/Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`|production app token/i, "release runbook must ask for DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only"],
+      ],
+    },
+    {
+      file: "them/QUALITY_GATE.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "quality gate docs must use repo-relative paths, not a stale local checkout path"],
+      ],
+    },
+    {
+      file: "them/APP_STORE_PRIVACY_MAPPING.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "privacy mapping must use repo-relative paths, not a stale local checkout path"],
       ],
     },
   ];
@@ -976,6 +1054,59 @@ function checkSchemaDocMissingEndpoint() {
   }
 }
 
+function checkGeneratedTestFlightPreflight() {
+  const generator = path.join(repoRoot, "scripts", "v1_manual_qa_checklist.mjs");
+  const artifact = path.join(repoRoot, "docs", "testflight-v1-preflight.md");
+  if (!fs.existsSync(generator) && !fs.existsSync(artifact)) return;
+  if (!fs.existsSync(generator)) {
+    add(
+      "generated-testflight-preflight-drift",
+      "scripts/v1_manual_qa_checklist.mjs",
+      null,
+      "generated TestFlight checklist artifact exists but the generator is missing",
+    );
+    return;
+  }
+  if (!fs.existsSync(artifact)) {
+    add(
+      "generated-testflight-preflight-drift",
+      "docs/testflight-v1-preflight.md",
+      null,
+      "generated TestFlight checklist artifact is missing; run node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md",
+    );
+    return;
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-manual-qa-"));
+  const generatedPath = path.join(tmpDir, "testflight-v1-preflight.md");
+  try {
+    execFileSync(process.execPath, [generator, `--write=${generatedPath}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const expected = fs.readFileSync(generatedPath, "utf8");
+    const actual = fs.readFileSync(artifact, "utf8");
+    if (expected !== actual) {
+      add(
+        "generated-testflight-preflight-drift",
+        "docs/testflight-v1-preflight.md",
+        null,
+        "generated TestFlight checklist has drifted from scripts/v1_manual_qa_checklist.mjs; run node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md",
+      );
+    }
+  } catch (error) {
+    add(
+      "generated-testflight-preflight-drift",
+      "scripts/v1_manual_qa_checklist.mjs",
+      null,
+      `could not regenerate TestFlight checklist: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -986,6 +1117,7 @@ checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
+checkGeneratedTestFlightPreflight();
 checkSchemaDocOnlyLane();
 checkGeneratedV1ManualQaChecklistCurrent();
 checkV1LaunchHandoffHasNoStaleInstructions();

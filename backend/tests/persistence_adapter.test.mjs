@@ -15,7 +15,10 @@ import {
   assertKey,
 } from "../lib/persistence_adapter.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
-import { createPostgresPersistence } from "../lib/persistence_postgres.js";
+import {
+  buildPostgresPoolConfig,
+  createPostgresPersistence,
+} from "../lib/persistence_postgres.js";
 
 // ---------- in-memory pg-shaped mock ----------
 
@@ -39,9 +42,28 @@ function createPgMock() {
       m = trimmed.match(/^INSERT INTO (\w+) \(key, value, updated_at\)/i);
       if (m) {
         const tbl = ensure(m[1]);
+        if (/ON CONFLICT \(key\) DO NOTHING RETURNING key$/i.test(trimmed)) {
+          if (tbl.has(params[0])) return { rows: [], rowCount: 0 };
+          const value = JSON.parse(params[1]);
+          tbl.set(params[0], { value, updated_at: new Date() });
+          return { rows: [{ key: params[0] }], rowCount: 1 };
+        }
         const value = JSON.parse(params[1]);
         tbl.set(params[0], { value, updated_at: new Date() });
         return { rowCount: 1 };
+      }
+      // Compare-and-swap update
+      m = trimmed.match(/^UPDATE (\w+) SET value = \$3::jsonb, updated_at = NOW\(\) WHERE key = \$1 AND value = \$2::jsonb RETURNING key$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const row = tbl.get(params[0]);
+        const expected = JSON.parse(params[1]);
+        if (!row || JSON.stringify(row.value) !== JSON.stringify(expected)) {
+          return { rows: [], rowCount: 0 };
+        }
+        row.value = JSON.parse(params[2]);
+        row.updated_at = new Date();
+        return { rows: [{ key: params[0] }], rowCount: 1 };
       }
       // DELETE one
       m = trimmed.match(/^DELETE FROM (\w+) WHERE key = \$1$/i);
@@ -49,6 +71,20 @@ function createPgMock() {
         const tbl = ensure(m[1]);
         const had = tbl.delete(params[0]);
         return { rowCount: had ? 1 : 0 };
+      }
+      // LIST with prefix + cursor
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 AND key > \$2 ORDER BY key ASC LIMIT \$3$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const rawPrefix = String(params[0]).replace(/%$/, "");
+        const afterKey = String(params[1]);
+        const cap = Number(params[2]);
+        const rows = [...tbl.entries()]
+          .filter(([k]) => k.startsWith(rawPrefix) && k > afterKey)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, cap)
+          .map(([key, { value }]) => ({ key, value }));
+        return { rows };
       }
       // LIST with prefix
       m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 ORDER BY key ASC LIMIT \$2$/i);
@@ -58,6 +94,19 @@ function createPgMock() {
         const cap = Number(params[1]);
         const rows = [...tbl.entries()]
           .filter(([k]) => k.startsWith(rawPrefix))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, cap)
+          .map(([key, { value }]) => ({ key, value }));
+        return { rows };
+      }
+      // LIST with cursor
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key > \$1 ORDER BY key ASC LIMIT \$2$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const afterKey = String(params[0]);
+        const cap = Number(params[1]);
+        const rows = [...tbl.entries()]
+          .filter(([k]) => k > afterKey)
           .sort(([a], [b]) => a.localeCompare(b))
           .slice(0, cap)
           .map(([key, { value }]) => ({ key, value }));
@@ -107,6 +156,27 @@ function makeImplementations() {
   ];
 }
 
+test("[postgres] pool deadlines bound acquisition, server execution, and client reads", () => {
+  const defaults = buildPostgresPoolConfig({ databaseUrl: "postgres://example/test" });
+  assert.equal(defaults.connectionString, "postgres://example/test");
+  assert.equal(defaults.connectionTimeoutMillis, 1_000);
+  assert.equal(defaults.statement_timeout, 3_000);
+  assert.equal(defaults.query_timeout, 3_500);
+  assert.ok(defaults.statement_timeout < defaults.query_timeout);
+  assert.ok(defaults.connectionTimeoutMillis + defaults.query_timeout < 5_000);
+
+  const clamped = buildPostgresPoolConfig({
+    databaseUrl: "postgres://example/test",
+    connectionTimeoutMs: -1,
+    statementTimeoutMs: 40_000,
+    queryTimeoutMs: 1,
+  });
+  assert.equal(clamped.connectionTimeoutMillis, 1_000);
+  assert.equal(clamped.statement_timeout, 29_000);
+  assert.equal(clamped.query_timeout, 29_100);
+  assert.ok(clamped.statement_timeout < clamped.query_timeout);
+});
+
 // ---------- contract tests, run against both impls ----------
 
 for (const impl of makeImplementations()) {
@@ -126,6 +196,39 @@ for (const impl of makeImplementations()) {
     try {
       const v = await p.get({ domain: "outbox", key: "nope" });
       assert.equal(v, null);
+    } finally {
+      await p.close();
+    }
+  });
+
+  test(`[${impl.name}] compareAndSwap rejects stale writers without replacing the winner`, async () => {
+    const p = impl.create();
+    try {
+      const initial = { revision: 1, story: "Mara waits." };
+      const winner = { revision: 2, story: "Mara goes back." };
+      const stale = { revision: 2, story: "Mara leaves." };
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: null,
+        value: initial,
+      }), true);
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: initial,
+        value: winner,
+      }), true);
+      assert.equal(await p.compareAndSwap({
+        domain: "creative_memory",
+        key: "writer-1",
+        expectedValue: initial,
+        value: stale,
+      }), false);
+      assert.deepEqual(
+        await p.get({ domain: "creative_memory", key: "writer-1" }),
+        winner,
+      );
     } finally {
       await p.close();
     }
@@ -152,6 +255,14 @@ for (const impl of makeImplementations()) {
       assert.deepEqual(userOnly.map((r) => r.key), ["byUserId:alpha", "byUserId:zebra"]);
       const all = await p.list({ domain: "user_memory" });
       assert.equal(all.length, 3);
+      const afterFirst = await p.list({ domain: "user_memory", afterKey: all[0].key });
+      assert.deepEqual(afterFirst.map((r) => r.key), all.slice(1).map((r) => r.key));
+      const prefixedAfterFirst = await p.list({
+        domain: "user_memory",
+        prefix: "byUserId:",
+        afterKey: "byUserId:alpha",
+      });
+      assert.deepEqual(prefixedAfterFirst.map((r) => r.key), ["byUserId:zebra"]);
     } finally {
       await p.close();
     }
@@ -209,11 +320,18 @@ for (const impl of makeImplementations()) {
 
 // ---------- module-level invariants ----------
 
-test("KNOWN_DOMAINS includes the canonical domains (T07 + T22 + T21 follow-up + T08 + T-logline-distiller + T-accepted-twist-log + T-first-page-telemetry-sink)", () => {
+test("KNOWN_DOMAINS includes the canonical domains", () => {
   assert.deepEqual(
     [...KNOWN_DOMAINS].sort(),
     [
       "accepted_twists",
+      "account_audit_log",
+      "account_lifecycle",
+      "auth_email_verification_tokens",
+      "auth_password_reset_tokens",
+      "auth_sessions",
+      "auth_store_meta",
+      "auth_users",
       "craft_classifications",
       "craft_loglines",
       "craft_overrides",

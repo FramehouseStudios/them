@@ -14,7 +14,7 @@
 // docs/schemas/memories-list.md, memories-mutate.md,
 // memories-export.md (all already on main).
 //
-// Routes extracted (6 total):
+// Routes extracted (9 total):
 //
 //   GET  /memories            — list view + delta-no-change
 //                               short-circuit + If-None-Match etag.
@@ -23,32 +23,40 @@
 //                               history_threads, tasks, themes,
 //                               assembled into export_json string).
 //   POST /memories/update     — mutate a memory card.
+//   POST /memories/character-bible/update
+//                             — repair durable character canon.
+//   POST /memories/corrections/undo
+//                             — undo an accepted-canon correction.
+//   POST /memories/corrections/resolve
+//                             — resolve an ambiguous canon correction.
 //   POST /memories/forget     — delete a memory card.
 //   POST /memories/promote    — promote a card to a theme.
 //   POST /memories/feedback   — record human feedback on a theme.
 //
-// Behavior is byte-identical with the previous inline handlers:
-//   - same response envelopes (matching memories-*.md schema docs)
-//   - same 200/400/304 status routing
-//   - same Cache-Control: no-store + applyReadStateHeaders cycle
-//   - same per-route logger.log diagnostic lines
-//   - same body limits (256kb) for POSTs
-//   - same backfill side-effect on GET /memories
-//   - same persist-before-respond order on mutations
+// Response envelopes, body limits, cache controls, and read-state
+// headers remain compatible with the original inline handlers.
 //
-// Access-control posture: PER-USER. Memory record resolved via
-// `selectMemoryRecordForRead` (read) or
-// `resolveWritableMemoryContext` (write). Same scope rules as
-// the existing per-user surface.
+// Access-control posture: PER-USER. Memory records resolve through
+// the canonical authenticated-account lane after trusted auth identity
+// resolves. Caller-supplied X-User-Id is never trusted for ownership.
 //
 // Per the #238 invariant inheritance: this lib does NOT mutate
-// any module-level state. The shared per-IP persistence call
-// (`setPersistedUserMemoryForIp` on the GET /memories backfill
-// path) is preserved as the byte-identical side-effect from the
-// inline handler — it's a write to an existing accessor, not a
-// new setter.
+// module-level state. Authenticated account reads and writer-owned
+// mutations resolve through the injected canonical persistence lane.
 
 import express from "express";
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
+import {
+  buildCreativeMemoryRevision,
+  extractCharacterMemoryCorrection,
+  isCreativeMemoryRevisionConflict,
+} from "./creative_memory_store.js";
+import {
+  buildStoryMoveTasteProfile,
+  normalizeStoryMoveFamily,
+  storyMoveFamilyDirective,
+  storyMoveFamilyLabel,
+} from "./story_rescue_move_library.js";
 
 const MEMORIES_MUTATION_BODY_LIMIT = "256kb";
 
@@ -62,13 +70,12 @@ function mountMemoriesRoutes(app, deps = {}) {
     createRequestId,
     normalizeSnippet,
     clampUnit,
+    resolveUserId = defaultResolveMemoryUserId,
     // ---------- memory context resolution ----------
     selectMemoryRecordForRead,
-    resolveWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
-    persistWritableMemoryContext,
-    setPersistedUserMemoryForIp,
-    normalizeClientToken,
+    persistCanonicalWritableMemoryContext,
     // ---------- read-state pipeline ----------
     buildReadStateMeta,
     applyReadStateHeaders,
@@ -95,6 +102,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     resolveThemeKeyFromMemoryCard,
     normalizeMemoryQualitySignal,
     incrementThemeQualitySignal,
+    creativeMemoryStore = null,
     logger = console,
     // ---------- constants ----------
     TASKS_MAX_STORED,
@@ -105,9 +113,9 @@ function mountMemoriesRoutes(app, deps = {}) {
   // time, not on the first request. Matches the 5b precedent.
   const requiredFns = {
     parseQueryLimit, createRequestId, normalizeSnippet, clampUnit,
-    selectMemoryRecordForRead, resolveWritableMemoryContext,
-    sanitizePersistedSessionMemory, persistWritableMemoryContext,
-    setPersistedUserMemoryForIp, normalizeClientToken,
+    selectMemoryRecordForRead,
+    resolveCanonicalWritableMemoryContext, sanitizePersistedSessionMemory,
+    persistCanonicalWritableMemoryContext,
     buildReadStateMeta, applyReadStateHeaders, ifNoneMatchStateHit,
     buildConversationHistoryThreads, buildMemoryCards,
     buildMemoryQualitySnapshot, maybeBackfillThemesFromHistory,
@@ -132,37 +140,609 @@ function mountMemoriesRoutes(app, deps = {}) {
     throw new Error("mountMemoriesRoutes: USER_MEMORY_REMEMBERED_PEOPLE_MAX must be a number");
   }
 
+  function requireMemoryUser(req, res, stage) {
+    const userId = String(resolveUserId(req) || "").trim();
+    if (userId) return userId;
+    res.setHeader("Cache-Control", "no-store");
+    res.status(401).json(memoryAuthRequired(stage));
+    return "";
+  }
+
+  function isDurableCreativeMemoryKey(key = "") {
+    return /^(?:character|episode):\S/i.test(String(key || "").trim());
+  }
+
+  async function readCreativeMemoryForUser(userId, query = "memories character bible") {
+    if (!userId || !creativeMemoryStore) {
+      return null;
+    }
+    try {
+      if (typeof creativeMemoryStore.getCreativeMemoryLedger === "function") {
+        return await creativeMemoryStore.getCreativeMemoryLedger({
+          userId,
+          includeSuperseded: true,
+          maxEpisodicMemories: 72,
+        });
+      }
+      if (typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+        return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
+      }
+      return null;
+    } catch (error) {
+      logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
+      return null;
+    }
+  }
+
+  function expectedCreativeMemoryRevision(req) {
+    return normalizeSnippet(
+      req.body?.expected_creative_memory_revision ??
+        req.body?.expectedCreativeMemoryRevision ??
+        req.get("X-Creative-Memory-Revision"),
+      96,
+    );
+  }
+
+  function expectedStateVersion(req) {
+    return normalizeSnippet(
+      req.body?.expected_state_version ??
+        req.body?.expectedStateVersion ??
+        req.get("X-State-Version"),
+      96,
+    );
+  }
+
+  function applyCreativeMemoryRevisionHeader(res, revision = "") {
+    const cleanRevision = normalizeSnippet(revision, 96);
+    if (cleanRevision) {
+      res.setHeader("x-creative-memory-revision", cleanRevision);
+    }
+    return cleanRevision;
+  }
+
+  function sendCreativeMemoryConflict(res, {
+    action,
+    requestId,
+    expectedRevision,
+    currentRevision,
+  }) {
+    const revision = applyCreativeMemoryRevisionHeader(res, currentRevision);
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(409).json({
+      ok: false,
+      action,
+      status: "stale_creative_memory_revision",
+      message: "Memory changed on another device. The newer version was preserved; reload before applying this edit.",
+      request_id: requestId,
+      expected_creative_memory_revision: expectedRevision || null,
+      current_creative_memory_revision: revision || null,
+    });
+  }
+
+  function sendMemoryStateConflict(res, {
+    action,
+    requestId,
+    expectedVersion,
+    currentMeta,
+  }) {
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, currentMeta);
+    return res.status(409).json({
+      ok: false,
+      action,
+      status: "stale_memory_state_version",
+      message: action === "update"
+        ? "Memory changed on another device. The newer Story Spine was preserved; reload before applying this edit."
+        : "Memory changed on another device. The newer memory state was preserved; reload before applying this action.",
+      request_id: requestId,
+      expected_state_version: expectedVersion || null,
+      current_state_version: currentMeta?.stateVersion || null,
+    });
+  }
+
+  function sendMemoryPersistenceUnavailable(res, {
+    action,
+    requestId,
+  }) {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(503).json({
+      ok: false,
+      action,
+      status: "memory_persistence_unavailable",
+      message: "Memory sync is temporarily unavailable. No changes were applied.",
+      request_id: requestId,
+    });
+  }
+
+  async function loadCanonicalMemoryContext(req, res, {
+    action,
+    requestId,
+    nowTs,
+  }) {
+    try {
+      return await resolveCanonicalWritableMemoryContext(req, nowTs);
+    } catch (error) {
+      logger.log(`[${requestId}] memories_${action} canonical_read_error=${error?.message || error}`);
+      sendMemoryPersistenceUnavailable(res, { action, requestId });
+      return null;
+    }
+  }
+
+  async function commitCanonicalMemoryMutation(req, res, {
+    action,
+    requestId,
+    expectedVersion,
+    context,
+    memory,
+    nowTs,
+    repairMutation = null,
+  }) {
+    let candidateContext = context;
+    let candidateMemory = memory;
+    const maxAttempts = typeof repairMutation === "function" ? 3 : 1;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      let result;
+      try {
+        result = await persistCanonicalWritableMemoryContext(
+          candidateContext,
+          candidateMemory,
+          nowTs,
+        );
+      } catch (error) {
+        logger.log(`[${requestId}] memories_${action} canonical_write_error=${error?.message || error}`);
+        sendMemoryPersistenceUnavailable(res, { action, requestId });
+        return null;
+      }
+      if (result?.ok) return result.memory;
+      if (
+        result?.status === "stale_memory_state_version" &&
+        attempt + 1 < maxAttempts &&
+        typeof repairMutation === "function"
+      ) {
+        candidateMemory = sanitizePersistedSessionMemory(result.memory);
+        const repair = repairMutation(candidateMemory);
+        if (!repair?.ok) break;
+        if (repair.skipCommit) return candidateMemory;
+        candidateContext = {
+          ...candidateContext,
+          canonical: true,
+          canonicalRecord: result.record || null,
+          memory: candidateMemory,
+        };
+        continue;
+      }
+      const currentMemory = sanitizePersistedSessionMemory(result?.memory || candidateContext.memory);
+      const currentMeta = buildReadStateMeta(req, currentMemory, candidateContext.requesterIp);
+      sendMemoryStateConflict(res, {
+        action,
+        requestId,
+        expectedVersion,
+        currentMeta,
+      });
+      return null;
+    }
+    const currentMeta = buildReadStateMeta(req, candidateMemory, candidateContext.requesterIp);
+    sendMemoryStateConflict(res, {
+      action,
+      requestId,
+      expectedVersion,
+      currentMeta,
+    });
+    return null;
+  }
+
+  function normalizeStringListPayload(value, maxItems = 8, maxChars = 220) {
+    const items = Array.isArray(value)
+      ? value
+      : String(value || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim());
+    const out = [];
+    const seen = new Set();
+    for (const item of items) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  function buildStoryMovePreferencesPayload(
+    creativeMemory = null,
+    {
+      projectId = "",
+      projectTitle = "",
+    } = {}
+  ) {
+    const projects = Array.isArray(creativeMemory?.projects)
+      ? creativeMemory.projects
+      : [];
+    const cleanProjectId = normalizeSnippet(projectId, 96).toLowerCase();
+    const cleanProjectTitle = normalizeSnippet(projectTitle, 160).toLowerCase();
+    return projects
+      .filter((project) => {
+        if (cleanProjectId) {
+          return normalizeSnippet(project?.projectId, 96).toLowerCase() === cleanProjectId;
+        }
+        if (cleanProjectTitle) {
+          return normalizeSnippet(project?.projectTitle, 160).toLowerCase() === cleanProjectTitle;
+        }
+        return true;
+      })
+      .slice()
+      .sort((left, right) => Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0))
+      .slice(0, 6)
+      .flatMap((project) => {
+        const profile = buildStoryMoveTasteProfile(
+          project?.questionEffectiveness,
+          {
+            preferenceOverrides: project?.storyMovePreferenceOverrides,
+          }
+        );
+        return profile
+          .filter((item) => item.evidenceCount > 0 || item.explicitStance)
+          .slice(0, 9)
+          .map((item) => ({
+            project_id: String(project?.projectId || ""),
+            project_title: String(project?.projectTitle || ""),
+            family: item.family,
+            display_name: storyMoveFamilyLabel(item.family),
+            summary: storyMoveFamilyDirective(item.family),
+            learned_score: Number(item.learnedTasteBonus || 0),
+            effective_score: Number(item.tasteBonus || 0),
+            evidence_count: Math.max(0, Number(item.evidenceCount || 0)),
+            selected_count: Math.max(0, Number(item.selectedCount || 0)),
+            passed_over_count: Math.max(0, Number(item.passedOverCount || 0)),
+            accepted_page_count: Math.max(0, Number(item.acceptedPageCount || 0)),
+            block_resolution_count: Math.max(0, Number(item.blockResolutionCount || 0)),
+            successful_rescue_count: Math.max(0, Number(item.successfulRescueCount || 0)),
+            failed_rescue_count: Math.max(0, Number(item.failedRescueCount || 0)),
+            explicit_stance: String(item.explicitStance || ""),
+            corrected_at: Math.max(0, Number(item.correctedAt || 0)) || null,
+            updated_at: Math.max(0, Number(project?.updatedAt || 0)) || null,
+          }));
+      });
+  }
+
+  function canonCorrectionReceiptPayload(receipt = null) {
+    if (!receipt || typeof receipt !== "object") return null;
+    return {
+      id: String(receipt.id || ""),
+      status: String(receipt.status || ""),
+      project_id: String(receipt.projectId || ""),
+      project_title: String(receipt.projectTitle || ""),
+      correction_text: String(receipt.correctionText || ""),
+      matched_facts: Array.isArray(receipt.matchedFacts) ? receipt.matchedFacts : [],
+      replacement_facts: Array.isArray(receipt.replacementFacts) ? receipt.replacementFacts : [],
+      replacement_fact_ids: Array.isArray(receipt.replacementFactIds)
+        ? receipt.replacementFactIds
+        : [],
+      structured_updates: Array.isArray(receipt.structuredUpdates)
+        ? receipt.structuredUpdates
+        : [],
+      correction_memory_id: String(receipt.correctionMemoryId || ""),
+      created_at: Math.max(0, Number(receipt.createdAt || 0)),
+      undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,
+    };
+  }
+
+  function canonCorrectionAmbiguityPayload(ambiguity = null) {
+    if (!ambiguity || typeof ambiguity !== "object") return null;
+    return {
+      id: String(ambiguity.id || ""),
+      status: String(ambiguity.status || ""),
+      project_id: String(ambiguity.projectId || ""),
+      project_title: String(ambiguity.projectTitle || ""),
+      correction_text: String(ambiguity.correctionText || ""),
+      candidate_facts: Array.isArray(ambiguity.candidateFacts) ? ambiguity.candidateFacts : [],
+      correction_memory_id: String(ambiguity.correctionMemoryId || ""),
+      selected_fact: String(ambiguity.selectedFact || ""),
+      selected_facts: Array.isArray(ambiguity.selectedFacts)
+        ? ambiguity.selectedFacts
+        : ambiguity.selectedFact
+          ? [ambiguity.selectedFact]
+          : [],
+      receipt_id: String(ambiguity.receiptId || ""),
+      created_at: Math.max(0, Number(ambiguity.createdAt || 0)),
+      resolved_at: Math.max(0, Number(ambiguity.resolvedAt || 0)) || null,
+    };
+  }
+
+  function normalizeArcPatch(value = {}) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const out = {};
+    const fields = [
+      ["act", source.act ?? source.currentAct ?? source.current_act, 80],
+      ["want", source.want ?? source.consciousWant ?? source.conscious_want, 180],
+      ["need", source.need ?? source.unconsciousNeed ?? source.unconscious_need, 180],
+      ["wound", source.wound, 180],
+      ["falseBelief", source.falseBelief ?? source.false_belief, 180],
+      ["relationshipPressure", source.relationshipPressure ?? source.relationship_pressure, 180],
+      ["currentTactic", source.currentTactic ?? source.current_tactic, 180],
+      ["nextEmotionalTurn", source.nextEmotionalTurn ?? source.next_emotional_turn, 180],
+    ];
+    for (const [key, raw, maxChars] of fields) {
+      const clean = normalizeSnippet(raw, maxChars);
+      if (clean) out[key] = clean;
+    }
+    return out;
+  }
+
+  function normalizeCharacterBiblePatch(body = {}) {
+    const source = body?.character_bible && typeof body.character_bible === "object"
+      ? body.character_bible
+      : (body?.characterBible && typeof body.characterBible === "object" ? body.characterBible : body);
+    const character = normalizeSnippet(
+      source?.character ?? source?.name ?? body?.character ?? body?.name,
+      72,
+    );
+    const canon = normalizeStringListPayload(source?.canon ?? source?.facts, 8, 220);
+    const corrections = normalizeStringListPayload(source?.corrections, 6, 260);
+    const correctedTerms = normalizeStringListPayload(
+      source?.corrected_terms ?? source?.correctedTerms,
+      8,
+      140,
+    );
+    const correctionReplacements = normalizeStringListPayload(
+      source?.correction_replacements ?? source?.correctionReplacements,
+      8,
+      180,
+    );
+    const arc = normalizeArcPatch(source?.arc);
+    const hasSignal = Boolean(
+      canon.length ||
+      corrections.length ||
+      correctedTerms.length ||
+      correctionReplacements.length ||
+      Object.keys(arc).length
+    );
+    return {
+      character,
+      characterBible: hasSignal ? {
+        canon,
+        corrections,
+        correctedTerms,
+        correctionReplacements,
+        arc,
+      } : null,
+    };
+  }
+
+  function mergeUniqueMemoryLines(primary = [], secondary = [], limit = 8) {
+    const seen = new Set();
+    const out = [];
+    for (const value of [...primary, ...secondary]) {
+      const clean = normalizeSnippet(value, 220);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  function enrichCharacterBiblePatchWithCorrectionParser(character, characterBible) {
+    if (!character || !characterBible) return characterBible;
+    const correctionText = [
+      ...(Array.isArray(characterBible.corrections) ? characterBible.corrections : []),
+      ...(Array.isArray(characterBible.canon) ? characterBible.canon : []),
+    ].join(" ");
+    const parsed = extractCharacterMemoryCorrection(correctionText, character);
+    if (!parsed) return characterBible;
+    const parsedCanon = parsed.correctedFact ? [parsed.correctedFact] : [];
+    return {
+      ...characterBible,
+      canon: mergeUniqueMemoryLines(characterBible.canon, parsedCanon, 8),
+      correctedTerms: mergeUniqueMemoryLines(characterBible.correctedTerms, parsed.correctedTerms, 8),
+      correctionReplacements: mergeUniqueMemoryLines(
+        characterBible.correctionReplacements,
+        parsed.correctionReplacements,
+        8,
+      ),
+    };
+  }
+
+  function buildCharacterArcCorrectionLine(character, arc = {}) {
+    const parts = [
+      arc.act ? `act=${arc.act}` : "",
+      arc.want ? `want=${arc.want}` : "",
+      arc.need ? `need=${arc.need}` : "",
+      arc.wound ? `wound=${arc.wound}` : "",
+      arc.falseBelief ? `false belief=${arc.falseBelief}` : "",
+      arc.relationshipPressure ? `pressure=${arc.relationshipPressure}` : "",
+      arc.currentTactic ? `tactic=${arc.currentTactic}` : "",
+      arc.nextEmotionalTurn ? `next turn=${arc.nextEmotionalTurn}` : "",
+    ].filter(Boolean);
+    if (!parts.length) return "";
+    return normalizeSnippet(`${character}: ${parts.join("; ")}`, 280);
+  }
+
+  function buildCharacterBibleStorySpinePatch(character, characterBible = {}) {
+    const correctionLines = normalizeStringListPayload(characterBible.corrections, 6, 260);
+    const canonLines = normalizeStringListPayload(characterBible.canon, 8, 220);
+    const correctedTerms = normalizeStringListPayload(characterBible.correctedTerms, 8, 120);
+    const correctionReplacements = normalizeStringListPayload(characterBible.correctionReplacements, 8, 160);
+    const arc = normalizeArcPatch(characterBible.arc);
+    const authoritativeLine = normalizeSnippet(
+      correctionLines[0] || canonLines[0] || buildCharacterArcCorrectionLine(character, arc),
+      220,
+    );
+    if (
+      !authoritativeLine &&
+      !correctedTerms.length &&
+      !correctionReplacements.length &&
+      !Object.keys(arc).length
+    ) {
+      return null;
+    }
+
+    const continuityNotes = [
+      authoritativeLine
+        ? `Authoritative user correction for ${character}: ${authoritativeLine}`
+        : `Authoritative user correction for ${character}'s character bible.`,
+    ];
+    const characterArcLine = buildCharacterArcCorrectionLine(character, arc);
+    const characterArcTurns = [
+      characterArcLine,
+      ...correctionLines.map((line) => `${character}: ${line}`),
+    ].filter(Boolean);
+
+    return {
+      characterFocus: [character],
+      continuityNotes,
+      correctedTerms,
+      correctionReplacements,
+      characterArcTurns,
+      characterArcState: characterArcLine,
+      emotionalContinuity: `Honor ${character}'s corrected character bible before writing new pages.`,
+      reason: authoritativeLine || `Corrected ${character}'s character bible.`,
+    };
+  }
+
+  function buildScreenplayProjectMemoryRepairCardId(item = {}, fallback = "") {
+    const key = [
+      "screenplay-project",
+      item?.projectId || item?.documentRevisionId || item?.sceneLabel || item?.updatedAt || fallback,
+    ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-");
+    return normalizeMemoryCardId(key);
+  }
+
+  function projectMemoryContainsCharacterCorrectionSignal(item = {}, character = "", patch = {}, total = 0) {
+    if (total <= 1) return true;
+    const characterKey = String(character || "").trim().toLowerCase();
+    const terms = [
+      characterKey,
+      ...(Array.isArray(patch.correctedTerms) ? patch.correctedTerms : []),
+      ...(Array.isArray(patch.correctionReplacements) ? patch.correctionReplacements : [])
+        .flatMap((entry) => String(entry || "").split(/\s*->\s*/)),
+    ]
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (!terms.length) return false;
+    const haystack = JSON.stringify(item || {}).toLowerCase();
+    return terms.some((term) => haystack.includes(term));
+  }
+
+  function repairScreenplayProjectMemoryForCharacterBible(memory, character, characterBible, nowTs) {
+    if (!memory || typeof memory !== "object") {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    const projects = Array.isArray(memory.screenplayProjectMemory)
+      ? memory.screenplayProjectMemory
+      : [];
+    if (!projects.length) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    const patch = buildCharacterBibleStorySpinePatch(character, characterBible);
+    if (!patch) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+
+    const repairedIds = [];
+    const seenTargets = new Set();
+    projects.forEach((item, index) => {
+      const key = normalizeSnippet(item?.projectId || item?.documentRevisionId || "", 96);
+      const cardId = buildScreenplayProjectMemoryRepairCardId(item, index + 1);
+      const targetKey = key || cardId;
+      if (!targetKey || seenTargets.has(targetKey)) return;
+      if (!projectMemoryContainsCharacterCorrectionSignal(item, character, patch, projects.length)) return;
+      seenTargets.add(targetKey);
+      const mutation = updateMemoryCardInMemory(
+        memory,
+        {
+          cardId,
+          key,
+          title: normalizeSnippet(item?.projectTitle || item?.sceneLabel || "Screenplay Project", 84),
+          summary: "",
+          reason: patch.reason,
+          storySpine: patch,
+        },
+        nowTs,
+      );
+      if (mutation?.ok) {
+        repairedIds.push(String(mutation.cardId || cardId || targetKey));
+      }
+    });
+
+    if (!repairedIds.length) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    return { repaired: true, count: repairedIds.length, cardIds: repairedIds };
+  }
+
   // ============== GET /memories ==============
-  app.get("/memories", (req, res) => {
+  app.get("/memories", async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const nowTs = Date.now();
     const limit = parseQueryLimit(req.query?.limit, 24, 120);
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const historyThreads = buildConversationHistoryThreads(
+    const selected = selectMemoryRecordForRead(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "read",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+    const originalMemory = sanitizePersistedSessionMemory(context.memory);
+    let memory = sanitizePersistedSessionMemory(originalMemory);
+    const creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible");
+    const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+    let historyThreads = buildConversationHistoryThreads(
       memory,
       Math.max(12, Math.min(limit * 2, 140)),
     );
     const backfillResult = maybeBackfillThemesFromHistory(
       memory,
       historyThreads,
-      Date.now(),
+      nowTs,
       { trigger: "memories_read" },
     );
-    if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-      setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-        clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-      });
-      logger.log(
-        `[memories_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`,
-      );
+    if (backfillResult.applied) {
+      try {
+        const backfillCommit = await persistCanonicalWritableMemoryContext(context, memory, nowTs);
+        memory = sanitizePersistedSessionMemory(
+          backfillCommit?.memory || originalMemory,
+        );
+        historyThreads = buildConversationHistoryThreads(
+          memory,
+          Math.max(12, Math.min(limit * 2, 140)),
+        );
+        logger.log(
+          `[memories_backfill] status=${backfillCommit?.status || "unknown"} source=${selected.source} user=${userId} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`,
+        );
+      } catch (error) {
+        memory = originalMemory;
+        historyThreads = buildConversationHistoryThreads(
+          memory,
+          Math.max(12, Math.min(limit * 2, 140)),
+        );
+        logger.log(`[${rid}] memories_read backfill_write_error=${error?.message || error}`);
+      }
     }
-    const readMeta = buildReadStateMeta(req, memory, selected.ip);
-    const memories = buildMemoryCards(memory, historyThreads, limit);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
+    const storyMovePreferences = buildStoryMovePreferencesPayload(creativeMemory, {
+      projectId:
+        req.query?.story_preference_project_id ??
+        req.query?.storyPreferenceProjectId,
+      projectTitle:
+        req.query?.story_preference_project_title ??
+        req.query?.storyPreferenceProjectTitle,
+    });
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    if (sinceVersion && sinceVersion === readMeta.stateVersion) {
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
+    if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemory) {
       return res.status(200).json({
         source: selected.source,
         source_ip: selected.ip,
@@ -176,6 +756,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         season_progress: clampUnit(memory?.seasonProgress, 0),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
         last_updated_at: readMeta.lastUpdatedAt || null,
         history_updated_at: readMeta.historyUpdatedAt || null,
         memory_updated_at: readMeta.memoryUpdatedAt || null,
@@ -186,6 +767,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         is_delta: true,
         delta_no_change: true,
         memory_quality: memoryQuality,
+        story_move_preferences: [],
         memories: [],
         conversation_samples: [],
       });
@@ -206,6 +788,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       season_progress: clampUnit(memory?.seasonProgress, 0),
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
+      creative_memory_revision: creativeMemoryRevision,
       last_updated_at: readMeta.lastUpdatedAt || null,
       history_updated_at: readMeta.historyUpdatedAt || null,
       memory_updated_at: readMeta.memoryUpdatedAt || null,
@@ -216,19 +799,441 @@ function mountMemoriesRoutes(app, deps = {}) {
       is_delta: Boolean(sinceVersion),
       delta_no_change: false,
       memory_quality: memoryQuality,
+      story_move_preferences: storyMovePreferences,
       memories,
       conversation_samples: historyThreads.slice(0, Math.max(3, Math.min(12, limit))),
     });
   });
 
+  // ============== POST /memories/story-preferences/update ==============
+  app.post("/memories/story-preferences/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_story_preferences_update");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.updateStoryMovePreference !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+        request_id: rid,
+      });
+    }
+    const projectId = normalizeSnippet(req.body?.project_id ?? req.body?.projectId, 96);
+    const projectTitle = normalizeSnippet(req.body?.project_title ?? req.body?.projectTitle, 160);
+    const action = normalizeSnippet(req.body?.action, 24).toLowerCase();
+    const family = normalizeStoryMoveFamily(
+      req.body?.family ?? req.body?.move_family ?? req.body?.moveFamily
+    );
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    if (!projectId && !projectTitle) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "missing_project_identity",
+        message: "A screenplay project is required.",
+        request_id: rid,
+      });
+    }
+    if (!["prefer", "avoid", "reset", "reset_all"].includes(action)) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "invalid_action",
+        message: "Choose prefer, avoid, reset, or reset_all.",
+        request_id: rid,
+      });
+    }
+    if (action !== "reset_all" && !family) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "invalid_story_move_family",
+        message: "Choose a valid story preference.",
+        request_id: rid,
+      });
+    }
+
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "story_move_preference",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
+    try {
+      const receipt = await creativeMemoryStore.updateStoryMovePreference({
+        userId,
+        projectId,
+        projectTitle,
+        family,
+        action,
+        expectedRevision,
+      });
+      if (!receipt?.ok) {
+        const notFound = ["creative_memory_not_found", "project_not_found"].includes(receipt?.reason);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(notFound ? 404 : 400).json({
+          ok: false,
+          action: "story_move_preference",
+          status: String(receipt?.reason || "story_move_preference_failed"),
+          message: notFound
+            ? "That screenplay memory could not be found."
+            : "The preference could not be updated.",
+          request_id: rid,
+        });
+      }
+      const creativeMemory = await readCreativeMemoryForUser(
+        userId,
+        `${receipt.projectTitle || projectTitle} story move preferences`
+      );
+      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+      const memory = sanitizePersistedSessionMemory(context.memory);
+      const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+      res.setHeader("Cache-Control", "no-store");
+      applyReadStateHeaders(res, readMeta);
+      applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
+      return res.status(200).json({
+        ok: true,
+        action: "story_move_preference",
+        status: action,
+        message: action === "reset_all"
+          ? "Creative preference learning was reset for this screenplay."
+          : action === "reset"
+            ? "That creative preference was reset."
+            : "Clementine will use this correction when ranking future story moves.",
+        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory, {
+          projectId: receipt.projectId || projectId,
+          projectTitle: receipt.projectTitle || projectTitle,
+        }),
+        session_id: readMeta.sessionId,
+        state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
+        last_turn_id: readMeta.lastTurnId || null,
+        last_updated_at: readMeta.lastUpdatedAt || null,
+        history_updated_at: readMeta.historyUpdatedAt || null,
+        memory_updated_at: Math.max(
+          Number(readMeta.memoryUpdatedAt || 0),
+          Number(receipt.updatedAt || 0)
+        ) || null,
+        schema_version: readMeta.schemaVersion,
+        backend_build: readMeta.backendBuild,
+        backend_boot_id: readMeta.backendBootId,
+      });
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "story_move_preference",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[memories_story_preferences_update_failed] error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "story_move_preference",
+        status: "story_move_preference_failed",
+        message: "The preference could not be updated.",
+        request_id: rid,
+      });
+    }
+  });
+
+  // ============== POST /memories/story-obligations/correct ==============
+  app.post("/memories/story-obligations/correct", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_story_obligation_correct");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.correctStoryObligation !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+        request_id: rid,
+      });
+    }
+    const projectId = normalizeSnippet(req.body?.project_id ?? req.body?.projectId, 96);
+    const projectTitle = normalizeSnippet(req.body?.project_title ?? req.body?.projectTitle, 160);
+    const obligation = normalizeSnippet(req.body?.obligation, 220);
+    const action = normalizeSnippet(req.body?.action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const note = normalizeSnippet(req.body?.note, 240);
+    const sourceChangeId = normalizeSnippet(
+      req.body?.source_change_id ?? req.body?.sourceChangeId,
+      96
+    );
+    const sourceStatus = normalizeSnippet(
+      req.body?.source_status ?? req.body?.sourceStatus,
+      32
+    );
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    if (!projectId && !projectTitle) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "missing_project_identity",
+        message: "A screenplay project is required.",
+        request_id: rid,
+      });
+    }
+    if (!obligation || !["keep_open", "retire"].includes(action)) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: !obligation ? "obligation_required" : "invalid_action",
+        message: !obligation
+          ? "Choose the setup or payoff to correct."
+          : "Choose keep_open or retire.",
+        request_id: rid,
+      });
+    }
+
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "story_obligation_correction",
+      requestId: rid,
+      nowTs: Date.now(),
+    });
+    if (!context) return;
+
+    try {
+      const receipt = await creativeMemoryStore.correctStoryObligation({
+        userId,
+        projectId,
+        projectTitle,
+        obligation,
+        action,
+        note,
+        sourceChangeId,
+        sourceStatus,
+        expectedRevision,
+      });
+      if (!receipt?.ok) {
+        const notFound = [
+          "creative_memory_not_found",
+          "project_not_found",
+          "story_obligation_not_found",
+        ].includes(receipt?.reason);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(notFound ? 404 : 400).json({
+          ok: false,
+          action: "story_obligation_correction",
+          status: String(receipt?.reason || "story_obligation_correction_failed"),
+          message: notFound
+            ? "That screenplay obligation could not be found. Reload and try again."
+            : "The story obligation correction could not be saved.",
+          request_id: rid,
+        });
+      }
+      const creativeMemory = await readCreativeMemoryForUser(
+        userId,
+        `${receipt.projectTitle || projectTitle} ${obligation}`
+      );
+      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+      const memory = sanitizePersistedSessionMemory(context.memory);
+      const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+      res.setHeader("Cache-Control", "no-store");
+      applyReadStateHeaders(res, readMeta);
+      applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
+      return res.status(200).json({
+        ok: true,
+        action: "story_obligation_correction",
+        status: action,
+        message: action === "retire"
+          ? "Clementine will retire this obligation from future story reasoning."
+          : "Clementine will keep this obligation open until later accepted evidence resolves it.",
+        story_obligation_correction: receipt.correction || null,
+        session_id: readMeta.sessionId,
+        state_version: readMeta.stateVersion,
+        creative_memory_revision: creativeMemoryRevision,
+        last_turn_id: readMeta.lastTurnId || null,
+        last_updated_at: readMeta.lastUpdatedAt || null,
+        history_updated_at: readMeta.historyUpdatedAt || null,
+        memory_updated_at: Math.max(
+          Number(readMeta.memoryUpdatedAt || 0),
+          Number(receipt.updatedAt || 0)
+        ) || null,
+        schema_version: readMeta.schemaVersion,
+        backend_build: readMeta.backendBuild,
+        backend_boot_id: readMeta.backendBootId,
+      });
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "story_obligation_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[memories_story_obligation_correct_failed] error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "story_obligation_correction",
+        status: "story_obligation_correction_failed",
+        message: "The story obligation correction could not be saved.",
+        request_id: rid,
+      });
+    }
+  });
+
+  // ============== POST /memories/character-bible/update ==============
+  app.post("/memories/character-bible/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_character_bible_update");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.recordCharacterMention !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "creative_memory_unavailable",
+        message: "Creative memory is not available.",
+      });
+    }
+    const nowTs = Date.now();
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    const { character, characterBible: rawCharacterBible } = normalizeCharacterBiblePatch(req.body || {});
+    const characterBible = enrichCharacterBiblePatchWithCorrectionParser(character, rawCharacterBible);
+    if (!character || !characterBible) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "invalid_character_bible",
+        message: "Character and at least one character bible field are required.",
+      });
+    }
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "character_bible_update",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
+    let receipt;
+    try {
+      receipt = await creativeMemoryStore.recordCharacterMention({
+        userId,
+        characterName: character,
+        source: "memory_character_bible_edit",
+        characterBible,
+        expectedRevision,
+      });
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "character_bible_update",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[${rid}] memories_character_bible_update error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "creative_memory_write_failed",
+        message: "Character memory could not be updated.",
+      });
+    }
+
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const storySpineRepair = repairScreenplayProjectMemoryForCharacterBible(
+      memory,
+      character,
+      characterBible,
+      nowTs,
+    );
+    const persisted = storySpineRepair.repaired
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "character_bible_update",
+        requestId: rid,
+        expectedVersion: expectedStateVersion(req),
+        context,
+        memory,
+        nowTs,
+        repairMutation: (winnerMemory) => {
+          const repair = repairScreenplayProjectMemoryForCharacterBible(
+            winnerMemory,
+            character,
+            characterBible,
+            nowTs,
+          );
+          return { ok: true, skipCommit: !repair.repaired };
+        },
+      })
+      : memory;
+    if (!persisted) return;
+    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    const historyThreads = buildConversationHistoryThreads(persisted, 160);
+    const creativeMemory = await readCreativeMemoryForUser(userId, character);
+    const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+    const cards = buildMemoryCards(persisted, historyThreads, 160, creativeMemory);
+    const normalizedTargetId = normalizeMemoryCardId(`character-${character}`);
+    const updatedCard = cards.find((card) => (
+      normalizeMemoryCardId(card.id) === normalizedTargetId ||
+      String(card.key || "") === `character:${character}`
+    )) || null;
+    const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
+
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
+    logger.log(
+      `[${rid}] memories_character_bible_update status=${receipt?.action || "updated"} character=${character}`,
+    );
+    return res.status(200).json({
+      ok: true,
+      action: "character_bible_update",
+      status: String(receipt?.action || "updated"),
+      message: null,
+      memory_card: updatedCard,
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      creative_memory_revision: creativeMemoryRevision,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
+      memory_quality: memoryQuality,
+      story_spine_repaired: Boolean(storySpineRepair.repaired),
+      story_spine_repair_count: Math.max(0, Number(storySpineRepair.count || 0)),
+      story_spine_repaired_card_ids: storySpineRepair.cardIds || [],
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
+    });
+  });
+
   // ============== GET /memories/export ==============
-  app.get("/memories/export", (req, res) => {
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const readMeta = buildReadStateMeta(req, memory, selected.ip);
+  app.get("/memories/export", async (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_export")) return;
+    const rid = req.requestId || createRequestId();
+    const nowTs = Date.now();
+    const selected = selectMemoryRecordForRead(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "export",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(memory, 280);
     const memoryCards = buildMemoryCards(memory, historyThreads, 180);
-    const memoryQuality = buildMemoryQualitySnapshot(memory, memoryCards, Date.now());
+    const memoryQuality = buildMemoryQualitySnapshot(memory, memoryCards, nowTs);
     const tasks = buildTaskSnapshot(memory, {
       status: "all",
       limit: TASKS_MAX_STORED,
@@ -290,22 +1295,51 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/update ==============
-  app.post("/memories/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_update")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "update",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "update",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const title = normalizeSnippet(req.body?.title ?? "", 84);
     const summary = normalizeSnippet(req.body?.summary ?? "", 260);
     const reason = normalizeSnippet(req.body?.reason ?? "", 220);
+    const storySpine = req.body?.story_spine && typeof req.body.story_spine === "object"
+      ? req.body.story_spine
+      : (req.body?.storySpine && typeof req.body.storySpine === "object" ? req.body.storySpine : null);
     const mutation = updateMemoryCardInMemory(
       memory,
-      { cardId, key, title, summary, reason },
+      { cardId, key, title, summary, reason, storySpine },
       nowTs,
     );
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "update",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);
@@ -342,16 +1376,303 @@ function mountMemoriesRoutes(app, deps = {}) {
     });
   });
 
+  // ============== POST /memories/corrections/undo ==============
+  app.post("/memories/corrections/undo", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_correction_undo");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const receiptId = String(req.body?.receipt_id ?? req.body?.receiptId ?? "").trim().slice(0, 96);
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    if (!receiptId) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "undo_correction",
+        status: "correction_receipt_id_required",
+        message: "A correction receipt id is required.",
+      });
+    }
+    if (!creativeMemoryStore || typeof creativeMemoryStore.undoCanonCorrection !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "undo_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+      });
+    }
+
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "undo_correction",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
+    let mutation;
+    try {
+      const undoInput = {
+        userId,
+        receiptId,
+      };
+      if (expectedRevision) undoInput.expectedRevision = expectedRevision;
+      mutation = await creativeMemoryStore.undoCanonCorrection(undoInput);
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "undo_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[${rid}] memories_correction_undo error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "undo_correction",
+        status: "correction_undo_failed",
+        message: "The correction could not be undone.",
+      });
+    }
+
+    const status = String(mutation?.status || "correction_undo_failed");
+    const statusCode = mutation?.ok
+      ? 200
+      : status === "correction_receipt_not_found" || status === "memory_not_found"
+        ? 404
+        : status === "newer_correction_exists"
+          ? 409
+          : 400;
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    const receipt = mutation?.receipt || null;
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, mutation?.creativeMemoryRevision);
+    logger.log(`[${rid}] memories_correction_undo status=${status} receipt=${receiptId}`);
+    return res.status(statusCode).json({
+      ok: Boolean(mutation?.ok),
+      action: "undo_correction",
+      status,
+      message: status === "newer_correction_exists"
+        ? "Undo the newer correction for this project first."
+        : null,
+      correction_receipt: canonCorrectionReceiptPayload(receipt),
+      creative_memory_revision: mutation?.creativeMemoryRevision || null,
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
+    });
+  });
+
+  // ============== POST /memories/corrections/resolve ==============
+  app.post("/memories/corrections/resolve", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_correction_resolve");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    const ambiguityId = String(req.body?.ambiguity_id ?? req.body?.ambiguityId ?? "").trim().slice(0, 96);
+    const legacySelectedFact = normalizeSnippet(
+      req.body?.selected_fact ?? req.body?.selectedFact ?? "",
+      220
+    );
+    const selectedFacts = normalizeStringListPayload(
+      req.body?.selected_facts ?? req.body?.selectedFacts ?? (legacySelectedFact ? [legacySelectedFact] : []),
+      8,
+      220
+    );
+    if (!ambiguityId || !selectedFacts.length) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "resolve_correction",
+        status: !ambiguityId ? "correction_ambiguity_id_required" : "selected_fact_required",
+        message: !ambiguityId
+          ? "A correction ambiguity id is required."
+          : "Choose at least one accepted canon fact.",
+      });
+    }
+    if (!creativeMemoryStore || typeof creativeMemoryStore.resolveCanonCorrectionAmbiguity !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "resolve_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+      });
+    }
+
+    const nowTs = Date.now();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "resolve_correction",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+
+    let mutation;
+    try {
+      const resolutionInput = {
+        userId,
+        ambiguityId,
+        selectedFacts,
+      };
+      if (expectedRevision) resolutionInput.expectedRevision = expectedRevision;
+      mutation = await creativeMemoryStore.resolveCanonCorrectionAmbiguity(resolutionInput);
+    } catch (error) {
+      if (isCreativeMemoryRevisionConflict(error)) {
+        return sendCreativeMemoryConflict(res, {
+          action: "resolve_correction",
+          requestId: rid,
+          expectedRevision: error.expectedRevision || expectedRevision,
+          currentRevision: error.currentRevision,
+        });
+      }
+      logger.log(`[${rid}] memories_correction_resolve error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "resolve_correction",
+        status: "correction_resolution_failed",
+        message: "The correction choice could not be applied.",
+      });
+    }
+
+    const status = String(mutation?.status || "correction_resolution_failed");
+    const statusCode = mutation?.ok
+      ? 200
+      : status === "correction_ambiguity_not_found" || status === "memory_not_found"
+        ? 404
+        : [
+          "correction_ambiguity_already_resolved",
+          "correction_project_not_found",
+          "accepted_canon_fact_not_found",
+        ].includes(status)
+          ? 409
+          : 400;
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, mutation?.creativeMemoryRevision);
+    logger.log(`[${rid}] memories_correction_resolve status=${status} ambiguity=${ambiguityId}`);
+    return res.status(statusCode).json({
+      ok: Boolean(mutation?.ok),
+      action: "resolve_correction",
+      status,
+      message: statusCode === 409
+        ? "This correction choice is stale. Refresh Memories and try again."
+        : null,
+      correction_ambiguity: canonCorrectionAmbiguityPayload(mutation?.ambiguity),
+      correction_receipt: canonCorrectionReceiptPayload(mutation?.receipt),
+      creative_memory_revision: mutation?.creativeMemoryRevision || null,
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
+    });
+  });
+
   // ============== POST /memories/forget ==============
-  app.post("/memories/forget", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/forget", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_forget");
+    if (!userId) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
-    const memory = sanitizePersistedSessionMemory(context.memory);
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "forget",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "forget",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
+    const expectedRevision = expectedCreativeMemoryRevision(req);
+    let durableMemoryDeleted = null;
+    let creativeMemoryRevision = "";
+    if (isDurableCreativeMemoryKey(key)) {
+      if (!creativeMemoryStore || typeof creativeMemoryStore.forgetMemoryCard !== "function") {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({
+          ok: false,
+          action: "forget",
+          status: "creative_memory_unavailable",
+          message: "Durable creative memory is not available.",
+        });
+      }
+      try {
+        const forgetInput = { userId, key };
+        if (expectedRevision) forgetInput.expectedRevision = expectedRevision;
+        const receipt = await creativeMemoryStore.forgetMemoryCard(forgetInput);
+        if (!receipt?.ok) {
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(400).json({
+            ok: false,
+            action: "forget",
+            status: String(receipt?.reason || "creative_memory_forget_failed"),
+            message: "Durable creative memory could not be forgotten.",
+          });
+        }
+        durableMemoryDeleted = Boolean(receipt.forgotten);
+        creativeMemoryRevision = String(receipt.creativeMemoryRevision || "");
+      } catch (error) {
+        if (isCreativeMemoryRevisionConflict(error)) {
+          return sendCreativeMemoryConflict(res, {
+            action: "forget",
+            requestId: rid,
+            expectedRevision: error.expectedRevision || expectedRevision,
+            currentRevision: error.currentRevision,
+          });
+        }
+        logger.log(`[${rid}] memories_forget creative_error=${error?.message || error}`);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(500).json({
+          ok: false,
+          action: "forget",
+          status: "creative_memory_forget_failed",
+          message: "Durable creative memory could not be forgotten.",
+        });
+      }
+    }
     const mutation = forgetMemoryCardInMemory(memory, { cardId, key }, nowTs);
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "forget",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+        repairMutation: durableMemoryDeleted !== null
+          ? (winnerMemory) => forgetMemoryCardInMemory(winnerMemory, { cardId, key }, nowTs)
+          : null,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const cards = buildMemoryCards(
       persisted,
@@ -363,6 +1684,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
+    applyCreativeMemoryRevisionHeader(res, creativeMemoryRevision);
     logger.log(
       `[${rid}] memories_forget status=${mutation.status} forgotten=${String(mutation.forgottenId || cardId || "none")}`,
     );
@@ -374,6 +1696,8 @@ function mountMemoriesRoutes(app, deps = {}) {
       message: mutation.message || null,
       forgotten_id: String(mutation.forgottenId || cardId || ""),
       theme_key: String(mutation.themeKey || ""),
+      durable_memory_deleted: durableMemoryDeleted,
+      creative_memory_revision: creativeMemoryRevision || null,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,
@@ -388,11 +1712,27 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/promote ==============
-  app.post("/memories/promote", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/promote", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_promote")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "promote",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "promote",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const title = normalizeSnippet(req.body?.title ?? "", 84);
@@ -403,7 +1743,17 @@ function mountMemoriesRoutes(app, deps = {}) {
       { cardId, key, title, summary, reason },
       nowTs,
     );
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "promote",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);
@@ -442,11 +1792,27 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/feedback ==============
-  app.post("/memories/feedback", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+  app.post("/memories/feedback", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_feedback")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
+    const context = await loadCanonicalMemoryContext(req, res, {
+      action: "feedback",
+      requestId: rid,
+      nowTs,
+    });
+    if (!context) return;
     const memory = sanitizePersistedSessionMemory(context.memory);
+    const expectedVersion = expectedStateVersion(req);
+    const currentMeta = buildReadStateMeta(req, memory, context.requesterIp);
+    if (expectedVersion && expectedVersion !== currentMeta.stateVersion) {
+      return sendMemoryStateConflict(res, {
+        action: "feedback",
+        requestId: rid,
+        expectedVersion,
+        currentMeta,
+      });
+    }
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
     const signal = normalizeMemoryQualitySignal(req.body?.signal ?? req.body?.feedback ?? "");
@@ -495,7 +1861,17 @@ function mountMemoriesRoutes(app, deps = {}) {
         };
     }
 
-    const persisted = persistWritableMemoryContext(context, memory, nowTs);
+    const persisted = mutation.ok
+      ? await commitCanonicalMemoryMutation(req, res, {
+        action: "feedback",
+        requestId: rid,
+        expectedVersion,
+        context,
+        memory,
+        nowTs,
+      })
+      : memory;
+    if (!persisted) return;
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
     const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const cards = buildMemoryCards(persisted, historyThreads, 160);

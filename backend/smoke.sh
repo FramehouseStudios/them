@@ -41,9 +41,31 @@ echo "audio_file=${AUDIO_FILE}"
 H_CODE="$(health_code)"
 require_code "${H_CODE}" "200" "health"
 
+SIGNUP_JSON_FILE="${TMP_DIR}/signup.json"
+SMOKE_SUFFIX="$(date +%s)-$$"
+SMOKE_EMAIL="smoke-${SMOKE_SUFFIX}@example.com"
+SMOKE_PASSWORD="SmokePass-${SMOKE_SUFFIX}!"
+SIGNUP_CODE="$(curl -sS \
+  -o "${SIGNUP_JSON_FILE}" \
+  -w '%{http_code}' \
+  -H "X-APP-TOKEN: ${APP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  --data "{\"email\":\"${SMOKE_EMAIL}\",\"password\":\"${SMOKE_PASSWORD}\",\"name\":\"Backend Smoke\"}" \
+  "${BASE_URL}/auth/signup")"
+require_code "${SIGNUP_CODE}" "201" "auth signup"
+
+ACCESS_TOKEN="$(node -e 'const fs=require("fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));process.stdout.write(j.access_token||j.token||"");' "${SIGNUP_JSON_FILE}")"
+if [[ -z "${ACCESS_TOKEN}" ]]; then
+  echo "FAIL: auth signup missing access_token"
+  exit 1
+fi
+echo "PASS: auth (access_token issued)"
+
 SESSION_JSON_FILE="${TMP_DIR}/session.json"
 curl -sS \
   -H "X-APP-TOKEN: ${APP_TOKEN}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -X POST \
   "${BASE_URL}/session" > "${SESSION_JSON_FILE}"
 
@@ -56,12 +78,14 @@ echo "PASS: session (client_token issued)"
 
 HISTORY_CODE="$(curl -s -o /dev/null -w '%{http_code}' \
   -H "X-APP-TOKEN: ${APP_TOKEN}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "X-Client-Token: ${CLIENT_TOKEN}" \
   "${BASE_URL}/history?limit=5")"
 require_code "${HISTORY_CODE}" "200" "history"
 
 MEMORIES_CODE="$(curl -s -o /dev/null -w '%{http_code}' \
   -H "X-APP-TOKEN: ${APP_TOKEN}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "X-Client-Token: ${CLIENT_TOKEN}" \
   "${BASE_URL}/memories?limit=5")"
 require_code "${MEMORIES_CODE}" "200" "memories"
@@ -72,6 +96,7 @@ curl -sS --max-time 70 \
   -D "${TALK_HEADERS}" \
   -o "${TALK_AUDIO}" \
   -H "X-APP-TOKEN: ${APP_TOKEN}" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "X-Client-Token: ${CLIENT_TOKEN}" \
   -F "file=@${AUDIO_FILE};type=audio/wav" \
   "${BASE_URL}/talk"

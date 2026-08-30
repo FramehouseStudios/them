@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 import { freeIdentifiers } from "../tools/freevars.mjs";
 import { REQUIRED_DEPS } from "../lib/talk_handler.js";
+import { buildDeliveredStoryRescueInteraction } from "../lib/story_rescue_move_library.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, "..", "lib", "talk_handler.js");
@@ -33,10 +34,82 @@ const LIB = path.join(HERE, "..", "lib", "talk_handler.js");
 const ALLOWED_MODULE_BINDINGS = new Set([
   "randomUUID",
   "REQUIRED_DEPS",
+  "applyTalkFailureHeaders",
+  "buildCanonClarificationPayload",
+  "buildFailedStoryRescueRepair",
+  "buildTalkFailureBody",
+  "buildTalkFailureDiagnostics",
+  "buildMomentumRescueFallbackReply",
+  "buildScreenplayQuestionPlan",
+  "buildTalkScreenplayExecutionBriefLines",
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
+  "createPendingScreenplayLearningQuestion",
+  "createTalkFailureError",
+  "formatRankedStoryRescueMoveLine",
+  "buildDeliveredStoryRescueInteraction",
+  "enforceScreenplayQuestionPlan",
+  "extractProvisionalScreenplayOptions",
+  "incrementErrorCounter",
+  "isNextSceneExecutionBriefRepairReason",
+  "rankStoryRescueMovesForContext",
+  "removePendingScreenplayLearningQuestion",
+  "resolvePendingScreenplayLearningAnswer",
+  "selectPendingScreenplayLearningQuestion",
+  "selectStoryMoveLibraryLinesForContext",
+  "upsertPendingScreenplayLearningQuestion",
 ]);
+
+test("[writer-block-learning] extracts the delivered rank without treating it as writer taste", () => {
+  const interaction = buildDeliveredStoryRescueInteraction({
+    systemPrompt: [
+      "rank_2: engine=relationship_pressure; score=70",
+      "rank_1: engine=reversal_pressure; score=90",
+      "rank_3: engine=choice_pressure; score=60",
+    ].join("\n"),
+    requestId: "req studio/42",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    actKey: "act2",
+    sequenceKey: "premise",
+    deliveredAt: 4_200,
+  });
+
+  assert.equal(interaction.selectedMoveFamily, "reversal_pressure");
+  assert.deepEqual(interaction.offeredMoveFamilies, [
+    "reversal_pressure",
+    "relationship_pressure",
+    "choice_pressure",
+  ]);
+  assert.equal(interaction.recommendationOnly, true);
+  assert.equal(interaction.writerBlocked, true);
+  assert.equal(interaction.responseStatus, "answered");
+  assert.equal(interaction.questionId, "writer-block-rescue-req-studio-42");
+  assert.equal(interaction.actKey, "act2");
+  assert.equal(interaction.sequenceKey, "premise");
+  assert.equal(buildDeliveredStoryRescueInteraction({ systemPrompt: "no ranking" }), null);
+
+  const canonicalizedPosition = buildDeliveredStoryRescueInteraction({
+    systemPrompt: "rank_1: engine=reversal_pressure; score=90",
+    actKey: "Act II",
+    sequenceKey: "Act II - Promise Of The Premise (p26-p40)",
+    deliveredAt: 4_201,
+  });
+  assert.equal(canonicalizedPosition.actKey, "act2");
+  assert.equal(canonicalizedPosition.sequenceKey, "premise");
+
+  const deliveredOverride = buildDeliveredStoryRescueInteraction({
+    systemPrompt: "rank_1: engine=reversal_pressure; score=90",
+    reply: "Ranked strongest move - relationship pressure: Mara must choose Eli over the ferry.",
+    deliveredAt: 4_202,
+  });
+  assert.equal(deliveredOverride.selectedMoveFamily, "relationship_pressure");
+  assert.deepEqual(deliveredOverride.offeredMoveFamilies, [
+    "relationship_pressure",
+    "reversal_pressure",
+  ]);
+});
 
 test("[phase7b] createTalkHandler dependency boundary is complete", () => {
   const src = fs.readFileSync(LIB, "utf8");
@@ -79,6 +152,100 @@ test("[phase7b] createTalkHandler enforces required deps at construction", async
   assert.throws(
     () => createTalkHandler(null),
     /requires a deps object/
+  );
+});
+
+test("[talk-memory] live handler awaits canonical account memory reads and writes", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(
+    src,
+    /await resolveCanonicalWritableMemoryContext\(req, Date\.now\(\)\)/,
+  );
+  assert.doesNotMatch(src, /resolveWritableMemoryContext\(req,/);
+  assert.doesNotMatch(src, /persistWritableMemoryContext\(/);
+  const writes = src.split("\n").filter((line) => line.includes("persistTalkMemory("));
+  assert.ok(writes.length >= 8, "expected every live talk memory checkpoint to remain visible");
+  for (const write of writes) {
+    assert.match(write, /await persistTalkMemory\(/, `unawaited talk memory write: ${write}`);
+  }
+});
+
+test("[phase7c] extracted talk handler uses support-safe provider diagnostics", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(src, /buildTalkFailureBody\(diagnostic\)/);
+  assert.match(src, /applyTalkFailureHeaders\(res, diagnostic\)/);
+  assert.doesNotMatch(
+    src,
+    /return\s+res\.status\([^)]*\)\.json\(\{\s*stage:\s*"(?:stt|chat|tts)"/,
+    "provider failures must flow through talk_failure_diagnostics, not raw stage/error JSON"
+  );
+  assert.doesNotMatch(
+    src,
+    /return\s+res\.status\([^)]*\)\.json\(\{\s*stage,\s*error:\s*message/,
+    "provider failures must not bypass diagnostic headers with raw stage/message JSON"
+  );
+});
+
+test("[product-focus] talk handler excludes abandoned email and calendar action lanes", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  for (const forbidden of [
+    "extractEmailSendIntent",
+    "resolveEmailSendIntentWithPending",
+    "sendLocalEmail",
+    "extractCalendarIntent",
+    "buildCalendarComposeUrl",
+    "x-email-compose-url",
+    "x-calendar-compose-url",
+  ]) {
+    assert.equal(src.includes(forbidden), false, `${forbidden} must stay outside /talk`);
+  }
+});
+
+test("[screenplay-budget] live talk handler budgets against the full Studio generation brief", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(
+    src,
+    /selectChatModelForTurn\(\{\s*transcript:\s*talkGenerationTranscript,[\s\S]*?screenplayPageWrite:\s*isScreenplayPageWriteTurn,/,
+    "the live handler must route Studio pages from the full brief and explicit page-write mode"
+  );
+  assert.match(
+    src,
+    /resolveTalkScreenplayRequestedPageBatch\(\{\s*transcript:\s*talkGenerationTranscript,\s*studioMeta,\s*\}\)/,
+    "the live handler must resolve the requested page batch from Studio's full generation brief"
+  );
+  assert.match(
+    src,
+    /computeChatMaxTokensForTurn\(\{\s*transcript:\s*talkGenerationTranscript,[\s\S]*?screenplayRequestedPages,/,
+    "the live handler must pass the resolved batch count into the page-write token budget"
+  );
+  assert.match(
+    src,
+    /attemptTalkScreenplayRepairPass\(\{[\s\S]*?screenplayRequestedPages,[\s\S]*?rid,/,
+    "the screenplay repair pass must receive the same resolved page batch"
+  );
+  assert.match(
+    src,
+    /repairJson\?\.choices\?\.\[0\]\?\.message\?\.content \|\| "",\s*32_000/,
+    "screenplay repairs must retain the full cross-device screenplay envelope"
+  );
+  assert.doesNotMatch(
+    src,
+    /studioMeta\?\.screenplayTargetPages \?\?\s*""/,
+    "the repair request must never confuse the feature target with the requested batch"
+  );
+  const qualityGateIndex = src.indexOf("screenplay_page_quality_exhausted");
+  const memoryCommitIndex = src.indexOf("activeSession.memory = updateSessionAfterReply(");
+  assert.ok(qualityGateIndex > 0, "the live handler must expose an exhausted page-quality gate");
+  assert.ok(memoryCommitIndex > qualityGateIndex, "page quality must pass before the assistant reply reaches memory");
+  assert.match(
+    src,
+    /errorClass:\s*"screenplay_page_quality_failed"/,
+    "exhausted page generation must use the recoverable screenplay-specific error contract"
+  );
+  assert.match(
+    src,
+    /x-screenplay-repair-outcome",\s*"exhausted"/,
+    "recovered audio must explicitly report that page repair was exhausted"
   );
 });
 

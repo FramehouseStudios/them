@@ -97,6 +97,7 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
     let instructions: String
     let type: String
     let outputModalities: [String]
+    let inputTranscriptionModel: String?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -104,6 +105,7 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
         case instructions
         case type
         case outputModalities = "output_modalities"
+        case inputTranscriptionModel = "input_transcription_model"
     }
 }
 
@@ -168,6 +170,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
 
     private var cachedBootstrap: BackendRealtimeBootstrap?
     private var cachedBootstrapSignature: String = ""
+    private var preparationGeneration = 0
 
     var statusText: String {
         switch status {
@@ -206,30 +209,47 @@ final class ClementineRealtimeCoordinator: ObservableObject {
     }
 
     func clear() {
+        preparationGeneration += 1
         cachedBootstrap = nil
         cachedBootstrapSignature = ""
         status = .idle
     }
 
+    @discardableResult
     func prepareIfNeeded(
         backend: BackendClient,
         systemPrompt: String?,
         userName: String?,
         isScreenplayMode: Bool,
-        supplierMode: ClementineRealtimeSupplierMode = .serverDefault
-    ) async {
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
+        supplierMode: ClementineRealtimeSupplierMode = .serverDefault,
+        forceRefresh: Bool = false
+    ) async -> BackendRealtimeBootstrap? {
+        preparationGeneration += 1
+        let generation = preparationGeneration
         let signature = bootstrapSignature(
             systemPrompt: systemPrompt,
             userName: userName,
             isScreenplayMode: isScreenplayMode,
+            screenplayProjectId: screenplayProjectId,
+            screenplayProjectTitle: screenplayProjectTitle,
+            emotionLane: emotionLane,
             supplierMode: supplierMode
         )
 
-        if let cachedBootstrap,
+        if !forceRefresh,
+           let cachedBootstrap,
            !cachedBootstrap.isExpiringSoon,
            cachedBootstrapSignature == signature {
             status = .ready(cachedBootstrap)
-            return
+            return cachedBootstrap
+        }
+
+        if forceRefresh {
+            cachedBootstrap = nil
+            cachedBootstrapSignature = ""
         }
 
         status = .preparing
@@ -238,13 +258,20 @@ final class ClementineRealtimeCoordinator: ObservableObject {
                 systemPrompt: systemPrompt,
                 userName: userName,
                 isScreenplayMode: isScreenplayMode,
+                screenplayProjectId: screenplayProjectId,
+                screenplayProjectTitle: screenplayProjectTitle,
+                emotionLane: emotionLane,
                 realtimeProvider: supplierMode.providerParameter
             )
+            guard generation == preparationGeneration else { return nil }
             cachedBootstrap = bootstrap
             cachedBootstrapSignature = signature
             status = .ready(bootstrap)
+            return bootstrap
         } catch {
+            guard generation == preparationGeneration else { return nil }
             status = .failed(error.localizedDescription)
+            return nil
         }
     }
 
@@ -252,10 +279,16 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         systemPrompt: String?,
         userName: String?,
         isScreenplayMode: Bool,
+        screenplayProjectId: String?,
+        screenplayProjectTitle: String?,
+        emotionLane: String?,
         supplierMode: ClementineRealtimeSupplierMode
     ) -> String {
         let cleanPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanUser = userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanUser)|\(cleanPrompt)"
+        let cleanProjectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = screenplayProjectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanEmotionLane = emotionLane?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanProjectId)|\(cleanProjectTitle)|\(cleanEmotionLane)|\(cleanUser)|\(cleanPrompt)"
     }
 }

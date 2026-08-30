@@ -4,23 +4,15 @@
 // user, computed from `creativeMemoryStore.getCharacterTraits(...)`
 // + the pure `classifyArchetypes` analyzer.
 //
-// Read-only. Unauthenticated requests return an empty entries array
-// (matching the other /memory/* endpoints).
+// Read-only user-memory data. Trusted auth identity is required, and
+// caller-supplied X-User-Id is never trusted.
 
 import { classifyArchetypes } from "./archetype_engine.js";
-
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    null
-  );
-}
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 
 function mountArchetypeRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
 } = {}) {
   if (!app || typeof app.get !== "function") {
     throw new Error("mountArchetypeRoute requires an Express app");
@@ -33,7 +25,7 @@ function mountArchetypeRoute(app, {
     res.setHeader("Cache-Control", "no-store");
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json({ schemaVersion: 1, userId: null, entries: [] });
+      return res.status(401).json(memoryAuthRequired("memory_character_archetypes"));
     }
     try {
       const records = await creativeMemoryStore.getCharacterTraits({ userId });

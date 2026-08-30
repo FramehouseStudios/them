@@ -15,7 +15,7 @@
 //   classifyScreenplay({ framework, screenplay }) ->
 //     { beats: BeatPartial[], majorTurns: MajorTurnPartial[],
 //       coverage: CoveragePartial, drift: DriftPartial,
-//       source: "deterministic-stub" | "openai" | ... }
+//       source: "deterministic-stub" | "openai-scene-classifier+deterministic-macro" | ... }
 //
 // The output is a *partial* — analyzeScreenplay merges it with id
 // generation, framework-derived expectedPage values, and the final
@@ -185,14 +185,12 @@ function createLLMClassifier({
         ? getFrameworkById(framework)
         : framework;
       if (!fw) throw new Error("unknown framework");
-      // Without a real scene-level breakdown, the LLM classifier's MVP
-      // output mirrors the deterministic stub's macro-level coverage
-      // and uses `source: "openai"` to mark the path. Per-scene LLM
-      // classification calls are exercised by the eval harness which
-      // feeds individual scenes via `classifyScene` directly. This
-      // keeps the high-frequency analyzeScreenplay path bounded.
+      // Without a real scene-level breakdown, the aggregate report still
+      // mirrors deterministic macro coverage. Keep the source label honest:
+      // this path has an OpenAI scene classifier available, but the macro
+      // screenplay coverage itself is deterministic until scenes are wired.
       const stub = await createDeterministicClassifier().classifyScreenplay({ framework, screenplay });
-      return { ...stub, source: "openai", _classifyScene: classifyScene };
+      return { ...stub, source: "openai-scene-classifier+deterministic-macro", _classifyScene: classifyScene };
     },
     classifyScene,
   };

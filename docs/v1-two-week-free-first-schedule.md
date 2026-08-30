@@ -5,8 +5,9 @@ This is the active schedule when the human says `continue`.
 The 2026-05-17 audit is now a launch input. The plan stays free-first where
 possible, but security, privacy, App Review, and CI merge safety outrank local
 smoke polish. Paid/external release inputs still come last unless already
-available: Apple Developer team/signing, hosted production backend URL, and
-production app token.
+available: Apple Developer team/signing and production `APP_TOKEN_RELEASE`.
+Release `BACKEND_URL` is already `https://api.them.io` unless the release
+backend changes.
 
 ## Non-Negotiable Rules
 
@@ -41,12 +42,11 @@ production app token.
   and Realtime subset.
 - Free/local backend smoke passed `health`, `session`, `history`, and
   `memories`.
-- Release preflight: `fail=3 warn=1`.
+- Release preflight: `fail=3 warn=2`.
 - Current exact release blockers:
   - missing `them/Release.local.env`;
   - missing `DEVELOPMENT_TEAM_ID`;
-  - missing release `BACKEND_URL`;
-  - missing release `APP_TOKEN`;
+  - missing release `APP_TOKEN_RELEASE`;
   - valid Apple signing identity not proven on this machine.
 - PR #33, PR #354, PR #358, and PR #359 are merged. Do not reopen or duplicate
   those lanes.
@@ -330,12 +330,12 @@ Exit:
 Only if free/available, human provides:
 - Apple `DEVELOPMENT_TEAM_ID`;
 - valid Apple signing identity;
-- hosted release `BACKEND_URL`;
-- production `APP_TOKEN`;
+- production `APP_TOKEN_RELEASE`;
 - real/free provider keys needed for final Talk/Realtime proof.
 
 Codex:
 - Create local ignored `them/Release.local.env`.
+- Keep `BACKEND_URL=https://api.them.io` unless the release backend changes.
 - Run `node scripts/release_config_status.mjs`.
 - Run `scripts/run_release_preflight.sh`.
 - Produce signed build/TestFlight path only if the above passes.

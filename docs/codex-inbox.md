@@ -433,13 +433,226 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 4. **Decisions queue** (merged PR #66 / `docs/decisions-queue.md`) — the only place to post "needs human" questions. One concrete question per entry, with a safe default the agent will follow absent the human's answer.
 5. **Per-row task files** (merged PR #67 / `tasks/_active/`) — optional. New tasks can drop `tasks/_active/T-<slug>.md` instead of editing `TASKS.md` directly. Removes the recurring "two agents touch the same line of TASKS.md" merge-conflict class. `node scripts/build_tasks_md.mjs` renders the rebuilt section.
 
+## Rebase intel + self-review (2026-05-15, batch 5)
+
+Convergent batch — no new features. Branch `claude/backend-post-v1-audit`
+is now 6 commits; full backend `npm test` green (1225/1).
+
+Key intelligence from an actual (aborted, fully-restored) rebase onto
+current `main` (#323):
+- **Backend code (commits 1–3) rebases cleanly.** Zero code conflicts
+  with current main. The 60-move backend batch is code-mergeable as-is.
+- **`docs/decisions-queue.md` is the only semantic conflict.** My
+  batch-1 commit marked #94/#99/#212 *Resolved (override)*; Codex's
+  on-main `docs/memory-export-delete-decision-packet.md` (#320/#321)
+  keeps them *Open* with a formal packet. **Substance agrees.**
+  Resolution: when PR'ing, **drop the decisions-queue hunk from
+  commit 4** — Codex's packet stays canonical, nothing is lost.
+- Backup tag `backup/post-v1-audit-pre-rebase`; branch byte-identical
+  to pre-rebase.
+
+Fixes in commit 6:
+- `lib/rate_limit.js` had an invisible `\x01` separator (Write-tool
+  artifact) — replaced with explicit `String.fromCharCode(31)`. All
+  7 new lib files scanned; zero control-char artifacts remain.
+- `.gitignore` `!.env.example` carve-out (env template was ignored).
+
+New deliverable: **`docs/self-review-post-v1-audit.md`** — honest
+severity-rated review of all 6 commits. One pre-merge blocker:
+confirm prod env sets all 4 vars required by `assertProductionEnv`
+or the next prod restart fails (intended hardening, not
+backward-compatible).
+
+---
+
+## Landing + App Store prep (2026-05-15, batch 4)
+
+The ~60 moves from batches 1–3 are now **committed** on local branch
+`claude/backend-post-v1-audit` (4 themed commits + 1 App Store prep
+commit). NOT pushed — human chose local-commit-only landing. The
+branch is based on an older `main` (main advanced to #323 via other
+agents while this ran); **it needs a rebase before it can become a
+PR**. Full backend `npm test` green on the branch (1225 pass / 1 skip).
+
+Branch commits:
+1. `backend: production boot guard, health probes, password hardening`
+2. `backend: Phase-0 reusable helpers (rate limit, logs, idempotency, account routes)`
+3. `deploy + CI: Dockerfile, render blueprint, migrations runner, CI gates`
+4. `docs: V1 audit decisions, specs, task rows, coordination`
+5. `backend: account-lifecycle store + App Store wiring plan` (App Store prep)
+
+App Store prep (the chosen next-focus) — Phase-0 done:
+- `lib/account_lifecycle_store.js` + 8 tests (table-backed,
+  injectable client; read/mark/clear/listDue/finalize/audit).
+- Precise Phase-1 wiring plan in
+  `docs/specs/T-account-deletion-and-export.md` with verified
+  index.js line refs (`req.authUser.id` @ 3092, mount @ 26410,
+  `sharedPersistence.list` signature confirmed).
+- `D-account-export-key-scope` is now resolved in
+  `docs/decisions-queue.md`: `req.authUser.id` is the trusted
+  authenticated owner identity, but export/delete must use per-row
+  ownership checks instead of assuming every domain is keyed directly
+  by user id.
+
+Recommended next actions:
+1. Human/Codex: review + rebase `claude/backend-post-v1-audit` onto
+   current main, split into PRs (themed commits make this clean), merge.
+2. Claude/Codex: keep account export/delete scoped through the resolved
+   per-row ownership policy; add domain-specific ownership tests when
+   new persisted domains enter the account export surface.
+
+---
+
+## Post-V1-audit batch 3 (2026-05-14, third batch — all Claude-lane)
+
+Third 20-move batch. No override needed — all backend/scripts/docs/CI.
+Full `npm test` green after the batch (run the final gate to confirm).
+
+**Backend code shipped (PR-ready, status: review):**
+- `lib/rate_limit.js` + 10 tests — token-bucket limiter Phase 0
+  (helper only; wiring to /auth, /realtime/call is Phase 1–3).
+  Task: `T-backend-rate-limit`.
+- `lib/log.js` + 10 tests — structured JSON logger + request-id
+  child loggers Phase 0. `middleware/auth.js` requestIdMiddleware
+  upgraded to honor incoming `x-request-id` (non-breaking).
+  Task: `T-backend-structured-logs`.
+- `lib/account_routes.js` + 10 tests + `migrations/008_account_lifecycle.sql`
+  — `GET /account/export`, `DELETE /account`,
+  `POST /account/cancel-deletion` with injected deps. **App Store
+  reviewer blocker.** REMAINING: real dep wiring in index.js + iOS
+  DataControlsScreen surface (Codex). Task: `T-account-deletion-and-export`.
+
+**Infra / CI / docs shipped:**
+- `Dockerfile` HEALTHCHECK + `render.yaml` healthCheckPath flipped
+  from `/realtime/health` to `/healthz` (the new readiness probe).
+- `.github/workflows/migrations-check.yml` — applies all migrations
+  to an ephemeral Postgres on PRs touching `migrations/`.
+- `docs/api/idempotency-key.md` — client-facing contract doc for the
+  iOS outbox.
+
+**New ready-for-Claude specs (4):**
+- `T-backend-openai-cost-cap` — dollar-spend budget cap
+  (complements rate-limit). Spec + task filed.
+- `T-backend-graceful-shutdown` — drain in-flight talk on SIGTERM.
+- `T-backend-security-headers` — HSTS/nosniff/frame-ancestors/etc.
+- `T-backend-pg-pool-tuning` — production pg.Pool config.
+
+Updated Claude-lane execution order (after V1 ships):
+1. `T-account-deletion-and-export` real wiring (App Store blocker).
+2. `T-backend-rate-limit` Phase 1 (wire /auth/*).
+3. `T-backend-security-headers` (external-review blocker, 1 file).
+4. `T-backend-graceful-shutdown` (deploy-quality; pairs with the
+   Dockerfile/render healthcheck change just landed).
+5. `T-backend-pg-pool-tuning` (deploy-quality, 5-line change + endpoint).
+6. `T-backend-openai-cost-cap` (cost-safety).
+
+Codex order unchanged from batch 2 (Keychain → macOS posture →
+offline outbox → XCUITest → decomp).
+
+---
+
+## Post-V1-audit batch 2 (2026-05-14, second human-authorized batch)
+
+The second batch from the V1 audit landed alongside the first.
+20 more moves; same authorization window. All Claude-lane. Highlights:
+
+**Backend code shipped** (Claude lane):
+- `GET /api/version` — lightweight dependency-free version endpoint
+  (`backend/lib/api_version_route.js` + 4 tests).
+- `GET /healthz` — orchestrator readiness probe pinging persistence
+  (`backend/lib/healthz_route.js` + 6 tests). `Persistence.ping()`
+  added to both JSON and Postgres adapters.
+- `backend/lib/idempotency_envelope.js` — `withIdempotency()` wrapper
+  for cross-route idempotency (10 tests). Wiring into specific
+  routes intentionally deferred.
+- `scripts/apply_migrations.mjs` — proper migrations runner with
+  checksum tracking. (The existing `migrate_stores_to_postgres.mjs`
+  only applied migrations/001.)
+
+**CI hardening** (Claude lane):
+- `quality-gate.yml`: new `Validate OPENAI_API_KEY format` step that
+  fails fast with a one-line message when the secret is malformed.
+- `docker-build.yml`: PRs touching the backend image build the image
+  and verify `assertProductionEnv` actually fires.
+- `backend/.env.example` documents every var.
+
+**Ready-for-codex specs** (post-V1, after TestFlight):
+1. `T-decompose-root-experience-view` — split the 529 KB iOS state
+   machine. Spec: `docs/specs/T-decompose-root-experience-view.md`.
+2. `T-decompose-screenplay-studio-screen` — split the 1.1 MB studio
+   file. Spec: `docs/specs/T-decompose-screenplay-studio-screen.md`.
+
+**Ready-for-Claude specs** (Claude can implement):
+3. `T-backend-rate-limit` — token-bucket limiter for auth + realtime + default routes.
+4. `T-backend-structured-logs` — JSON logger + request-id propagation.
+5. `T-account-deletion-and-export` — Apple/GDPR compliance endpoints.
+6. `T-archive-legacy-json-stores` — move 3.6 MB of dev JSON out of repo root.
+7. `T-idempotency-key-contract` — helper already extracted; adoptions follow per-route.
+
+Suggested execution order (Claude lane, after V1 ships):
+1. `T-account-deletion-and-export` (App Store reviewer blocker).
+2. `T-backend-rate-limit` (production-safety blocker).
+3. `T-backend-structured-logs` (ops-triage enabler; unblocks alerting).
+4. `T-archive-legacy-json-stores` (cleanup; gates `T-remove-json-adapter`).
+
+Suggested execution order (Codex lane, post-TestFlight):
+1. `T-ios-keychain-token-migration` (V1 security).
+2. `T-macos-posture-cleanup` (V1 scheme cleanup).
+3. `T-ios-offline-outbox` (V1 talk-pipeline resilience).
+4. `T-ios-xcuitest-v1-smoke` (V1 regression net).
+5. `T-decompose-root-experience-view` (V1.1 maintenance).
+6. `T-decompose-screenplay-studio-screen` (V1.1 maintenance).
+
+---
+
+## Post-V1-audit handoff (2026-05-14, human-authorized batch)
+
+The human ran an end-to-end V1 audit (`/audit`) on 2026-05-14 and granted
+Claude a one-time override to resolve the parked decisions and prep the
+infra and spec stubs for the iOS work below. Outputs landed in this
+single batch:
+
+**Decisions resolved** (in `docs/decisions-queue.md`):
+- `D-creative-memory-export-approval` → approved. PR #94 may merge.
+- `D-creative-memory-delete-scope` → approved, narrow V1 scope (`creative_memory` only).
+- `D-auth-route-extraction-clearance` → approved. PR #212 may merge after rebase + green.
+- `D-desktop-posture-v1` → no desktop app for V1; macOS stays as dormant scaffolding.
+- `D-token-keychain-migration` → approved for V1.
+- `D-ci-openai-secret-format` → rotation steps in `docs/ci-openai-secret-fix.md`.
+
+**Ready-for-codex specs** (Codex picks up after #94/#99/#212 land):
+1. `T-ios-keychain-token-migration` — Keychain replaces UserDefaults for
+   `app_token` / `sharedUserID`. Spec: `docs/specs/T-ios-keychain-token-migration.md`.
+2. `T-ios-offline-outbox` — durable client-side outbox for `/talk` POSTs.
+   Spec: `docs/specs/T-ios-offline-outbox.md`.
+3. `T-macos-posture-cleanup` — gate `#if os(macOS)` branches and remove
+   macOS from V1 TestFlight scheme. Spec: `docs/specs/T-macos-posture-cleanup.md`.
+4. `T-ios-xcuitest-v1-smoke` — five thin XCUITests covering the V1
+   manual smoke checklist. Spec: `docs/specs/T-ios-xcuitest-v1-smoke.md`.
+
+**Claude-side infra landing in this same window** (`T-backend-deploy-image`):
+- `backend/Dockerfile` + `.dockerignore`
+- `backend/render.yaml`
+- `backend/DEPLOY.md`
+- `assertProductionEnv()` boot guard in `backend/config.js` + test
+- PBKDF2 default bumped to OWASP 2023 minimum (600k) in `backend/lib/user_store.js`
+
+Suggested Codex order (after current Phase 7b design):
+1. Land #212 auth-route extraction (decision cleared).
+2. Land #94 + #99 creative-memory routes (decisions cleared).
+3. Start `T-ios-keychain-token-migration` (smallest scope, V1 security gate).
+4. Start `T-macos-posture-cleanup` in parallel (no runtime risk).
+5. Start `T-ios-offline-outbox` (largest scope, biggest V1 effect).
+6. Start `T-ios-xcuitest-v1-smoke` once `BackendClient` has a transport
+   protocol from the outbox work.
+
 ## Blockers Affecting Codex
 
 - D005 now authorizes Codex supervisor self-merges under the recorded guardrails.
-- PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
+- PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned. Fix steps: `docs/ci-openai-secret-fix.md`.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
-- Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- The generic Claude engineering blocker queue is clear. Only human-gated PRs remain: #33 (secret repair), #63 (trust-policy approval), #94 (creative-memory export approval), and #99 (creative-memory delete approval).
+- Claude PRs #94 and #99 are **unblocked** as of 2026-05-14 (decisions resolved above). #212 is **unblocked** pending Claude's rebase.
+- The generic Claude engineering blocker queue is clear. Only human-gated items remain: #33 (secret repair — human action documented) and #63 (trust-policy approval).
 
 ## Decisions Claude Needs from Codex
 

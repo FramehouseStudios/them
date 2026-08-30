@@ -15,6 +15,7 @@ import {
   VOCAB_MAX,
   KEYWORD_MAX,
   GOALS_MAX,
+  VOICE_TACTICS_MAX,
 } from "../lib/trait_library.js";
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
@@ -107,6 +108,25 @@ test("[trait-library] extractTraits respects hint.goals and hint.relationships",
   assert.equal(t.relationships.ELLA, "old friend");
 });
 
+test("[trait-library] extractTraits builds a durable character voice fingerprint", () => {
+  const t = extractTraits({
+    characterName: "MARA",
+    lines: [
+      "No. Not until you sign it.",
+      "If I open that door, my sister burns with yours.",
+      "Look at the receipt.",
+      "The proof stays buried unless you give me the file.",
+      "Fine.",
+    ],
+  });
+  assert.ok(t.voice_fingerprint.tactics.includes("refuses first"));
+  assert.ok(t.voice_fingerprint.tactics.includes("uses conditional pressure"));
+  assert.ok(t.voice_fingerprint.tactics.includes("commands under pressure"));
+  assert.ok(t.voice_fingerprint.tactics.includes("weaponizes facts"));
+  assert.ok(t.voice_fingerprint.emotional_tells.includes("family pressure slips out"));
+  assert.ok(t.voice_fingerprint.emotional_tells.includes("fixates on evidence"));
+});
+
 test("[trait-library] mergeTraits is idempotent (merging a value with itself is a no-op beyond ordering)", () => {
   const base = extractTraits({
     characterName: "JUNE",
@@ -118,6 +138,28 @@ test("[trait-library] mergeTraits is idempotent (merging a value with itself is 
   assert.deepEqual(merged.keywords.sort(), base.keywords.sort());
   assert.deepEqual(merged.goals.sort(), base.goals.sort());
   assert.equal(merged.emotional_default, base.emotional_default);
+});
+
+test("[trait-library] mergeTraits keeps voice fingerprints bounded and accepts camelCase input", () => {
+  const base = {
+    voiceFingerprint: {
+      tactics: Array.from({ length: VOICE_TACTICS_MAX }, (_, index) => `base tactic ${index}`),
+      silence: "cuts lines short",
+      emotionalTells: ["security language"],
+    },
+  };
+  const next = {
+    voice_fingerprint: {
+      tactics: ["new tactic"],
+      silence: "answers pressure with questions",
+      emotional_tells: ["fixates on evidence"],
+    },
+  };
+  const merged = mergeTraits(base, next);
+  assert.ok(merged.voice_fingerprint.tactics.length <= VOICE_TACTICS_MAX);
+  assert.equal(merged.voice_fingerprint.silence, "answers pressure with questions");
+  assert.ok(merged.voice_fingerprint.emotional_tells.includes("security language"));
+  assert.ok(merged.voice_fingerprint.emotional_tells.includes("fixates on evidence"));
 });
 
 test("[trait-library] mergeTraits respects the documented caps", () => {
@@ -154,10 +196,18 @@ test("[trait-library] buildTraitsBlockForPrompt produces a compact one-line summ
     emotional_default: "anxious",
     goals: ["find Marcus"],
     relationships: { MARCUS: "brother" },
+    voice_fingerprint: {
+      tactics: ["refuses first", "weaponizes facts"],
+      silence: "cuts lines short and lets silence carry threat",
+      emotional_tells: ["fixates on evidence"],
+    },
   });
   assert.ok(block.includes("emotion: anxious"));
   assert.ok(block.includes("keywords: anxious, tender"));
   assert.ok(block.includes("speech: terse / fragmented"));
+  assert.ok(block.includes("voice_fingerprint: tactics=refuses first, weaponizes facts"));
+  assert.ok(block.includes("silence=cuts lines short and lets silence carry threat"));
+  assert.ok(block.includes("tells=fixates on evidence"));
   assert.ok(block.includes("goals: find Marcus"));
   assert.ok(block.includes("relationships: MARCUS=brother"));
 });
@@ -224,10 +274,10 @@ async function withTestServer(fn, { userId = "user-trait" } = {}) {
   }
 }
 
-async function postJson(baseURL, path, body) {
+async function postJson(baseURL, path, body, headers = {}) {
   const r = await fetch(`${baseURL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const json = await r.json().catch(() => null);
@@ -319,6 +369,33 @@ test("[trait-library] GET /memory/character-traits returns the full library for 
   });
 });
 
+test("[trait-library] GET /memory/character-traits scopes duplicate names to the active project", async () => {
+  await withTestServer(async ({ baseURL, creativeMemoryStore }) => {
+    await creativeMemoryStore.recordCharacterMention({
+      userId: "user-trait",
+      characterName: "MARA",
+      metadata: { projectId: "rain-docket", projectTitle: "Rain Docket" },
+      traits: { goals: ["Expose the forged testimony"] },
+    });
+    await creativeMemoryStore.recordCharacterMention({
+      userId: "user-trait",
+      characterName: "MARA",
+      metadata: { projectId: "night-train", projectTitle: "Night Train" },
+      traits: { goals: ["Stop the train before the border"] },
+    });
+
+    const { status, body } = await get(
+      baseURL,
+      "/memory/character-traits?projectId=rain-docket&projectTitle=Rain%20Docket"
+    );
+
+    assert.equal(status, 200);
+    assert.equal(body.characters.length, 1);
+    assert.equal(body.characters[0].name, "MARA");
+    assert.deepEqual(body.characters[0].traits.goals, ["Expose the forged testimony"]);
+  });
+});
+
 test("[trait-library] GET /memory/character-traits filters to one character when characterName is supplied", async () => {
   await withTestServer(async ({ baseURL }) => {
     await postJson(baseURL, "/memory/character-trait", {
@@ -332,16 +409,74 @@ test("[trait-library] GET /memory/character-traits filters to one character when
   });
 });
 
-test("[trait-library] unauthenticated POST returns 200 + action=skipped (matches other /memory routes)", async () => {
+test("[trait-library] GET surfaces question provenance and correction status for learned fields", async () => {
+  await withTestServer(async ({ baseURL, creativeMemoryStore }) => {
+    await creativeMemoryStore.recordTriggersFromTalkTurn({
+      userId: "user-trait",
+      transcript: "She wants to free Eli from the family lie.",
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      learningContext: {
+        questionId: "screenplay-learning-character-want",
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        targetField: "character.want",
+        targetLabel: "Mara's dramatic want",
+        anchor: "Mara",
+        question: "What does Mara want enough to risk the case?",
+        authority: "writer_clarification",
+      },
+    });
+
+    const { status, body } = await get(
+      baseURL,
+      "/memory/character-traits?projectId=rain-docket&projectTitle=Rain%20Docket"
+    );
+
+    assert.equal(status, 200);
+    assert.equal(body.characters.length, 1);
+    assert.equal(body.characters[0].name, "Mara");
+    assert.equal(body.characters[0].bible.character, "Mara");
+    assert.equal(body.characters[0].fieldProvenance[0].field, "want");
+    assert.equal(body.characters[0].fieldProvenance[0].status, "current");
+    assert.equal(
+      body.characters[0].fieldProvenance[0].source,
+      "screenplay_learning_confirmation"
+    );
+    assert.equal(
+      body.characters[0].fieldProvenance[0].question,
+      "What does Mara want enough to risk the case?"
+    );
+  });
+});
+
+test("[trait-library] unauthenticated POST returns 401 and ignores spoofed X-User-Id", async () => {
   await withTestServer(
     async ({ baseURL }) => {
-      const { status, body } = await postJson(baseURL, "/memory/character-trait", {
-        character_name: "JUNE",
-        traits: { keywords: ["weary"] },
-      });
-      assert.equal(status, 200);
+      const { status, body } = await postJson(
+        baseURL,
+        "/memory/character-trait",
+        {
+          character_name: "JUNE",
+          traits: { keywords: ["weary"] },
+        },
+        { "X-User-Id": "spoofed-user" },
+      );
+      assert.equal(status, 401);
       assert.equal(body.ok, false);
-      assert.equal(body.action, "skipped");
+      assert.equal(body.action, "rejected");
+      assert.equal(body.error, "user_auth_required");
+    },
+    { userId: null },
+  );
+});
+
+test("[trait-library] unauthenticated GET returns 401", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await get(baseURL, "/memory/character-traits");
+      assert.equal(status, 401);
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );

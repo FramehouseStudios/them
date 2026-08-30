@@ -20,8 +20,7 @@ final class DesignSystemGuardTests: XCTestCase {
             "them/NumberedChoiceViews.swift",
             "them/RootExperienceView.swift",
             "them/ScreenplayCraftRailView.swift",
-            "them/ScreenplayStudioScreen.swift",
-            "them/Views/ScreenplayPageView.swift"
+            "them/ScreenplayStudioScreen.swift"
         ]
 
         let files = try swiftFiles(

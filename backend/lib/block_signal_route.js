@@ -4,22 +4,11 @@
 // `habits` from `creativeMemoryStore.getHabitsForUser(userId)` and runs
 // it through the pure `computeBlockSignal({ habits, nowMs })`.
 //
-// Auth mirrors the pattern of `mountMemoryCharacterMentionRoute`: the
-// route resolves a userId via the supplied callback (production reads
-// `req.user.id`); unauthenticated requests return a typed
-// `{ level: "low", score: 0 }` snapshot rather than 401 — block-signal
-// is a best-effort hint, never a hard authentication gate.
+// Auth mirrors the other user-memory routes: trusted auth identity is
+// required, and caller-supplied X-User-Id is never trusted.
 
 import { computeBlockSignal } from "./block_detector.js";
-
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    null
-  );
-}
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 
 function emptySnapshot() {
   return {
@@ -41,7 +30,7 @@ function emptySnapshot() {
 
 function mountBlockSignalRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
   nowFn = () => Date.now(),
 } = {}) {
   if (!app || typeof app.get !== "function") {
@@ -55,7 +44,7 @@ function mountBlockSignalRoute(app, {
     res.setHeader("Cache-Control", "no-store");
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json(emptySnapshot());
+      return res.status(401).json(memoryAuthRequired("memory_block_signal"));
     }
     try {
       const habits = await creativeMemoryStore.getHabitsForUser(userId);

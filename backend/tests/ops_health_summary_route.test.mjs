@@ -8,6 +8,8 @@ import {
   mountOpsHealthSummaryRoute,
   humanizeMs,
   normalizeFeatures,
+  normalizeSignals,
+  resolveSignals,
   OPS_HEALTH_SUMMARY_SCHEMA_VERSION,
 } from "../lib/ops_health_summary_route.js";
 
@@ -47,6 +49,33 @@ test("[ops-health] normalizeFeatures handles null/undefined", () => {
   assert.deepEqual(normalizeFeatures(undefined), {});
 });
 
+// ---------- normalizeSignals ----------
+
+test("[ops-health] normalizeSignals keeps cheap scalar signal objects", () => {
+  const out = normalizeSignals({
+    screenplay_page_write: {
+      status: "warning",
+      sampleReady: true,
+      pageRequestedCount: 8,
+      pageAcceptanceRate: 0.625,
+      nested: { reason: "low_page_acceptance" },
+    },
+  });
+  assert.deepEqual(out.screenplay_page_write, {
+    status: "warning",
+    sampleReady: true,
+    pageRequestedCount: 8,
+    pageAcceptanceRate: 0.625,
+    nested: { reason: "low_page_acceptance" },
+  });
+});
+
+test("[ops-health] resolveSignals catches signal supplier failures", () => {
+  const out = resolveSignals(() => { throw new Error("boom"); });
+  assert.equal(out.ops_health_signals.status, "error");
+  assert.equal(out.ops_health_signals.reason, "derive_failed");
+});
+
 // ---------- endpoint integration ----------
 
 async function withTestServer(fn, opts = {}) {
@@ -78,6 +107,7 @@ test("[ops-health] GET /ops/health-summary returns schemaVersion and status", as
     assert.ok(typeof r.body.uptimeHuman === "string");
     assert.equal(r.body.node.version, process.version);
     assert.deepEqual(r.body.features, {});
+    assert.deepEqual(r.body.signals, {});
   });
 });
 
@@ -104,6 +134,26 @@ test("[ops-health] deriveBackendStatus throwing → status='error'", async () =>
     },
     {
       deriveBackendStatus: () => { throw new Error("boom"); },
+    },
+  );
+});
+
+test("[ops-health] signals function flows through to the response", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const r = await get(baseURL, "/ops/health-summary");
+      assert.equal(r.body.signals.screenplay_page_write.status, "warning");
+      assert.equal(r.body.signals.screenplay_page_write.reason, "low_page_acceptance");
+      assert.equal(r.body.signals.screenplay_page_write.pageRequestedCount, 8);
+    },
+    {
+      signals: () => ({
+        screenplay_page_write: {
+          status: "warning",
+          reason: "low_page_acceptance",
+          pageRequestedCount: 8,
+        },
+      }),
     },
   );
 });

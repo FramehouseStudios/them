@@ -5,7 +5,6 @@ import os
 import AVFoundation
 import CryptoKit
 import UniformTypeIdentifiers
-import Contacts
 import Combine
 import Speech
 #if os(macOS)
@@ -17,6 +16,17 @@ import ScreenCaptureKit
 #if os(iOS)
 import UIKit
 #endif
+
+private extension View {
+    @ViewBuilder
+    func themDesktopSheetFrame(minWidth: CGFloat, minHeight: CGFloat) -> some View {
+        #if os(macOS)
+        frame(minWidth: minWidth, minHeight: minHeight)
+        #else
+        self
+        #endif
+    }
+}
 
 private enum BackendConnectionState: String {
     case checking
@@ -48,6 +58,7 @@ private struct DebugBundleSnapshot: Codable {
     let backendHealth: DebugBundleHealthSnapshot?
     let backendRoutes: DebugBundleRoutesSnapshot?
     let backendTalkDiagnostics: DebugBundleTalkDiagnosticsSnapshot?
+    let clientLatency: DebugBundleClientLatencySnapshot
     let backendSync: DebugBundleSyncSnapshot
 }
 
@@ -94,6 +105,23 @@ private struct DebugBundleTalkDiagnosticsSnapshot: Codable {
     let lastError: String
 }
 
+private struct DebugBundleClientLatencySnapshot: Codable {
+    let sampleCount: Int
+    let healthLevel: String
+    let healthSummary: String
+    let evaluatedMetricCount: Int
+    let pendingMetricCount: Int
+    let breaches: [ClementineLatencySLOBreach]
+    let latestFirstTextMs: Double?
+    let latestFirstAudioMs: Double?
+    let latestBargeInAckMs: Double?
+    let medianFirstTextMs: Double?
+    let p95FirstTextMs: Double?
+    let medianFirstAudioMs: Double?
+    let p95FirstAudioMs: Double?
+    let samples: [ClementineLatencySample]
+}
+
 private struct DebugBundleSyncSnapshot: Codable {
     let status: String
     let sessionId: String
@@ -132,6 +160,23 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let timingSource: String
     let screenplayOutputTarget: String
     let screenplayOutputSource: String
+    let screenplayQualityReason: String
+    let screenplayQualityConfidence: String
+    let screenplayQualityFeatureAct: String
+    let screenplayRepairAttempted: Bool
+    let screenplayRepairOutcome: String
+    let screenplayRepairMs: Int?
+    let screenplayRepairReason: String
+    let creativeMemoryApplied: Bool
+    let creativeMemoryProjectID: String
+    let creativeMemoryProjectTitle: String
+    let creativeMemoryCharacterCount: Int
+    let creativeMemoryEpisodicCount: Int
+    let creativeMemoryCorrectionCount: Int
+    let creativeMemoryCharacters: [String]
+    let creativeMemoryCorrectedTerms: [String]
+    let creativeMemoryCorrectionReplacements: [String]
+    let creativeMemoryEpisodeSummaries: [String]
     let screenplayOutputText: String
     let screenplayCueCount: Int
     let screenplayCues: [BackendTalkScreenplayCue]
@@ -182,15 +227,35 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let breadcrumbs: [StudioDebugVoiceDraftBreadcrumb]
 }
 
-#if os(macOS)
-private let studioDebugPreferencesDomain = "io.them.them" as CFString
-private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
-
 private struct StudioDebugLoadProjectRequest: Codable {
     let token: Int
     let projectID: String
     let versionID: String
 }
+
+private struct StudioDebugVoiceTurnRequest: Codable {
+    let token: Int
+    let prompt: String
+    let projectID: String
+}
+
+#if os(macOS)
+private let studioDebugPreferencesDomain = "io.them.them" as CFString
+private let studioDebugLoadProjectRequestFilename = "them_studio_debug_load_project_request.json"
+private let studioDebugLoadProjectRequestURLs: [URL] = {
+    let fileManager = FileManager.default
+    let hardcodedURL = URL(fileURLWithPath: "/tmp").appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let temporaryURL = fileManager.temporaryDirectory.appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let homeTemporaryURL = fileManager.homeDirectoryForCurrentUser
+        .appendingPathComponent("tmp")
+        .appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    var seen: Set<String> = []
+    return [hardcodedURL, temporaryURL, homeTemporaryURL].filter { url in
+        seen.insert(url.path).inserted
+    }
+}()
+private let studioDebugLoadProjectRequestURL = studioDebugLoadProjectRequestURLs[0]
+private let studioDebugVoiceTurnRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_voice_turn_request.json")
 
 private func studioDebugPreferenceDomains() -> [String] {
     var domains: [String] = []
@@ -228,7 +293,57 @@ private func studioDebugPreferencePlistURLs(for domain: String) -> [URL] {
     ]
 }
 
+private enum StudioDebugPreferenceSnapshot {
+    private static let refreshInterval: TimeInterval = 0.35
+    private static var cachedAt: TimeInterval = 0
+    private static var cachedPlistValues: [String: [Any]] = [:]
+
+    static func invalidate() {
+        cachedAt = 0
+        cachedPlistValues = [:]
+    }
+
+    static func plistValues(forKey key: String) -> [Any] {
+        let now = Date().timeIntervalSinceReferenceDate
+        if cachedAt == 0 || now - cachedAt > refreshInterval {
+            cachedAt = now
+            cachedPlistValues = buildPlistValues()
+        }
+        return cachedPlistValues[key] ?? []
+    }
+
+    private static func buildPlistValues() -> [String: [Any]] {
+        var values: [String: [Any]] = [:]
+        var seenFingerprints: [String: Set<String>] = [:]
+
+        func append(_ value: Any, forKey key: String) {
+            let fingerprint = "\(type(of: value))::\(String(describing: value))"
+            var seen = seenFingerprints[key] ?? []
+            guard seen.insert(fingerprint).inserted else { return }
+            seenFingerprints[key] = seen
+            values[key, default: []].append(value)
+        }
+
+        for domain in studioDebugPreferenceDomains() {
+            for url in studioDebugPreferencePlistURLs(for: domain) {
+                guard let dictionary = NSDictionary(contentsOf: url) else { continue }
+                for (rawKey, value) in dictionary {
+                    guard let key = rawKey as? String else { continue }
+                    append(value, forKey: key)
+                }
+            }
+        }
+
+        return values
+    }
+}
+
 private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
+    #if DEBUG
+    if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
+        return [fileValue]
+    }
+    #endif
     var values: [Any] = []
     var seenFingerprints: Set<String> = []
 
@@ -239,12 +354,11 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
         values.append(value)
     }
 
+    for value in StudioDebugPreferenceSnapshot.plistValues(forKey: key) {
+        append(value)
+    }
+
     for domain in studioDebugPreferenceDomains() {
-        for url in studioDebugPreferencePlistURLs(for: domain) {
-            if let dictionary = NSDictionary(contentsOf: url) {
-                append(dictionary[key])
-            }
-        }
         if let suite = studioDebugSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
@@ -259,6 +373,9 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
 }
 
 private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    #if DEBUG
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
         if let suite = studioDebugSuiteDefaults(for: domain) {
@@ -271,9 +388,13 @@ private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
         mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugPreferenceSnapshot.invalidate()
 }
 
 private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    #if DEBUG
+    StudioDebugPreferenceFileBridge.write(value, forKey: key)
+    #endif
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
         if let suite = studioDebugSuiteDefaults(for: domain) {
@@ -286,6 +407,7 @@ private func writeStudioDebugPreferenceString(_ value: String, forKey key: Strin
         mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugPreferenceSnapshot.invalidate()
 }
 
 private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
@@ -298,6 +420,7 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
     }
 }
 
+#if DEBUG
 @MainActor
 final class StudioDebugDefaultsBridge: ObservableObject {
     static let shared = StudioDebugDefaultsBridge()
@@ -309,6 +432,7 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     private var pollTask: Task<Void, Never>?
 
     init() {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         noteLifecycle("polling_started")
         startPolling()
     }
@@ -318,8 +442,11 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     }
 
     private func startPolling() {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         pollTask?.cancel()
         pollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 50_000_000)
             while !Task.isCancelled {
                 let nextOpenToken = Self.readInt(forKey: "studio_debug_open_token")
                 if nextOpenToken != openToken {
@@ -350,18 +477,22 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     }
 
     private static func readInt(forKey key: String, fallback: Int = 0) -> Int {
+        var bestValue: Int?
         for value in studioDebugPreferenceValues(forKey: key) {
             if let number = value as? NSNumber {
-                return number.intValue
+                let parsed = Int(number.int64Value)
+                bestValue = max(bestValue ?? parsed, parsed)
+                continue
             }
             if let string = value as? String,
                let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                return parsed
+                bestValue = max(bestValue ?? parsed, parsed)
             }
         }
-        return fallback
+        return bestValue ?? fallback
     }
 }
+#endif
 #else
 private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
     guard let value = UserDefaults.standard.object(forKey: key) else { return [] }
@@ -378,7 +509,7 @@ private func writeStudioDebugPreferenceString(_ value: String, forKey key: Strin
 #endif
 #endif
 
-private enum PrimarySurface {
+private enum PrimarySurface: String {
     case home
     case studio
 }
@@ -591,6 +722,24 @@ enum ClementineVisualContextCapture {
 }
 #endif
 
+struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {
+    static func shouldCreateProject(
+        isStudioSurfaceActive: Bool,
+        draft: String,
+        existingProjectID: String,
+        isAutoCreatingProject: Bool,
+        createKey: String,
+        lastCreateKey: String
+    ) -> Bool {
+        guard isStudioSurfaceActive else { return false }
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !isAutoCreatingProject else { return false }
+        guard !createKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return createKey != lastCreateKey
+    }
+}
+
 struct RootExperienceView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -606,6 +755,9 @@ struct RootExperienceView: View {
     @State private var onboardingSceneSeed = ""
     @State private var isMagicMomentSubmitting = false
     @State private var magicMomentOnboardingError = ""
+    @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
+    @AppStorage("auth_session_token_deletion_pending")
+    private var authSessionTokenDeletionPending: Bool = false
     @AppStorage("t11.magic_moment_last_duration_ms") private var magicMomentLastDurationMs: Double = 0
     @AppStorage("t12.magic_moment_perceived_response_ms") private var magicMomentPerceivedResponseMs: Double = 0
     @State private var showingMemories = false
@@ -613,12 +765,16 @@ struct RootExperienceView: View {
     @State private var showingNotes = false
     @State private var showingTasks = false
     @State private var primarySurface: PrimarySurface = .home
-    @State private var showingEmailComposer = false
+    @State private var uiTestForceStudioSurface = false
+    @AppStorage(ThemWorkspaceSurfaceRestorePolicy.storageKey) private var persistedPrimarySurfaceRaw: String = ""
     @State private var showingRecap = false
     @State private var showingVoiceSettings = false
     @State private var showingCompanionControls = false
     @State private var showingDataControls = false
     @State private var showingTrustCenter = false
+    @State private var showingProfileAccount = false
+    @State private var resumeStudioAfterAccountSignIn = false
+    @State private var isRestoringWorkspaceAuthSession = false
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
@@ -630,6 +786,10 @@ struct RootExperienceView: View {
     @StateObject private var voice = HerVoiceController()
     @StateObject private var realtimeVoice = ClementineRealtimeCoordinator()
     @StateObject private var realtimeTransport = ClementineRealtimeWebViewBridge()
+    @State private var realtimeGroundingRefreshTask: Task<Void, Never>?
+    @State private var pendingRealtimeGroundingRevision = ""
+    @State private var lastRealtimeGroundingRevision = ""
+    @StateObject private var clientLatency = ClementineLatencyTelemetryStore.shared
     @StateObject private var evolution = HerEvolutionStore.shared
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
 
@@ -638,13 +798,18 @@ struct RootExperienceView: View {
     @StateObject private var orbAudio = OrbAudioDriver()
     @StateObject private var speculativeTalk = SpeculativeTalkEngine()
     @State private var promptSpeaker = PersonalityPromptSpeaker()
+    @State private var typedReplySpeaker = StreamingSpeechPlayer()
     @State private var uiReflection = BackendTalkUIReflection.default
+    @State private var lastClementineEmotionLane = "curious_steady"
     @State private var localStateVersion = ""
+    @State private var sessionContinuitySnapshot: BackendSessionContinuitySnapshot?
+    @State private var dismissedSessionContinuityFingerprint = ""
     @State private var inFlightCommitVersions: Set<String> = []
     @State private var backendHealthTask: Task<Void, Never>?
     @State private var backendHydrationTask: Task<Void, Never>?
     @State private var backendConnectionState: BackendConnectionState = .checking
     @State private var backendFailureCount = 0
+    @State private var offlineTalkOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var isTurnSubmitting = false
     @State private var lastIssueSummary = ""
     @State private var lastHealthStatus: BackendHealthStatus?
@@ -658,11 +823,6 @@ struct RootExperienceView: View {
     @State private var isRefreshingTalkDiagnostics = false
     @State private var lastSubmittedFingerprint = ""
     @State private var lastSubmittedAt: Date = .distantPast
-    @State private var lastOpenedEmailTurnID = ""
-    @State private var lastOpenedEmailComposeURL = ""
-    @State private var lastOpenedEmailComposeAt: Date = .distantPast
-    @State private var lastOpenedCalendarTurnID = ""
-    @State private var lastOpenedCalendarComposeURL = ""
     @State private var lastOpenedNoteTurnID = ""
     @State private var lastOpenedNotePath = ""
     @State private var lastKnowledgeCitations: [String] = []
@@ -680,8 +840,20 @@ struct RootExperienceView: View {
     @State private var isAutoCreatingStudioProject = false
     @State private var lastAutoCreatedStudioProjectKey = ""
     @State private var realtimeBridgeRequest: URLRequest?
+    @State private var realtimePreviewStandardFallbackActive = false
     @State private var realtimePendingUserTranscript = ""
     @State private var realtimeAssistantTranscriptFallbackTask: Task<Void, Never>?
+    @State private var realtimeRecoveryTask: Task<Void, Never>?
+    @State private var realtimeRecoveryGeneration = 0
+    @State private var realtimeReconnectAttempt = 0
+    @State private var realtimeRecoveryTurnID = ""
+    @State private var realtimeRecoveryTranscriptIsFinal = false
+    @State private var realtimeRecoveryNeedsTurnRepair = false
+    @State private var realtimeRecoveryTurnWasInterrupted = false
+    @State private var realtimeRecoveryOutcomeGate = ClementineRealtimeRecoveryOutcomeGate()
+    @State private var lastRealtimeRepairDispatchKey = ""
+    @State private var lastRealtimeFallbackRepairFingerprint = ""
+    @State private var lastRealtimeFallbackRepairAt: Date = .distantPast
     @State private var lastRealtimeAssistantTextAt: Date = .distantPast
     @State private var lastRealtimeHandledPairFingerprint = ""
     @State private var lastRealtimeHandledAt: Date = .distantPast
@@ -694,6 +866,9 @@ struct RootExperienceView: View {
     @State private var realtimeStudioRenderTask: Task<String?, Never>?
     @State private var realtimeStudioRenderUserMessage = ""
     @State private var realtimeStudioRenderedReply = ""
+    @State private var activeTurnBasedLatencyTurnID = ""
+    @State private var lastRealtimeStudioPreviewAt: Date = .distantPast
+    @State private var lastRealtimeStudioPreviewCharacterCount: Int = 0
     @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     @AppStorage("show_live_script_preview") private var showLiveScriptPreview: Bool = true
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
@@ -727,7 +902,7 @@ struct RootExperienceView: View {
     @AppStorage("orb_echo_debug_assistant_text") private var orbEchoDebugAssistantText: String = ""
     @AppStorage("home_turn_cue_debug_token") private var homeTurnCueDebugToken: Int = 0
     @AppStorage("home_turn_cue_debug_text") private var homeTurnCueDebugText: String = ""
-#if os(macOS)
+#if DEBUG && os(macOS)
     @StateObject private var studioDebugDefaultsBridge = StudioDebugDefaultsBridge.shared
 #endif
     @State private var activeStudioDebugVoiceTurnToken: Int?
@@ -737,6 +912,10 @@ struct RootExperienceView: View {
     @State private var lastHandledStudioDebugLoadProjectToken: Int = 0
     @State private var lastHandledStudioDebugLoadProjectRequestToken: Int = 0
     @State private var lastHandledStudioDebugVoiceTurnToken: Int = 0
+#if DEBUG
+    @State private var uiTestRealtimeNetworkFaultStage: ClementineRealtimeFaultStage?
+    @State private var uiTestRealtimeNetworkFaultResult = ""
+#endif
 #endif
     @State private var lastVisualContextEnvelope: ClementineVisualContextEnvelope?
     @State private var lastVisualContextFingerprint = ""
@@ -744,6 +923,9 @@ struct RootExperienceView: View {
     @State private var lastVisualContextError = ""
     @State private var transientTurnBannerText: String?
     @State private var transientTurnBannerTask: Task<Void, Never>?
+    @State private var pendingCanonClarification: BackendCanonCorrectionAmbiguity?
+    @State private var isResolvingCanonClarification = false
+    @State private var canonClarificationError = ""
     @State private var userReplyEcho: String = ""
     @State private var assistantReplyEcho: String = ""
     @State private var replyEchoOpacity: Double = 0
@@ -769,8 +951,16 @@ struct RootExperienceView: View {
         ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
     }
 
+    private var supportDiagnosticsEnabled: Bool {
+        #if DEBUG || os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var isStudioSurfaceActive: Bool {
-        primarySurface == .studio
+        primarySurface == .studio || uiTestForceStudioSurface
     }
 
     private var usesRealtimePreviewTransport: Bool {
@@ -781,10 +971,10 @@ struct RootExperienceView: View {
         shouldWriteToPage: Bool,
         isStudioSurfaceActive: Bool
     ) -> Bool {
-        // Page writes should stream as soon as Studio is visible, regardless of
-        // whether voice conversation is in turn-based or realtime-preview mode.
-        shouldWriteToPage &&
-        isStudioSurfaceActive
+        _ = shouldWriteToPage
+        return StudioResponseStreamingPolicy.shouldStream(
+            isStudioSurfaceActive: isStudioSurfaceActive
+        )
     }
 
     private func shouldUseStreamingStudioPageWriteTransport(
@@ -811,7 +1001,7 @@ struct RootExperienceView: View {
             )
         )
         precondition(
-            !shouldUseStreamingStudioPageWriteTransport(
+            shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: false,
                 isStudioSurfaceActive: true
             )
@@ -837,6 +1027,12 @@ struct RootExperienceView: View {
     }
 
     private var realtimePreviewStatusText: String {
+        if realtimePreviewStandardFallbackActive {
+            return standardVoiceFallbackStatusText
+        }
+        if realtimeReconnectAttempt > 0 {
+            return "Reconnecting live voice · attempt \(realtimeReconnectAttempt) of \(ClementineRealtimeRecoveryPolicy.maximumReconnectAttempts)"
+        }
         if case .failed = realtimeVoice.status {
             return realtimeVoice.statusText
         }
@@ -844,6 +1040,21 @@ struct RootExperienceView: View {
             return realtimeTransport.statusText
         }
         return realtimeVoice.statusText
+    }
+
+    private var standardVoiceFallbackStatusText: String {
+        switch voice.mode {
+        case .capturingSpeech:
+            return "Standard voice listening"
+        case .assistantSpeaking:
+            return "Standard voice speaking"
+        case .armedListening:
+            return "Standard voice ready"
+        case .muted:
+            return "Standard voice muted"
+        case .idle:
+            return "Standard voice standby"
+        }
     }
 
     private var activeCompanionSignals: CreativeCompanionSignalState {
@@ -918,6 +1129,88 @@ struct RootExperienceView: View {
     }
 
     @ViewBuilder
+    private var homeSessionContinuityCard: some View {
+        if let snapshot = sessionContinuitySnapshot,
+           snapshot.isMeaningful,
+           sessionContinuityFingerprint(snapshot) != dismissedSessionContinuityFingerprint {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("Where We Left Off")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundColor(.herText.opacity(0.86))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                    Spacer(minLength: 8)
+                    Button {
+                        dismissedSessionContinuityFingerprint = sessionContinuityFingerprint(snapshot)
+                    } label: {
+                        Text("Hide")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.74))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Hide restored memory")
+                }
+
+                Text(sessionContinuityTitle(snapshot))
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundColor(.herText.opacity(0.92))
+                    .lineLimit(1)
+
+                Text(sessionContinuityBody(snapshot))
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundColor(.herText.opacity(0.82))
+                    .lineSpacing(4)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button {
+                        openStudio()
+                    } label: {
+                        Text("Continue Writing")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.92))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.20))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.session-continuity.open-studio")
+
+                    Button {
+                        openMemories()
+                    } label: {
+                        Text("Review Memory")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.86))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.14))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.session-continuity.open-memories")
+                }
+            }
+            .frame(maxWidth: 500, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Where we left off. \(sessionContinuityBody(snapshot))")
+        }
+    }
+
+    @ViewBuilder
     private var bodyForegroundLayers: some View {
         primarySurfaceLayer
 
@@ -934,15 +1227,74 @@ struct RootExperienceView: View {
             )
             .zIndex(-1)
         }
+
+#if DEBUG
+        if !uiTestRealtimeNetworkFaultResult.isEmpty {
+            Text(uiTestRealtimeNetworkFaultResult)
+                .font(.system(size: 8, weight: .regular, design: .monospaced))
+                .foregroundColor(.herText.opacity(0.85))
+                .lineLimit(4)
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("realtime.network-fault.result")
+                .accessibilityLabel(uiTestRealtimeNetworkFaultResult)
+                .zIndex(100)
+        }
+#endif
     }
 
-    private var rootBodyView: some View {
-        ZStack {
-            bodyBackground
-            bodyForegroundLayers
+    @ViewBuilder
+    private func canonClarificationLayer(viewportSize: CGSize) -> some View {
+        if !evolution.needsOnboardingName,
+           let pendingCanonClarification {
+            #if os(macOS)
+            let overlayAlignment: Alignment = .top
+            #else
+            let overlayAlignment: Alignment = .bottom
+            #endif
+            CanonClarificationCard(
+                clarification: pendingCanonClarification,
+                isResolving: isResolvingCanonClarification,
+                errorMessage: canonClarificationError,
+                onResolve: resolveCanonClarification,
+                onDefer: deferCanonClarification
+            )
+            .frame(width: max(0, min(560, viewportSize.width - 32)))
+            .padding(.vertical, 20)
+            .frame(
+                width: viewportSize.width,
+                height: viewportSize.height,
+                alignment: overlayAlignment
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(40)
         }
     }
 
+    private var rootBodyView: some View {
+        #if os(iOS)
+        GeometryReader { viewport in
+            ZStack {
+                bodyBackground
+                bodyForegroundLayers
+                canonClarificationLayer(viewportSize: viewport.size)
+            }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .clipped()
+        }
+        #else
+        GeometryReader { viewport in
+            ZStack {
+                bodyBackground
+                bodyForegroundLayers
+                canonClarificationLayer(viewportSize: viewport.size)
+            }
+        }
+        #endif
+    }
+
+    #if DEBUG
     private var bodyWithObservedChanges: AnyView {
         AnyView(
             rootBodyView
@@ -995,6 +1347,11 @@ struct RootExperienceView: View {
                 }
         )
     }
+    #else
+    private var bodyWithObservedChanges: AnyView {
+        AnyView(rootBodyView)
+    }
+    #endif
 
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
@@ -1014,9 +1371,30 @@ struct RootExperienceView: View {
                         handleScenePhaseChange(newPhase)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
+                    let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
+                    offlineTalkOutboxSnapshot = snapshot
+                    if let status = snapshot.userVisibleStatus, snapshot.hasWork {
+                        showOfflineTalkOutboxBanner(status)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.openStudio)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themCloseStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.closeStudio)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themToggleStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.toggleStudio)
+                }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
-                        voice.isStudioMode = newValue
+                        handleStudioSurfaceActiveChange(newValue)
+                    }
+                }
+                .onChange(of: studioTypedReplyAudioEnabled) { _, isEnabled in
+                    if !isEnabled {
+                        typedReplySpeaker.cancel()
                     }
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
@@ -1041,7 +1419,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugOpenChange(_ newValue: Int? = nil) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let token = newValue ?? studioDebugOpenToken
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugOpenToken else { return }
@@ -1054,7 +1433,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugLoadProjectTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         guard newValue != lastHandledStudioDebugLoadProjectToken else { return }
         lastHandledStudioDebugLoadProjectToken = newValue
@@ -1079,7 +1459,8 @@ struct RootExperienceView: View {
     }
 
     private func handleStudioDebugVoiceTurnTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         handleStudioDebugVoiceTurnCommand(
             token: newValue,
             promptOverride: nil,
@@ -1093,7 +1474,8 @@ struct RootExperienceView: View {
         promptOverride: String?,
         projectIDOverride: String?
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugVoiceTurnToken else { return }
         lastHandledStudioDebugVoiceTurnToken = token
@@ -1101,9 +1483,11 @@ struct RootExperienceView: View {
         setStudioDebugPreferenceInt(token, forKey: "studio_debug_voice_turn_command_received_token")
         studioDebugVoiceTurnAckToken = token
         setStudioDebugPreferenceInt(token, forKey: "studio_debug_voice_turn_ack_token")
-        let cleaned = (promptOverride ?? currentStudioDebugVoiceTurnTextFromDefaults())
+        let request = studioDebugVoiceTurnRequest(for: token)
+        let cleaned = (promptOverride ?? request?.prompt ?? currentStudioDebugVoiceTurnTextFromDefaults())
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = cleaned.isEmpty ? "what if she leaves before he answers" : cleaned
+        let projectID = projectIDOverride ?? request?.projectID
         appendStudioDebugVoiceDraftBreadcrumb(
             event: "debug_turn_command_received",
             detail: "Studio debug voice turn command token consumed by the app.",
@@ -1114,14 +1498,15 @@ struct RootExperienceView: View {
             await runStudioDebugVoiceTurn(
                 token: token,
                 prompt: prompt,
-                projectIDOverride: projectIDOverride
+                projectIDOverride: projectID
             )
         }
         #endif
     }
 
     private func handleOrbEchoDebugShowChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         showReplyEcho(
             user: orbEchoDebugUserText,
@@ -1132,14 +1517,16 @@ struct RootExperienceView: View {
     }
 
     private func handleOrbEchoDebugHideChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         hideReplyEcho(debugToken: newValue)
         #endif
     }
 
     private func handleHomeTurnCueDebugTokenChange(_ newValue: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard newValue > 0 else { return }
         let cleaned = homeTurnCueDebugText.trimmingCharacters(in: .whitespacesAndNewlines)
         let probeText = cleaned.isEmpty ? "Hey, can we talk for a second?" : cleaned
@@ -1159,12 +1546,29 @@ struct RootExperienceView: View {
     }
 
     private func studioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
-        if let number = copyStudioDebugPreferenceValue(forKey: key) as? NSNumber {
-            return number.intValue
+        var bestValue: Int?
+        for value in studioDebugPreferenceValues(forKey: key) {
+            if let number = value as? NSNumber {
+                let parsed = Int(number.int64Value)
+                bestValue = max(bestValue ?? parsed, parsed)
+                continue
+            }
+            if let string = value as? String,
+               let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                bestValue = max(bestValue ?? parsed, parsed)
+            }
         }
-        if let string = copyStudioDebugPreferenceValue(forKey: key) as? String,
-           let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return value
+        return bestValue ?? fallback
+    }
+
+    private func studioDebugPreferenceBool(_ key: String, fallback: Bool = false) -> Bool {
+        if let number = copyStudioDebugPreferenceValue(forKey: key) as? NSNumber {
+            return number.boolValue
+        }
+        if let string = copyStudioDebugPreferenceValue(forKey: key) as? String {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes", "on"].contains(normalized) { return true }
+            if ["0", "false", "no", "off"].contains(normalized) { return false }
         }
         return fallback
     }
@@ -1180,11 +1584,17 @@ struct RootExperienceView: View {
     }
 
     private func setStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         writeStudioDebugPreferenceInt(value, forKey: key)
+        #endif
     }
 
     private func setStudioDebugPreferenceString(_ value: String, forKey key: String) {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         writeStudioDebugPreferenceString(value, forKey: key)
+        #endif
     }
 
     private func currentStudioDebugVoiceTurnTextFromDefaults() -> String {
@@ -1195,6 +1605,21 @@ struct RootExperienceView: View {
     private func currentStudioDebugVoiceTurnProjectIDFromDefaults() -> String {
         let value = studioDebugPreferenceString("studio_debug_voice_turn_project_id")
         return value.isEmpty ? studioDebugVoiceTurnProjectID : value
+    }
+
+    private func studioDebugVoiceTurnRequest(for token: Int) -> StudioDebugVoiceTurnRequest? {
+        #if DEBUG && os(macOS)
+        guard IOThemRuntime.isStudioAutomationSession else { return nil }
+        guard let data = try? Data(contentsOf: studioDebugVoiceTurnRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugVoiceTurnRequest.self, from: data),
+              request.token == token else {
+            return nil
+        }
+        try? FileManager.default.removeItem(at: studioDebugVoiceTurnRequestURL)
+        return request
+        #else
+        return nil
+        #endif
     }
 
     private func noteStudioDebugLifecycle(_ stage: String) {
@@ -1208,11 +1633,15 @@ struct RootExperienceView: View {
 
     @MainActor
     private func prepareBackendForStudioDebugVoiceTurn() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let rawPinnedURL = studioDebugPreferenceString("backend_base_url", fallback: "http://127.0.0.1:3000")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let pinnedURL = canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
+        let pinnedURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL
+            ?? canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
         setStudioDebugPreferenceString(pinnedURL.absoluteString, forKey: "backend_base_url")
         backend = BackendClient(baseURL: pinnedURL, fallbackURL: pinnedURL)
+        #endif
     }
 
     private func canonicalizedStudioDebugBackendURL(from raw: String) -> URL {
@@ -1240,8 +1669,17 @@ struct RootExperienceView: View {
     }
 
     private func processPendingStudioDebugCommandsIfNeeded() {
-        guard !IOThemRuntime.isRunningTests else { return }
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
+
+        let autoInsertEnabled = studioDebugPreferenceBool(
+            "studio_auto_insert",
+            fallback: screenplayDraftBridge.autoInsertEnabled
+        )
+        if screenplayDraftBridge.autoInsertEnabled != autoInsertEnabled {
+            screenplayDraftBridge.autoInsertEnabled = autoInsertEnabled
+        }
 
         let openToken = studioDebugPreferenceInt("studio_debug_open_token")
         if openToken > 0 {
@@ -1259,19 +1697,29 @@ struct RootExperienceView: View {
         if voiceToken > 0 {
             handleStudioDebugVoiceTurnTokenChange(voiceToken)
         }
+        #endif
     }
 
     private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
-        #if os(macOS)
-        guard let data = try? Data(contentsOf: studioDebugLoadProjectRequestURL),
-              let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+        #if DEBUG && os(macOS)
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard let match = studioDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioDebugLoadProjectRequest, URL)? in
+            guard let data = try? Data(contentsOf: url),
+                  let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+                return nil
+            }
+            return (request, url)
+        }).first else {
             return
         }
+        let request = match.0
         guard request.token > 0 else { return }
         guard request.token != lastHandledStudioDebugLoadProjectRequestToken else { return }
         lastHandledStudioDebugLoadProjectRequestToken = request.token
         noteStudioDebugLifecycle("load_request_file_consumed")
-        try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+        for url in studioDebugLoadProjectRequestURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
         let debugProjectID = request.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let debugVersionID = request.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         if !debugProjectID.isEmpty {
@@ -1291,12 +1739,14 @@ struct RootExperienceView: View {
         #endif
     }
 
-    #if os(macOS)
+    #if DEBUG && os(macOS)
     private func startStudioDebugCommandPolling() {
-        guard !IOThemRuntime.isRunningTests else { return }
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugCommandPollTask?.cancel()
         noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 250_000_000)
             while !Task.isCancelled {
                 processPendingStudioDebugCommandsIfNeeded()
                 try? await Task.sleep(nanoseconds: 200_000_000)
@@ -1310,6 +1760,7 @@ struct RootExperienceView: View {
     }
     #endif
 
+    #if DEBUG
     @MainActor
     private func runStudioDebugVoiceTurn(token: Int, prompt: String) async {
         await runStudioDebugVoiceTurn(token: token, prompt: prompt, projectIDOverride: nil)
@@ -1321,6 +1772,7 @@ struct RootExperienceView: View {
         prompt: String,
         projectIDOverride: String?
     ) async {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else {
             writeStudioDebugVoiceTurnResult(
@@ -1408,11 +1860,12 @@ struct RootExperienceView: View {
 
         let durationMs = 1800 + (token % 17)
         await sendUtterance(
-            studioDebugSilentTalkWavData(durationMs: durationMs),
+            silentTalkWavData(durationMs: durationMs),
             clientTranscriptOverride: cleanPrompt,
             debugVoiceTurnToken: token
         )
     }
+    #endif
 
     private func currentStudioDebugVoiceDraftBreadcrumbs(
         token: Int? = nil
@@ -1437,6 +1890,7 @@ struct RootExperienceView: View {
         tokenOverride: Int? = nil,
         promptPreviewOverride: String? = nil
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let cleanEvent = event.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanEvent.isEmpty else { return }
         let effectiveToken = tokenOverride ?? activeStudioDebugVoiceTurnToken ?? 0
@@ -1497,6 +1951,23 @@ struct RootExperienceView: View {
         timingSource: String = "",
         screenplayOutputTarget: String = "",
         screenplayOutputSource: String = "",
+        screenplayQualityReason: String = "",
+        screenplayQualityConfidence: String = "",
+        screenplayQualityFeatureAct: String = "",
+        screenplayRepairAttempted: Bool = false,
+        screenplayRepairOutcome: String = "",
+        screenplayRepairMs: Int? = nil,
+        screenplayRepairReason: String = "",
+        creativeMemoryApplied: Bool = false,
+        creativeMemoryProjectID: String = "",
+        creativeMemoryProjectTitle: String = "",
+        creativeMemoryCharacterCount: Int = 0,
+        creativeMemoryEpisodicCount: Int = 0,
+        creativeMemoryCorrectionCount: Int = 0,
+        creativeMemoryCharacters: [String] = [],
+        creativeMemoryCorrectedTerms: [String] = [],
+        creativeMemoryCorrectionReplacements: [String] = [],
+        creativeMemoryEpisodeSummaries: [String] = [],
         screenplayOutputText: String = "",
         screenplayCues: [BackendTalkScreenplayCue] = [],
         dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
@@ -1516,6 +1987,7 @@ struct RootExperienceView: View {
         syncedVoiceSeekToMs: Int? = nil,
         appendPersistenceBreadcrumb: Bool = true
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let formatter = ISO8601DateFormatter()
         let decoder = ISO8601DateFormatter()
         let breadcrumbs = currentStudioDebugVoiceDraftBreadcrumbs(token: token)
@@ -1659,6 +2131,23 @@ struct RootExperienceView: View {
             timingSource: timingSource,
             screenplayOutputTarget: screenplayOutputTarget,
             screenplayOutputSource: screenplayOutputSource,
+            screenplayQualityReason: screenplayQualityReason,
+            screenplayQualityConfidence: screenplayQualityConfidence,
+            screenplayQualityFeatureAct: screenplayQualityFeatureAct,
+            screenplayRepairAttempted: screenplayRepairAttempted,
+            screenplayRepairOutcome: screenplayRepairOutcome,
+            screenplayRepairMs: screenplayRepairMs,
+            screenplayRepairReason: screenplayRepairReason,
+            creativeMemoryApplied: creativeMemoryApplied,
+            creativeMemoryProjectID: creativeMemoryProjectID,
+            creativeMemoryProjectTitle: creativeMemoryProjectTitle,
+            creativeMemoryCharacterCount: creativeMemoryCharacterCount,
+            creativeMemoryEpisodicCount: creativeMemoryEpisodicCount,
+            creativeMemoryCorrectionCount: creativeMemoryCorrectionCount,
+            creativeMemoryCharacters: creativeMemoryCharacters,
+            creativeMemoryCorrectedTerms: creativeMemoryCorrectedTerms,
+            creativeMemoryCorrectionReplacements: creativeMemoryCorrectionReplacements,
+            creativeMemoryEpisodeSummaries: creativeMemoryEpisodeSummaries,
             screenplayOutputText: screenplayOutputText,
             screenplayCueCount: screenplayCues.count,
             screenplayCues: screenplayCues,
@@ -1767,6 +2256,23 @@ struct RootExperienceView: View {
                 "timingSource": timingSource,
                 "screenplayOutputTarget": screenplayOutputTarget,
                 "screenplayOutputSource": screenplayOutputSource,
+                "screenplayQualityReason": screenplayQualityReason,
+                "screenplayQualityConfidence": screenplayQualityConfidence,
+                "screenplayQualityFeatureAct": screenplayQualityFeatureAct,
+                "screenplayRepairAttempted": screenplayRepairAttempted,
+                "screenplayRepairOutcome": screenplayRepairOutcome,
+                "screenplayRepairMs": screenplayRepairMs as Any,
+                "screenplayRepairReason": screenplayRepairReason,
+                "creativeMemoryApplied": creativeMemoryApplied,
+                "creativeMemoryProjectID": creativeMemoryProjectID,
+                "creativeMemoryProjectTitle": creativeMemoryProjectTitle,
+                "creativeMemoryCharacterCount": creativeMemoryCharacterCount,
+                "creativeMemoryEpisodicCount": creativeMemoryEpisodicCount,
+                "creativeMemoryCorrectionCount": creativeMemoryCorrectionCount,
+                "creativeMemoryCharacters": creativeMemoryCharacters,
+                "creativeMemoryCorrectedTerms": creativeMemoryCorrectedTerms,
+                "creativeMemoryCorrectionReplacements": creativeMemoryCorrectionReplacements,
+                "creativeMemoryEpisodeSummaries": creativeMemoryEpisodeSummaries,
                 "screenplayOutputText": screenplayOutputText,
                 "screenplayCueCount": screenplayCues.count,
                 "screenplayCues": manualScreenplayCues,
@@ -1899,7 +2405,9 @@ struct RootExperienceView: View {
         )
     }
 
-    private func studioDebugSilentTalkWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
+#endif
+
+    private func silentTalkWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
         let safeDurationMs = max(120, min(2_000, durationMs))
         let channels: UInt16 = 1
         let bitsPerSample: UInt16 = 16
@@ -1912,40 +2420,41 @@ struct RootExperienceView: View {
 
         var data = Data()
         data.append(contentsOf: "RIFF".utf8)
-        data.append(studioDebugLittleEndianBytes(riffChunkSize))
+        data.append(littleEndianBytes(riffChunkSize))
         data.append(contentsOf: "WAVE".utf8)
         data.append(contentsOf: "fmt ".utf8)
-        data.append(studioDebugLittleEndianBytes(UInt32(16)))
-        data.append(studioDebugLittleEndianBytes(UInt16(1)))
-        data.append(studioDebugLittleEndianBytes(channels))
-        data.append(studioDebugLittleEndianBytes(UInt32(sampleRate)))
-        data.append(studioDebugLittleEndianBytes(byteRate))
-        data.append(studioDebugLittleEndianBytes(blockAlign))
-        data.append(studioDebugLittleEndianBytes(bitsPerSample))
+        data.append(littleEndianBytes(UInt32(16)))
+        data.append(littleEndianBytes(UInt16(1)))
+        data.append(littleEndianBytes(channels))
+        data.append(littleEndianBytes(UInt32(sampleRate)))
+        data.append(littleEndianBytes(byteRate))
+        data.append(littleEndianBytes(blockAlign))
+        data.append(littleEndianBytes(bitsPerSample))
         data.append(contentsOf: "data".utf8)
-        data.append(studioDebugLittleEndianBytes(UInt32(dataSize)))
+        data.append(littleEndianBytes(UInt32(dataSize)))
         data.append(Data(repeating: 0, count: dataSize))
         return data
     }
 
-    private func studioDebugLittleEndianBytes(_ value: UInt16) -> Data {
+    private func littleEndianBytes(_ value: UInt16) -> Data {
         var littleEndian = value.littleEndian
         return Data(bytes: &littleEndian, count: MemoryLayout<UInt16>.size)
     }
 
-    private func studioDebugLittleEndianBytes(_ value: UInt32) -> Data {
+    private func littleEndianBytes(_ value: UInt32) -> Data {
         var littleEndian = value.littleEndian
         return Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size)
     }
-#endif
 
     private func handleContentViewAppear() {
         #if DEBUG || os(macOS)
         noteStudioDebugLifecycle("content_view_appear")
+        #if DEBUG
         #if os(macOS)
         startStudioDebugCommandPolling()
         #endif
         processPendingStudioDebugCommandsIfNeeded()
+        #endif
         #endif
         ensureSessionBumped()
         onboardingName = evolution.preferredName
@@ -1954,22 +2463,43 @@ struct RootExperienceView: View {
                 onboardingNameFocused = true
             }
         } else {
-            verballyAskForPersonalityIfNeeded()
+            #if DEBUG
+            let shouldRestorePersistedSurface = ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
+                isRunningUITests: IOThemRuntime.isRunningUITests,
+                arguments: ProcessInfo.processInfo.arguments
+            )
+            #else
+            let shouldRestorePersistedSurface = true
+            #endif
+            if shouldRestorePersistedSurface {
+                restoreWorkspaceSurfaceForLaunchIfNeeded()
+            }
+            if !isStudioSurfaceActive {
+                verballyAskForPersonalityIfNeeded()
+            }
         }
 
         configureVoiceCallbacks()
         voice.isStudioMode = isStudioSurfaceActive
         configureRealtimeCallbacks()
-        startBackendHealthMonitoring()
-        scheduleBackendHydration()
-        Task { @MainActor in
-            await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
-        }
-        if voiceTransportMode == .realtimePreview {
+        startOfflineTalkOutbox()
+
+        if !IOThemRuntime.isRunningUITests {
+            startBackendHealthMonitoring()
+            scheduleBackendHydration()
             Task { @MainActor in
-                await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+                await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
+            }
+            if voiceTransportMode == .realtimePreview {
+                Task { @MainActor in
+                    await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+                }
             }
         }
+
+        #if DEBUG
+        openUITestLaunchSurfaceIfNeeded()
+        #endif
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
             withAnimation(.easeInOut(duration: 2)) {
@@ -1980,21 +2510,141 @@ struct RootExperienceView: View {
         installMacKeyMonitorIfNeeded()
     }
 
+    #if DEBUG
+    private func openUITestLaunchSurfaceIfNeeded() {
+        guard IOThemRuntime.isRunningUITests else { return }
+        guard !evolution.needsOnboardingName else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if arguments.contains("--ui-open-memories") {
+                uiTestForceStudioSurface = false
+                primarySurface = .home
+                openMemories()
+            } else if arguments.contains("--ui-open-data-controls") {
+                uiTestForceStudioSurface = false
+                primarySurface = .home
+                showingDataControls = true
+            } else if arguments.contains("--ui-open-studio") {
+                uiTestForceStudioSurface = true
+                openStudio()
+            }
+            if arguments.contains("--ui-show-canon-clarification") {
+                presentCanonClarificationIfNeeded(
+                    BackendCanonCorrectionAmbiguity(
+                        id: "canon_ambiguity_ui_fixture",
+                        status: "pending",
+                        projectId: "split-ferries",
+                        projectTitle: "Split Ferries",
+                        correctionText: "Mara goes back for both of them.",
+                        candidateFacts: [
+                            "Mara abandons Eli at the east ferry dock.",
+                            "Mara abandons June at the east ferry dock.",
+                        ],
+                        correctionMemoryId: nil,
+                        selectedFact: nil,
+                        selectedFacts: nil,
+                        receiptId: nil,
+                        createdAt: Date().timeIntervalSince1970 * 1_000,
+                        resolvedAt: nil
+                    )
+                )
+            }
+            runUITestRealtimeNetworkFaultSmokeIfNeeded(arguments: arguments)
+        }
+    }
+
+    private func runUITestRealtimeNetworkFaultSmokeIfNeeded(arguments: [String]) {
+        guard let flagIndex = arguments.firstIndex(of: "--ui-realtime-network-fault") else { return }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard arguments.indices.contains(valueIndex),
+              let stage = ClementineRealtimeFaultStage(rawValue: arguments[valueIndex]) else {
+            uiTestRealtimeNetworkFaultResult = "complete=false error=invalid_fault_stage"
+            return
+        }
+
+        uiTestRealtimeNetworkFaultStage = stage
+        uiTestRealtimeNetworkFaultResult = "stage=\(stage.rawValue) complete=false status=injecting"
+        conversationLoopEnabled = true
+        realtimePreviewStandardFallbackActive = false
+        resetRealtimeRecoveryOutcome(
+            turnID: "network-fault-\(stage.rawValue)",
+            transcript: "Move Mara into Act Two before Eli reaches the ferry."
+        )
+        handleRealtimeConnectionLoss(
+            .simulatedFault(
+                stage: stage,
+                turnID: "network-fault-\(stage.rawValue)"
+            )
+        )
+    }
+    #endif
+
     private func configureVoiceCallbacks() {
         voice.stopAssistantPlayback = {
+            let typedTurnID = typedReplySpeaker.activeTurnID
+            let turnBasedTurnID = orbAudio.isSpeaking
+                ? activeTurnBasedLatencyTurnID.trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            if typedReplySpeaker.isSpeaking, let typedTurnID {
+                clientLatency.beginBargeIn(turnID: typedTurnID)
+            }
+            if !turnBasedTurnID.isEmpty {
+                clientLatency.beginBargeIn(turnID: turnBasedTurnID)
+            }
             orbAudio.stop()
             promptSpeaker.stop()
+            typedReplySpeaker.cancel()
+            if let typedTurnID {
+                clientLatency.recordBargeInAcknowledged(turnID: typedTurnID)
+            }
+            if !turnBasedTurnID.isEmpty {
+                clientLatency.recordBargeInAcknowledged(turnID: turnBasedTurnID)
+                activeTurnBasedLatencyTurnID = ""
+            }
             voice.markAssistantPlaybackEnded()
             inFlightTalkTask?.cancel()
             inFlightTalkTask = nil
             isThinking = false
         }
-        voice.isAssistantPlaying = { orbAudio.isSpeaking }
+        voice.isAssistantPlaying = {
+            orbAudio.isSpeaking ||
+                promptSpeaker.isSpeaking ||
+                typedReplySpeaker.isSpeaking ||
+                realtimeTransport.isAssistantSpeaking
+        }
         voice.onBargeInDetected = {
             HerLog.ui.info("barge-in detected -> interrupting assistant audio")
             isThinking = false
             speculativeTalk.cancel()
             screenplayDraftBridge.cancelStream(reason: .bargeIn)
+        }
+        typedReplySpeaker.onFirstAudioStarted = { turnID, startedAt, networkClass, targetCharacters in
+            clientLatency.recordFirstAudio(
+                turnID: turnID,
+                at: startedAt,
+                networkClass: networkClass,
+                targetCharacters: targetCharacters
+            )
+            if voice.mode == .capturingSpeech {
+                clientLatency.beginBargeIn(turnID: turnID, at: startedAt)
+                typedReplySpeaker.cancel()
+                clientLatency.recordBargeInAcknowledged(turnID: turnID)
+                screenplayDraftBridge.cancelStream(reason: .bargeIn)
+            } else if voice.mode == .armedListening {
+                voice.markAssistantPlaybackStarted()
+            }
+        }
+        typedReplySpeaker.onNetworkProfileChanged = { turnID, networkClass, targetCharacters in
+            clientLatency.recordNetworkProfile(
+                turnID: turnID,
+                networkClass: networkClass,
+                targetCharacters: targetCharacters
+            )
+        }
+        typedReplySpeaker.onPlaybackEnded = { _ in
+            if voice.mode == .assistantSpeaking {
+                voice.markAssistantPlaybackEnded()
+            }
         }
         voice.onPartialTranscript = { partial in
             livePartialTranscript = partial
@@ -2065,6 +2715,89 @@ struct RootExperienceView: View {
     }
 
     private func configureRealtimeCallbacks() {
+        realtimeTransport.onConnected = {
+            handleRealtimeConnectionRestored()
+        }
+        realtimeTransport.onConnectionLost = { loss in
+            handleRealtimeConnectionLoss(loss)
+        }
+        realtimeTransport.onProjectGroundingEvent = { event in
+            clientLatency.recordRealtimeGrounding(event)
+            HerLog.talk.info(
+                "realtime project grounding event=\(event.kind.rawValue, privacy: .public) attempt=\(event.attempt) elapsed_ms=\(event.elapsedMilliseconds ?? 0, privacy: .public)"
+            )
+        }
+        realtimeTransport.onProjectGroundingUpdated = { revision in
+            let cleanRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanRevision.isEmpty else { return }
+            lastRealtimeGroundingRevision = cleanRevision
+            if pendingRealtimeGroundingRevision == cleanRevision {
+                pendingRealtimeGroundingRevision = ""
+            }
+        }
+        realtimeTransport.onProjectGroundingUpdateFailed = { revision, message in
+            let cleanRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+            if pendingRealtimeGroundingRevision == cleanRevision {
+                pendingRealtimeGroundingRevision = ""
+            }
+            HerLog.talk.error(
+                "realtime project grounding refresh failed revision=\(cleanRevision, privacy: .public) error=\(message, privacy: .public)"
+            )
+        }
+        realtimeTransport.onUserSpeechStarted = { turnID in
+            realtimeAssistantTranscriptFallbackTask?.cancel()
+            realtimeAssistantTranscriptFallbackTask = nil
+            realtimePendingUserTranscript = ""
+            realtimeRecoveryTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimeRecoveryTranscriptIsFinal = false
+            realtimeRecoveryNeedsTurnRepair = false
+            resetRealtimeRecoveryOutcome(turnID: realtimeRecoveryTurnID)
+            if isStudioSurfaceActive {
+                cancelRealtimeStudioDraftStream(restorePreview: true)
+            }
+        }
+        realtimeTransport.onLatencyEvent = { event in
+            switch event.kind {
+            case .turnStarted:
+                clientLatency.beginTurn(id: event.turnID, transport: .realtimeVoice)
+                if let networkClass = event.networkClass {
+                    clientLatency.recordNetworkProfile(
+                        turnID: event.turnID,
+                        networkClass: networkClass
+                    )
+                }
+            case .firstText:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordFirstText(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .firstAudio:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordFirstAudio(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .bargeInStarted:
+                clientLatency.beginBargeIn(turnID: event.turnID)
+            case .bargeInAcknowledged:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordBargeInAcknowledged(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .networkProfile:
+                if let networkClass = event.networkClass {
+                    clientLatency.recordNetworkProfile(
+                        turnID: event.turnID,
+                        networkClass: networkClass
+                    )
+                }
+            }
+        }
         realtimeTransport.onUserTranscriptPartial = { partial in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
@@ -2110,10 +2843,17 @@ struct RootExperienceView: View {
                 shouldSpeakConfirmation: true
             )
             if localCommand.handled {
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
                 return
             }
+            Task { @MainActor in
+                await applyConversationalStudioCorrectionIfNeeded(
+                    preparedPrompt.directorText
+                )
+            }
             realtimePendingUserTranscript = preparedPrompt.directorText
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
             if isStudioSurfaceActive || preparedPrompt.shouldAutoOpenStudio {
                 startRealtimeStudioDraftStreamIfNeeded(for: preparedPrompt.directorText)
             }
@@ -2129,11 +2869,15 @@ struct RootExperienceView: View {
             realtimeAssistantTranscriptFallbackTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 450_000_000)
                 guard !Task.isCancelled else { return }
+                guard acceptRealtimeRecoveryResponseIfNeeded() else {
+                    realtimeAssistantTranscriptFallbackTask = nil
+                    return
+                }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
                 )
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
                 realtimeAssistantTranscriptFallbackTask = nil
             }
         }
@@ -2144,19 +2888,22 @@ struct RootExperienceView: View {
             realtimeAssistantTranscriptFallbackTask?.cancel()
             realtimeAssistantTranscriptFallbackTask = nil
             Task { @MainActor in
+                guard acceptRealtimeRecoveryResponseIfNeeded() else { return }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
                 )
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
             }
         }
     }
 
     private func handleContentViewDisappear() {
-#if DEBUG || os(macOS)
+#if DEBUG
         #if os(macOS)
-        stopStudioDebugCommandPolling()
+        if IOThemRuntime.isRunningTests {
+            stopStudioDebugCommandPolling()
+        }
         #endif
 #endif
         backendHydrationTask?.cancel()
@@ -2177,35 +2924,75 @@ struct RootExperienceView: View {
         voice.onBargeInDetected = nil
         voice.onPartialTranscript = nil
         voice.onSpeechProgressSnapshot = nil
+        typedReplySpeaker.onFirstAudioStarted = nil
+        typedReplySpeaker.onNetworkProfileChanged = nil
+        typedReplySpeaker.onPlaybackEnded = nil
         speculativeTalk.cancel()
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.onUserTranscriptPartial = nil
         realtimeTransport.onUserTranscriptFinal = nil
         realtimeTransport.onAssistantTranscriptFinal = nil
         realtimeTransport.onAssistantTextFinal = nil
+        realtimeTransport.onUserSpeechStarted = nil
+        realtimeTransport.onLatencyEvent = nil
+        realtimeTransport.onConnected = nil
+        realtimeTransport.onConnectionLost = nil
+        realtimeTransport.onProjectGroundingEvent = nil
+        realtimeTransport.onProjectGroundingUpdated = nil
+        realtimeTransport.onProjectGroundingUpdateFailed = nil
+        realtimeGroundingRefreshTask?.cancel()
+        realtimeGroundingRefreshTask = nil
+        pendingRealtimeGroundingRevision = ""
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
+        cancelRealtimeRecovery(clearTurn: true)
         inFlightTalkTask?.cancel()
         inFlightTalkTask = nil
         realtimeTransport.disconnect()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         stopBackendHealthMonitoring()
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
-        guard newPhase == .active else { return }
-#if DEBUG || os(macOS)
+        guard newPhase == .active else {
+            if voiceTransportMode == .realtimePreview, conversationLoopEnabled {
+                cancelRealtimeRecovery(clearTurn: false)
+                realtimeTransport.disconnect()
+            }
+            return
+        }
+#if DEBUG
         processPendingStudioDebugCommandsIfNeeded()
 #endif
+        retryOfflineTalkOutbox()
         scheduleBackendHydration()
         Task { @MainActor in
             await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
+        }
+        if voiceTransportMode == .realtimePreview,
+           conversationLoopEnabled,
+           !realtimePreviewStandardFallbackActive {
+            if realtimeRecoveryTranscriptIsFinal && realtimeRecoveryNeedsTurnRepair {
+                scheduleRealtimeReconnect(
+                    after: .local(
+                        cause: .peerConnectionDisconnected,
+                        message: "Realtime session resumed after the app became active."
+                    )
+                )
+            } else {
+                Task { @MainActor in
+                    await startRealtimePreviewConversationIfNeeded()
+                }
+            }
         }
     }
 
     private func handleVoiceTransportModeChange(_ newValue: String) {
         let mode = ClementineVoiceTransportMode(rawValue: newValue) ?? .turnBased
+        cancelRealtimeRecovery(clearTurn: true)
+        realtimePreviewStandardFallbackActive = false
         if mode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
@@ -2219,6 +3006,8 @@ struct RootExperienceView: View {
 
     private func handleRealtimeSupplierModeChange(_ newValue: String) {
         _ = ClementineRealtimeSupplierMode.normalized(rawValue: newValue)
+        cancelRealtimeRecovery(clearTurn: true)
+        realtimePreviewStandardFallbackActive = false
         realtimeVoice.clear()
         realtimeTransport.disconnect()
         realtimeBridgeRequest = nil
@@ -2238,8 +3027,13 @@ struct RootExperienceView: View {
                                 guard !evolution.needsOnboardingName else { return }
                                 startConversationLoopIfNeeded()
                             }
+                        }, openStudioAction: {
+                            showingMemories = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                                openStudio()
+                            }
                         })
-                        .frame(minWidth: 1100, minHeight: 760)
+                        .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
                 .sheet(isPresented: $showingConversationHistory) {
                     ConversationHistoryScreen(openConversation: {
@@ -2249,7 +3043,7 @@ struct RootExperienceView: View {
                                 startConversationLoopIfNeeded()
                             }
                         })
-                        .frame(minWidth: 1100, minHeight: 760)
+                        .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
                 .sheet(isPresented: $showingNotes) {
                     NotesPanel(onDone: {
@@ -2259,7 +3053,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 920, minHeight: 700)
+                    .themDesktopSheetFrame(minWidth: 920, minHeight: 700)
                 }
                 .sheet(isPresented: $showingTasks) {
                     TasksPanel(onDone: {
@@ -2269,17 +3063,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 680)
-                }
-                .sheet(isPresented: $showingEmailComposer) {
-                    QuickEmailPanel(onDone: {
-                        showingEmailComposer = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
-                        }
-                    })
-                    .frame(minWidth: 920, minHeight: 720)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingRecap) {
                     RecapPanel(onDone: {
@@ -2289,7 +3073,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 700)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 700)
                 }
                 .sheet(isPresented: $showingVoiceSettings) {
                     VoiceSettingsScreen(onDone: {
@@ -2299,7 +3083,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 960, minHeight: 760)
+                    .themDesktopSheetFrame(minWidth: 960, minHeight: 760)
                 }
                 .sheet(isPresented: $showingCompanionControls) {
                     CompanionControlsPanel(
@@ -2312,7 +3096,7 @@ struct RootExperienceView: View {
                             }
                         }
                     )
-                    .frame(minWidth: 920, minHeight: 720)
+                    .themDesktopSheetFrame(minWidth: 920, minHeight: 720)
                 }
                 .sheet(isPresented: $showingDataControls) {
                     DataControlsScreen(onDone: {
@@ -2322,7 +3106,7 @@ struct RootExperienceView: View {
                             startConversationLoopIfNeeded()
                         }
                     })
-                    .frame(minWidth: 900, minHeight: 680)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingTrustCenter) {
                     TrustCenterScreen(
@@ -2339,7 +3123,10 @@ struct RootExperienceView: View {
                             openURL(privacyPolicyURL)
                         }
                     )
-                    .frame(minWidth: 900, minHeight: 680)
+                    .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
+                }
+                .sheet(isPresented: $showingProfileAccount) {
+                    ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
                 }
         )
     }
@@ -2365,33 +3152,41 @@ struct RootExperienceView: View {
                     NumberedChoiceActionButton(number: "1", title: "Email Summary") {
                         reportProblem()
                     }
-                    NumberedChoiceActionButton(
-                        number: "2",
-                        title: "Talk Diagnostics",
-                        prominence: .prominent
-                    ) {
-                        showingTalkDiagnostics = true
-                        Task { @MainActor in
-                            await refreshTalkDiagnostics(force: true)
+                    if supportDiagnosticsEnabled {
+                        NumberedChoiceActionButton(
+                            number: "2",
+                            title: "Talk Diagnostics",
+                            prominence: .prominent
+                        ) {
+                            showingTalkDiagnostics = true
+                            Task { @MainActor in
+                                await refreshTalkDiagnostics(force: true)
+                            }
                         }
-                    }
-                    NumberedChoiceActionButton(
-                        number: "3",
-                        title: "Send Debug Bundle",
-                        prominence: .prominent
-                    ) {
-                        Task { @MainActor in
-                            await sendDebugBundle()
+                        NumberedChoiceActionButton(
+                            number: "3",
+                            title: "Send Debug Bundle",
+                            prominence: .prominent
+                        ) {
+                            Task { @MainActor in
+                                await sendDebugBundle()
+                            }
                         }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle.")
+                    Text(
+                        supportDiagnosticsEnabled
+                            ? "Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle."
+                            : "Choose what to send to support. Press 1 for an email summary."
+                    )
                 }
                 .sheet(isPresented: $showingTalkDiagnostics) {
                     TalkDiagnosticsSheet(
                         stats: lastTalkStats,
                         errors: lastTalkErrors,
+                        latency: clientLatency.summary,
+                        latencyHealth: clientLatency.health,
                         refreshedAt: lastTalkDiagnosticsRefreshedAt,
                         lastError: lastTalkDiagnosticsError,
                         isRefreshing: isRefreshingTalkDiagnostics,
@@ -2437,12 +3232,12 @@ struct RootExperienceView: View {
                 showingNotes ||
                 showingTasks ||
                 isStudioSurfaceActive ||
-                showingEmailComposer ||
                 showingVoiceSettings ||
                 showingCompanionControls ||
                 showingRecap ||
                 showingDataControls ||
-                showingTrustCenter {
+                showingTrustCenter ||
+                showingProfileAccount {
                 return event
             }
 
@@ -2504,6 +3299,8 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("orb_reply_echo_container")
                 }
 
+                homeSessionContinuityCard
+
                 if showPrompt {
                     VStack(spacing: 14) {
                         Text("Talk")
@@ -2531,6 +3328,7 @@ struct RootExperienceView: View {
                         .buttonStyle(.plain)
                         .opacity(canStartTalk ? 1.0 : 0.55)
                         .allowsHitTesting(canStartTalk)
+                        .accessibilityIdentifier("home.talk.button")
                         .simultaneousGesture(
                             LongPressGesture(minimumDuration: 0.08, maximumDistance: 80).onEnded { _ in
                                 guard canStartTalk else { return }
@@ -2709,16 +3507,7 @@ struct RootExperienceView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingEmailComposer = false
-                        showingRecap = false
-                        showingMemories = true
+                        openMemories()
                     } label: {
                         Text("Memories")
                             .font(.system(size: 12, weight: .regular, design: .default))
@@ -2739,7 +3528,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingVoiceSettings = true
                     } label: {
@@ -2762,7 +3550,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingCompanionControls = true
                     } label: {
@@ -2785,7 +3572,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = true
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("History")
@@ -2807,7 +3593,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = true
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("Notes")
@@ -2829,7 +3614,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = true
-                        showingEmailComposer = false
                         showingRecap = false
                     } label: {
                         Text("Tasks")
@@ -2847,7 +3631,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         openStudio()
                     } label: {
@@ -2863,18 +3646,12 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("home.open-studio")
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingMemories = false
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingEmailComposer = true
-                        showingRecap = false
+                        openAccount()
                     } label: {
-                        Text("Email")
+                        Label(
+                            authSignedIn && !authSessionTokenDeletionPending ? "Account" : "Sign In",
+                            systemImage: "person.crop.circle"
+                        )
                             .font(.system(size: 12, weight: .regular, design: .default))
                             .foregroundColor(.herText.opacity(0.95))
                             .padding(.horizontal, 12)
@@ -2883,6 +3660,7 @@ struct RootExperienceView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.open-account")
 
                     Button {
                         inFlightTalkTask?.cancel()
@@ -2893,7 +3671,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = true
                     } label: {
                         Text("Recap")
@@ -2915,7 +3692,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingTrustCenter = true
                     } label: {
@@ -2938,7 +3714,6 @@ struct RootExperienceView: View {
                         showingConversationHistory = false
                         showingNotes = false
                         showingTasks = false
-                        showingEmailComposer = false
                         showingRecap = false
                         showingDataControls = true
                     } label: {
@@ -2951,6 +3726,7 @@ struct RootExperienceView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.open-data-controls")
 
                     Button {
                         openURL(privacyPolicyURL)
@@ -3006,6 +3782,8 @@ struct RootExperienceView: View {
             }
             .allowsHitTesting(!evolution.needsOnboardingName)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.surface")
     }
 
     private var studioSurface: some View {
@@ -3031,8 +3809,14 @@ struct RootExperienceView: View {
             debugVoicePartialStabilityWindowSeconds: voice.debugPartialStabilityWindowSeconds,
             isSubmittingPrompt: isTurnSubmitting,
             typedReplyAudioEnabled: $studioTypedReplyAudioEnabled,
+            streamingAssistantReply: realtimeStudioRenderedReply,
             onSubmitPrompt: { prompt, routingMode, requestID in
-                await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID)
+#if DEBUG || os(macOS)
+                setStudioDebugPreferenceString("root_closure_started", forKey: "studio_debug_root_submit_stage")
+                setStudioDebugPreferenceString(prompt, forKey: "studio_debug_root_submit_prompt")
+                setStudioDebugPreferenceString(requestID, forKey: "studio_debug_root_submit_request_id")
+#endif
+                return await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID)
             },
             shouldRoutePromptToPage: { prompt, routingMode in
                 shouldRouteStudioPromptToPage(prompt, preferredTarget: routingMode)
@@ -3071,6 +3855,7 @@ struct RootExperienceView: View {
                                 onboardingSceneFocused = true
                             }
                         }
+                        .accessibilityIdentifier("onboarding.name.field")
 
                     TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
                         .font(.system(size: 16, weight: .regular, design: .default))
@@ -3081,6 +3866,7 @@ struct RootExperienceView: View {
                         .onSubmit {
                             startMagicMomentOnboarding()
                         }
+                        .accessibilityIdentifier("onboarding.scene.field")
                 }
 
                 HStack(spacing: 10) {
@@ -3103,6 +3889,7 @@ struct RootExperienceView: View {
                             .stroke(Color.white.opacity(0.18), lineWidth: 1)
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityIdentifier("onboarding.voice-to-scene")
 
                     Button {
                         startMagicMomentOnboarding()
@@ -3123,6 +3910,7 @@ struct RootExperienceView: View {
                             .stroke(Color.white.opacity(0.24), lineWidth: 1)
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityIdentifier("onboarding.start-page")
                 }
 
                 if !magicMomentOnboardingError.isEmpty {
@@ -3219,12 +4007,70 @@ struct RootExperienceView: View {
         """
     }
 
+    private var shouldDefaultLaunchIntoStudio: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private func restoreWorkspaceSurfaceForLaunchIfNeeded() {
+        let resolvedSurfaceRaw = ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+            persistedSurfaceRawValue: persistedPrimarySurfaceRaw,
+            hasCompletedOnboarding: !evolution.needsOnboardingName,
+            isMacOS: shouldDefaultLaunchIntoStudio
+        )
+        if persistedPrimarySurfaceRaw != resolvedSurfaceRaw {
+            persistedPrimarySurfaceRaw = resolvedSurfaceRaw
+        }
+        guard resolvedSurfaceRaw == PrimarySurface.studio.rawValue else { return }
+        openStudio()
+    }
+
+    private func persistWorkspaceSurface(_ surface: PrimarySurface) {
+        persistedPrimarySurfaceRaw = surface.rawValue
+    }
+
+    private func openMemories() {
+        inFlightTalkTask?.cancel()
+        inFlightTalkTask = nil
+        voice.teardown()
+        orbAudio.stop()
+        showingConversationHistory = false
+        showingNotes = false
+        showingTasks = false
+        showingRecap = false
+        showingMemories = true
+    }
+
     private func openStudio() {
+        let authSession = BackendAuthClient.currentAuthSessionState()
+        switch ThemWorkspaceAuthenticationPolicy.accessDecision(
+            isAuthenticated: authSession.isAuthenticated,
+            accessTokenExpired: authSession.accessExpired,
+            refreshTokenPresent: authSession.refreshTokenPresent,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        ) {
+        case .refreshPersistedSession:
+            restorePersistedAuthSessionAndOpenStudio()
+            return
+        case .requireAccount:
+            openAccount(resumeStudioAfterSignIn: true)
+            return
+        case .openWorkspace:
+            break
+        }
         cancelRealtimeStudioDraftStream(restorePreview: true)
-        if realtimeTransport.isLive || realtimeTransport.isBusy {
+        if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
         }
         evolution.markAsScreenwriter()
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests {
+            uiTestForceStudioSurface = true
+        }
+        #endif
         let evo = evolution
         Task {
             await BackendMemoryAPI.shared.syncEvolutionState(
@@ -3245,6 +4091,8 @@ struct RootExperienceView: View {
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .studio
         }
+        persistWorkspaceSurface(.studio)
+        promoteRestoredLiveDraftToStudioProjectIfNeeded()
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
@@ -3252,19 +4100,88 @@ struct RootExperienceView: View {
         }
     }
 
+    @MainActor
+    private func restorePersistedAuthSessionAndOpenStudio() {
+        guard !isRestoringWorkspaceAuthSession else { return }
+        isRestoringWorkspaceAuthSession = true
+        Task { @MainActor in
+            defer { isRestoringWorkspaceAuthSession = false }
+            do {
+                let restored = try await BackendAuthClient.restorePersistedAuthSessionIfNeeded()
+                guard restored.isAuthenticated, !restored.accessExpired else {
+                    openAccount(resumeStudioAfterSignIn: true)
+                    return
+                }
+                resumeStudioAfterAccountSignIn = false
+                handleAccountSessionChanged()
+                openStudio()
+            } catch {
+                openAccount(resumeStudioAfterSignIn: true)
+                lastIssueSummary = "Your saved session could not be refreshed. Sign in again to continue into Studio."
+            }
+        }
+    }
+
+    private func openAccount(resumeStudioAfterSignIn: Bool = false) {
+        resumeStudioAfterAccountSignIn = resumeStudioAfterSignIn
+        showingProfileAccount = true
+        if resumeStudioAfterSignIn {
+            lastIssueSummary = "Sign in to open Studio and sync your screenplay projects."
+        }
+    }
+
+    @MainActor
+    private func handleAccountSessionChanged() {
+        screenplayDraftBridge.reconcileCharacterVoiceMemoryAccount()
+        let session = BackendAuthClient.currentAuthSessionState()
+        guard session.isAuthenticated, !session.accessExpired else { return }
+
+        scheduleBackendHydration()
+        Task { @MainActor in
+            await screenplayDraftBridge.hydrateBackendCompanionState(force: true)
+        }
+
+        guard resumeStudioAfterAccountSignIn else { return }
+        resumeStudioAfterAccountSignIn = false
+        showingProfileAccount = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            openStudio()
+        }
+    }
+
     private func closeStudio() {
         cancelRealtimeStudioDraftStream(restorePreview: true)
-        if realtimeTransport.isLive || realtimeTransport.isBusy {
+        if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
         }
+        uiTestForceStudioSurface = false
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .home
         }
+        persistWorkspaceSurface(.home)
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: false)
             }
         }
+    }
+
+    private func handleWorkspaceNavigationCommand(_ command: ThemWorkspaceNavigationCommand) {
+        guard !evolution.needsOnboardingName else { return }
+        switch command {
+        case .openStudio:
+            openStudio()
+        case .closeStudio:
+            closeStudio()
+        case .toggleStudio:
+            isStudioSurfaceActive ? closeStudio() : openStudio()
+        }
+    }
+
+    private func handleStudioSurfaceActiveChange(_ isActive: Bool) {
+        voice.isStudioMode = isActive
+        guard isActive else { return }
+        promoteRestoredLiveDraftToStudioProjectIfNeeded()
     }
 
     private func mergedStudioDraft(existing: String, insertion: String) -> String {
@@ -3307,11 +4224,18 @@ struct RootExperienceView: View {
             " i am stuck ",
             " i'm stuck ",
             " im stuck ",
+            " i am spiraling ",
+            " i'm spiraling ",
+            " im spiraling ",
+            " spiraling ",
             " talk me through ",
             " stay with me ",
             " encourage me ",
             " reassure me ",
+            " reassurance ",
             " calm me down ",
+            " overwhelmed ",
+            " anxious ",
             " check in with me ",
             " how are you ",
             " do you think i'm okay "
@@ -3360,7 +4284,7 @@ struct RootExperienceView: View {
         return routedTurns
     }
 
-#if DEBUG || os(macOS)
+#if DEBUG
     private struct DebugStudioPromptStubReply {
         let target: ScreenplayStudioUserPrompt.Target
         let pack: String
@@ -3372,10 +4296,35 @@ struct RootExperienceView: View {
         let insertedText: String
     }
 
-    private var shouldUseDebugStudioPromptStubTransport: Bool {
-        studioDebugSubmitTransportMode
+    private var debugStudioPromptTransportMode: String {
+#if DEBUG
+        if IOThemRuntime.isRunningUITests {
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-studio_debug_submit_transport_mode") {
+                let valueIndex = arguments.index(after: index)
+                if arguments.indices.contains(valueIndex) {
+                    let override = arguments[valueIndex]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    if !override.isEmpty { return override }
+                }
+            }
+        }
+#endif
+        return studioDebugPreferenceString(
+            "studio_debug_submit_transport_mode",
+            fallback: studioDebugSubmitTransportMode
+        )
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() == "stub"
+            .lowercased()
+    }
+
+    private var shouldUseDebugStudioPromptStubTransport: Bool {
+        IOThemRuntime.isStudioAutomationSession && debugStudioPromptTransportMode == "stub"
+    }
+
+    private var shouldUseDebugStudioPromptLiveBackendTransport: Bool {
+        IOThemRuntime.isStudioAutomationSession && debugStudioPromptTransportMode == "live-backend"
     }
 
     private func debugStudioPromptLooksLikeRewriteIntent(_ prompt: String) -> Bool {
@@ -3467,7 +4416,7 @@ struct RootExperienceView: View {
                     detail: "Committed stub replacement write.",
                     requestID: requestID
                 )
-                return ScreenplayCommittedWrite(
+                return screenplayDraftBridge.makeCommittedWrite(
                     id: UUID(),
                     writeID: writeID,
                     previousDraft: existingDraft,
@@ -3489,7 +4438,7 @@ struct RootExperienceView: View {
         let cleanPreviousDraft = existingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let startLine = cleanPreviousDraft.isEmpty ? 1 : previousLines.count + 2
         let insertedLineCount = max(1, cleanInsertedText.components(separatedBy: .newlines).count)
-        return ScreenplayCommittedWrite(
+        return screenplayDraftBridge.makeCommittedWrite(
             id: UUID(),
             writeID: writeID,
             previousDraft: existingDraft,
@@ -3501,6 +4450,36 @@ struct RootExperienceView: View {
             endLine: startLine + insertedLineCount - 1,
             committedAt: Date()
         )
+    }
+
+    private func debugMentionedCharacterName(from prompt: String) -> String? {
+        let knownNames = ["mara", "lucy", "frank", "jess"]
+        let lowercasedPrompt = prompt.lowercased()
+        if let known = knownNames.first(where: { lowercasedPrompt.contains($0) }) {
+            return known.capitalized
+        }
+
+        let ignoredWords: Set<String> = [
+            "Remember",
+            "Scene",
+            "Story",
+            "Screenplay",
+            "Script",
+            "Give",
+            "Tell",
+            "Make",
+            "Write",
+            "Rewrite",
+            "Continue"
+        ]
+        let words = prompt.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words {
+            guard word.count >= 3, !ignoredWords.contains(word) else { continue }
+            if word.first?.isUppercase == true {
+                return word
+            }
+        }
+        return nil
     }
 
     private func makeDebugStudioPromptStubReply(
@@ -3561,9 +4540,7 @@ FRANK looks up, finally forced to meet her.
                 projectID: projectID,
                 versionID: versionID,
                 noteTitle: "Story Development",
-                noteBody: """
-Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the kitchen confrontation land as escalation instead of setup.
-""",
+                noteBody: "Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the kitchen confrontation land as escalation instead of setup.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the private fear visible before the clever line; that makes the wit feel like armor, not decoration." } ?? "")",
                 insertedText: ""
             )
         case .companion:
@@ -3587,9 +4564,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
                 projectID: projectID,
                 versionID: versionID,
                 noteTitle: "Companion + Craft",
-                noteBody: """
-You're carrying both the scene problem and the pressure around it. For the midpoint, give the scene one irreversible choice, then let the emotional fallout arrive in the next beat instead of solving everything at once.
-""",
+                noteBody: "You're carrying both the scene problem and the pressure around it. For the midpoint, give the scene one irreversible choice, then let the emotional fallout arrive in the next beat instead of solving everything at once.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the emotional tell consistent: a joke can hide fear, but the page should still let us feel the fear under it." } ?? "")",
                 insertedText: ""
             )
         }
@@ -3676,6 +4651,90 @@ You're carrying both the scene problem and the pressure around it. For the midpo
     }
 
     @MainActor
+    private func presentCanonClarificationIfNeeded(_ clarification: BackendCanonCorrectionAmbiguity?) {
+        guard let clarification,
+              clarification.isPending,
+              clarification.candidateFacts.count >= 2 else {
+            return
+        }
+        guard pendingCanonClarification?.id != clarification.id else { return }
+        isResolvingCanonClarification = false
+        canonClarificationError = ""
+        withAnimation(.easeInOut(duration: 0.22)) {
+            pendingCanonClarification = clarification
+        }
+    }
+
+    @MainActor
+    private func deferCanonClarification() {
+        guard !isResolvingCanonClarification else { return }
+        canonClarificationError = ""
+        withAnimation(.easeInOut(duration: 0.20)) {
+            pendingCanonClarification = nil
+        }
+    }
+
+    @MainActor
+    private func resolveCanonClarification(_ selectedFacts: [String]) {
+        guard let clarification = pendingCanonClarification,
+              clarification.isPending,
+              !isResolvingCanonClarification else {
+            return
+        }
+        var seen = Set<String>()
+        let cleanFacts = selectedFacts.compactMap { value -> String? in
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty, clarification.candidateFacts.contains(clean) else { return nil }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return clean
+        }
+        guard !cleanFacts.isEmpty, cleanFacts.count == selectedFacts.count else { return }
+
+        isResolvingCanonClarification = true
+        canonClarificationError = ""
+        Task { @MainActor in
+            do {
+                let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
+                    ambiguityID: clarification.id,
+                    selectedFacts: cleanFacts
+                )
+                guard result.payload.ok else {
+                    canonClarificationError = result.payload.message ?? "Clementine could not update canon yet."
+                    isResolvingCanonClarification = false
+                    return
+                }
+                let retiredFacts = result.payload.correctionReceipt?.matchedFacts ?? cleanFacts
+                screenplayDraftBridge.noteResolvedCanonCorrection(
+                    correctionText: clarification.correctionText,
+                    retiredFacts: retiredFacts,
+                    projectId: clarification.projectId,
+                    projectTitle: clarification.projectTitle
+                )
+                withAnimation(.easeInOut(duration: 0.20)) {
+                    pendingCanonClarification = nil
+                }
+                isResolvingCanonClarification = false
+                let count = retiredFacts.count
+                showStudioCommandNotice(
+                    "Canon updated across \(count) \(count == 1 ? "fact" : "facts"). Clementine will use your correction from here forward."
+                )
+                scheduleRealtimeProjectGroundingRefresh(
+                    reason: "canon_clarification_resolved",
+                    stateVersion: result.sync.stateVersion,
+                    projectId: result.payload.correctionReceipt?.projectId ??
+                        clarification.projectId ?? "",
+                    projectTitle: result.payload.correctionReceipt?.projectTitle ??
+                        clarification.projectTitle ?? ""
+                )
+            } catch {
+                isResolvingCanonClarification = false
+                canonClarificationError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
     private func runLocalStudioCommandIfNeeded(
         _ rawText: String,
         source: ScreenplayStudioUserPrompt.Source,
@@ -3707,6 +4766,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
                 return (true, feedback.isError ? feedback.confirmation : nil)
             }
             promptSpeaker.stop()
+            typedReplySpeaker.cancel()
             promptSpeaker.speak(spokenText, style: feedback.spokenStyle)
             let resumeDelay = max(0.95, promptSpeaker.estimatedDuration(for: spokenText, style: feedback.spokenStyle) + 0.35)
             DispatchQueue.main.asyncAfter(deadline: .now() + resumeDelay) {
@@ -3720,6 +4780,35 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         }
 
         return (true, feedback.isError ? feedback.confirmation : nil)
+    }
+
+    @MainActor
+    @discardableResult
+    private func applyConversationalStudioCorrectionIfNeeded(
+        _ rawText: String
+    ) async -> Bool {
+        let clean = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return false }
+        guard isStudioSurfaceActive || screenplayDraftBridge.latestAppliedMemory.hasContent else {
+            return false
+        }
+        guard let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(from: clean) else {
+            return false
+        }
+
+        do {
+            let character = try await screenplayDraftBridge.saveInlineAppliedMemoryCorrection(correction)
+            speculativeTalk.cancel()
+            let confirmation = "Saved correction for \(character)."
+            screenplayDraftBridge.autoInsertStatusText = confirmation
+            showStudioCommandNotice(confirmation)
+            return true
+        } catch {
+            let message = "Memory correction failed: \(error.localizedDescription)"
+            screenplayDraftBridge.autoInsertStatusText = message
+            showStudioCommandNotice(message)
+            return false
+        }
     }
 
     @MainActor
@@ -4190,10 +5279,25 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " rewrite this scene ",
             " continue the scene ",
             " continue this scene ",
+            " continue from here ",
+            " continue the script ",
             " draft the scene ",
             " draft a scene ",
             " draft the next scene ",
             " draft the next beat ",
+            " keep writing ",
+            " keep going from here ",
+            " carry this forward ",
+            " take it from here ",
+            " rewrite it ",
+            " rewrite this ",
+            " rewrite that ",
+            " rewrite the last ",
+            " revise this ",
+            " replace the line ",
+            " replace that line ",
+            " replace the last ",
+            " swap out the line ",
             " play out the full sequence ",
             " play out the whole scene ",
             " full sequence ",
@@ -4201,6 +5305,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " more dialogue ",
             " more beats ",
             " more pages ",
+            " next page ",
             " put this on the page ",
             " put it on the page ",
             " put this in the scene ",
@@ -4260,6 +5365,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " script this ",
             " continue the scene ",
             " continue this scene ",
+            " continue from here ",
+            " continue the script ",
+            " keep writing ",
+            " keep going from here ",
+            " carry this forward ",
+            " take it from here ",
+            " next page ",
             " put this on the page ",
             " put it on the page ",
             " give me the scene ",
@@ -4417,6 +5529,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " what isn't working ",
             " any notes ",
             " feedback ",
+            " coverage ",
+            " diagnose ",
+            " scene doctor ",
+            " doctor this ",
+            " doctor the scene ",
+            " fix this scene ",
+            " why isn't this working ",
+            " why isnt this working ",
             " give me notes ",
             " what do you think ",
             " does this work ",
@@ -4535,22 +5655,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return "Captured note."
         }
 
-        if let email = result.emailAction, email.composed {
-            let to = (email.to ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !to.isEmpty {
-                return "Opened email draft to \(to)."
-            }
-            return "Opened email draft."
-        }
-
-        if let calendar = result.calendarAction, calendar.composed {
-            let title = (calendar.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !title.isEmpty {
-                return "Opened calendar draft: \(title)"
-            }
-            return "Opened calendar draft."
-        }
-
         return ""
     }
 
@@ -4559,7 +5663,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
            !(result.taskAction?.status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
             return "Task"
         }
-        if result.noteAction?.captured == true || result.emailAction?.composed == true || result.calendarAction?.composed == true {
+        if result.noteAction?.captured == true {
             return "Task"
         }
 
@@ -4649,7 +5753,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             preferredTarget: requestedPromptTarget == .page ? .page : .voicePin
         )
         let promptTarget: ScreenplayStudioUserPrompt.Target
-        if !cleanInsertedText.isEmpty {
+        if requestedPromptTarget == .voicePin {
+            promptTarget = .voicePin
+        } else if !cleanInsertedText.isEmpty {
             promptTarget = .page
         } else if memoryDomain == .companion {
             promptTarget = .voicePin
@@ -4746,6 +5852,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func promoteRestoredLiveDraftToStudioProjectIfNeeded() {
+        let cleanProjectID = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackProjectID = liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectID = cleanProjectID.isEmpty ? fallbackProjectID : cleanProjectID
+        let cleanPack = screenplayDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhase = screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        autoCreateStudioProjectIfNeeded(
+            draft: screenplayDraftBridge.draftText,
+            pack: cleanPack.isEmpty ? liveScreenplayPack : cleanPack,
+            phase: cleanPhase.isEmpty ? liveScreenplayPhase : cleanPhase,
+            existingProjectID: projectID
+        )
+    }
+
+    @MainActor
     private func autoCreateStudioProjectIfNeeded(
         draft: String,
         pack: String,
@@ -4753,17 +5875,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
         existingProjectID: String
     ) {
         let cleanDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isStudioSurfaceActive else { return }
-        guard !cleanDraft.isEmpty else { return }
-
         let knownProjectID = existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard knownProjectID.isEmpty else { return }
-        guard !isAutoCreatingStudioProject else { return }
-
         let createKey = utteranceFingerprint(Data("\(cleanDraft)|\(pack)|\(phase)".utf8))
-        guard createKey != lastAutoCreatedStudioProjectKey else { return }
+        guard ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: isStudioSurfaceActive,
+            draft: cleanDraft,
+            existingProjectID: knownProjectID,
+            isAutoCreatingProject: isAutoCreatingStudioProject,
+            createKey: createKey,
+            lastCreateKey: lastAutoCreatedStudioProjectKey
+        ) else {
+            return
+        }
 
         isAutoCreatingStudioProject = true
         screenplayDraftBridge.autoInsertStatusText = "Creating a Studio project for this script..."
@@ -4830,7 +5955,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
-        realtimePendingUserTranscript = ""
+        cancelRealtimeRecovery(clearTurn: true)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
@@ -4839,6 +5964,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         voice.teardown()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
     }
 
     private func openMicrophoneSettings() {
@@ -4900,6 +6026,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if let evolutionSync = session?.evolutionSync {
                 evolution.seedFromBackend(evolutionSync)
             }
+            applySessionContinuity(session?.continuity)
             let health = try await BackendMemoryAPI.shared.fetchHealth()
             lastHealthStatus = health
             if health.ok {
@@ -4915,16 +6042,46 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     historyLimit: 1,
                     memoriesLimit: 1
                 )
+                if let continuity = delta?.payload.continuity {
+                    applySessionContinuity(continuity)
+                }
                 if let deltaSync = delta?.sync, !deltaSync.stateVersion.isEmpty {
                     localStateVersion = deltaSync.stateVersion
                 } else {
                     localStateVersion = sync.stateVersion
+                }
+            } else if session?.continuity == nil {
+                let delta = try? await BackendMemoryAPI.shared.fetchStateDelta(
+                    sinceVersion: "",
+                    sinceTurnId: nil,
+                    historyLimit: 1,
+                    memoriesLimit: 1
+                )
+                if let continuity = delta?.payload.continuity {
+                    applySessionContinuity(continuity)
+                }
+                if let deltaSync = delta?.sync, !deltaSync.stateVersion.isEmpty {
+                    localStateVersion = deltaSync.stateVersion
                 }
             }
             let latestSync = await BackendMemoryAPI.shared.currentSyncState()
             await hydrateRecentTurnWindowFromBackend(sync: latestSync, force: recentTurnWindow.isEmpty)
         } catch {
             markBackendUnavailable(reason: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func applySessionContinuity(_ continuity: BackendSessionContinuitySnapshot?) {
+        guard let continuity, continuity.isMeaningful else {
+            sessionContinuitySnapshot = nil
+            return
+        }
+        let previousFingerprint = sessionContinuitySnapshot.map(sessionContinuityFingerprint)
+        let nextFingerprint = sessionContinuityFingerprint(continuity)
+        sessionContinuitySnapshot = continuity
+        if previousFingerprint != nextFingerprint || !screenplayDraftBridge.companionSignalState.hasContent {
+            screenplayDraftBridge.applyRestoredSessionContinuitySignal(continuity, persist: true)
         }
     }
 
@@ -4950,6 +6107,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var didStartEarlyStreamPlayback = false
         var didRecordAssistantPlaybackStart = false
         var didStartSyncedVoiceInsert = false
+        var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
         var pendingStreamRemainderURL: URL?
@@ -4959,12 +6117,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugSyncedPlaybackSeekFromMs: Int?
         var debugSyncedPlaybackSeekToMs: Int?
         var debugSyncedPlaybackTimeAdjustment: TimeInterval = 0
+        let clientLatencyTurnID = "turn-based-\(UUID().uuidString.lowercased())"
+        let clientLatencyStartedAt = Date()
 
         func resolvedDebugSyncedPlaybackObservation(
             from observation: SegmentedPlaybackObservation?
         ) -> SegmentedPlaybackObservation? {
             guard var observation else { return nil }
-#if DEBUG || os(macOS)
+#if DEBUG
+            guard IOThemRuntime.isStudioAutomationSession else { return observation }
             let freezeAfterMs = max(
                 UserDefaults.standard.integer(forKey: "studio_debug_freeze_synced_voice_playback_after_ms"),
                 0
@@ -5062,6 +6223,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugTimingSource = ""
         var debugScreenplayOutputTarget = ""
         var debugScreenplayOutputSource = ""
+        var debugScreenplayQualityReason = ""
+        var debugScreenplayQualityConfidence = ""
+        var debugScreenplayQualityFeatureAct = ""
+        var debugScreenplayRepairAttempted = false
+        var debugScreenplayRepairOutcome = ""
+        var debugScreenplayRepairMs: Int?
+        var debugScreenplayRepairReason = ""
+        var debugCreativeMemoryApplied = false
+        var debugCreativeMemoryProjectID = ""
+        var debugCreativeMemoryProjectTitle = ""
+        var debugCreativeMemoryCharacterCount = 0
+        var debugCreativeMemoryEpisodicCount = 0
+        var debugCreativeMemoryCorrectionCount = 0
+        var debugCreativeMemoryCharacters: [String] = []
+        var debugCreativeMemoryCorrectedTerms: [String] = []
+        var debugCreativeMemoryCorrectionReplacements: [String] = []
+        var debugCreativeMemoryEpisodeSummaries: [String] = []
         var debugScreenplayOutputText = ""
         var debugScreenplayCues: [BackendTalkScreenplayCue] = []
         var debugDialogueTimeline: BackendTalkDialogueTimelineRevision?
@@ -5088,6 +6266,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if syncedState.phase == .completed, !authoritativeText.isEmpty {
                 debugFinalCommittedPageText = authoritativeText
             }
+        }
+
+        func updateDebugCreativeMemoryTrace(_ trace: BackendTalkCreativeMemoryTrace) {
+            debugCreativeMemoryApplied = trace.applied
+            debugCreativeMemoryProjectID = (trace.projectId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugCreativeMemoryProjectTitle = (trace.projectTitle ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugCreativeMemoryCharacterCount = trace.characterCount
+            debugCreativeMemoryEpisodicCount = trace.episodicCount
+            debugCreativeMemoryCorrectionCount = trace.correctionCount
+            debugCreativeMemoryCharacters = trace.characters
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            debugCreativeMemoryCorrectedTerms = trace.correctedTerms
+            debugCreativeMemoryCorrectionReplacements = trace.correctionReplacements
+            debugCreativeMemoryEpisodeSummaries = trace.episodic
+                .map { episode in
+                    let summary = episode.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !summary.isEmpty { return summary }
+                    return episode.excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                .filter { !$0.isEmpty }
         }
 
         func finalizeDebugVoiceTurn(status: String, error: String = "") {
@@ -5141,6 +6342,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 timingSource: debugTimingSource,
                 screenplayOutputTarget: debugScreenplayOutputTarget,
                 screenplayOutputSource: debugScreenplayOutputSource,
+                screenplayQualityReason: debugScreenplayQualityReason,
+                screenplayQualityConfidence: debugScreenplayQualityConfidence,
+                screenplayQualityFeatureAct: debugScreenplayQualityFeatureAct,
+                screenplayRepairAttempted: debugScreenplayRepairAttempted,
+                screenplayRepairOutcome: debugScreenplayRepairOutcome,
+                screenplayRepairMs: debugScreenplayRepairMs,
+                screenplayRepairReason: debugScreenplayRepairReason,
+                creativeMemoryApplied: debugCreativeMemoryApplied,
+                creativeMemoryProjectID: debugCreativeMemoryProjectID,
+                creativeMemoryProjectTitle: debugCreativeMemoryProjectTitle,
+                creativeMemoryCharacterCount: debugCreativeMemoryCharacterCount,
+                creativeMemoryEpisodicCount: debugCreativeMemoryEpisodicCount,
+                creativeMemoryCorrectionCount: debugCreativeMemoryCorrectionCount,
+                creativeMemoryCharacters: debugCreativeMemoryCharacters,
+                creativeMemoryCorrectedTerms: debugCreativeMemoryCorrectedTerms,
+                creativeMemoryCorrectionReplacements: debugCreativeMemoryCorrectionReplacements,
+                creativeMemoryEpisodeSummaries: debugCreativeMemoryEpisodeSummaries,
                 screenplayOutputText: debugScreenplayOutputText,
                 screenplayCues: debugScreenplayCues,
                 dialogueTimeline: debugDialogueTimeline,
@@ -5188,13 +6406,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
 
+#endif
         let playbackObservationProvider: (@MainActor @Sendable () -> SegmentedPlaybackObservation?) = {
             resolvedDebugSyncedPlaybackObservation(from: syncedPlaybackClock.currentObservation)
         }
         let playbackTimeProvider: (@MainActor @Sendable () -> TimeInterval?) = {
             playbackObservationProvider()?.currentTime
         }
-#endif
 
         func beginSyncedPlaybackClockSegment(for url: URL) {
             let expectedDuration = audioDurationSeconds(at: url) ?? 0
@@ -5228,6 +6446,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
             }
             voice.markAssistantPlaybackEnded()
+            if activeTurnBasedLatencyTurnID == clientLatencyTurnID {
+                activeTurnBasedLatencyTurnID = ""
+            }
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -5264,7 +6485,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             pendingStreamRemainderURL = nil
             do {
-                voice.stopRecording()
                 HerLog.audio.info("playing stream remainder path=\(remainderURL.path, privacy: .public)")
                 try orbAudio.play(url: remainderURL, onFinish: {
                     Task { @MainActor in
@@ -5365,6 +6585,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return
         }
+        clientLatency.beginTurn(
+            id: clientLatencyTurnID,
+            transport: .turnBasedVoice,
+            at: clientLatencyStartedAt
+        )
+        _ = await applyConversationalStudioCorrectionIfNeeded(
+            preparedPrompt.directorText
+        )
         let shouldUseSyncedStudioVoiceInsert =
             preparedPrompt.useScreenplayMode &&
             preparedPrompt.shouldWriteToPage &&
@@ -5482,6 +6710,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 #endif
         screenplayDraftBridge.onSyncedInsertLifecycleEvent = { event, plan, appliedCueCount, interruptionReason in
+            if event == "cancelled" {
+                didInterruptSyncedVoiceInsert = true
+            }
 #if DEBUG || os(macOS)
             guard let debugVoiceTurnToken else { return }
             let detail: String
@@ -5560,7 +6791,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         func startSyncedVoiceInsertIfPossible(trigger: String, audioURL: URL? = nil) {
             guard shouldUseSyncedStudioVoiceInsert else { return }
             guard !didStartSyncedVoiceInsert else { return }
+            guard !didInterruptSyncedVoiceInsert else { return }
             guard didRecordAssistantPlaybackStart else { return }
+            guard screenplayDraftBridge.syncedVoiceTurnState.interruptionReason == nil else { return }
             let cleanText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanText.isEmpty else { return }
@@ -5606,23 +6839,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
                 persistDebugVoiceTurnProgress()
             }
-            let debugCancelAfterMs = UserDefaults.standard.integer(forKey: "studio_debug_cancel_synced_voice_insert_after_ms")
-            if debugCancelAfterMs > 0 {
-                debugSyncedInsertCancelTask?.cancel()
-                debugSyncedInsertCancelTask = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: UInt64(debugCancelAfterMs) * 1_000_000)
-                    guard !Task.isCancelled else { return }
-                    screenplayDraftBridge.cancelStream(reason: .cancel)
-                    appendStudioDebugVoiceDraftBreadcrumb(
-                        event: "synced_insert_cancelled",
-                        detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms. reason=cancel",
-                        interruptionReason: ScreenplaySyncedInsertInterruptionReason.cancel.rawValue,
-                        replyPreview: String(cleanText.prefix(220)),
-                        tokenOverride: debugVoiceTurnToken,
-                        promptPreviewOverride: preparedPrompt.directorText
-                    )
+            #if DEBUG
+            if IOThemRuntime.isStudioAutomationSession {
+                let debugCancelAfterMs = UserDefaults.standard.integer(
+                    forKey: "studio_debug_cancel_synced_voice_insert_after_ms"
+                )
+                if debugCancelAfterMs > 0 {
+                    debugSyncedInsertCancelTask?.cancel()
+                    debugSyncedInsertCancelTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: UInt64(debugCancelAfterMs) * 1_000_000)
+                        guard !Task.isCancelled else { return }
+                        screenplayDraftBridge.cancelStream(reason: .cancel)
+                        appendStudioDebugVoiceDraftBreadcrumb(
+                            event: "synced_insert_cancelled",
+                            detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms. reason=cancel",
+                            interruptionReason: ScreenplaySyncedInsertInterruptionReason.cancel.rawValue,
+                            replyPreview: String(cleanText.prefix(220)),
+                            tokenOverride: debugVoiceTurnToken,
+                            promptPreviewOverride: preparedPrompt.directorText
+                        )
+                    }
                 }
             }
+            #endif
 #endif
         }
 
@@ -5742,6 +6981,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
                         Task { @MainActor in
+                            if preparedPrompt.useScreenplayMode {
+                                screenplayDraftBridge.updateScreenplayQualityStatus(
+                                    quality: metadata.screenplayQuality,
+                                    output: metadata.screenplayOutput
+                                )
+                            }
+                            presentCanonClarificationIfNeeded(
+                                metadata.creativeMemoryTrace.canonClarification
+                            )
 #if DEBUG || os(macOS)
                             debugTimingSource = metadata.timingSource?
                                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
@@ -5753,6 +7001,25 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 debugScreenplayOutputText = screenplayOutput.text
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                             }
+                            if let quality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality {
+                                debugScreenplayQualityReason = quality.reason
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayQualityConfidence = quality.confidence
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            debugScreenplayRepairAttempted = metadata.screenplayTrace.repairAttempted
+                            debugScreenplayRepairOutcome = metadata.screenplayTrace.repairOutcome
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            debugScreenplayRepairMs = metadata.screenplayTrace.repairMs
+                            debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            updateDebugCreativeMemoryTrace(metadata.creativeMemoryTrace)
+                            self.screenplayDraftBridge.noteTalkCreativeMemoryTrace(
+                                metadata.creativeMemoryTrace,
+                                source: "talk_response_metadata"
+                            )
                             if !metadata.screenplayCues.isEmpty {
                                 debugScreenplayCues = metadata.screenplayCues
                             }
@@ -5766,9 +7033,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                                 let headerTimingSource = metadata.timingSource?
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerQuality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality
+                                let headerQualityReason = headerQuality?.reason
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerQualityConfidence = headerQuality?.confidence
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerRepairOutcome = metadata.screenplayTrace.repairOutcome
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                let headerRepairMs = metadata.screenplayTrace.repairMs ?? 0
+                                let memoryCharacters = metadata.creativeMemoryTrace.characters
+                                    .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                    .filter { !$0.isEmpty }
+                                    .prefix(4)
+                                    .joined(separator: ",")
+                                let memoryCorrections = metadata.creativeMemoryTrace.correctionReplacements
+                                    .prefix(3)
+                                    .joined(separator: ",")
+                                    .replacingOccurrences(of: " ", with: "_")
                                 appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "talk_response_metadata_ready",
-                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) cue_count=\(metadata.screenplayCues.count)",
+                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) memory_applied=\(metadata.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(metadata.creativeMemoryTrace.characterCount) memory_episodes=\(metadata.creativeMemoryTrace.episodicCount) memory_corrections=\(metadata.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(metadata.screenplayCues.count)",
                                     replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
                                     tokenOverride: debugVoiceTurnToken,
                                     promptPreviewOverride: preparedPrompt.directorText
@@ -5827,13 +7111,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 )
                             }
 #endif
-                            voice.stopRecording()
+                            voice.resumeRecordingIfNeeded()
                             do {
                                 try orbAudio.play(url: firstSegmentURL, onFinish: {
                                     Task { @MainActor in
                                         playStreamRemainderOrFinish()
                                     }
                                 })
+                                activeTurnBasedLatencyTurnID = clientLatencyTurnID
+                                clientLatency.recordFirstAudio(turnID: clientLatencyTurnID)
                                 syncedPlaybackClock.reset()
                                 beginSyncedPlaybackClockSegment(for: firstSegmentURL)
                                 if shouldUseSyncedStudioVoiceInsert {
@@ -5868,6 +7154,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onTextReady: { rawReply in
                         Task { @MainActor in
+                            if !rawReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+                            }
                             guard preparedPrompt.useScreenplayMode else { return }
                             guard preparedPrompt.shouldWriteToPage else { return }
                             guard isStudioSurfaceActive else { return }
@@ -5929,6 +7218,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             didReceiveTalkResponse = true
+            if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+            }
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -5949,6 +7241,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             withAnimation(.easeInOut(duration: 0.45)) {
                 uiReflection = result.uiReflection
             }
+            if let emotionLane = result.voiceEmotionLane?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !emotionLane.isEmpty {
+                lastClementineEmotionLane = emotionLane
+            }
             HerLog.ui.info(
                 "ui reflection cycle=\(result.uiReflection.cycleIndex) sat=\(result.uiReflection.orbSaturation) react=\(result.uiReflection.orbReactivity) smooth=\(result.uiReflection.orbSmoothing) voice_speed=\(result.uiReflection.voiceSpeed) guard=\(result.uiReflection.overAttachmentSafeguardActive)"
             )
@@ -5956,6 +7253,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastKnowledgeConfidenceClass = result.knowledgeTrace.confidenceClass
             lastKnowledgeContradictionRisk = min(max(result.knowledgeTrace.contradictionRisk, 0), 1)
             updateTransientTurnBanner(from: result)
+            presentCanonClarificationIfNeeded(result.creativeMemoryTrace.canonClarification)
+            if preparedPrompt.useScreenplayMode {
+                screenplayDraftBridge.updateScreenplayQualityStatus(
+                    quality: result.screenplayQuality,
+                    output: result.screenplayOutput
+                )
+            }
 #if DEBUG || os(macOS)
             debugTimingSource = (result.timingSource ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5971,6 +7275,25 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 debugScreenplayOutputText = screenplayOutput.text
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            if let quality = result.screenplayQuality ?? result.screenplayOutput?.quality {
+                debugScreenplayQualityReason = quality.reason
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayQualityConfidence = quality.confidence
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            debugScreenplayRepairAttempted = result.screenplayTrace.repairAttempted
+            debugScreenplayRepairOutcome = result.screenplayTrace.repairOutcome
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugScreenplayRepairMs = result.screenplayTrace.repairMs
+            debugScreenplayRepairReason = (result.screenplayTrace.repairReason ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            updateDebugCreativeMemoryTrace(result.creativeMemoryTrace)
+            screenplayDraftBridge.noteTalkCreativeMemoryTrace(
+                result.creativeMemoryTrace,
+                source: "talk_result"
+            )
             if let debugVoiceTurnToken {
                 let resolvedOutputTarget = result.screenplayOutput?.target
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -5978,9 +7301,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let resolvedTimingSource = (result.timingSource ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedQuality = result.screenplayQuality ?? result.screenplayOutput?.quality
+                let resolvedQualityReason = resolvedQuality?.reason
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedQualityConfidence = resolvedQuality?.confidence
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedRepairOutcome = result.screenplayTrace.repairOutcome
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedRepairMs = result.screenplayTrace.repairMs ?? 0
+                let memoryCharacters = result.creativeMemoryTrace.characters
+                    .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .prefix(4)
+                    .joined(separator: ",")
+                let memoryCorrections = result.creativeMemoryTrace.correctionReplacements
+                    .prefix(3)
+                    .joined(separator: ",")
+                    .replacingOccurrences(of: " ", with: "_")
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_result_received_meta",
-                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) cue_count=\(result.screenplayCues.count)",
+                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) repair_attempted=\(result.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(resolvedRepairOutcome.isEmpty ? "none" : resolvedRepairOutcome) repair_ms=\(resolvedRepairMs) memory_applied=\(result.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(result.creativeMemoryTrace.characterCount) memory_episodes=\(result.creativeMemoryTrace.episodicCount) memory_corrections=\(result.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(result.screenplayCues.count)",
                     replyPreview: String((result.screenplayOutput?.text ?? result.reply ?? "").prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText
@@ -6078,7 +7418,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         debugVoiceTurnToken: debugVoiceTurnToken,
                         promptPreviewOverride: preparedPrompt.directorText
                     )
-                    screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                    restoreRealtimeStudioDraftPreview()
                 }
             }
             let effectiveInsertedScreenplayText: String? = {
@@ -6190,8 +7530,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
 
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
-            handleEmailComposeIfNeeded(result.emailAction, turnId: result.commit?.turnId)
-            handleCalendarComposeIfNeeded(result.calendarAction, turnId: result.commit?.turnId)
             isThinking = false
             if didStartEarlyStreamPlayback {
                 pendingStreamRemainderURL = result.streamedRemainderURL
@@ -6211,13 +7549,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     )
                 }
 #endif
-                voice.stopRecording()
+                voice.resumeRecordingIfNeeded()
                 HerLog.audio.info("AUDIO file path=\(result.audioURL.path, privacy: .public)")
                 try orbAudio.play(url: result.audioURL, onFinish: {
                     Task { @MainActor in
                         finishPlaybackAndResumeMic()
                     }
                 })
+                activeTurnBasedLatencyTurnID = clientLatencyTurnID
+                clientLatency.recordFirstAudio(turnID: clientLatencyTurnID)
                 syncedPlaybackClock.reset()
                 beginSyncedPlaybackClockSegment(for: result.audioURL)
                 if shouldUseSyncedStudioVoiceInsert {
@@ -6272,15 +7612,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
-        } catch {
-            markBackendUnavailable(reason: error.localizedDescription)
-            lastIssueSummary = error.localizedDescription
-            let committedSyncedFallback = commitSyncedVoiceFallbackIfNeeded(
-                trigger: "talk_or_playback_error",
-                markCompleted: true
-            )
-            if shouldUseSyncedStudioVoiceInsert, committedSyncedFallback == nil {
-                screenplayDraftBridge.failSyncedVoiceTurn(reason: error.localizedDescription)
+        } catch let queued as BackendTalkQueuedError {
+            backendConnectionState = .reconnecting
+            backendFailureCount = max(backendFailureCount, 1)
+            offlineTalkOutboxSnapshot = queued.snapshot
+            lastIssueSummary = queued.reason
+            isThinking = false
+            showOfflineTalkOutboxBanner(queued.localizedDescription)
+            if shouldUseSyncedStudioVoiceInsert {
+                screenplayDraftBridge.failSyncedVoiceTurn(reason: queued.localizedDescription)
             }
             if didStartEarlyStudioDraftStream {
                 cancelRealtimeStudioDraftStream(
@@ -6293,10 +7633,40 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 orbAudio.stop()
             }
             voice.markRequestFailed()
-            HerLog.ui.error("playback error=\(error.localizedDescription, privacy: .public), resume mic")
+            HerLog.ui.info("talk request queued for offline retry")
             voice.resumeRecordingIfNeeded()
 #if DEBUG || os(macOS)
-            finalizeDebugVoiceTurn(status: "error", error: error.localizedDescription)
+            finalizeDebugVoiceTurn(status: "queued", error: queued.localizedDescription)
+#endif
+        } catch {
+            let authRequiredMessage = noteAuthRequiredIfNeeded(error)
+            let failureReason = authRequiredMessage ?? error.localizedDescription
+            if authRequiredMessage == nil {
+                markBackendUnavailable(reason: failureReason)
+                lastIssueSummary = failureReason
+            }
+            let committedSyncedFallback = commitSyncedVoiceFallbackIfNeeded(
+                trigger: "talk_or_playback_error",
+                markCompleted: true
+            )
+            if shouldUseSyncedStudioVoiceInsert, committedSyncedFallback == nil {
+                screenplayDraftBridge.failSyncedVoiceTurn(reason: failureReason)
+            }
+            if didStartEarlyStudioDraftStream {
+                cancelRealtimeStudioDraftStream(
+                    restorePreview: true,
+                    debugVoiceTurnToken: debugVoiceTurnToken,
+                    promptPreviewOverride: preparedPrompt.directorText
+                )
+            }
+            if didStartEarlyStreamPlayback {
+                orbAudio.stop()
+            }
+            voice.markRequestFailed()
+            HerLog.ui.error("playback error=\(failureReason, privacy: .public), resume mic")
+            voice.resumeRecordingIfNeeded()
+#if DEBUG || os(macOS)
+            finalizeDebugVoiceTurn(status: "error", error: failureReason)
 #endif
         }
     }
@@ -6309,19 +7679,50 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async -> String? {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
-        guard !isTurnSubmitting else { return "io.them is already working on the current turn." }
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_submit_started", forKey: "studio_debug_root_submit_stage")
+        setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")
+        setStudioDebugPreferenceString(requestID ?? "", forKey: "studio_debug_root_submit_request_id")
+        setStudioDebugPreferenceString("", forKey: "studio_debug_root_submit_error")
+        #if DEBUG
+        if shouldUseDebugStudioPromptLiveBackendTransport {
+            prepareBackendForStudioDebugVoiceTurn()
+            setStudioDebugPreferenceString("root_submit_backend_pinned", forKey: "studio_debug_root_submit_stage")
+        }
+        #endif
+#endif
+        guard !isTurnSubmitting else {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_busy", forKey: "studio_debug_root_submit_stage")
+#endif
+            return "io.them is already working on the current turn."
+        }
         let localCommand = runLocalStudioCommandIfNeeded(
             cleanPrompt,
             source: .typed,
             shouldSpeakConfirmation: false
         )
         if localCommand.handled {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_local_command", forKey: "studio_debug_root_submit_stage")
+#endif
             return localCommand.error
         }
         if voiceTransportMode == .realtimePreview,
            realtimeTransport.isLive || realtimeTransport.isBusy {
             realtimeTransport.disconnect()
         }
+
+        let cleanRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let clientLatencyTurnID = cleanRequestID.isEmpty
+            ? "studio-\(UUID().uuidString.lowercased())"
+            : cleanRequestID
+        let clientLatencyStartedAt = Date()
+        clientLatency.beginTurn(
+            id: clientLatencyTurnID,
+            transport: .studioTypedSpeech,
+            at: clientLatencyStartedAt
+        )
 
         isTurnSubmitting = true
         isThinking = true
@@ -6331,10 +7732,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isThinking = false
             studioTypedPromptRoutingMode = .automatic
         }
+        _ = await applyConversationalStudioCorrectionIfNeeded(
+            cleanPrompt
+        )
 
         let store = HerEvolutionStore.shared
         let directorText = cleanPrompt
         let memoryDomain = studioMemoryDomain(for: cleanPrompt, preferredTarget: routingMode)
+        screenplayDraftBridge.latestMemoryDomain = memoryDomain
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString(memoryDomain.rawValue, forKey: "studio_debug_last_memory_domain")
+#endif
         if memoryDomain != .companion {
             HerEvolutionStore.shared.noteCreativeContext(from: cleanPrompt, isScreenplayMode: true)
         }
@@ -6362,15 +7770,40 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: true
         )
         let confirmedStudioStoryContext = confirmedStudioPageWriteContext(for: cleanPrompt)
+        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanPrompt, preferredTarget: routingMode)
         let renderTranscript = studioRenderTranscript(
             for: cleanPrompt,
             confirmedContext: confirmedStudioStoryContext,
-            preferredTarget: routingMode
+            preferredTarget: shouldWriteToPage ? .page : routingMode
         )
-        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanPrompt, preferredTarget: routingMode)
         if !shouldWriteToPage {
-            screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+            restoreRealtimeStudioDraftPreview()
         }
+
+#if DEBUG
+        if shouldUseDebugStudioPromptStubTransport {
+            let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)
+                : "studio-stub-\(UUID().uuidString.lowercased())"
+            let stub = makeDebugStudioPromptStubReply(
+                prompt: cleanPrompt,
+                memoryDomain: memoryDomain,
+                shouldWriteToPage: shouldWriteToPage
+            )
+            applyDebugStudioPromptStubReply(
+                stub,
+                prompt: cleanPrompt,
+                requestID: requestToken,
+                memoryDomain: memoryDomain
+            )
+            self.transcript = cleanPrompt
+            livePartialTranscript = ""
+            lastNonEmptyPartialTranscriptHint = ""
+            speculativeTalk.cancel()
+            return nil
+        }
+#endif
+
         let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
@@ -6434,38 +7867,33 @@ Write this approved story direction directly into screenplay pages now. Maintain
             companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
             companionSignals: companionSignals
         )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_prompt_build_started", forKey: "studio_debug_root_submit_stage")
+#endif
         let systemPrompt = await buildCanonicalModelPrompt(
             baseSystemPrompt,
             userMessage: cleanPrompt,
             isScreenplayMode: true,
-            shouldWriteToPage: shouldWriteToPage
-        )
-
-#if DEBUG || os(macOS)
-        if shouldUseDebugStudioPromptStubTransport {
-            let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)
-                : "studio-stub-\(UUID().uuidString.lowercased())"
-            let stub = makeDebugStudioPromptStubReply(
-                prompt: cleanPrompt,
-                memoryDomain: memoryDomain,
+            shouldWriteToPage: shouldWriteToPage,
+            featureWorkflowRequestID: requestID,
+            includeVisualContext: !shouldSkipVisualContextForStudioDraftTurn(
+                isScreenplayMode: true,
                 shouldWriteToPage: shouldWriteToPage
             )
-            applyDebugStudioPromptStubReply(
-                stub,
-                prompt: cleanPrompt,
-                requestID: requestToken,
-                memoryDomain: memoryDomain
-            )
-            self.transcript = cleanPrompt
-            livePartialTranscript = ""
-            lastNonEmptyPartialTranscriptHint = ""
-            speculativeTalk.cancel()
-            return nil
-        }
+        )
+        let studioRenderMetadata = studioRenderRequestMetadata(
+            promptSource: .typed,
+            shouldWriteToPage: shouldWriteToPage,
+            requestID: requestID
+        )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_prompt_build_finished", forKey: "studio_debug_root_submit_stage")
 #endif
 
         do {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_render_started", forKey: "studio_debug_root_submit_stage")
+#endif
             HerLog.talk.info("STUDIO render text sending chars=\(renderTranscript.count)")
 
             let renderedReply: String
@@ -6475,50 +7903,128 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: shouldWriteToPage
             )
+            let shouldSpeakTypedReply = studioTypedReplyAudioEnabled
+            if shouldSpeakTypedReply {
+                orbAudio.stop()
+                promptSpeaker.stop()
+                typedReplySpeaker.begin(
+                    turnID: clientLatencyTurnID
+                )
+            } else {
+                typedReplySpeaker.cancel()
+            }
+            let studioRenderTimeoutSeconds = shouldWriteToPage ? 75.0 : 30.0
             if shouldStreamStudioPageWrite {
                 realtimeStudioRenderUserMessage = cleanPrompt
                 realtimeStudioRenderedReply = ""
+                resetRealtimeStudioDraftPreviewThrottle()
                 let requestRender = {
                     do {
-                        return try await backend.streamRealtimeStudioText(
-                            transcript: renderTranscript,
-                            systemPrompt: systemPrompt,
-                            onPartial: { partial in
-                                await MainActor.run {
-                                    guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
-                                    self.realtimeStudioRenderedReply = partial
-                                    self.applyRealtimeStudioDraftPreview(
-                                        userMessage: cleanPrompt,
-                                        assistantMessage: partial
-                                    )
+                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                            let result = try await backend.streamRealtimeStudioResult(
+                                transcript: renderTranscript,
+                                systemPrompt: systemPrompt,
+                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                                studioMetadata: studioRenderMetadata,
+                                onPartial: { partial in
+                                    await MainActor.run {
+                                        guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
+                                        self.realtimeStudioRenderedReply = partial
+                                        if !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            self.clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+                                        }
+                                        if shouldSpeakTypedReply && self.studioTypedReplyAudioEnabled {
+                                            self.typedReplySpeaker.consume(cumulativeText: partial)
+                                        } else if !self.studioTypedReplyAudioEnabled {
+                                            self.typedReplySpeaker.cancel()
+                                        }
+                                        if shouldWriteToPage,
+                                           self.shouldApplyRealtimeStudioDraftPreview(partial) {
+                                            self.applyRealtimeStudioDraftPreview(
+                                                userMessage: cleanPrompt,
+                                                assistantMessage: partial
+                                            )
+                                        }
+                                    }
+                                },
+                                onTrace: { trace in
+                                    guard let memoryApplied = trace.memoryApplied else { return }
+                                    await MainActor.run {
+                                        self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                            memoryApplied,
+                                            source: "typed_stream_\(trace.kind)"
+                                        )
+                                    }
                                 }
+                            )
+                            await MainActor.run {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    result.memoryApplied,
+                                    source: "typed_stream_done"
+                                )
+                                self.applyRealtimeStudioScreenplayQuality(result.screenplayQuality)
                             }
-                        )
+                            return result.reply
+                        }
                     } catch {
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
-                        screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
-                        HerLog.talk.info("STUDIO render stream empty -> fallback to one-shot render")
-                        return try await backend.renderRealtimeStudioText(
-                            transcript: renderTranscript,
-                            systemPrompt: systemPrompt
-                        )
+                        restoreRealtimeStudioDraftPreview()
+                        if shouldSpeakTypedReply {
+                            typedReplySpeaker.begin(
+                                turnID: clientLatencyTurnID
+                            )
+                        }
+                        HerLog.talk.info("STUDIO render stream unconfirmed -> fallback to one-shot render")
+                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                            let result = try await backend.renderRealtimeStudioResult(
+                                transcript: renderTranscript,
+                                systemPrompt: systemPrompt,
+                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                                studioMetadata: studioRenderMetadata
+                            )
+                            await MainActor.run {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    result.memoryApplied,
+                                    source: "typed_fallback"
+                                )
+                                self.applyRealtimeStudioScreenplayQuality(result.screenplayQuality)
+                            }
+                            return result.reply
+                        }
                     }
                 }
                 do {
                     renderedReply = try await requestRender()
                 } catch {
-                    screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                    restoreRealtimeStudioDraftPreview()
                     guard shouldRetryTalkOnce(for: error) else { throw error }
+                    if shouldSpeakTypedReply {
+                        typedReplySpeaker.begin(
+                            turnID: clientLatencyTurnID
+                        )
+                    }
                     HerLog.talk.info("transient STUDIO render failure, retrying once")
                     try await Task.sleep(nanoseconds: 250_000_000)
                     renderedReply = try await requestRender()
                 }
             } else {
                 let requestRender = {
-                    try await backend.renderRealtimeStudioText(
-                        transcript: renderTranscript,
-                        systemPrompt: systemPrompt
-                    )
+                    try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                        let result = try await backend.renderRealtimeStudioResult(
+                            transcript: renderTranscript,
+                            systemPrompt: systemPrompt,
+                            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                            studioMetadata: studioRenderMetadata
+                        )
+                        await MainActor.run {
+                            self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                result.memoryApplied,
+                                source: "typed_sync"
+                            )
+                            self.applyRealtimeStudioScreenplayQuality(result.screenplayQuality)
+                        }
+                        return result.reply
+                    }
                 }
 
                 do {
@@ -6531,12 +8037,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             }
 
+            if !renderedReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+            }
             let cleanReply = sanitizedRealtimeStudioRenderReply(renderedReply)
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_render_finished", forKey: "studio_debug_root_submit_stage")
+#endif
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
+            resetRealtimeStudioDraftPreviewThrottle()
             guard !cleanReply.isEmpty else {
+                typedReplySpeaker.cancel()
                 if shouldWriteToPage {
-                    screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                    restoreRealtimeStudioDraftPreview()
                 }
                 return "io.them didn't return a Studio reply."
             }
@@ -6552,19 +8066,27 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanPrompt,
                 assistantMessage: cleanReply
             )
-            let insertedScreenplayText = applyLiveScreenplayPreview(
-                from: result,
-                promptSource: .typed,
-                memoryDomainOverride: memoryDomain,
-                preferredTargetOverride: shouldWriteToPage ? .page : .voicePin
-            )
+            let insertedScreenplayText = shouldWriteToPage
+                ? applyLiveScreenplayPreview(
+                    from: result,
+                    promptSource: .typed,
+                    memoryDomainOverride: memoryDomain,
+                    preferredTargetOverride: .page
+                )
+                : nil
+            if !shouldWriteToPage {
+                screenplayDraftBridge.updateLatestVoicePinReply(cleanReply, prompt: cleanPrompt)
+            }
             updateStudioAssistantPin(
                 from: result,
                 insertedText: insertedScreenplayText,
                 promptSource: .typed,
                 promptTargetOverride: shouldWriteToPage ? .page : .voicePin
             )
-            playTypedStudioReplyIfNeeded(replyText: cleanReply, insertedText: insertedScreenplayText)
+            finishTypedStudioReplySpeechIfNeeded(
+                replyText: cleanReply,
+                shouldSpeak: shouldSpeakTypedReply
+            )
             recordStudioConversationMemoryIfNeeded(
                 user: cleanPrompt,
                 assistant: cleanReply,
@@ -6577,61 +8099,140 @@ Write this approved story direction directly into screenplay pages now. Maintain
             livePartialTranscript = ""
             lastNonEmptyPartialTranscriptHint = ""
             speculativeTalk.cancel()
-            await syncEvolutionForMemoryDomain(
-                userMessage: cleanPrompt,
-                memoryDomain: memoryDomain,
-                isScreenplayMode: true
-            )
-            await commitRealtimePreviewTurnIfNeeded(
-                userMessage: cleanPrompt,
-                assistantMessage: cleanReply,
-                promptSource: .typed,
-                requestId: requestID,
-                targetOverride: shouldWriteToPage ? .page : .voicePin,
-                insertedTextOverride: insertedScreenplayText
-            )
             if shouldWriteToPage {
-                await annotateLatestRealtimeStudioTurnIfNeeded(
+                let deferredPrompt = cleanPrompt
+                let deferredReply = cleanReply
+                let deferredMemoryDomain = memoryDomain
+                let deferredRequestID = requestID
+                let deferredInsertedText = insertedScreenplayText
+                Task { @MainActor in
+                    await syncEvolutionForMemoryDomain(
+                        userMessage: deferredPrompt,
+                        memoryDomain: deferredMemoryDomain,
+                        isScreenplayMode: true
+                    )
+                    await commitRealtimePreviewTurnIfNeeded(
+                        userMessage: deferredPrompt,
+                        assistantMessage: deferredReply,
+                        promptSource: .typed,
+                        requestId: deferredRequestID,
+                        targetOverride: .page,
+                        insertedTextOverride: deferredInsertedText
+                    )
+                    await annotateLatestRealtimeStudioTurnIfNeeded(
+                        promptSource: .typed,
+                        targetOverride: .page,
+                        insertedTextOverride: deferredInsertedText,
+                        requestID: deferredRequestID
+                    )
+                }
+            } else {
+                await syncEvolutionForMemoryDomain(
+                    userMessage: cleanPrompt,
+                    memoryDomain: memoryDomain,
+                    isScreenplayMode: true
+                )
+                await commitRealtimePreviewTurnIfNeeded(
+                    userMessage: cleanPrompt,
+                    assistantMessage: cleanReply,
                     promptSource: .typed,
-                    targetOverride: .page,
+                    requestId: requestID,
+                    targetOverride: .voicePin,
                     insertedTextOverride: insertedScreenplayText
                 )
             }
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_finished", forKey: "studio_debug_root_submit_stage")
+#endif
             return nil
         } catch BackendError.continueListening {
+            typedReplySpeaker.cancel()
             backendConnectionState = .up
             backendFailureCount = 0
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_continue_listening", forKey: "studio_debug_root_submit_stage")
+#endif
             return "Try giving io.them a little more detail."
         } catch {
-            if shouldWriteToPage {
-                screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
-            }
+            typedReplySpeaker.cancel()
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
-            markBackendUnavailable(reason: error.localizedDescription)
-            lastIssueSummary = error.localizedDescription
-            return error.localizedDescription
+            if shouldWriteToPage,
+               let qualityMessage = handleRealtimeStudioQualityFailure(error) {
+#if DEBUG || os(macOS)
+                setStudioDebugPreferenceString("root_submit_quality_rejected", forKey: "studio_debug_root_submit_stage")
+                setStudioDebugPreferenceString(qualityMessage, forKey: "studio_debug_root_submit_error")
+#endif
+                return qualityMessage
+            }
+            if shouldWriteToPage {
+                restoreRealtimeStudioDraftPreview()
+            }
+            if let authRequiredMessage = noteAuthRequiredIfNeeded(error) {
+#if DEBUG || os(macOS)
+                setStudioDebugPreferenceString("root_submit_auth_required", forKey: "studio_debug_root_submit_stage")
+                setStudioDebugPreferenceString(authRequiredMessage, forKey: "studio_debug_root_submit_error")
+#endif
+                return authRequiredMessage
+            }
+            let failureReason = error.localizedDescription
+            markBackendUnavailable(reason: failureReason)
+            lastIssueSummary = failureReason
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_error", forKey: "studio_debug_root_submit_stage")
+            setStudioDebugPreferenceString(failureReason, forKey: "studio_debug_root_submit_error")
+#endif
+            return failureReason
         }
     }
 
     @MainActor
-    private func playTypedStudioReplyIfNeeded(replyText: String, insertedText: String?) {
-        guard studioTypedReplyAudioEnabled else { return }
-        let cleanInsertedText = (insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard cleanInsertedText.isEmpty else { return }
+    private func finishTypedStudioReplySpeechIfNeeded(
+        replyText: String,
+        shouldSpeak: Bool
+    ) {
+        guard shouldSpeak, studioTypedReplyAudioEnabled else {
+            typedReplySpeaker.cancel()
+            return
+        }
         let cleanReply = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanReply.isEmpty else { return }
-
-        orbAudio.stop()
-        promptSpeaker.stop()
-        voice.stopRecording()
-        promptSpeaker.speak(cleanReply)
+        guard !cleanReply.isEmpty else {
+            typedReplySpeaker.cancel()
+            return
+        }
+        typedReplySpeaker.finish(finalText: cleanReply)
     }
 
     private func shouldRetryTalkOnce(for error: Error) -> Bool {
         if error is CancellationError { return false }
+        if error is BackendTalkQueuedError { return false }
         if case BackendError.continueListening = error { return false }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut,
+                 .networkConnectionLost,
+                 .cannotConnectToHost,
+                 .cannotFindHost,
+                 .dnsLookupFailed,
+                 .notConnectedToInternet:
+                return true
+            default:
+                break
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return [
+                NSURLErrorTimedOut,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorCannotFindHost,
+                NSURLErrorDNSLookupFailed,
+                NSURLErrorNotConnectedToInternet
+            ].contains(nsError.code)
+        }
         guard let backendError = error as? BackendError else { return false }
+        if backendError.isProviderQuotaExhausted { return false }
         switch backendError {
         case let .http(status, _):
             return status == -1 ||
@@ -6654,17 +8255,48 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return true
         case .invalidAudioType:
             return true
+        case .realtimeUnavailable:
+            return true
+        case .studioRenderQuality:
+            return false
         case .continueListening:
             return false
+        }
+    }
+
+    private func withStudioRenderTimeout<T>(
+        seconds: Double = 30,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let timeoutNanoseconds = UInt64(max(1, seconds) * 1_000_000_000)
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw BackendError.stage("studio_render", "Studio render timed out.")
+            }
+            guard let result = try await group.next() else {
+                throw BackendError.stage("studio_render", "Studio render timed out.")
+            }
+            group.cancelAll()
+            return result
         }
     }
 
     private func shouldFallbackToNonStreamingStudioRender(for error: Error) -> Bool {
         guard let backendError = error as? BackendError else { return false }
         switch backendError {
+        case let .studioRenderQuality(quality, _):
+            return quality.permitsSingleFallbackRender
         case let .stage(stage, message):
-            return stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "studio_render"
-                && message.lowercased().contains("stream response was empty")
+            let normalizedStage = stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedMessage = message.lowercased()
+            return normalizedStage == "studio_render" && (
+                normalizedMessage.contains("stream response was empty") ||
+                normalizedMessage.contains("quality confirmation")
+            )
         case let .http(status, message):
             return status == 502 && message.lowercased().contains("stream response was empty")
         default:
@@ -6723,6 +8355,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func startOfflineTalkOutbox() {
+        Task { @MainActor in
+            await OfflineTalkOutbox.shared.startNetworkMonitoring()
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+            if offlineTalkOutboxSnapshot.activeCount > 0 {
+                _ = await OfflineTalkOutbox.shared.drainDue()
+            }
+        }
+    }
+
+    @MainActor
+    private func retryOfflineTalkOutbox() {
+        Task { @MainActor in
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+            guard offlineTalkOutboxSnapshot.activeCount > 0 else { return }
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
+        }
+    }
+
+    @MainActor
     private func refreshBackendHealth() async {
         guard !IOThemRuntime.isRunningTests else { return }
         do {
@@ -6735,7 +8387,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 backendConnectionState = .up
                 backendFailureCount = 0
                 await refreshOpsRouteManifestIfNeeded(force: false)
-                await refreshTalkDiagnostics(force: false)
+                if supportDiagnosticsEnabled {
+                    await refreshTalkDiagnostics(force: false)
+                }
+                offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
                 return
             }
 
@@ -6752,6 +8407,33 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if backendFailureCount >= 1 {
             backendConnectionState = .reconnecting
         }
+    }
+
+    private func authRequiredMessageIfNeeded(for error: Error) -> String? {
+        if let backendError = error as? BackendError,
+           backendError.requiresUserAuthentication {
+            return backendError.localizedDescription
+        }
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = message.lowercased()
+        guard normalized.contains("user_auth_required") ||
+              normalized.contains("expired_user_token") ||
+              normalized.contains("invalid_user_token") ||
+              normalized.contains("revoked_user_token") else {
+            return nil
+        }
+        return "Sign in to use live writing, voice, and visual context."
+    }
+
+    @MainActor
+    @discardableResult
+    private func noteAuthRequiredIfNeeded(_ error: Error) -> String? {
+        guard let message = authRequiredMessageIfNeeded(for: error) else { return nil }
+        backendConnectionState = .up
+        backendFailureCount = 0
+        lastIssueSummary = message
+        screenplayDraftBridge.autoInsertStatusText = message
+        return message
     }
 
     @MainActor
@@ -6774,6 +8456,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func refreshTalkDiagnostics(force: Bool) async {
+        guard supportDiagnosticsEnabled else { return }
         guard !IOThemRuntime.isRunningTests else { return }
         let now = Date()
         if !force,
@@ -6844,6 +8527,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         transientTurnBannerTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 4_200_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                transientTurnBannerText = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func showOfflineTalkOutboxBanner(_ rawMessage: String) {
+        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        transientTurnBannerTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            transientTurnBannerText = message
+        }
+        transientTurnBannerTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_400_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.22)) {
                 transientTurnBannerText = nil
@@ -7027,7 +8727,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 ),
                 pageIndex: timeline.insertionAnchor.pageIndex,
                 rangeStart: timeline.insertionAnchor.rangeStart,
-                rangeEnd: timeline.insertionAnchor.rangeEnd
+                rangeEnd: timeline.insertionAnchor.rangeEnd,
+                anchorLine: timeline.insertionAnchor.anchorLine ?? localBaseLine,
+                anchorEndLine: timeline.insertionAnchor.anchorEndLine ?? localAnchorMetadata.endLine ?? localBaseLine,
+                insertMode: timeline.insertionAnchor.insertMode
             ),
             segments: timeline.segments.enumerated().map { index, segment in
                 let absoluteLine = localBaseLine + index
@@ -7051,7 +8754,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         ),
                         pageIndex: segment.pageAnchor.pageIndex,
                         rangeStart: segment.pageAnchor.rangeStart,
-                        rangeEnd: segment.pageAnchor.rangeEnd
+                        rangeEnd: segment.pageAnchor.rangeEnd,
+                        anchorLine: segment.pageAnchor.anchorLine ?? absoluteLine,
+                        anchorEndLine: segment.pageAnchor.anchorEndLine ?? absoluteLine,
+                        insertMode: segment.pageAnchor.insertMode
                     ),
                     revealUnits: segment.revealUnits.map { unit in
                         ScreenplayRevealUnit(
@@ -7301,7 +9007,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             memoryDomainOverride: memoryDomainOverride,
             preferredTargetOverride: preferredTargetOverride
         ) else {
-            screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+            restoreRealtimeStudioDraftPreview()
             return nil
         }
 
@@ -7362,6 +9068,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             for: userMessage,
             preferredTarget: effectivePreferredTarget
         )
+        if effectivePreferredTarget == .voicePin && screenplayOutput?.writesToPage != true {
+            return nil
+        }
         if effectiveMemoryDomain == .companion && screenplayOutput?.writesToPage != true {
             return nil
         }
@@ -7554,20 +9263,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
             transcript: userMessage,
             reply: assistantMessage,
             screenplayOutput: nil,
+            screenplayQuality: nil,
             screenplayCues: [],
             dialogueTimeline: nil,
             assistantSelfName: nil,
             userName: evolution.preferredName,
+            voiceEmotionLane: lastClementineEmotionLane,
+            ttsVoice: nil,
             uiReflection: uiReflection,
             knowledgeTrace: .empty,
+            creativeMemoryTrace: .empty,
             screenplayTrace: currentRealtimeStudioScreenplayTrace(),
             turnStatus: "responded",
             turnContinueReason: nil,
             turnErrorStage: nil,
             turnErrorMessage: nil,
             noteAction: nil,
-            emailAction: nil,
-            calendarAction: nil,
             taskAction: nil,
             speculativeTrace: .none,
             turnMetaRateLimitNotice: nil,
@@ -7576,7 +9287,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func sanitizedRealtimeStudioRenderReply(_ reply: String) -> String {
-        var clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        var clean = reply
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.hasPrefix("```") {
             clean = clean.replacingOccurrences(
                 of: #"^```[A-Za-z0-9_-]*\s*"#,
@@ -7593,6 +9308,57 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func applyRealtimeStudioScreenplayQuality(
+        _ quality: BackendRealtimeStudioScreenplayQuality?
+    ) {
+        guard let quality else { return }
+        screenplayDraftBridge.updateScreenplayQualityStatus(
+            quality: quality.talkQuality,
+            output: nil
+        )
+    }
+
+    @MainActor
+    private func restoreRealtimeStudioDraftPreview(statusText: String? = nil) {
+        let wasPreviewActive = screenplayDraftBridge.isStreamingDraftPreviewActive
+        let baseDraft = wasPreviewActive
+            ? screenplayDraftBridge.previewFormattingBaseDraft
+            : nil
+        screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+        if let baseDraft {
+            liveScreenplayText = baseDraft
+            liveScreenplayUpdatedAt = Date()
+        }
+        if let statusText {
+            let cleanStatus = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanStatus.isEmpty {
+                screenplayDraftBridge.autoInsertStatusText = cleanStatus
+            }
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func handleRealtimeStudioQualityFailure(
+        _ error: Error,
+        restorePreview: Bool = true
+    ) -> String? {
+        guard let backendError = error as? BackendError,
+              case let .studioRenderQuality(quality, _) = backendError else { return nil }
+        if restorePreview {
+            restoreRealtimeStudioDraftPreview()
+        }
+        applyRealtimeStudioScreenplayQuality(quality)
+        backendConnectionState = .up
+        backendFailureCount = 0
+        let notice = "Page held back. Your draft is unchanged."
+        lastIssueSummary = error.localizedDescription
+        screenplayDraftBridge.autoInsertStatusText = notice
+        showStudioCommandNotice(notice)
+        return error.localizedDescription
+    }
+
+    @MainActor
     private func applyRealtimeStudioDraftPreview(
         userMessage: String,
         assistantMessage: String
@@ -7605,7 +9371,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             userMessage: userMessage,
             existingDraft: screenplayDraftBridge.previewFormattingBaseDraft
         ) else {
-            screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+            restoreRealtimeStudioDraftPreview()
             return
         }
 
@@ -7627,6 +9393,36 @@ Write this approved story direction directly into screenplay pages now. Maintain
             projectId: cleanProject,
             versionId: cleanVersion
         )
+    }
+
+    @MainActor
+    private func resetRealtimeStudioDraftPreviewThrottle() {
+        lastRealtimeStudioPreviewAt = .distantPast
+        lastRealtimeStudioPreviewCharacterCount = 0
+    }
+
+    @MainActor
+    private func shouldApplyRealtimeStudioDraftPreview(
+        _ assistantMessage: String,
+        force: Bool = false
+    ) -> Bool {
+        let cleanReply = sanitizedRealtimeStudioRenderReply(assistantMessage)
+        guard !cleanReply.isEmpty else { return false }
+        if force {
+            lastRealtimeStudioPreviewAt = Date()
+            lastRealtimeStudioPreviewCharacterCount = cleanReply.count
+            return true
+        }
+        let now = Date()
+        let characterDelta = cleanReply.count - lastRealtimeStudioPreviewCharacterCount
+        guard lastRealtimeStudioPreviewCharacterCount == 0 ||
+                characterDelta >= StudioResponseStreamingPolicy.pagePreviewCharacterDelta ||
+                now.timeIntervalSince(lastRealtimeStudioPreviewAt) >= StudioResponseStreamingPolicy.pagePreviewMaximumInterval else {
+            return false
+        }
+        lastRealtimeStudioPreviewAt = now
+        lastRealtimeStudioPreviewCharacterCount = cleanReply.count
+        return true
     }
 
     @MainActor
@@ -7681,8 +9477,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeStudioRenderTask = nil
         realtimeStudioRenderUserMessage = ""
         realtimeStudioRenderedReply = ""
+        resetRealtimeStudioDraftPreviewThrottle()
         if restorePreview {
-            screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+            restoreRealtimeStudioDraftPreview()
         }
 #if DEBUG || os(macOS)
         if shouldRecordBreadcrumb {
@@ -7721,6 +9518,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
         realtimeStudioRenderUserMessage = cleanUser
         realtimeStudioRenderedReply = ""
+        resetRealtimeStudioDraftPreviewThrottle()
 #if DEBUG || os(macOS)
         appendStudioDebugVoiceDraftBreadcrumb(
             event: "request_started",
@@ -7750,6 +9548,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         realtimeStudioRenderTask = Task { @MainActor in
             let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
+            let studioRenderMetadata = studioRenderRequestMetadata(
+                promptSource: .voice,
+                shouldWriteToPage: true
+            )
             do {
 #if DEBUG || os(macOS)
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -7759,9 +9561,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     promptPreviewOverride: cleanUser
                 )
 #endif
-                let renderedReply = try await backend.streamRealtimeStudioText(
+                let renderResult = try await backend.streamRealtimeStudioResult(
                     transcript: renderTranscript,
                     systemPrompt: systemPrompt,
+                    screenplayTarget: "page",
+                    studioMetadata: studioRenderMetadata,
                     onPartial: { partial in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
@@ -7782,6 +9586,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 )
                             }
 #endif
+                            guard self.shouldApplyRealtimeStudioDraftPreview(partial) else { return }
                             self.applyRealtimeStudioDraftPreview(
                                 userMessage: cleanUser,
                                 assistantMessage: partial
@@ -7791,6 +9596,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     onTrace: { trace in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
+                            if let memoryApplied = trace.memoryApplied {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    memoryApplied,
+                                    source: "voice_stream_\(trace.kind)"
+                                )
+                            }
 #if DEBUG || os(macOS)
                             let cleanKind = trace.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                             let requestID = trace.requestID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7840,7 +9651,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         }
                     }
                 )
-                let sanitizedReply = sanitizedRealtimeStudioRenderReply(renderedReply)
+                applyRealtimeStudioScreenplayQuality(renderResult.screenplayQuality)
+                screenplayDraftBridge.noteStudioAppliedMemory(
+                    renderResult.memoryApplied,
+                    source: "voice_stream_done"
+                )
+                let sanitizedReply = sanitizedRealtimeStudioRenderReply(renderResult.reply)
                 realtimeStudioRenderedReply = sanitizedReply
 #if DEBUG || os(macOS)
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -7887,15 +9703,37 @@ Write this approved story direction directly into screenplay pages now. Maintain
             } catch is CancellationError {
                 return nil
             } catch {
+                if noteAuthRequiredIfNeeded(error) != nil {
+                    restoreRealtimeStudioDraftPreview()
+                    return nil
+                }
                 if shouldFallbackToNonStreamingStudioRender(for: error) {
-                    let fallbackReply = sanitizedRealtimeStudioRenderReply(
-                        (try? await backend.renderRealtimeStudioText(
+                    let fallbackResult: BackendRealtimeStudioRenderResult
+                    do {
+                        fallbackResult = try await backend.renderRealtimeStudioResult(
                             transcript: renderTranscript,
-                            systemPrompt: systemPrompt
-                        )) ?? ""
+                            systemPrompt: systemPrompt,
+                            screenplayTarget: "page",
+                            studioMetadata: studioRenderMetadata
+                        )
+                    } catch {
+                        if handleRealtimeStudioQualityFailure(error) == nil {
+                            restoreRealtimeStudioDraftPreview()
+                        }
+                        return nil
+                    }
+                    applyRealtimeStudioScreenplayQuality(fallbackResult.screenplayQuality)
+                    if let memoryApplied = fallbackResult.memoryApplied {
+                        screenplayDraftBridge.noteStudioAppliedMemory(
+                            memoryApplied,
+                            source: "voice_fallback"
+                        )
+                    }
+                    let fallbackReply = sanitizedRealtimeStudioRenderReply(
+                        fallbackResult.reply
                     )
                     guard !fallbackReply.isEmpty else {
-                        screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                        restoreRealtimeStudioDraftPreview()
                         return nil
                     }
                     realtimeStudioRenderedReply = fallbackReply
@@ -7946,7 +9784,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     }
                     return fallbackReply
                 }
-                screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                if handleRealtimeStudioQualityFailure(error) == nil {
+                    restoreRealtimeStudioDraftPreview()
+                }
                 return nil
             }
         }
@@ -7966,19 +9806,39 @@ Write this approved story direction directly into screenplay pages now. Maintain
             for: cleanUser,
             confirmedContext: confirmedContext
         )
+        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
 
-        let renderedReply: String
+        var renderedReply = ""
+        var hasValidatedPageReply = false
         if realtimeStudioRenderUserMessage == cleanUser,
            let task = realtimeStudioRenderTask {
             renderedReply = (await task.value)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            hasValidatedPageReply = shouldWriteToPage && !renderedReply.isEmpty
         } else {
             let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
-            renderedReply = sanitizedRealtimeStudioRenderReply(
-                (try? await backend.renderRealtimeStudioText(
-                    transcript: renderTranscript,
-                    systemPrompt: systemPrompt
-                )) ?? ""
+            let studioRenderMetadata = studioRenderRequestMetadata(
+                promptSource: .voice,
+                shouldWriteToPage: shouldWriteToPage
             )
+            do {
+                let result = try await backend.renderRealtimeStudioResult(
+                    transcript: renderTranscript,
+                    systemPrompt: systemPrompt,
+                    screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                    studioMetadata: studioRenderMetadata
+                )
+                applyRealtimeStudioScreenplayQuality(result.screenplayQuality)
+                screenplayDraftBridge.noteStudioAppliedMemory(
+                    result.memoryApplied,
+                    source: "voice_sync"
+                )
+                renderedReply = sanitizedRealtimeStudioRenderReply(result.reply)
+                hasValidatedPageReply = shouldWriteToPage && !renderedReply.isEmpty
+            } catch {
+                if handleRealtimeStudioQualityFailure(error) == nil, shouldWriteToPage {
+                    restoreRealtimeStudioDraftPreview()
+                }
+            }
         }
 
         defer {
@@ -7995,23 +9855,28 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanUser,
                 assistantMessage: resolvedReply
             )
-            let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
             let realtimeMemoryDomain = studioMemoryDomain(for: cleanUser, preferredTarget: .automatic)
-            let insertedScreenplayText = applyLiveScreenplayPreview(
-                from: realtimeStudioResult,
-                promptSource: .voice,
-                memoryDomainOverride: realtimeMemoryDomain,
-                preferredTargetOverride: shouldWriteToPage ? .page : .voicePin
-            )
+            let shouldInsertValidatedPage = shouldWriteToPage && hasValidatedPageReply
+            let insertedScreenplayText = shouldInsertValidatedPage
+                ? applyLiveScreenplayPreview(
+                    from: realtimeStudioResult,
+                    promptSource: .voice,
+                    memoryDomainOverride: realtimeMemoryDomain,
+                    preferredTargetOverride: .page
+                )
+                : nil
+            if !shouldInsertValidatedPage {
+                screenplayDraftBridge.updateLatestVoicePinReply(resolvedReply, prompt: cleanUser)
+            }
             updateStudioAssistantPin(
                 from: realtimeStudioResult,
                 insertedText: insertedScreenplayText,
-                promptTargetOverride: shouldWriteToPage ? .page : .voicePin
+                promptTargetOverride: shouldInsertValidatedPage ? .page : .voicePin
             )
             return resolvedReply
         }
 
-        screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+        restoreRealtimeStudioDraftPreview()
         return cleanFallback
     }
 
@@ -8094,6 +9959,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userMessage: String,
         isScreenplayMode: Bool,
         shouldWriteToPage: Bool,
+        featureWorkflowRequestID: String? = nil,
         includeVisualContext: Bool = true
     ) async -> String {
         let projectId = screenplayDraftBridge.preferredProjectID
@@ -8102,6 +9968,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let versionId = screenplayDraftBridge.preferredVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? liveScreenplayVersionID : screenplayDraftBridge.preferredVersionID
+        let phase = screenplayDraftBridge.latestPhase
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPhase : screenplayDraftBridge.latestPhase
+        let pack = screenplayDraftBridge.latestPack
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
+        let draftExcerpt = screenplayDraftBridge.draftText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptContinuity = screenplayPromptContinuityContext(
+            featureWorkflowRequestID: featureWorkflowRequestID
+        )
         let result = await screenplayPromptBuilder.buildModelPrompt(
             backend: backend,
             request: ScreenplayPromptBuilder.Request(
@@ -8111,11 +9988,64 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 projectId: projectId,
                 versionId: versionId,
                 scene: "",
+                phase: phase,
+                pack: pack,
+                draftExcerpt: String(draftExcerpt.suffix(6_000)),
+                act: promptContinuity.act,
+                sceneObjective: promptContinuity.sceneObjective,
+                sceneSummary: promptContinuity.sceneSummary,
+                currentBeat: promptContinuity.currentBeat,
+                logline: promptContinuity.logline,
+                themeArgument: promptContinuity.themeArgument,
+                centralQuestion: promptContinuity.centralQuestion,
+                protagonistWant: promptContinuity.protagonistWant,
+                protagonistNeed: promptContinuity.protagonistNeed,
+                antagonisticForce: promptContinuity.antagonisticForce,
+                endingImage: promptContinuity.endingImage,
+                featureSequence: promptContinuity.featureSequence,
+                featureObligation: promptContinuity.featureObligation,
+                featureMemoryBrief: screenplayDraftBridge.latestAppliedMemory.featureMemoryBrief,
+                actPressureState: promptContinuity.actPressureState,
+                characterArcState: promptContinuity.characterArcState,
+                lastSceneOutcome: promptContinuity.lastSceneOutcome,
+                nextScenePlan: promptContinuity.nextScenePlan,
+                nextSceneMoves: promptContinuity.nextSceneMoves,
+                nextThreeTurns: promptContinuity.nextThreeTurns,
+                actThreePayoffPath: promptContinuity.actThreePayoffPath,
+                beatSequence: promptContinuity.beatSequence,
+                characterFocus: promptContinuity.characterFocus,
+                unresolvedSetups: promptContinuity.unresolvedSetups,
+                unresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+                characterArcTurns: promptContinuity.characterArcTurns,
+                imageMotifs: promptContinuity.imageMotifs,
+                continuityNotes: promptContinuity.continuityNotes,
+                emotionalContinuity: promptContinuity.emotionalContinuity,
+                pageCount: promptContinuity.pageCount,
+                targetPages: promptContinuity.targetPages,
+                screenplayTaskHint: userMessage,
                 isScreenplayMode: isScreenplayMode,
                 shouldWriteToPage: shouldWriteToPage,
                 craftFrameworkId: ""
             )
         )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString(
+            result.screenplayTaskIntent,
+            forKey: "studio_debug_last_screenplay_task_intent"
+        )
+        setStudioDebugPreferenceString(
+            result.screenplayTaskLabel,
+            forKey: "studio_debug_last_screenplay_task_label"
+        )
+        setStudioDebugPreferenceString(
+            result.usedBackendAssembly ? "1" : "0",
+            forKey: "studio_debug_last_prompt_backend_assembly"
+        )
+        setStudioDebugPreferenceString(
+            result.fallbackReason,
+            forKey: "studio_debug_last_prompt_fallback_reason"
+        )
+#endif
         let canonicalPrompt = result.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? basePrompt
             : result.prompt
@@ -8124,6 +10054,604 @@ Write this approved story direction directly into screenplay pages now. Maintain
             canonicalPrompt,
             userMessage: userMessage,
             isScreenplayMode: isScreenplayMode
+        )
+    }
+
+    private func sessionContinuityPromptNotes(from snapshot: BackendSessionContinuitySnapshot) -> [String] {
+        var notes: [String] = []
+        let opening = snapshot.openingLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !opening.isEmpty {
+            notes.append("Session reopen continuity: \(opening)")
+        }
+        let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty || !projectId.isEmpty {
+            let label = title.isEmpty ? projectId : title
+            notes.append("Restored feature project: \(label).")
+        }
+        let actTarget = [
+            snapshot.act,
+            snapshot.featureSequence
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        if !actTarget.isEmpty {
+            notes.append("Restored act-aware target: \(actTarget).")
+        }
+        let restoredFirstMove = [
+            snapshot.nextScenePlan,
+            snapshot.nextSceneMoves.first ?? "",
+            snapshot.nextThreeTurns.first ?? "",
+            snapshot.actThreePayoffPath.first ?? ""
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        if !restoredFirstMove.isEmpty {
+            notes.append("First restored-response target: if the user asks to continue or speaks hands-free, start from this page move before inventing a new lane: \(restoredFirstMove)")
+        }
+        for causalFact in snapshot.acceptedCausalFacts.filter(\.isMeaningful).prefix(2) {
+            let kind = causalFact.kind.replacingOccurrences(of: "_", with: " ")
+            notes.append("Accepted causal canon (\(kind)): \(causalFact.fact). Continue its consequence; never undo, replay, or erase it offscreen.")
+        }
+        if let due = snapshot.dueStoryThread, due.isMeaningful {
+            let sentenceBoundary = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?"))
+            let setup = due.setup.trimmingCharacters(in: sentenceBoundary)
+            let payoff = due.promisedPayoff.trimmingCharacters(in: sentenceBoundary)
+            let thread = setup.isEmpty ? payoff : setup
+            let age = due.ageInScenes > 0 ? " Open for \(due.ageInScenes) accepted scenes." : ""
+            let promise = payoff.isEmpty ? "" : " Promised payoff: \(payoff)."
+            notes.append("Oldest accepted-page story obligation: \(thread).\(age)\(promise) Pressure or pay this before inventing a replacement plot thread.")
+        }
+        let lastOutcome = snapshot.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !lastOutcome.isEmpty {
+            notes.append("Last remembered scene outcome: \(lastOutcome)")
+        }
+        let featureObligation = snapshot.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !featureObligation.isEmpty {
+            notes.append("Restored structural obligation: \(featureObligation)")
+        }
+        let actPressure = snapshot.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !actPressure.isEmpty {
+            notes.append("Restored act pressure: \(actPressure)")
+        }
+        let characterArc = snapshot.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !characterArc.isEmpty {
+            notes.append("Restored character arc pressure: \(characterArc)")
+        }
+        if !snapshot.nextThreeTurns.isEmpty {
+            notes.append("Restored next turns: \(snapshot.nextThreeTurns.prefix(3).joined(separator: " -> "))")
+        }
+        if !snapshot.actThreePayoffPath.isEmpty {
+            notes.append("Restored Act III payoff path: \(snapshot.actThreePayoffPath.prefix(3).joined(separator: " -> "))")
+        }
+        if !snapshot.unresolvedStoryThreads.isEmpty {
+            notes.append("Restored unresolved story threads: \(snapshot.unresolvedStoryThreads.prefix(3).joined(separator: "; "))")
+        }
+        let excerpt = snapshot.memoryExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !excerpt.isEmpty {
+            notes.append("Relationship memory: \(excerpt)")
+        }
+        if !snapshot.imageMotifs.isEmpty {
+            notes.append("Restored image motifs: \(snapshot.imageMotifs.prefix(3).joined(separator: "; "))")
+        }
+        if snapshot.isCorrection {
+            notes.append("Honor the user's latest correction as authoritative continuity.")
+        }
+        return Array(notes.prefix(10))
+    }
+
+    private func sessionContinuityFingerprint(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let causalFingerprint = snapshot.acceptedCausalFacts
+            .filter(\.isMeaningful)
+            .prefix(4)
+            .map { "\($0.kind):\($0.fact):\($0.ageInScenes)" }
+            .joined(separator: "/")
+        return [
+            snapshot.projectId,
+            snapshot.projectTitle,
+            snapshot.act,
+            snapshot.featureSequence,
+            snapshot.featureObligation,
+            snapshot.actPressureState,
+            snapshot.characterArcState,
+            snapshot.currentBeat,
+            snapshot.lastSceneOutcome,
+            snapshot.nextScenePlan,
+            snapshot.nextThreeTurns.joined(separator: "/"),
+            snapshot.actThreePayoffPath.joined(separator: "/"),
+            snapshot.dueStoryThread?.setup ?? "",
+            snapshot.dueStoryThread?.promisedPayoff ?? "",
+            String(snapshot.dueStoryThread?.ageInScenes ?? 0),
+            causalFingerprint,
+            String(Int(snapshot.updatedAt))
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .joined(separator: "|")
+    }
+
+    private func sessionContinuityTitle(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { return title }
+        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !projectId.isEmpty { return projectId }
+        let act = snapshot.act.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !act.isEmpty { return act }
+        return "Your screenplay"
+    }
+
+    private func sessionContinuityBody(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let opening = snapshot.openingLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !opening.isEmpty { return opening }
+
+        let position = [
+            snapshot.act,
+            snapshot.featureSequence
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        let lastThread = [
+            snapshot.lastSceneOutcome,
+            snapshot.currentBeat,
+            snapshot.actPressureState,
+            snapshot.characterArcState,
+            snapshot.memoryExcerpt
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let nextMove = [
+            snapshot.nextScenePlan,
+            snapshot.nextThreeTurns.first ?? "",
+            snapshot.actThreePayoffPath.first ?? ""
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let dueThread = snapshot.dueStoryThread?.setup.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let dueAge = snapshot.dueStoryThread?.ageInScenes ?? 0
+        let causalFact = snapshot.acceptedCausalFacts
+            .first(where: \.isMeaningful)?
+            .fact
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        var parts: [String] = []
+        if !position.isEmpty { parts.append(position) }
+        if !lastThread.isEmpty { parts.append(lastThread) }
+        if !dueThread.isEmpty {
+            parts.append("Oldest open thread: \(dueThread)\(dueAge > 0 ? " (\(dueAge) accepted scenes)" : "")")
+        }
+        if !causalFact.isEmpty { parts.append("Binding consequence: \(causalFact)") }
+        if !nextMove.isEmpty { parts.append("Next: \(nextMove)") }
+        return parts.isEmpty ? "Clementine restored your latest writing context." : parts.joined(separator: " ")
+    }
+
+    @MainActor
+    private func screenplayPromptContinuityContext(
+        featureWorkflowRequestID: String? = nil
+    ) -> (
+        act: String,
+        sceneObjective: String,
+        sceneSummary: String,
+        currentBeat: String,
+        logline: String,
+        themeArgument: String,
+        centralQuestion: String,
+        protagonistWant: String,
+        protagonistNeed: String,
+        antagonisticForce: String,
+        endingImage: String,
+        featureSequence: String,
+        featureObligation: String,
+        nextScenePlan: String,
+        nextSceneMoves: [String],
+        nextThreeTurns: [String],
+        actThreePayoffPath: [String],
+        actPressureState: String,
+        characterArcState: String,
+        characterArcMemory: BackendScreenplayCharacterArcMemory?,
+        characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory],
+        lastSceneOutcome: String,
+        beatSequence: [String],
+        characterFocus: [String],
+        unresolvedSetups: [String],
+        unresolvedStoryThreads: [String],
+        characterArcTurns: [String],
+        imageMotifs: [String],
+        continuityNotes: [String],
+        emotionalContinuity: String,
+        pageCount: Int,
+        targetPages: Int
+    ) {
+        let bindingSnapshot = screenplayDraftBridge.projectBinding
+        let featureSpine = screenplayDraftBridge.featureSpine
+        let structuredDraft = screenplayDraftBridge.structuredDraft
+        let currentLine = max(1, screenplayDraftBridge.currentCursorLine)
+        let activeBinding = bindingSnapshot.sceneBindings.last(where: { binding in
+            currentLine >= binding.draftLine && currentLine <= max(binding.draftLine, binding.draftEndLine)
+        }) ?? bindingSnapshot.sceneBindings.last
+        let activeDraftScene = activeBinding.flatMap { binding in
+            structuredDraft.scenes.first(where: { $0.id == binding.draftSceneID })
+        } ?? structuredDraft.activeScene(containingOrBefore: currentLine)
+        let draftBeatSequence = structuredDraft.recentActionBeatSequence(
+            endingAtLine: currentLine,
+            limit: 8
+        )
+        let draftCurrentBeat = structuredDraft.currentActionBeat(endingAtLine: currentLine)
+
+        var characterFocus: [String] = []
+        for character in (activeDraftScene?.characterCues ?? []) + structuredDraft.characters {
+            let clean = character.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            if !characterFocus.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+                characterFocus.append(clean)
+            }
+            if characterFocus.count >= 8 { break }
+        }
+
+        var promptLogline = featureSpine.logline
+        var promptThemeArgument = featureSpine.themeArgument
+        var promptCentralQuestion = featureSpine.centralQuestion
+        var promptProtagonistWant = featureSpine.protagonistWant
+        var promptProtagonistNeed = featureSpine.protagonistNeed
+        var promptAntagonisticForce = featureSpine.antagonisticForce
+        var promptEndingImage = featureSpine.endingImage
+        var promptUnresolvedSetups = featureSpine.unresolvedSetups
+
+        var continuityNotes: [String] = []
+        if bindingSnapshot.draftSceneCount > 0 || bindingSnapshot.outlineSceneCount > 0 {
+            continuityNotes.append(
+                "Draft-outline binding: \(bindingSnapshot.boundSceneCount)/\(max(bindingSnapshot.outlineSceneCount, bindingSnapshot.draftSceneCount)) scenes aligned."
+            )
+        }
+        let unboundDraftSceneLabels = bindingSnapshot.sceneBindings
+            .filter { !$0.isBound }
+            .prefix(4)
+            .map(\.draftShortLabel)
+        if !unboundDraftSceneLabels.isEmpty {
+            continuityNotes.append(
+                "Draft-outline alignment pending: \(unboundDraftSceneLabels.joined(separator: ", "))."
+            )
+        }
+        if bindingSnapshot.draftCharacterCount > 0 || bindingSnapshot.projectCharacterCount > 0 {
+            continuityNotes.append(
+                "Character tracking: \(bindingSnapshot.boundCharacterCount)/\(max(bindingSnapshot.projectCharacterCount, bindingSnapshot.draftCharacterCount)) project characters matched."
+            )
+        }
+
+        let currentBeat = activeBinding?.outlineBeatLabels.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? draftCurrentBeat
+        let sceneObjective = activeBinding?.outlineSceneObjective?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sceneSummary = activeBinding?.outlineSceneSummary?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? [
+                activeDraftScene?.slugline.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                draftCurrentBeat
+            ]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: ": ")
+        let emotionalContinuity = [sceneObjective, sceneSummary]
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        let estimatedPageCount = structuredDraft.lineCount > 0
+            ? max(1, Int(ceil(Double(structuredDraft.lineCount) / 55.0)))
+            : 0
+        let activeActTitle = activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedAct = activeActTitle.isEmpty ? featureSpine.actPosition : activeActTitle
+        let hasFeatureGuideContext = !resolvedAct.isEmpty ||
+            estimatedPageCount > 0 ||
+            !featureSpine.isEmpty ||
+            bindingSnapshot.draftSceneCount > 0 ||
+            bindingSnapshot.outlineSceneCount > 0
+        let featureGuide = hasFeatureGuideContext
+            ? ScreenplayFeatureProgressionGuide.guide(
+                actPosition: resolvedAct,
+                currentPage: estimatedPageCount,
+                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            )
+            : nil
+        if let featureGuide {
+            continuityNotes.append("Feature sequence: \(featureGuide.currentAct) - \(featureGuide.sequenceLabel) (\(featureGuide.pageRangeText)).")
+            continuityNotes.append("Structural obligation due now: \(featureGuide.dueNow)")
+            continuityNotes.append("Next scene planner: \(featureGuide.nextScenePlan)")
+        }
+
+        var promptAct = resolvedAct
+        var promptSceneObjective = sceneObjective
+        var promptSceneSummary = sceneSummary
+        var promptCurrentBeat = currentBeat
+        var promptFeatureSequence = featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? ""
+        var promptFeatureObligation = featureGuide?.dueNow ?? ""
+        var promptActPressureState = featureGuide?.dueNow ?? ""
+        var promptCharacterArcState = promptProtagonistNeed.isEmpty ? promptThemeArgument : "Need: \(promptProtagonistNeed)"
+        var promptLastSceneOutcome = screenplayDraftBridge.lastCommittedWrite.map {
+            clippedStudioAssistantText($0.insertedText, limit: 240)
+        } ?? ""
+        var promptNextScenePlan = featureGuide?.nextScenePlan ?? ""
+        var promptNextSceneMoves = featureGuide?.nextMoves ?? []
+        var promptNextThreeTurns = Array((featureGuide?.nextMoves ?? []).prefix(3))
+        var promptActThreePayoffPath: [String] = []
+        var promptUnresolvedStoryThreads: [String] = []
+        var promptCharacterArcTurns: [String] = []
+        var promptImageMotifs: [String] = []
+        var promptEmotionalContinuity = emotionalContinuity
+        var promptPageCount = estimatedPageCount
+        var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
+        var promptBeatSequence: [String] = []
+
+        if promptSceneObjective.isEmpty {
+            promptSceneObjective = featureGuide?.dueNow ?? ""
+        }
+        if promptCurrentBeat.isEmpty {
+            promptCurrentBeat = draftCurrentBeat
+        }
+        if promptEmotionalContinuity.isEmpty {
+            promptEmotionalContinuity = [promptCurrentBeat, promptSceneObjective, promptSceneSummary]
+                .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        }
+
+        func mergedContextList(_ primary: [String], _ secondary: [String], limit: Int) -> [String] {
+            var seen = Set<String>()
+            var result: [String] = []
+            for item in primary + secondary {
+                let clean = item
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                guard !clean.isEmpty else { continue }
+                let key = clean.lowercased()
+                guard seen.insert(key).inserted else { continue }
+                result.append(clean)
+                if result.count >= limit { break }
+            }
+            return result
+        }
+
+        promptBeatSequence = mergedContextList(
+            Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
+            draftBeatSequence,
+            limit: 8
+        )
+        promptActThreePayoffPath = mergedContextList(
+            promptUnresolvedSetups,
+            promptEndingImage.isEmpty ? [] : ["Final image: \(promptEndingImage)"],
+            limit: 5
+        )
+        promptUnresolvedStoryThreads = mergedContextList(
+            [
+                promptCentralQuestion.isEmpty ? "" : "Central question: \(promptCentralQuestion)",
+                promptAntagonisticForce.isEmpty ? "" : "Opposition: \(promptAntagonisticForce)"
+            ],
+            promptUnresolvedSetups,
+            limit: 8
+        )
+        promptCharacterArcTurns = mergedContextList(
+            [
+                promptProtagonistNeed.isEmpty ? "" : "Need: \(promptProtagonistNeed)",
+                promptThemeArgument.isEmpty ? "" : "Theme: \(promptThemeArgument)"
+            ],
+            [],
+            limit: 6
+        )
+        promptImageMotifs = mergedContextList(
+            promptEndingImage.isEmpty ? [] : ["Ending image: \(promptEndingImage)"],
+            [],
+            limit: 6
+        )
+
+        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful {
+            let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
+            continuityNotes = mergedContextList(sessionNotes, continuityNotes, limit: 8)
+            if promptAct.isEmpty { promptAct = sessionContinuitySnapshot.act }
+            if promptSceneObjective.isEmpty { promptSceneObjective = sessionContinuitySnapshot.sceneObjective }
+            if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.sceneSummary }
+            if promptFeatureSequence.isEmpty { promptFeatureSequence = sessionContinuitySnapshot.featureSequence }
+            if promptFeatureObligation.isEmpty { promptFeatureObligation = sessionContinuitySnapshot.featureObligation }
+            if promptCurrentBeat.isEmpty { promptCurrentBeat = sessionContinuitySnapshot.currentBeat }
+            if promptLogline.isEmpty { promptLogline = sessionContinuitySnapshot.logline }
+            if promptThemeArgument.isEmpty { promptThemeArgument = sessionContinuitySnapshot.themeArgument }
+            if promptCentralQuestion.isEmpty { promptCentralQuestion = sessionContinuitySnapshot.centralQuestion }
+            if promptProtagonistWant.isEmpty { promptProtagonistWant = sessionContinuitySnapshot.protagonistWant }
+            if promptProtagonistNeed.isEmpty { promptProtagonistNeed = sessionContinuitySnapshot.protagonistNeed }
+            if promptAntagonisticForce.isEmpty { promptAntagonisticForce = sessionContinuitySnapshot.antagonisticForce }
+            if promptEndingImage.isEmpty { promptEndingImage = sessionContinuitySnapshot.endingImage }
+            if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.lastSceneOutcome }
+            if promptActPressureState.isEmpty { promptActPressureState = sessionContinuitySnapshot.actPressureState }
+            if promptCharacterArcState.isEmpty { promptCharacterArcState = sessionContinuitySnapshot.characterArcState }
+            if promptLastSceneOutcome.isEmpty { promptLastSceneOutcome = sessionContinuitySnapshot.lastSceneOutcome }
+            if promptNextScenePlan.isEmpty { promptNextScenePlan = sessionContinuitySnapshot.nextScenePlan }
+            if promptNextSceneMoves.isEmpty {
+                promptNextSceneMoves = mergedContextList(
+                    sessionContinuitySnapshot.nextSceneMoves,
+                    sessionContinuitySnapshot.nextThreeTurns,
+                    limit: 5
+                )
+            } else {
+                promptNextSceneMoves = mergedContextList(
+                    promptNextSceneMoves,
+                    sessionContinuitySnapshot.nextSceneMoves + sessionContinuitySnapshot.nextThreeTurns,
+                    limit: 5
+                )
+            }
+            promptNextThreeTurns = mergedContextList(
+                sessionContinuitySnapshot.nextThreeTurns,
+                promptNextThreeTurns,
+                limit: 3
+            )
+            promptActThreePayoffPath = mergedContextList(
+                sessionContinuitySnapshot.actThreePayoffPath,
+                promptActThreePayoffPath,
+                limit: 5
+            )
+            promptUnresolvedSetups = mergedContextList(
+                sessionContinuitySnapshot.unresolvedSetups,
+                promptUnresolvedSetups,
+                limit: 8
+            )
+            promptUnresolvedStoryThreads = mergedContextList(
+                sessionContinuitySnapshot.unresolvedStoryThreads,
+                promptUnresolvedStoryThreads,
+                limit: 8
+            )
+            promptCharacterArcTurns = mergedContextList(
+                sessionContinuitySnapshot.characterArcTurns,
+                promptCharacterArcTurns,
+                limit: 6
+            )
+            promptImageMotifs = mergedContextList(
+                sessionContinuitySnapshot.imageMotifs,
+                promptImageMotifs,
+                limit: 6
+            )
+            if promptEmotionalContinuity.isEmpty {
+                promptEmotionalContinuity = [
+                    sessionContinuitySnapshot.emotionalContinuity,
+                    sessionContinuitySnapshot.lastSceneOutcome,
+                    sessionContinuitySnapshot.memoryExcerpt,
+                    sessionContinuitySnapshot.currentBeat
+                ]
+                    .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+            }
+            characterFocus = mergedContextList(
+                characterFocus,
+                sessionContinuitySnapshot.characterFocus,
+                limit: 8
+            )
+            if promptPageCount <= 0 { promptPageCount = sessionContinuitySnapshot.pageCount }
+            if promptTargetPages <= 0 { promptTargetPages = sessionContinuitySnapshot.targetPages }
+        }
+
+        if let workflowContext = screenplayDraftBridge.featureWorkflowContext(for: featureWorkflowRequestID) {
+            if !workflowContext.act.isEmpty { promptAct = workflowContext.act }
+            if !workflowContext.sceneObjective.isEmpty { promptSceneObjective = workflowContext.sceneObjective }
+            if !workflowContext.sceneSummary.isEmpty { promptSceneSummary = workflowContext.sceneSummary }
+            if !workflowContext.currentBeat.isEmpty { promptCurrentBeat = workflowContext.currentBeat }
+            if !workflowContext.featureSequence.isEmpty { promptFeatureSequence = workflowContext.featureSequence }
+            if !workflowContext.featureObligation.isEmpty { promptFeatureObligation = workflowContext.featureObligation }
+            if !workflowContext.actPressureState.isEmpty { promptActPressureState = workflowContext.actPressureState }
+            if !workflowContext.characterArcState.isEmpty { promptCharacterArcState = workflowContext.characterArcState }
+            if !workflowContext.lastSceneOutcome.isEmpty { promptLastSceneOutcome = workflowContext.lastSceneOutcome }
+            if !workflowContext.nextScenePlan.isEmpty { promptNextScenePlan = workflowContext.nextScenePlan }
+            promptNextSceneMoves = mergedContextList(workflowContext.nextSceneMoves, promptNextSceneMoves, limit: 5)
+            promptNextThreeTurns = mergedContextList(workflowContext.nextThreeTurns, promptNextThreeTurns, limit: 3)
+            promptActThreePayoffPath = mergedContextList(workflowContext.actThreePayoffPath, promptActThreePayoffPath, limit: 5)
+            continuityNotes = mergedContextList(workflowContext.continuityNotes, continuityNotes, limit: 8)
+            if !workflowContext.logline.isEmpty { promptLogline = workflowContext.logline }
+            if !workflowContext.themeArgument.isEmpty { promptThemeArgument = workflowContext.themeArgument }
+            if !workflowContext.centralQuestion.isEmpty { promptCentralQuestion = workflowContext.centralQuestion }
+            if !workflowContext.protagonistWant.isEmpty { promptProtagonistWant = workflowContext.protagonistWant }
+            if !workflowContext.protagonistNeed.isEmpty { promptProtagonistNeed = workflowContext.protagonistNeed }
+            if !workflowContext.antagonisticForce.isEmpty { promptAntagonisticForce = workflowContext.antagonisticForce }
+            if !workflowContext.endingImage.isEmpty { promptEndingImage = workflowContext.endingImage }
+            promptUnresolvedSetups = mergedContextList(
+                workflowContext.unresolvedSetups,
+                promptUnresolvedSetups,
+                limit: 8
+            )
+            promptUnresolvedStoryThreads = mergedContextList(
+                workflowContext.unresolvedStoryThreads,
+                promptUnresolvedStoryThreads,
+                limit: 8
+            )
+            promptCharacterArcTurns = mergedContextList(
+                workflowContext.characterArcTurns,
+                promptCharacterArcTurns,
+                limit: 6
+            )
+            promptImageMotifs = mergedContextList(
+                workflowContext.imageMotifs,
+                promptImageMotifs,
+                limit: 6
+            )
+            if !workflowContext.emotionalContinuity.isEmpty {
+                promptEmotionalContinuity = workflowContext.emotionalContinuity
+            }
+            if workflowContext.pageCount > 0 { promptPageCount = workflowContext.pageCount }
+            if workflowContext.targetPages > 0 { promptTargetPages = workflowContext.targetPages }
+        }
+
+        if promptBeatSequence.isEmpty {
+            promptBeatSequence = draftBeatSequence
+        }
+        if promptNextThreeTurns.isEmpty {
+            promptNextThreeTurns = Array(promptNextSceneMoves.prefix(3))
+        }
+        if promptActPressureState.isEmpty {
+            promptActPressureState = promptFeatureObligation
+        }
+        if promptCharacterArcState.isEmpty {
+            promptCharacterArcState = [promptProtagonistNeed, promptThemeArgument]
+                .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        }
+        if promptActThreePayoffPath.isEmpty, !promptEndingImage.isEmpty {
+            promptActThreePayoffPath = ["Final image: \(promptEndingImage)"]
+        }
+        if promptUnresolvedStoryThreads.isEmpty {
+            promptUnresolvedStoryThreads = mergedContextList(
+                [
+                    promptCentralQuestion.isEmpty ? "" : "Central question: \(promptCentralQuestion)",
+                    promptAntagonisticForce.isEmpty ? "" : "Opposition: \(promptAntagonisticForce)"
+                ],
+                promptUnresolvedSetups,
+                limit: 8
+            )
+        }
+        if promptCharacterArcTurns.isEmpty {
+            promptCharacterArcTurns = mergedContextList(
+                [
+                    promptProtagonistNeed.isEmpty ? "" : "Need: \(promptProtagonistNeed)",
+                    promptThemeArgument.isEmpty ? "" : "Theme: \(promptThemeArgument)"
+                ],
+                [],
+                limit: 6
+            )
+        }
+        if promptImageMotifs.isEmpty, !promptEndingImage.isEmpty {
+            promptImageMotifs = ["Ending image: \(promptEndingImage)"]
+        }
+        let promptCharacterArcMemory = BackendScreenplayCharacterArcMemory(
+            character: characterFocus.first ?? "",
+            act: promptAct,
+            want: promptProtagonistWant,
+            need: promptProtagonistNeed,
+            relationshipPressure: promptAntagonisticForce,
+            currentTactic: promptCurrentBeat.isEmpty ? promptSceneObjective : promptCurrentBeat,
+            nextEmotionalTurn: promptCharacterArcTurns.first ?? promptNextThreeTurns.first ?? promptNextScenePlan
+        )
+        let promptCharacterVoiceMemories = screenplayDraftBridge.screenplayCharacterVoiceMemories(
+            matching: characterFocus
+        )
+
+        return (
+            act: promptAct,
+            sceneObjective: promptSceneObjective,
+            sceneSummary: promptSceneSummary,
+            currentBeat: promptCurrentBeat,
+            logline: promptLogline,
+            themeArgument: promptThemeArgument,
+            centralQuestion: promptCentralQuestion,
+            protagonistWant: promptProtagonistWant,
+            protagonistNeed: promptProtagonistNeed,
+            antagonisticForce: promptAntagonisticForce,
+            endingImage: promptEndingImage,
+            featureSequence: promptFeatureSequence,
+            featureObligation: promptFeatureObligation,
+            nextScenePlan: promptNextScenePlan,
+            nextSceneMoves: promptNextSceneMoves,
+            nextThreeTurns: promptNextThreeTurns,
+            actThreePayoffPath: promptActThreePayoffPath,
+            actPressureState: promptActPressureState,
+            characterArcState: promptCharacterArcState,
+            characterArcMemory: promptCharacterArcMemory.isMeaningful ? promptCharacterArcMemory : nil,
+            characterVoiceMemories: promptCharacterVoiceMemories,
+            lastSceneOutcome: promptLastSceneOutcome,
+            beatSequence: promptBeatSequence,
+            characterFocus: characterFocus,
+            unresolvedSetups: promptUnresolvedSetups,
+            unresolvedStoryThreads: promptUnresolvedStoryThreads,
+            characterArcTurns: promptCharacterArcTurns,
+            imageMotifs: promptImageMotifs,
+            continuityNotes: continuityNotes,
+            emotionalContinuity: promptEmotionalContinuity,
+            pageCount: promptPageCount,
+            targetPages: promptTargetPages
         )
     }
 
@@ -8170,7 +10698,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastVisualContextError = ""
             return envelope
         } catch {
-            lastVisualContextError = error.localizedDescription
+            let authRequiredMessage = authRequiredMessageIfNeeded(for: error)
+            lastVisualContextError = authRequiredMessage ?? error.localizedDescription
+            if let authRequiredMessage {
+                backendConnectionState = .up
+                backendFailureCount = 0
+                lastIssueSummary = authRequiredMessage
+            }
             if let cached = lastVisualContextEnvelope,
                Date().timeIntervalSince(lastVisualContextCapturedAt) < 20 {
                 return cached
@@ -8200,12 +10734,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func prewarmRealtimeIfNeeded(isScreenplayMode: Bool) async {
+    @discardableResult
+    private func prewarmRealtimeIfNeeded(
+        isScreenplayMode: Bool,
+        forceCredentialRefresh: Bool = false
+    ) async -> BackendRealtimeBootstrap? {
         guard voiceTransportMode == .realtimePreview else {
+            realtimePreviewStandardFallbackActive = false
             realtimeVoice.clear()
             realtimeTransport.disconnect()
             realtimeBridgeRequest = nil
-            return
+            return nil
         }
         do {
             realtimeBridgeRequest = try await backend.realtimeBridgeRequest()
@@ -8213,13 +10752,138 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeBridgeRequest = nil
         }
         let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: isScreenplayMode)
-        await realtimeVoice.prepareIfNeeded(
+        let projectIdentity = isScreenplayMode
+            ? activeRealtimeScreenplayProjectIdentity()
+            : (id: "", title: "")
+        let bootstrap = await realtimeVoice.prepareIfNeeded(
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
             isScreenplayMode: isScreenplayMode,
-            supplierMode: realtimeSupplierMode
+            screenplayProjectId: projectIdentity.id,
+            screenplayProjectTitle: projectIdentity.title,
+            emotionLane: lastClementineEmotionLane,
+            supplierMode: realtimeSupplierMode,
+            forceRefresh: forceCredentialRefresh
         )
+        return bootstrap
+    }
+
+    @MainActor
+    private func activeRealtimeScreenplayProjectIdentity() -> (id: String, title: String) {
+        let projectId = screenplayDraftBridge.committedWriteProjectIDSnapshot()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let boundProjectId = screenplayDraftBridge.projectBinding.projectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectTitle = !projectId.isEmpty &&
+            boundProjectId.caseInsensitiveCompare(projectId) == .orderedSame
+            ? screenplayDraftBridge.projectBinding.projectTitle
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        return (projectId, projectTitle)
+    }
+
+    @MainActor
+    private func scheduleRealtimeProjectGroundingRefresh(
+        reason: String,
+        stateVersion: String,
+        projectId: String,
+        projectTitle: String
+    ) {
+        guard voiceTransportMode == .realtimePreview,
+              isStudioSurfaceActive,
+              realtimeTransport.isLive else {
+            return
+        }
+        let activeProject = activeRealtimeScreenplayProjectIdentity()
+        let expectedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !expectedProjectId.isEmpty,
+           !activeProject.id.isEmpty,
+           expectedProjectId.caseInsensitiveCompare(activeProject.id) != .orderedSame {
+            return
+        }
+        let resolvedProjectId = activeProject.id.isEmpty ? expectedProjectId : activeProject.id
+        let resolvedProjectTitle = activeProject.title.isEmpty
+            ? projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            : activeProject.title
+        guard !resolvedProjectId.isEmpty || !resolvedProjectTitle.isEmpty else { return }
+
+        let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanStateVersion = stateVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let revision = [
+            cleanStateVersion.isEmpty ? String(Date().timeIntervalSince1970) : cleanStateVersion,
+            cleanReason.isEmpty ? "project_memory_changed" : cleanReason,
+            resolvedProjectId.lowercased(),
+        ].joined(separator: "|")
+        guard revision != lastRealtimeGroundingRevision,
+              revision != pendingRealtimeGroundingRevision else {
+            return
+        }
+
+        pendingRealtimeGroundingRevision = revision
+        realtimeGroundingRefreshTask?.cancel()
+        realtimeGroundingRefreshTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 120_000_000)
+            } catch {
+                return
+            }
+            guard pendingRealtimeGroundingRevision == revision,
+                  realtimeTransport.isLive,
+                  voiceTransportMode == .realtimePreview,
+                  isStudioSurfaceActive else {
+                return
+            }
+
+            let currentProject = activeRealtimeScreenplayProjectIdentity()
+            if !resolvedProjectId.isEmpty,
+               !currentProject.id.isEmpty,
+               resolvedProjectId.caseInsensitiveCompare(currentProject.id) != .orderedSame {
+                pendingRealtimeGroundingRevision = ""
+                return
+            }
+
+            do {
+                let baseInstructions = await buildRealtimeBootstrapSystemPrompt(
+                    isScreenplayMode: true
+                )
+                let grounding = try await backend.fetchRealtimeProjectGrounding(
+                    systemPrompt: baseInstructions,
+                    screenplayProjectId: currentProject.id.isEmpty
+                        ? resolvedProjectId
+                        : currentProject.id,
+                    screenplayProjectTitle: currentProject.title.isEmpty
+                        ? resolvedProjectTitle
+                        : currentProject.title
+                )
+                guard !Task.isCancelled,
+                      pendingRealtimeGroundingRevision == revision,
+                      realtimeTransport.isLive else {
+                    return
+                }
+                let latestProject = activeRealtimeScreenplayProjectIdentity()
+                if !grounding.projectId.isEmpty,
+                   !latestProject.id.isEmpty,
+                   grounding.projectId.caseInsensitiveCompare(latestProject.id) != .orderedSame {
+                    pendingRealtimeGroundingRevision = ""
+                    return
+                }
+                guard realtimeTransport.updateInstructions(
+                    grounding.instructions,
+                    revision: revision
+                ) else {
+                    pendingRealtimeGroundingRevision = ""
+                    return
+                }
+            } catch {
+                if pendingRealtimeGroundingRevision == revision {
+                    pendingRealtimeGroundingRevision = ""
+                }
+                HerLog.talk.error(
+                    "realtime project grounding fetch failed revision=\(revision, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     private func buildRealtimeBootstrapSystemPrompt(isScreenplayMode: Bool) async -> String {
@@ -8265,6 +10929,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private var connectionBannerText: String? {
+        if let outboxStatus = offlineTalkOutboxSnapshot.userVisibleStatus {
+            return outboxStatus
+        }
         switch backendConnectionState {
         case .up:
             return nil
@@ -8370,73 +11037,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func handleEmailComposeIfNeeded(_ action: BackendEmailComposeAction?, turnId: String?) {
-        guard let action else { return }
-        guard action.composed || action.action == "compose" || action.status == "composed" else { return }
-
-        if let turnId, !turnId.isEmpty, turnId == lastOpenedEmailTurnID {
-            return
-        }
-
-        let composeURL = action.composeURL ?? fallbackMailtoURL(to: action.to, subject: action.subject)
-        guard let composeURL else { return }
-
-        let composeURLString = composeURL.absoluteString
-        let now = Date()
-        if composeURLString == lastOpenedEmailComposeURL &&
-            now.timeIntervalSince(lastOpenedEmailComposeAt) < 1.25 {
-            return
-        }
-
-        if let turnId, !turnId.isEmpty {
-            lastOpenedEmailTurnID = turnId
-        }
-        lastOpenedEmailComposeURL = composeURLString
-        lastOpenedEmailComposeAt = now
-        HerLog.ui.info("open email compose target=\(action.target, privacy: .public)")
-        openURL(composeURL)
-    }
-
-    @MainActor
-    private func handleCalendarComposeIfNeeded(_ action: BackendCalendarComposeAction?, turnId: String?) {
-        guard let action else { return }
-        guard action.composed || action.action == "compose" || action.status == "composed" else { return }
-
-        if let turnId, !turnId.isEmpty, turnId == lastOpenedCalendarTurnID {
-            return
-        }
-
-        guard let composeURL = action.composeURL else { return }
-        let composeURLString = composeURL.absoluteString
-        if composeURLString == lastOpenedCalendarComposeURL {
-            return
-        }
-
-        if let turnId, !turnId.isEmpty {
-            lastOpenedCalendarTurnID = turnId
-        }
-        lastOpenedCalendarComposeURL = composeURLString
-        HerLog.ui.info("open calendar compose target=\(action.target, privacy: .public)")
-        openURL(composeURL)
-    }
-
-    private func fallbackMailtoURL(to: String?, subject: String?) -> URL? {
-        let recipient = (to ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !recipient.isEmpty else { return nil }
-        var components = URLComponents()
-        components.scheme = "mailto"
-        components.path = recipient
-        let cleanSubject = (subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanSubject.isEmpty {
-            components.queryItems = [
-                URLQueryItem(name: "subject", value: cleanSubject)
-            ]
-        }
-        return components.url
-    }
-
-    @MainActor
     private func sendDebugBundle() async {
+        guard supportDiagnosticsEnabled else { return }
         do {
             let bundleURL = try await buildDebugBundleFile()
             #if os(iOS)
@@ -8551,6 +11153,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     lastError: lastTalkDiagnosticsError
                 )
             }(),
+            clientLatency: {
+                let summary = clientLatency.summary
+                let health = clientLatency.health
+                return DebugBundleClientLatencySnapshot(
+                    sampleCount: summary.sampleCount,
+                    healthLevel: health.level.rawValue,
+                    healthSummary: health.diagnosticsSummary,
+                    evaluatedMetricCount: health.evaluatedMetricCount,
+                    pendingMetricCount: health.pendingMetricCount,
+                    breaches: health.breaches,
+                    latestFirstTextMs: summary.latestFirstTextMs,
+                    latestFirstAudioMs: summary.latestFirstAudioMs,
+                    latestBargeInAckMs: summary.latestBargeInAckMs,
+                    medianFirstTextMs: summary.medianFirstTextMs,
+                    p95FirstTextMs: summary.p95FirstTextMs,
+                    medianFirstAudioMs: summary.medianFirstAudioMs,
+                    p95FirstAudioMs: summary.p95FirstAudioMs,
+                    samples: clientLatency.samples
+                )
+            }(),
             backendSync: DebugBundleSyncSnapshot(
                 status: sync.status,
                 sessionId: sync.sessionId,
@@ -8592,7 +11214,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)",
             "Talk stats: \(lastTalkStats?.diagnosticsSummary ?? "n/a")",
             "Talk errors: \(lastTalkErrors?.diagnosticsSummary ?? "n/a")",
-            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)"
+            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)",
+            "Client latency: \(clientLatency.summary.diagnosticsSummary)",
+            "Client latency SLO: \(clientLatency.health.diagnosticsSummary)"
         ].joined(separator: "\n")
     }
 
@@ -8770,7 +11394,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startConversationLoopIfNeeded() {
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
-        if voiceTransportMode == .realtimePreview {
+        if voiceTransportMode == .realtimePreview,
+           !realtimePreviewStandardFallbackActive {
             Task { @MainActor in
                 await startRealtimePreviewConversationIfNeeded()
             }
@@ -8787,21 +11412,328 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startRealtimePreviewConversationIfNeeded() async {
         guard !realtimeTransport.isLive, !realtimeTransport.isBusy else { return }
 
+        cancelRealtimeRecovery(clearTurn: true)
         voice.stopRecording()
         voice.teardown()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         realtimePendingUserTranscript = ""
 
-        await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
-        guard let realtimeBridgeRequest, let bootstrap = realtimeVoice.latestBootstrap else { return }
+        let bootstrap = await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+        guard let realtimeBridgeRequest, let bootstrap else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        realtimePreviewStandardFallbackActive = false
         realtimeTransport.connect(
             bootstrap: bootstrap,
             bridgeRequest: realtimeBridgeRequest
         )
     }
+
+    @MainActor
+    private func activateRealtimePreviewStandardFallback() {
+        guard !realtimePreviewStandardFallbackActive else { return }
+        let outcomeAlreadyResolved = realtimeRecoveryTurnWasInterrupted &&
+            realtimeRecoveryOutcomeGate.isResolved
+        let repairTranscript = realtimeRecoveryTranscriptIsFinal && !outcomeAlreadyResolved
+            ? realtimePendingUserTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        if realtimeRecoveryTurnWasInterrupted,
+           !realtimeRecoveryOutcomeGate.isResolved {
+            guard realtimeRecoveryOutcomeGate.accept(.standardVoiceFallback) else { return }
+        }
+        cancelRealtimeRecovery(clearTurn: false)
+        realtimePreviewStandardFallbackActive = true
+        realtimeTransport.disconnect()
+        if repairTranscript.isEmpty {
+            showStudioCommandNotice("Live voice switched to standard voice.")
+        } else {
+            showStudioCommandNotice("Live voice switched to standard voice and kept your turn.")
+        }
+#if DEBUG
+        if uiTestRealtimeNetworkFaultStage != nil {
+            publishUITestRealtimeNetworkFaultResult()
+            clearRealtimeRecoveryTurn()
+            return
+        }
+#endif
+        if voice.mode == .idle {
+            voice.armOnce()
+        } else {
+            voice.resumeRecordingIfNeeded()
+        }
+
+        guard !repairTranscript.isEmpty, inFlightTalkTask == nil else { return }
+        let fingerprint = utteranceFingerprint(Data(repairTranscript.utf8))
+        let now = Date()
+        guard fingerprint != lastRealtimeFallbackRepairFingerprint ||
+                now.timeIntervalSince(lastRealtimeFallbackRepairAt) >= 30 else {
+            clearRealtimeRecoveryTurn()
+            return
+        }
+
+        lastRealtimeFallbackRepairFingerprint = fingerprint
+        lastRealtimeFallbackRepairAt = now
+        transcript = repairTranscript
+        livePartialTranscript = ""
+        cancelRealtimeStudioDraftStream(restorePreview: true)
+        clearRealtimeRecoveryTurn()
+        inFlightTalkTask = Task { @MainActor in
+            await sendUtterance(
+                silentTalkWavData(durationMs: 180),
+                clientTranscriptOverride: repairTranscript
+            )
+        }
+    }
+
+    @MainActor
+    private func handleRealtimeConnectionLoss(_ loss: ClementineRealtimeConnectionLoss) {
+        guard voiceTransportMode == .realtimePreview,
+              conversationLoopEnabled,
+              !realtimePreviewStandardFallbackActive else { return }
+
+        realtimeRecoveryTurnWasInterrupted = true
+        realtimeAssistantTranscriptFallbackTask?.cancel()
+        realtimeAssistantTranscriptFallbackTask = nil
+        let pendingTranscript = realtimePendingUserTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pendingTranscript.isEmpty {
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
+        } else if loss.hasRepairableTurn {
+            let recoveredTranscript = loss.userTranscript
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimePendingUserTranscript = recoveredTranscript
+            transcript = recoveredTranscript
+            livePartialTranscript = ""
+            lastNonEmptyPartialTranscriptHint = String(recoveredTranscript.prefix(320))
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
+        } else {
+            let partial = loss.userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !partial.isEmpty {
+                livePartialTranscript = String(partial.prefix(320))
+                lastNonEmptyPartialTranscriptHint = String(partial.prefix(320))
+            }
+        }
+        if !loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            realtimeRecoveryTurnID = loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        realtimeRecoveryOutcomeGate.begin(
+            turnID: realtimeRecoveryTurnID,
+            transcript: realtimePendingUserTranscript.isEmpty
+                ? loss.userTranscript
+                : realtimePendingUserTranscript
+        )
+
+        if loss.requiresStandardVoiceFallback {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        if realtimeRecoveryOutcomeGate.outcome == .repairedResponse {
+            realtimeRecoveryNeedsTurnRepair = false
+        } else if realtimeRecoveryNeedsTurnRepair,
+                  !lastRealtimeRepairDispatchKey.isEmpty,
+                  lastRealtimeRepairDispatchKey == realtimeRecoveryOutcomeGate.turnKey {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+
+        guard loss.recoverable else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        scheduleRealtimeReconnect(after: loss)
+    }
+
+    @MainActor
+    private func scheduleRealtimeReconnect(after loss: ClementineRealtimeConnectionLoss) {
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeRecoveryGeneration += 1
+        let generation = realtimeRecoveryGeneration
+        let nextAttempt = realtimeReconnectAttempt + 1
+        guard ClementineRealtimeRecoveryPolicy.shouldReconnect(
+            after: loss,
+            attempt: nextAttempt
+        ), let delay = ClementineRealtimeRecoveryPolicy.delayNanoseconds(forAttempt: nextAttempt) else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+
+        realtimeReconnectAttempt = nextAttempt
+        if nextAttempt == 1 {
+            showStudioCommandNotice("Reconnecting live voice…")
+        }
+#if DEBUG
+        if uiTestRealtimeNetworkFaultStage != nil {
+            realtimeRecoveryTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                guard !Task.isCancelled,
+                      generation == realtimeRecoveryGeneration else { return }
+                handleRealtimeConnectionRestored()
+            }
+            return
+        }
+#endif
+        realtimeRecoveryTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            guard generation == realtimeRecoveryGeneration,
+                  voiceTransportMode == .realtimePreview,
+                  conversationLoopEnabled,
+                  !realtimePreviewStandardFallbackActive else { return }
+
+            let bootstrap = await prewarmRealtimeIfNeeded(
+                isScreenplayMode: isStudioSurfaceActive,
+                forceCredentialRefresh: true
+            )
+            guard generation == realtimeRecoveryGeneration else { return }
+            guard let bootstrap, let realtimeBridgeRequest else {
+                realtimeRecoveryTask = nil
+                scheduleRealtimeReconnect(
+                    after: .local(
+                        cause: .negotiationFailed,
+                        message: "Could not refresh the Realtime session."
+                    )
+                )
+                return
+            }
+
+            realtimeTransport.connect(
+                bootstrap: bootstrap,
+                bridgeRequest: realtimeBridgeRequest
+            )
+            do {
+                try await Task.sleep(
+                    nanoseconds: ClementineRealtimeRecoveryPolicy.connectionTimeoutNanoseconds
+                )
+            } catch {
+                return
+            }
+            guard generation == realtimeRecoveryGeneration,
+                  !realtimeTransport.isLive else { return }
+            realtimeRecoveryTask = nil
+            scheduleRealtimeReconnect(
+                after: .local(
+                    cause: .connectionTimeout,
+                    message: "Realtime reconnection timed out."
+                )
+            )
+        }
+    }
+
+    @MainActor
+    private func handleRealtimeConnectionRestored() {
+        let wasRecovering = realtimeReconnectAttempt > 0
+        let repairTranscript = realtimePendingUserTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldRepairTurn = wasRecovering &&
+            realtimeRecoveryTranscriptIsFinal &&
+            realtimeRecoveryNeedsTurnRepair &&
+            !realtimeRecoveryOutcomeGate.isResolved &&
+            !repairTranscript.isEmpty
+        let repairTurnID = realtimeRecoveryTurnID
+
+        realtimeRecoveryGeneration += 1
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeReconnectAttempt = 0
+        realtimePreviewStandardFallbackActive = false
+
+        if shouldRepairTurn {
+            realtimeRecoveryNeedsTurnRepair = false
+            lastRealtimeRepairDispatchKey = realtimeRecoveryOutcomeGate.turnKey
+#if DEBUG
+            if uiTestRealtimeNetworkFaultStage != nil {
+                _ = realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+                _ = realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+                publishUITestRealtimeNetworkFaultResult()
+                clearRealtimeRecoveryTurn()
+                return
+            }
+#endif
+            realtimeTransport.repairInterruptedTurn(
+                userTranscript: repairTranscript,
+                turnID: repairTurnID
+            )
+        }
+        if wasRecovering {
+            showStudioCommandNotice(
+                shouldRepairTurn ? "Live voice restored. Continuing your thought." : "Live voice restored."
+            )
+        }
+    }
+
+    @MainActor
+    private func cancelRealtimeRecovery(clearTurn: Bool) {
+        realtimeRecoveryGeneration += 1
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeReconnectAttempt = 0
+        if clearTurn {
+            clearRealtimeRecoveryTurn()
+            realtimeRecoveryTurnWasInterrupted = false
+            realtimeRecoveryOutcomeGate.reset()
+            lastRealtimeRepairDispatchKey = ""
+        }
+    }
+
+    @MainActor
+    private func clearRealtimeRecoveryTurn() {
+        realtimePendingUserTranscript = ""
+        realtimeRecoveryTurnID = ""
+        realtimeRecoveryTranscriptIsFinal = false
+        realtimeRecoveryNeedsTurnRepair = false
+    }
+
+    @MainActor
+    private func resetRealtimeRecoveryOutcome(turnID: String, transcript: String = "") {
+        realtimeRecoveryTurnWasInterrupted = false
+        realtimeRecoveryOutcomeGate.reset()
+        realtimeRecoveryOutcomeGate.begin(turnID: turnID, transcript: transcript)
+        lastRealtimeRepairDispatchKey = ""
+    }
+
+    @MainActor
+    private func acceptRealtimeRecoveryResponseIfNeeded() -> Bool {
+        guard realtimeRecoveryTurnWasInterrupted else { return true }
+        return realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+    }
+
+#if DEBUG
+    @MainActor
+    private func publishUITestRealtimeNetworkFaultResult() {
+        guard let stage = uiTestRealtimeNetworkFaultStage else { return }
+        let expectedOutcome: ClementineRealtimeRecoveryOutcome = stage == .speech || stage == .transcription
+            ? .standardVoiceFallback
+            : .repairedResponse
+        let responseCount = realtimeRecoveryOutcomeGate.outcome == .repairedResponse ? 1 : 0
+        let fallbackCount = realtimeRecoveryOutcomeGate.outcome == .standardVoiceFallback ? 1 : 0
+        let outcomeValue = realtimeRecoveryOutcomeGate.outcome?.rawValue ?? "none"
+        let duplicateExpectationMet = expectedOutcome != .repairedResponse ||
+            realtimeRecoveryOutcomeGate.suppressedCount == 1
+        let complete = realtimeRecoveryOutcomeGate.outcome == expectedOutcome &&
+            realtimeRecoveryOutcomeGate.acceptedCount == 1 &&
+            responseCount + fallbackCount == 1 &&
+            duplicateExpectationMet
+        uiTestRealtimeNetworkFaultResult = [
+            "stage=\(stage.rawValue)",
+            "outcome=\(outcomeValue)",
+            "response_count=\(responseCount)",
+            "fallback_count=\(fallbackCount)",
+            "duplicate_suppressed=\(realtimeRecoveryOutcomeGate.suppressedCount)",
+            "complete=\(complete)",
+        ].joined(separator: " ")
+    }
+#endif
 
     @MainActor
     private struct StudioDialogueAnchorMetadata {
@@ -8887,6 +11819,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let anchorMetadata = preparedPrompt.shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
             : nil
+        let insertionMode = (screenplayDraftBridge.pendingReplacementTarget ?? screenplayDraftBridge.submittedReplacementTarget) != nil
+            ? "replace_selection"
+            : "insert_after_anchor"
+        let promptContinuity = screenplayPromptContinuityContext()
+        let draftExcerpt = String(
+            screenplayDraftBridge.draftText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .suffix(6_000)
+        )
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
@@ -8895,6 +11836,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayWriteId: "",
             screenplayAnchorLine: anchorMetadata?.startLine,
             screenplayAnchorEndLine: anchorMetadata?.endLine,
+            screenplayInsertionMode: preparedPrompt.shouldWriteToPage ? insertionMode : "",
             screenplayAnchorSceneLabel: anchorMetadata?.sceneLabel ?? "",
             screenplayAnchorDraftSceneId: anchorMetadata?.draftSceneID ?? "",
             screenplayAnchorOutlineSceneId: anchorMetadata?.outlineSceneID ?? "",
@@ -8906,7 +11848,119 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayReplacementApplied: false,
             screenplayReplacedWriteId: "",
             screenplayRevisedBlockText: "",
-            screenplayResolvedAnchorExcerpt: ""
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayDraftExcerpt: draftExcerpt,
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
+        )
+        return metadata.isMeaningful ? metadata : nil
+    }
+
+    @MainActor
+    private func studioRenderRequestMetadata(
+        promptSource: ScreenplayStudioUserPrompt.Source,
+        shouldWriteToPage: Bool,
+        requestID: String? = nil
+    ) -> BackendStudioThreadCommitMetadata? {
+        guard isStudioSurfaceActive else { return nil }
+        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let anchorMetadata = shouldWriteToPage
+            ? resolvedStudioDialogueAnchorMetadata()
+            : nil
+        let insertionMode = (screenplayDraftBridge.pendingReplacementTarget ?? screenplayDraftBridge.submittedReplacementTarget) != nil
+            ? "replace_selection"
+            : "insert_after_anchor"
+        let promptContinuity = screenplayPromptContinuityContext(featureWorkflowRequestID: requestID)
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: projectId,
+            screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
+            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+            screenplayPromptSource: promptSource.rawValue,
+            screenplayWriteId: "",
+            screenplayAnchorLine: anchorMetadata?.startLine,
+            screenplayAnchorEndLine: anchorMetadata?.endLine,
+            screenplayInsertionMode: shouldWriteToPage ? insertionMode : "",
+            screenplayAnchorSceneLabel: anchorMetadata?.sceneLabel ?? "",
+            screenplayAnchorDraftSceneId: anchorMetadata?.draftSceneID ?? "",
+            screenplayAnchorOutlineSceneId: anchorMetadata?.outlineSceneID ?? "",
+            screenplayAnchorOutlineBeatIds: anchorMetadata?.outlineBeatIDs ?? [],
+            screenplayAnchorScriptNodeId: anchorMetadata?.scriptNodeID ?? "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayDraftExcerpt: String(
+                screenplayDraftBridge.draftText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .suffix(6_000)
+            ),
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
         return metadata.isMeaningful ? metadata : nil
     }
@@ -8949,7 +12003,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func studioThreadCommitMetadata(
         promptSource: ScreenplayStudioUserPrompt.Source,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
-        insertedTextOverride: String? = nil
+        insertedTextOverride: String? = nil,
+        requestID: String? = nil
     ) -> BackendStudioThreadCommitMetadata? {
         guard isStudioSurfaceActive else { return nil }
 
@@ -8965,7 +12020,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? screenplayDraftBridge.lastCommittedWrite
             : nil
         let explicitPageWrite = targetOverride == .page && (hasInsertedTextOverride || latestCommittedWrite != nil)
-        let isPageWrite = pinMode == "page" || explicitPageWrite
+        let isPageWrite: Bool
+        if targetOverride == .voicePin {
+            isPageWrite = false
+        } else {
+            isPageWrite = pinMode == "page" || explicitPageWrite
+        }
         let committedWrite = isPageWrite ? latestCommittedWrite : nil
         let noteTitle: String
         let noteBody: String
@@ -8979,10 +12039,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         } else {
             let cleanTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanBody = pin.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanFullBody = pin.fullBody.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanActionSummary = pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
             noteTitle = cleanTitle.isEmpty ? "io.them" : cleanTitle
             noteBody = clippedStudioAssistantText(
-                cleanBody.isEmpty ? cleanActionSummary : cleanBody,
+                cleanFullBody.isEmpty ? (cleanBody.isEmpty ? cleanActionSummary : cleanBody) : cleanFullBody,
                 limit: 280
             )
         }
@@ -9003,6 +12064,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ?? (isPageWrite && hasInsertedTextOverride
                 ? clippedStudioAssistantText(cleanInsertedTextOverride, limit: 220)
                 : "")
+        let promptContinuity = screenplayPromptContinuityContext(
+            featureWorkflowRequestID: requestID
+        )
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata.documentRevisionID,
@@ -9011,6 +12075,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayWriteId: committedWrite?.writeID ?? "",
             screenplayAnchorLine: anchorMetadata.startLine,
             screenplayAnchorEndLine: anchorMetadata.endLine,
+            screenplayInsertionMode: replacementApplied ? "replace_selection" : "insert_after_anchor",
             screenplayAnchorSceneLabel: anchorSceneLabel,
             screenplayAnchorDraftSceneId: anchorMetadata.draftSceneID,
             screenplayAnchorOutlineSceneId: anchorMetadata.outlineSceneID,
@@ -9022,7 +12087,44 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayReplacementApplied: replacementApplied,
             screenplayReplacedWriteId: replacedWriteID,
             screenplayRevisedBlockText: revisedBlockText,
-            screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt
+            screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt,
+            screenplayDraftExcerpt: String(
+                screenplayDraftBridge.draftText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .suffix(6_000)
+            ),
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
         return metadata.isMeaningful ? metadata : nil
     }
@@ -9123,7 +12225,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let studioMetadata = studioThreadCommitMetadata(
                 promptSource: promptSource,
                 targetOverride: targetOverride,
-                insertedTextOverride: insertedTextOverride
+                insertedTextOverride: insertedTextOverride,
+                requestID: requestId
             )
             let result = try await BackendMemoryAPI.shared.commitRealtimeTurn(
                 userMessage: cleanUser,
@@ -9133,11 +12236,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     : "rt-\(fingerprint)",
                 studioMetadata: studioMetadata
             )
+            presentCanonClarificationIfNeeded(result.payload.canonClarification)
             lastRealtimeCommittedTurnID = result.payload.turnId ?? result.payload.lastTurnId ?? result.sync.lastTurnId
             lastRealtimeCommitAt = now
             lastRealtimeCommitError = ""
             if !result.sync.stateVersion.isEmpty {
                 localStateVersion = result.sync.stateVersion
+            }
+            if result.payload.memoryGroundingChanged == true {
+                let activeProject = activeRealtimeScreenplayProjectIdentity()
+                scheduleRealtimeProjectGroundingRefresh(
+                    reason: result.payload.memoryGroundingReason ?? "project_memory_changed",
+                    stateVersion: result.sync.stateVersion,
+                    projectId: result.payload.memoryGroundingProjectId ??
+                        studioMetadata?.screenplayProjectId ?? "",
+                    projectTitle: result.payload.memoryGroundingProjectTitle ??
+                        activeProject.title
+                )
             }
             await syncEvolutionForMemoryDomain(
                 userMessage: cleanUser,
@@ -9154,6 +12269,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         promptSource: ScreenplayStudioUserPrompt.Source,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
         insertedTextOverride: String? = nil,
+        requestID: String? = nil,
         turnIdOverride: String? = nil
     ) async {
         let turnId = (turnIdOverride ?? lastRealtimeCommittedTurnID)
@@ -9166,7 +12282,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         guard let studioMetadata = studioThreadCommitMetadata(
             promptSource: promptSource,
             targetOverride: targetOverride,
-            insertedTextOverride: insertedTextOverride
+            insertedTextOverride: insertedTextOverride,
+            requestID: requestID
         ) else { return }
 
         do {
@@ -9287,6 +12404,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return "Thinking…"
         }
         if voiceTransportMode == .realtimePreview {
+            if realtimePreviewStandardFallbackActive {
+                switch voice.mode {
+                case .capturingSpeech:
+                    return "Listening…"
+                case .assistantSpeaking:
+                    return "Speaking…"
+                case .armedListening:
+                    return "Ready"
+                case .muted:
+                    return "Muted"
+                case .idle:
+                    return "Standby"
+                }
+            }
+            if realtimeReconnectAttempt > 0 {
+                return "Reconnecting…"
+            }
             switch realtimeTransport.status {
             case .idle:
                 return "Standby"
@@ -9318,6 +12452,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private var studioTalkIsActive: Bool {
         if voiceTransportMode == .realtimePreview {
+            if realtimePreviewStandardFallbackActive {
+                switch voice.mode {
+                case .capturingSpeech, .assistantSpeaking, .armedListening:
+                    return true
+                case .idle, .muted:
+                    return false
+                }
+            }
+            if realtimeReconnectAttempt > 0 {
+                return true
+            }
             switch realtimeTransport.status {
             case .ready, .connecting, .live:
                 return true
@@ -9343,12 +12488,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
-        realtimePendingUserTranscript = ""
+        cancelRealtimeRecovery(clearTurn: true)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         voice.markRequestFailed()
         if voiceTransportMode == .realtimePreview {
             voice.stopRecording()
@@ -10924,466 +14070,6 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
     }
 }
 
-private enum QuickEmailProvider: String, CaseIterable, Identifiable {
-    case mailto
-    case gmail
-    case outlook
-    case yahoo
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .mailto: return "Mail App"
-        case .gmail: return "Gmail"
-        case .outlook: return "Outlook"
-        case .yahoo: return "Yahoo"
-        }
-    }
-
-    var backendTarget: String {
-        switch self {
-        case .mailto: return "mailto"
-        case .gmail: return "gmail"
-        case .outlook: return "outlook"
-        case .yahoo: return "yahoo"
-        }
-    }
-}
-
-private struct ContactEmailSuggestion: Identifiable, Hashable {
-    let id: String
-    let displayName: String
-    let email: String
-}
-
-private struct QuickEmailPanel: View {
-    private enum ContactsLoadState: Equatable {
-        case idle
-        case loading
-        case ready
-        case denied
-        case failed(String)
-    }
-
-    let onDone: () -> Void
-
-    @Environment(\.openURL) private var openURL
-    @State private var to = ""
-    @State private var subject = ""
-    @State private var messageBody = ""
-    @State private var provider: QuickEmailProvider = .mailto
-    @State private var isSubmitting = false
-    @State private var isConnecting = false
-    @State private var contactsState: ContactsLoadState = .idle
-    @State private var contacts: [ContactEmailSuggestion] = []
-    @State private var recentRecipients: [String] = []
-    @State private var statusText = ""
-    @State private var errorText = ""
-    @FocusState private var bodyFocused: Bool
-
-    private let recentRecipientsDefaultsKey = "quick_email_recent_recipients"
-
-    private var canSubmit: Bool {
-        !isSubmitting &&
-        !to.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !messageBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var filteredContacts: [ContactEmailSuggestion] {
-        let needle = to.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else {
-            return Array(contacts.prefix(8))
-        }
-        return Array(
-            contacts
-                .filter { suggestion in
-                    suggestion.email.lowercased().contains(needle) ||
-                    suggestion.displayName.lowercased().contains(needle)
-                }
-                .prefix(8)
-        )
-    }
-
-    private var contactsHelperText: String {
-        switch contactsState {
-        case .idle:
-            return "Load contacts to autofill recipient emails quickly."
-        case .loading:
-            return "Loading contacts…"
-        case .ready:
-            return "Contacts loaded."
-        case .denied:
-            return "Contacts access denied. Enable it in System Settings > Privacy > Contacts."
-        case .failed(let message):
-            return message
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                VStack(spacing: 16) {
-                    header
-                    providerRow
-                    recipientRow
-                    subjectRow
-                    bodyRow
-                    recentRow
-                    contactsRow
-                    actionsRow
-                    statusRow
-                    Spacer(minLength: 0)
-                }
-                .padding(24)
-            }
-            .task {
-                loadRecentRecipients()
-            }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Quick Email")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.95))
-                Spacer()
-                Button("Return", action: onDone)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white.opacity(0.22))
-                    .foregroundColor(.herText.opacity(0.92))
-            }
-            Text("Type your email here and open a ready-to-send draft instantly.")
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.80))
-        }
-    }
-
-    private var providerRow: some View {
-        HStack(spacing: 10) {
-            Text("Send via")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            Picker("Provider", selection: $provider) {
-                ForEach(QuickEmailProvider.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var recipientRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("To")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextField("name@example.com", text: $to)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
-    private var subjectRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Subject")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextField("Subject", text: $subject)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
-    private var bodyRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Message")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            TextEditor(text: $messageBody)
-                .focused($bodyFocused)
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.92))
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .frame(minHeight: 180)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.12))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-        }
-    }
-
-    private var recentRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Recent")
-                .font(.system(size: 13, weight: .semibold, design: .default))
-                .foregroundColor(.herText.opacity(0.88))
-            if recentRecipients.isEmpty {
-                Text("No recent recipients yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.herText.opacity(0.64))
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(recentRecipients, id: \.self) { recipient in
-                            Button(recipient) {
-                                to = recipient
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.white.opacity(0.24))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-    }
-
-    private var contactsRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Contacts")
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.88))
-                Spacer()
-                Button {
-                    Task { await loadContacts() }
-                } label: {
-                    Text(contactsState == .loading ? "Loading…" : "Load Contacts")
-                }
-                .buttonStyle(.bordered)
-                .disabled(contactsState == .loading)
-            }
-
-            Text(contactsHelperText)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(0.66))
-
-            if !filteredContacts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(filteredContacts) { suggestion in
-                            Button("\(suggestion.displayName) <\(suggestion.email)>") {
-                                to = suggestion.email
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.white.opacity(0.24))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-    }
-
-    private var actionsRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task { await openDraft() }
-            } label: {
-                Text(isSubmitting ? "Opening…" : "Open Draft")
-                    .font(.system(size: 14, weight: .semibold, design: .default))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.white.opacity(0.24))
-            .disabled(!canSubmit)
-
-            Button {
-                Task { await connectGmail() }
-            } label: {
-                Text(isConnecting ? "Connecting…" : "Connect Gmail")
-                    .font(.system(size: 14, weight: .regular, design: .default))
-            }
-            .buttonStyle(.bordered)
-            .disabled(isConnecting)
-        }
-    }
-
-    private var statusRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !statusText.isEmpty {
-                Text(statusText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.herText.opacity(0.86))
-            }
-            if !errorText.isEmpty {
-                Text(errorText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundColor(.red.opacity(0.92))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @MainActor
-    private func openDraft() async {
-        let cleanTo = to.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanBody = messageBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTo.isEmpty, !cleanBody.isEmpty else { return }
-
-        isSubmitting = true
-        statusText = ""
-        errorText = ""
-        defer { isSubmitting = false }
-
-        do {
-            let result = try await BackendMemoryAPI.shared.composeSecretaryEmail(
-                to: cleanTo,
-                subject: cleanSubject,
-                body: cleanBody,
-                provider: provider.backendTarget,
-                sendNow: true
-            )
-            let payload = result.payload
-            let composeRaw = (payload.composeUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if let composeURL = URL(string: composeRaw), !composeRaw.isEmpty {
-                openURL(composeURL)
-                rememberRecentRecipient(cleanTo)
-                statusText = "Draft opened in \(provider.title)."
-                errorText = ""
-            } else {
-                let message = (payload.error ?? "Could not open draft URL.")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                errorText = message.isEmpty ? "Could not open draft URL." : message
-                statusText = ""
-            }
-        } catch {
-            errorText = error.localizedDescription
-            statusText = ""
-        }
-    }
-
-    @MainActor
-    private func connectGmail() async {
-        isConnecting = true
-        statusText = ""
-        errorText = ""
-        defer { isConnecting = false }
-
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchSecretaryEmailConnectURL(provider: "gmail")
-            let payload = result.payload
-            let raw = (payload.connectUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: raw), !raw.isEmpty else {
-                throw NSError(domain: "QuickEmail", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "Could not create Gmail connect URL."
-                ])
-            }
-            openURL(url)
-            if payload.mode == "oauth" {
-                statusText = "Opened Gmail OAuth connect in browser."
-            } else {
-                statusText = "Opened Gmail login in browser."
-            }
-        } catch {
-            if let fallbackURL = URL(string: "https://accounts.google.com/ServiceLogin?service=mail&continue=https://mail.google.com/mail/") {
-                openURL(fallbackURL)
-                statusText = "Opened Gmail login in browser."
-            } else {
-                errorText = error.localizedDescription
-                statusText = ""
-            }
-        }
-    }
-
-    @MainActor
-    private func loadContacts() async {
-        contactsState = .loading
-        errorText = ""
-
-        let store = CNContactStore()
-        let granted = await requestContactsAccess(store: store)
-        guard granted else {
-            contactsState = .denied
-            return
-        }
-
-        let keys: [CNKeyDescriptor] = [
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-        ]
-        let request = CNContactFetchRequest(keysToFetch: keys)
-        var loaded: [ContactEmailSuggestion] = []
-        var seenEmails = Set<String>()
-
-        do {
-            try store.enumerateContacts(with: request) { contact, _ in
-                let name = "\(contact.givenName) \(contact.familyName)"
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let labelName = name.isEmpty ? "Contact" : name
-                for rawEmail in contact.emailAddresses {
-                    let email = String(rawEmail.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    guard !email.isEmpty else { continue }
-                    if seenEmails.contains(email) { continue }
-                    seenEmails.insert(email)
-                    loaded.append(
-                        ContactEmailSuggestion(
-                            id: email,
-                            displayName: labelName,
-                            email: email
-                        )
-                    )
-                }
-            }
-            contacts = loaded.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            contactsState = .ready
-        } catch {
-            contactsState = .failed(error.localizedDescription)
-        }
-    }
-
-    private func requestContactsAccess(store: CNContactStore) async -> Bool {
-        let status = CNContactStore.authorizationStatus(for: .contacts)
-        switch status {
-        case .authorized, .limited:
-            return true
-        case .denied, .restricted:
-            return false
-        case .notDetermined:
-            return await withCheckedContinuation { continuation in
-                store.requestAccess(for: .contacts) { granted, _ in
-                    continuation.resume(returning: granted)
-                }
-            }
-        @unknown default:
-            return false
-        }
-    }
-
-    private func loadRecentRecipients() {
-        let raw = UserDefaults.standard.array(forKey: recentRecipientsDefaultsKey) as? [String] ?? []
-        recentRecipients = raw
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
-    }
-
-    private func rememberRecentRecipient(_ recipient: String) {
-        let clean = recipient.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !clean.isEmpty else { return }
-        var next = recentRecipients.filter { $0.caseInsensitiveCompare(clean) != .orderedSame }
-        next.insert(clean, at: 0)
-        if next.count > 10 {
-            next = Array(next.prefix(10))
-        }
-        recentRecipients = next
-        UserDefaults.standard.set(next, forKey: recentRecipientsDefaultsKey)
-    }
-}
-
 private struct TasksPanel: View {
     let onDone: () -> Void
 
@@ -12144,6 +14830,10 @@ private struct DebugBundleActivityView: UIViewControllerRepresentable {
 @MainActor
 private final class PersonalityPromptSpeaker: NSObject {
     private let synthesizer = AVSpeechSynthesizer()
+
+    var isSpeaking: Bool {
+        synthesizer.isSpeaking || synthesizer.isPaused
+    }
 
     func speak(_ text: String, style: ScreenplayAuditionVoiceStyle = .natural) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)

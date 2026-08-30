@@ -22,6 +22,9 @@ Canonical shapes for the `/memory/block-signal*` endpoints.
 ## Access-control posture
 
 **PER-USER**. Block signal carries the writer's coaching state.
+Trusted authenticated identity is required; caller-supplied
+`X-User-Id` is ignored. Unauthenticated callers receive HTTP 401
+with `{ "error": "user_auth_required" }`.
 
 ## Snapshot envelope (`GET /memory/block-signal`)
 
@@ -63,3 +66,6 @@ Canonical shapes for the `/memory/block-signal*` endpoints.
 ## Changelog
 
 - 2026-05-14 — Doc created.
+- 2026-05-26 — Auth/privacy hardening: `/memory/block-signal*`
+  now returns 401 for unauthenticated callers instead of zero
+  envelopes.

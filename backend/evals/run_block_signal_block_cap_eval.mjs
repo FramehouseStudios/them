@@ -6,18 +6,15 @@
 // The block_signal block is built by
 // buildBlockCoachingBlockForPrompt(signal) in lib/block_detector.js,
 // then wrapped by lib/prompt_assembly.js. Today it stays small (~300
-// chars), but `signal.summary` is a free-form string passed through
-// verbatim. If a future change uses an unbounded summary source
-// (e.g. a model-generated rationale), the block could blow up.
+// chars). `signal.summary` is free-form input, so the builder bounds
+// it before prompt assembly.
 //
 // This eval asserts:
 //
 //   - low / null / undefined signals produce an empty block
 //     (the happy-path prompt is unchanged)
-//   - medium / high signals produce a block under 1,500 chars
-//     even when summary is a 10k-char pathological string
-//     (the block's structure caps at the literal lines we emit;
-//      summary is the only growth surface)
+//   - medium / high signals produce a block under 800 chars even
+//     when summary is a 10k-char pathological string
 //   - assembled prompts with a block_signal stay under the
 //     prompt-size eval's 12k heavy-user budget when paired with a
 //     populated creative memory
@@ -72,12 +69,9 @@ for (const level of ["medium", "high"]) {
     normal.length < 500,
   );
   const huge = buildBlockCoachingBlockForPrompt({ level, summary: PATHOLOGICAL });
-  // Block grows by ~summary.length; cap at 1500 chars to flag any
-  // future addition of more block fields. The summary field itself
-  // is the only unbounded surface.
   check(
-    `${level} block stays under 12_000 chars even with a 10k pathological summary (got ${huge.length})`,
-    huge.length < 12_000,
+    `${level} block stays under 800 chars even with a 10k pathological summary (got ${huge.length})`,
+    huge.length < 800,
   );
 }
 

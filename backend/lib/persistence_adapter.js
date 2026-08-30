@@ -10,8 +10,10 @@
 //
 // Adapter selection is driven by DATABASE_URL: present → Postgres,
 // absent → JSON. A single createPersistence() factory returns the
-// correct one. All stores accept a persistence handle via DI; no
-// store imports either implementation directly.
+// correct one. Both adapters also expose compareAndSwap so durable
+// read-modify-write operations can reject stale writers across instances.
+// All stores accept a persistence handle via DI; no store imports either
+// implementation directly.
 //
 // Both implementations satisfy the same contract, exercised by
 // backend/tests/persistence_adapter.test.mjs.
@@ -20,6 +22,11 @@ import { createJsonPersistence } from "./persistence_json.js";
 import { createPostgresPersistence } from "./persistence_postgres.js";
 
 const KNOWN_DOMAINS = Object.freeze([
+  "auth_users",
+  "auth_sessions",
+  "auth_password_reset_tokens",
+  "auth_email_verification_tokens",
+  "auth_store_meta",
   "outbox",
   "user_memory",
   "screenplay",
@@ -37,6 +44,8 @@ const KNOWN_DOMAINS = Object.freeze([
   "accepted_twists",
   // T-first-page-telemetry-sink: per-user first-page-written events for measuring the T11 magic-moment SLA.
   "telemetry_first_page_written",
+  "account_lifecycle",
+  "account_audit_log",
 ]);
 
 function isKnownDomain(domain) {

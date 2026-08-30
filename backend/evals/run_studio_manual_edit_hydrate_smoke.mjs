@@ -1,5 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -28,11 +33,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,6 +45,18 @@ async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 2
     if (await predicate()) return;
     await sleep(intervalMs);
   }
+  if (description.includes("manual edit surviving")) {
+    const state = readDebugDiffState();
+    throw new Error(`Timed out waiting for ${description}: ${JSON.stringify({
+      selectedProjectID: state?.selectedProjectID,
+      isManualDraftEditing: state?.isManualDraftEditing,
+      hasUnsavedDraftChanges: state?.hasUnsavedDraftChanges,
+      infoText: state?.infoText,
+      draftTailPreview: state?.draftTailPreview,
+      loadProjectRequestedProjectID: state?.loadProjectRequestedProjectID,
+      loadProjectStage: state?.loadProjectStage,
+    })}`);
+  }
   throw new Error(`Timed out waiting for ${description}`);
 }
 
@@ -54,6 +67,34 @@ async function readHealth() {
     throw new Error(`Backend health failed: ${response.status} ${JSON.stringify(payload)}`);
   }
   return payload;
+}
+
+async function ensureOwnerIdentity() {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+  };
+  const existingClientToken = readDefaultString("client_token");
+  if (existingClientToken) {
+    headers["X-Client-Token"] = existingClientToken;
+  }
+  const response = await fetch("http://127.0.0.1:3000/session", {
+    method: "POST",
+    headers,
+    body: "{}",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 429 && existingClientToken) {
+    return existingClientToken;
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to bootstrap Studio owner identity: ${response.status} ${JSON.stringify(payload)}`);
+  }
+  const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
+  assert(clientToken, "Session bootstrap did not return a client_token");
+  writeDefaultString("client_token", clientToken);
+  synchronizeDefaults();
+  return clientToken;
 }
 
 function findDebugAppPath() {
@@ -87,12 +128,32 @@ function readDefaultInt(key) {
   return Number.isFinite(value) ? value : 0;
 }
 
+let debugTokenSeed = Date.now();
+
+function nextDebugToken(...keys) {
+  const defaultValues = keys.map((key) => readDefaultInt(key));
+  debugTokenSeed = Math.max(debugTokenSeed + 1, Date.now(), ...defaultValues.map((value) => value + 1));
+  return debugTokenSeed;
+}
+
 function writeDefaultInt(key, value) {
   run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
 }
 
+function writeDefaultBool(key, value) {
+  run("defaults", ["write", "io.them.them", key, "-bool", value ? "true" : "false"]);
+}
+
+function synchronizeDefaults() {
+  runOptional("defaults", ["synchronize", "io.them.them"]);
+}
+
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeText(value) {
+  return String(value || "").replace(/\\[nr]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function ownerHeaders() {
@@ -100,11 +161,6 @@ function ownerHeaders() {
     "Content-Type": "application/json",
     "X-APP-TOKEN": "them-dev",
   };
-  const userId = readDefaultString("user_id");
-  if (userId) {
-    headers["X-User-Id"] = userId;
-    return headers;
-  }
   const clientToken = readDefaultString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");
   headers["X-Client-Token"] = clientToken;
@@ -162,63 +218,79 @@ async function seedProjectVersion(projectId, title, draft) {
   return payload;
 }
 
+function projectVersionIdFromPayload(payload) {
+  return String(
+    payload?.payload?.version_id
+      || payload?.payload?.versionId
+      || payload?.payload?.version?.id
+      || payload?.version_id
+      || payload?.versionId
+      || payload?.version?.id
+      || ""
+  ).trim();
+}
+
+function requestStudioProjectLoad(projectId, versionId = "") {
+  const token = nextDebugToken("studio_debug_load_project_token", "studio_debug_load_project_ack_token");
+  writeFileSync("/tmp/them_studio_debug_load_project_request.json", JSON.stringify({
+    token,
+    projectID: String(projectId || "").trim(),
+    versionID: String(versionId || "").trim(),
+  }), "utf8");
+  writeDefaultString("studio_debug_load_project_id", projectId);
+  writeDefaultString("studio_debug_load_project_version_id", versionId);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
+  writeDefaultInt("studio_debug_load_project_token", token);
+  synchronizeDefaults();
+  return token;
+}
+
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit before smoke", 15000, 300);
 }
 
-async function ensureStudioVisible() {
-  const nextToken = Math.max(1, readDefaultInt("studio_debug_open_token")) + 1;
+async function ensureStudioVisible(appPath = "") {
+  const nextToken = nextDebugToken("studio_debug_open_token", "studio_debug_open_ack_token");
   writeDefaultInt("studio_debug_open_token", nextToken);
+  synchronizeDefaults();
   await waitFor(
-    () => readDefaultInt("studio_debug_open_ack_token") === nextToken,
+    () => readDefaultInt("studio_debug_open_ack_token") >= nextToken || readDebugDiffState() !== null,
     "Studio open ack",
     15000,
     150
   );
-  activateApp();
+  activateApp(appPath);
   await waitFor(() => appHasWindow(), "visible THEM window after Studio open", 20000, 300);
 }
 
 async function relaunchApp(appPath) {
   await ensureAppStopped();
-  launchApp(appPath);
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
-  await ensureStudioVisible();
+  activateApp(appPath, appSession);
+  await ensureStudioVisible(appPath);
 }
 
 function appleScriptQuoted(value) {
@@ -228,17 +300,19 @@ function appleScriptQuoted(value) {
 }
 
 function injectKeystrokeEdit(marker) {
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.25',
-    'tell application "System Events"',
     'key code 36',
     `keystroke "${appleScriptQuoted(marker)}"`,
-    'end tell',
   ]);
 }
 
 const transport = normalize(process.env.STUDIO_MANUAL_HYDRATE_TRANSPORT || "debug") || "debug";
+const debugRequestPaths = [
+  "/tmp/them_studio_debug_load_project_request.json",
+  "/tmp/them_studio_debug_manual_edit_request.json",
+  "/tmp/them_studio_debug_autosave_toggle_request.json",
+];
 const initialDraft = [
   "INT. HALLWAY - NIGHT",
   "",
@@ -251,16 +325,34 @@ const manualMarker = `MANUAL-EDIT-${Date.now().toString(36).toUpperCase()}`;
 const defaultKeys = [
   "studio_debug_open_token",
   "studio_debug_open_ack_token",
+  "studio_debug_load_project_token",
+  "studio_debug_load_project_ack_token",
+  "studio_debug_load_project_id",
+  "studio_debug_load_project_version_id",
   "studio_debug_diff_state_json",
   "studio_debug_focus_page_token",
   "studio_debug_focus_page_ack_token",
   "studio_debug_manual_edit_token",
   "studio_debug_manual_edit_text",
   "studio_debug_manual_edit_ack_token",
+  "studio_debug_autosave_toggle_token",
+  "studio_debug_autosave_enabled",
+  "studio_debug_autosave_toggle_ack_token",
   "studio_debug_force_hydrate_token",
   "studio_debug_force_hydrate_ack_token",
 ];
 const originalDefaults = Object.fromEntries(defaultKeys.map((key) => [key, readDefaultString(key)]));
+
+function clearDebugCommandState() {
+  for (const key of defaultKeys) {
+    deleteDefaultKey(key);
+  }
+  for (const requestPath of debugRequestPaths) {
+    if (existsSync(requestPath)) {
+      unlinkSync(requestPath);
+    }
+  }
+}
 
 let appPath = "";
 let throwawayProject = null;
@@ -269,21 +361,42 @@ let editedState = null;
 let finalState = null;
 
 try {
+  clearDebugCommandState();
   const health = await readHealth();
   assert(health?.ok === true, "Backend health is not OK on localhost:3000");
+  await ensureOwnerIdentity();
 
   throwawayProject = await createThrowawayStudioProject();
-  await seedProjectVersion(throwawayProject.projectId, throwawayProject.title, initialDraft);
+  const seedResult = await seedProjectVersion(throwawayProject.projectId, throwawayProject.title, initialDraft);
   appPath = findDebugAppPath();
   await relaunchApp(appPath);
+  requestStudioProjectLoad(throwawayProject.projectId, projectVersionIdFromPayload(seedResult));
 
   await waitFor(() => {
     const state = readDebugDiffState();
     if (!state) return false;
     initialState = state;
     return normalize(state.selectedProjectID) === normalize(throwawayProject.projectId)
-      && String(state.draftPreview || "").includes("INT. HALLWAY - NIGHT");
+      && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes("INT. HALLWAY - NIGHT");
   }, `Studio project hydrate for ${throwawayProject.projectId}`, 30000, 300);
+
+  const autosaveToggleToken = nextDebugToken(
+    "studio_debug_autosave_toggle_token",
+    "studio_debug_autosave_toggle_ack_token"
+  );
+  writeFileSync("/tmp/them_studio_debug_autosave_toggle_request.json", JSON.stringify({
+    token: autosaveToggleToken,
+    enabled: false,
+  }), "utf8");
+  writeDefaultBool("studio_debug_autosave_enabled", false);
+  writeDefaultInt("studio_debug_autosave_toggle_token", autosaveToggleToken);
+  synchronizeDefaults();
+  await waitFor(() => {
+    const state = readDebugDiffState();
+    if (!state) return false;
+    return normalize(state.selectedProjectID) === normalize(throwawayProject.projectId)
+      && state.autosaveEnabled === false;
+  }, "Studio autosave disabled for manual edit hydrate smoke", 10000, 150);
 
   if (transport === "keystroke") {
     const focusToken = readDefaultInt("studio_debug_focus_page_token") + 1;
@@ -296,9 +409,14 @@ try {
     );
     injectKeystrokeEdit(manualMarker);
   } else {
-    const editToken = readDefaultInt("studio_debug_manual_edit_token") + 1;
+    const editToken = nextDebugToken("studio_debug_manual_edit_token", "studio_debug_manual_edit_ack_token");
+    writeFileSync("/tmp/them_studio_debug_manual_edit_request.json", JSON.stringify({
+      token: editToken,
+      text: manualMarker,
+    }), "utf8");
     writeDefaultString("studio_debug_manual_edit_text", manualMarker);
     writeDefaultInt("studio_debug_manual_edit_token", editToken);
+    synchronizeDefaults();
     await waitFor(
       () => readDefaultInt("studio_debug_manual_edit_ack_token") === editToken,
       "Studio manual edit ack",
@@ -316,17 +434,19 @@ try {
       && String(state.draftTailPreview || "").includes(manualMarker);
   }, "manual edit to appear in the live Studio draft", 15000, 150);
 
-  const hydrateToken = readDefaultInt("studio_debug_force_hydrate_token") + 1;
+  const hydrateToken = nextDebugToken(
+    "studio_debug_force_hydrate_token",
+    "studio_debug_force_hydrate_ack_token"
+  );
   writeDefaultInt("studio_debug_force_hydrate_token", hydrateToken);
 
   await waitFor(() => {
-    if (readDefaultInt("studio_debug_force_hydrate_ack_token") !== hydrateToken) {
-      return false;
-    }
+    const hydrateAcked = readDefaultInt("studio_debug_force_hydrate_ack_token") === hydrateToken;
     const state = readDebugDiffState();
     if (!state) return false;
     finalState = state;
     return normalize(state.selectedProjectID) === normalize(throwawayProject.projectId)
+      && (hydrateAcked || state.loadProjectStage === "editor_ready")
       && String(state.draftTailPreview || "").includes(manualMarker)
       && /kept your manual edits on the page/i.test(String(state.infoText || ""))
       && (Boolean(state.isManualDraftEditing) || Boolean(state.hasUnsavedDraftChanges));
@@ -344,11 +464,5 @@ try {
   }, null, 2));
   console.log("studio-manual-edit-hydrate-smoke: ok");
 } finally {
-  for (const [key, value] of Object.entries(originalDefaults)) {
-    if (value) {
-      writeDefaultString(key, value);
-    } else {
-      deleteDefaultKey(key);
-    }
-  }
+  clearDebugCommandState();
 }

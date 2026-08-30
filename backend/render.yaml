@@ -1,0 +1,66 @@
+# Render Blueprint for the io.them backend.
+#
+# This file is one valid deploy target. The Dockerfile is host-agnostic, so the
+# same image runs on Fly, ECS, Cloud Run, or Kubernetes if Render is replaced.
+# See backend/DEPLOY.md for the full deploy recipe.
+#
+# Apply with: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: them-backend
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: false  # require explicit promotion; CI runs the quality gate
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      # Secrets — set these in the Render dashboard, NOT in this file.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: APP_TOKEN
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: AUTH_APPLE_AUDIENCE
+        sync: false
+      # Optional tuning — safe defaults; override in dashboard if needed.
+      - key: CORS_ALLOW_ORIGIN
+        value: ""
+      - key: API_SCHEMA_VERSION
+        value: "1"
+      - key: REQUIRE_USER_AUTH
+        value: "true"
+      - key: AUTH_REQUIRE_EMAIL_VERIFIED
+        value: "false"
+      - key: CHAT_STRUCTURAL_REASONING_ENABLED
+        value: "true"
+      - key: CHAT_MODEL_STRUCTURAL
+        value: "gpt-5.6-sol"
+      - key: CHAT_MODEL_STRUCTURAL_FALLBACK
+        value: "gpt-4o"
+      - key: CHAT_STRUCTURAL_REASONING_EFFORT
+        value: "medium"
+      - key: CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT
+        value: "high"
+      - key: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS
+        value: "10000"
+
+databases:
+  - name: them-postgres
+    databaseName: them
+    user: them
+    plan: starter
+    region: oregon
+    postgresMajorVersion: "16"

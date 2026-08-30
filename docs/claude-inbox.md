@@ -15,9 +15,9 @@ Active schedule: `docs/v1-two-week-free-first-schedule.md`. The 2026-05-17
 audit is now a launch input. When the human says `continue`, Codex starts at
 the earliest incomplete day in that schedule. Claude reads that file and works
 only on the current Codex-assigned deep task. Paid/external release inputs are
-last unless already free/available: Apple team/signing, hosted release
-`BACKEND_URL`, production `APP_TOKEN`, and real provider keys for final
-Talk/Realtime proof.
+last unless already free/available: Apple team/signing, production
+`APP_TOKEN_RELEASE`, and real provider keys for final Talk/Realtime proof.
+Release `BACKEND_URL` is already hosted as `https://api.them.io`.
 
 Claude's backend sprint plan is `docs/claude-backend-two-week-plan.md`.
 Claude must execute it day by day. When a full day-task is complete, Claude
@@ -26,21 +26,26 @@ the next incomplete day-task automatically unless Codex has posted a blocker,
 review request, or emergency smoke failure. The human must not be used as a
 copy-paste bridge for the next-day instruction.
 
-Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
-and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
-talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
-PR #358. PR #33 is merged; GitHub `evaluate` and `eval:gate against Postgres`
-passed on 2026-05-17 after Codex fixed fragile eval response guards and the
-speculative reuse header path. PR #359 is also merged; the eval-quality repair
-for knowledge routing and playful banter passed GitHub `evaluate`,
-`eval:gate against Postgres`, local `node scripts/pre_flight.mjs --strict`,
-focused `talk_routing_quality_guard` 5/5, and backend `npm test` 1208 pass /
-0 fail / 1 skipped. Do not reopen the eval-quality lane unless Codex posts a
-new concrete regression.
-The launch lane is still blocked by real release configuration:
+Current V1 state: `cd backend && npm run v1:status` is 29/34 after the Day 14
+release switch-flip tooling and the resolved memory privacy decision refresh.
+The code-owned gates are green or expected-red
+only for private/external release inputs: strict pre-flight passes, deterministic
+V1 smokes pass, backend tests pass, iOS unit/UI tests passed on iPhone 17 Pro,
+and the Release iPhone build inside App Store preflight passes. Do not reopen
+eval-quality, decomposition, or schema-doc lanes unless Codex posts a concrete
+regression.
+Release branch sync is current with `origin/main` as of 2026-05-28: the active
+release branch merged the two newer main protocol commits, and the previous
+90/56 dry-run conflict note is resolved. See `docs/v1-branch-sync-status.md`
+for the latest sync proof.
+The launch lane is still blocked by private release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
-lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
-and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
+lacks `DEVELOPMENT_TEAM_ID` and release `APP_TOKEN_RELEASE`, and
+`scripts/appstore_preflight.sh` remains expected-red with `fail=2 warn=1`.
+Release `BACKEND_URL` is hosted as `https://api.them.io`. Day 14 repo tooling
+now exists: `node scripts/release_config_status.mjs` reports missing private
+inputs without printing secrets, and `scripts/run_release_preflight.sh` fails
+closed at config status until those inputs are present.
 Launch Doctor now tracks the fifth V1 gate as `iOS Release Readiness`, so
 manual smoke proof is incomplete until Talk, Studio, Memory, Realtime, and
 release readiness are all recorded from the actual release path.
@@ -59,9 +64,10 @@ passes when local loopback binding is allowed.
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat this inbox and `agent_next` as the first screen. The next
-   Claude-owned work is the first incomplete day in
-   `docs/claude-backend-two-week-plan.md`. Do not open any other backend work.
+2. Treat this inbox and `agent_next` as the first screen. The Claude backend
+   sprint is complete through Day 14 in the event lane; Claude is support-only
+   for exact V1 smoke, release, or backend regression failures unless Codex
+   assigns a new post-V1 lane.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -81,8 +87,9 @@ passes when local loopback binding is allowed.
    note. PR #299 was also closed as out-of-lane schema-only. PR #335 merged
    Phase 7b, so implementation is no longer the backend lane.
 8. Do not ask the human to inspect old PR bodies for #94/#99. Use
-   `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
-   record: #94 is done, #99 is post-V1.
+   `docs/decisions-queue.md` as the privacy/data-control record:
+   `D-creative-memory-export-approval` and `D-creative-memory-delete-scope`
+   are resolved; #99 is post-V1 unless Codex assigns it.
 9. Phase 7b dependency-boundary decision: use `acorn` and `acorn-walk` as
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,
@@ -99,9 +106,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Execute Claude backend two-week plan | Backend audit blockers now gate V1 safety, App Review readiness, and provider-cost risk. | Read `docs/claude-backend-two-week-plan.md`. Start with the first incomplete day-task. When a day is complete, append proof, check Launch Room/agent_next, and automatically continue to the next incomplete day unless Codex has posted a blocker/review/emergency smoke failure. |
-| 2 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop only if Codex review is needed. |
-| 3 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause scheduled work and fix that exact backend failure first. |
+| 1 | Support V1 manual smoke failures | Talk, Studio, Memory, Realtime, and iOS Release Readiness still need human release-path proof. | If Codex posts a concrete smoke failure, pause all other work and fix that exact backend failure first. |
+| 2 | Support release config/preflight failures | Private Apple/team/token inputs are the remaining switch-flip blockers. | Do not create or commit secrets. If private inputs are supplied and preflight fails for a repo-owned reason, fix that specific failure. |
+| 3 | Emergency backend regression only | The Day 1-14 backend sprint is complete and new backend scope adds release risk. | Open backend work only for a reproducible V1 regression or a Codex-assigned post-V1 task. |
 
 ## Decomposition Rules
 

@@ -1,0 +1,1955 @@
+import XCTest
+@testable import them
+
+@MainActor
+final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
+    func testBeatQuickLinkPlannerOrdersAndDeduplicatesCurrentAndFocusedTargets() {
+        let act = BackendScreenplayAct(
+            id: "act-1",
+            title: "Act I",
+            summary: nil,
+            order: 0,
+            sceneIds: ["scene-page", "scene-focused"],
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let pageScene = BackendScreenplayScene(
+            id: "scene-page",
+            slugline: "INT. ARCHIVE - NIGHT",
+            title: "Archive",
+            objective: nil,
+            summary: nil,
+            actId: act.id,
+            order: 0,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let focusedScene = BackendScreenplayScene(
+            id: "scene-focused",
+            slugline: "EXT. COURTHOUSE STEPS - DAWN",
+            title: "Courthouse",
+            objective: nil,
+            summary: nil,
+            actId: act.id,
+            order: 1,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let targets = BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: pageScene,
+            focusedScene: focusedScene,
+            acts: [act]
+        )
+
+        XCTAssertEqual(targets.map(\.id), ["loose", "scene:scene-page", "act:act-1", "scene:scene-focused"])
+        XCTAssertEqual(targets.map(\.title), ["Keep Loose", "Current Page", "Current Act", "Focused Scene"])
+        XCTAssertEqual(targets[1].actID, act.id)
+        XCTAssertEqual(targets[3].actID, act.id)
+
+        let duplicateTargets = BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: pageScene,
+            focusedScene: pageScene,
+            acts: [act]
+        )
+        XCTAssertEqual(duplicateTargets.map(\.id), ["loose", "scene:scene-page", "act:act-1"])
+    }
+
+    func testBeatQuickCaptureSeedPlannerNormalizesSelectionAndLinksScene() throws {
+        let scene = BackendScreenplayScene(
+            id: "scene-selection",
+            slugline: "INT. ARCHIVE - NIGHT",
+            title: "Archive",
+            objective: nil,
+            summary: nil,
+            actId: "  act-2  ",
+            order: 0,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let text = "  Mara   finds\n the hidden key and runs before dawn.  "
+        let selection = ScreenplayEditorSelectionSnapshot(
+            location: 10,
+            length: text.count,
+            startLine: 2,
+            endLine: 3,
+            text: text,
+            sceneLabel: nil
+        )
+
+        let seed = try XCTUnwrap(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(selection: selection, linkedScene: scene)
+        )
+
+        XCTAssertEqual(seed.label, "Mara finds the hidden key and")
+        XCTAssertEqual(seed.summary, selection.trimmedText)
+        XCTAssertEqual(seed.sceneID, scene.id)
+        XCTAssertEqual(seed.actID, "act-2")
+        XCTAssertEqual(seed.infoText, "Created a beat from the selected block.")
+        XCTAssertEqual(seed.provenance, .selection)
+    }
+
+    func testBeatQuickCaptureSeedPlannerRejectsEmptySelectionAndCapsGeneratedText() throws {
+        let emptySelection = ScreenplayEditorSelectionSnapshot(
+            location: 0,
+            length: 0,
+            startLine: 1,
+            endLine: 1,
+            text: "   ",
+            sceneLabel: "INT. EMPTY ROOM - DAY"
+        )
+        XCTAssertNil(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+                selection: emptySelection,
+                linkedScene: nil
+            )
+        )
+
+        let longText = String(repeating: "A", count: 400)
+        let longSelection = ScreenplayEditorSelectionSnapshot(
+            location: 0,
+            length: longText.count,
+            startLine: 1,
+            endLine: 1,
+            text: longText,
+            sceneLabel: nil
+        )
+        let seed = try XCTUnwrap(
+            BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+                selection: longSelection,
+                linkedScene: nil
+            )
+        )
+
+        XCTAssertEqual(seed.label.count, 72)
+        XCTAssertEqual(seed.summary.count, 280)
+        XCTAssertEqual(seed.sceneID, "")
+        XCTAssertEqual(seed.actID, "")
+    }
+
+    func testBeatQuickCaptureSeedPlannerPrefersSceneObjectiveAndPreservesLabelFallbacks() {
+        let scene = BackendScreenplayScene(
+            id: "scene-objective",
+            slugline: "EXT. COURTHOUSE STEPS - DAWN",
+            title: "Courthouse",
+            objective: "  Expose   the forgery before dawn.  ",
+            summary: "A lower-priority summary.",
+            actId: "act-3",
+            order: 1,
+            status: nil,
+            beatIds: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let seed = BeatQuickCaptureSeedPlanner.makeCurrentSceneSeed(scene: scene)
+
+        XCTAssertEqual(seed.label, "Expose the forgery before dawn.")
+        XCTAssertEqual(seed.summary, "Expose   the forgery before dawn.")
+        XCTAssertEqual(seed.sceneID, scene.id)
+        XCTAssertEqual(seed.actID, "act-3")
+        XCTAssertEqual(seed.provenance, .currentScene)
+        XCTAssertEqual(
+            BeatQuickCaptureSeedPlanner.makeLabel(
+                from: "one two three four five six seven eight",
+                sceneLabel: nil
+            ),
+            "one two three four five six"
+        )
+        XCTAssertEqual(BeatQuickCaptureSeedPlanner.makeLabel(from: "", sceneLabel: nil), "Beat: Story beat")
+        XCTAssertEqual(BeatQuickCaptureSeedPlanner.makeLabel(from: "", sceneLabel: "   "), "Story beat")
+    }
+
+    func testBeatQuickCaptureActionPlannerPreservesSelectionAndEligibilityRules() {
+        let selectedBeat = BackendScreenplayBeat(
+            id: "beat-selected",
+            label: "The truth surfaces",
+            summary: nil,
+            sceneId: nil,
+            actId: nil,
+            order: 0,
+            status: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let editingBeat = BackendScreenplayBeat(
+            id: "beat-editing",
+            label: "   ",
+            summary: nil,
+            sceneId: nil,
+            actId: nil,
+            order: 1,
+            status: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let beats = [selectedBeat, editingBeat]
+
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.selectedBeat(
+                selectedBeatID: "  \(selectedBeat.id)  ",
+                editingBeatID: editingBeat.id,
+                beats: beats
+            )?.id,
+            selectedBeat.id
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.selectedBeat(
+                selectedBeatID: "missing",
+                editingBeatID: "  \(editingBeat.id)  ",
+                beats: beats
+            )?.id,
+            editingBeat.id
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.updateSubtitle(for: selectedBeat),
+            "Refresh The truth surfaces from the active page block."
+        )
+        XCTAssertEqual(
+            BeatQuickCaptureActionPlanner.updateSubtitle(for: editingBeat),
+            "Refresh the selected beat from the active page block."
+        )
+
+        let emptyDraft = BeatQuickCaptureDraftState(
+            editingBeatID: " ",
+            label: " ",
+            summary: "\n",
+            sceneID: "",
+            actID: "  "
+        )
+        XCTAssertTrue(BeatQuickCaptureActionPlanner.canCreateImmediately(draft: emptyDraft))
+        XCTAssertTrue(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: selectedBeat.id,
+                draft: emptyDraft
+            )
+        )
+
+        let occupiedDraft = BeatQuickCaptureDraftState(
+            editingBeatID: editingBeat.id,
+            label: "Existing label",
+            summary: "Existing summary",
+            sceneID: "scene-1",
+            actID: "act-1"
+        )
+        XCTAssertFalse(BeatQuickCaptureActionPlanner.canCreateImmediately(draft: occupiedDraft))
+        XCTAssertTrue(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: editingBeat.id,
+                draft: occupiedDraft
+            )
+        )
+        XCTAssertFalse(
+            BeatQuickCaptureActionPlanner.canUpdateImmediately(
+                beatID: selectedBeat.id,
+                draft: occupiedDraft
+            )
+        )
+    }
+
+    func testBeatQuickCaptureMutationPlannerAppendsDeterministicLinkedAndLooseBeats() throws {
+        let outline = beatMutationOutline()
+        let timestamp = 9_001.0
+        let linkedSeed = BeatQuickCaptureSeed(
+            label: "The ledger opens",
+            summary: "Mara finds the missing ledger.",
+            sceneID: "  scene-new  ",
+            actID: "  act-2  ",
+            infoText: "Created from selection.",
+            provenance: .selection
+        )
+
+        let linked = BeatQuickCaptureMutationPlanner.appending(
+            seed: linkedSeed,
+            to: outline,
+            beatID: "beat-appended",
+            timestamp: timestamp
+        )
+
+        XCTAssertEqual(linked.beat.id, "beat-appended")
+        XCTAssertEqual(linked.beat.label, linkedSeed.label)
+        XCTAssertEqual(linked.beat.summary, linkedSeed.summary)
+        XCTAssertEqual(linked.beat.sceneId, "scene-new")
+        XCTAssertEqual(linked.beat.actId, "act-2")
+        XCTAssertEqual(linked.beat.order, 2)
+        XCTAssertEqual(linked.beat.status, "open")
+        XCTAssertEqual(linked.beat.createdAt, timestamp)
+        XCTAssertEqual(linked.beat.updatedAt, timestamp)
+        XCTAssertEqual(linked.outline.beats.map(\.id), ["beat-target", "beat-other", "beat-appended"])
+        XCTAssertEqual(linked.outline.updatedAt, timestamp)
+        XCTAssertEqual(linked.outline.actCount, 2)
+        XCTAssertEqual(linked.outline.sceneCount, 3)
+        XCTAssertEqual(linked.outline.beatCount, 3)
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-new" })).beatIds,
+            ["beat-other", "beat-appended"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-old" })).beatIds,
+            ["beat-target", "beat-other", "beat-target"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.scenes.first(where: { $0.id == "scene-loose" })).beatIds,
+            []
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.acts.first(where: { $0.id == "act-1" })).sceneIds,
+            ["scene-loose", "scene-old"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(linked.outline.acts.first(where: { $0.id == "act-2" })).sceneIds,
+            ["scene-new"]
+        )
+
+        let looseSeed = BeatQuickCaptureSeed(
+            label: "A loose possibility",
+            summary: "Hold this turn outside the scene plan.",
+            sceneID: " \n ",
+            actID: "  ",
+            infoText: "Created loose.",
+            provenance: .currentScene
+        )
+        let loose = BeatQuickCaptureMutationPlanner.appending(
+            seed: looseSeed,
+            to: outline,
+            beatID: "beat-loose",
+            timestamp: timestamp + 1
+        )
+
+        XCTAssertNil(loose.beat.sceneId)
+        XCTAssertNil(loose.beat.actId)
+        XCTAssertFalse(loose.outline.scenes.contains { ($0.beatIds ?? []).contains(loose.beat.id) })
+    }
+
+    func testBeatQuickCaptureMutationPlannerUpdatesAndRelinksWithoutLosingMetadata() throws {
+        let outline = beatMutationOutline(targetLabel: "  Existing label  ")
+        let seed = BeatQuickCaptureSeed(
+            label: "Generated fallback",
+            summary: "The truth moves into the courthouse.",
+            sceneID: " scene-new ",
+            actID: " act-2 ",
+            infoText: "Updated from selection.",
+            provenance: .selection
+        )
+
+        let mutation = try XCTUnwrap(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "beat-target",
+                from: seed,
+                in: outline,
+                timestamp: 9_500
+            )
+        )
+
+        XCTAssertEqual(mutation.beat.id, "beat-target")
+        XCTAssertEqual(mutation.beat.label, "  Existing label  ")
+        XCTAssertEqual(mutation.beat.summary, seed.summary)
+        XCTAssertEqual(mutation.beat.sceneId, "scene-new")
+        XCTAssertEqual(mutation.beat.actId, "act-2")
+        XCTAssertEqual(mutation.beat.order, 0)
+        XCTAssertEqual(mutation.beat.status, "drafted")
+        XCTAssertEqual(mutation.beat.createdAt, 111)
+        XCTAssertEqual(mutation.beat.updatedAt, 9_500)
+        XCTAssertEqual(mutation.outline.beats.map(\.id), ["beat-target", "beat-other"])
+        XCTAssertEqual(mutation.outline.actCount, 99)
+        XCTAssertEqual(mutation.outline.sceneCount, 3)
+        XCTAssertEqual(mutation.outline.beatCount, 2)
+
+        let oldScene = try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-old" }))
+        XCTAssertEqual(oldScene.beatIds, ["beat-other"])
+        XCTAssertEqual(oldScene.slugline, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(oldScene.status, "drafted")
+        XCTAssertEqual(oldScene.updatedAt, 301)
+
+        let newScene = try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-new" }))
+        XCTAssertEqual(newScene.beatIds, ["beat-other", "beat-target"])
+        XCTAssertEqual(newScene.objective, "Expose the forgery.")
+        XCTAssertEqual(newScene.createdAt, 202)
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.acts.first(where: { $0.id == "act-1" })).sceneIds,
+            ["scene-loose", "scene-old"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.acts.first(where: { $0.id == "act-2" })).sceneIds,
+            ["scene-new"]
+        )
+    }
+
+    func testBeatQuickCaptureMutationPlannerPreservesLinksAndRejectsMissingBeat() throws {
+        let outline = beatMutationOutline(targetLabel: " \n ")
+        let seed = BeatQuickCaptureSeed(
+            label: "Fallback label",
+            summary: "A refreshed summary.",
+            sceneID: "  ",
+            actID: "\n",
+            infoText: "Refreshed.",
+            provenance: .currentScene
+        )
+
+        let mutation = try XCTUnwrap(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "beat-target",
+                from: seed,
+                in: outline,
+                timestamp: 10_000
+            )
+        )
+
+        XCTAssertEqual(mutation.beat.label, seed.label)
+        XCTAssertEqual(mutation.beat.sceneId, "scene-old")
+        XCTAssertEqual(mutation.beat.actId, "act-1")
+        XCTAssertEqual(
+            try XCTUnwrap(mutation.outline.scenes.first(where: { $0.id == "scene-old" })).beatIds,
+            ["beat-target", "beat-other", "beat-target"]
+        )
+        XCTAssertNil(
+            BeatQuickCaptureMutationPlanner.updating(
+                beatID: "missing-beat",
+                from: seed,
+                in: outline,
+                timestamp: 10_001
+            )
+        )
+    }
+
+    func testBeatOrderMutationPlannerMovesOneStepAndPreservesSceneMembership() throws {
+        let outline = beatOrderOutline()
+
+        let movedDown = try XCTUnwrap(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedDown.beats.map(\.id), ["beat-a", "beat-c", "beat-b"])
+        XCTAssertEqual(movedDown.beats.map(\.order), [0, 1, 2])
+        XCTAssertEqual(movedDown.beats[2].label, "Beat B")
+        XCTAssertEqual(movedDown.beats[2].summary, "B summary")
+        XCTAssertEqual(movedDown.beats[2].sceneId, "scene-order")
+        XCTAssertEqual(movedDown.beats[2].actId, "act-order")
+        XCTAssertEqual(movedDown.beats[2].status, "drafted")
+        XCTAssertEqual(movedDown.beats[2].createdAt, 102)
+        XCTAssertEqual(movedDown.beats[2].updatedAt, 202)
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-order" })).beatIds,
+            ["beat-a", "beat-c", "beat-b", "beat-b", "unknown-1", "unknown-2"]
+        )
+        let emptyScene = try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-empty" }))
+        XCTAssertEqual(emptyScene.beatIds, [])
+        XCTAssertEqual(emptyScene.title, "Empty scene")
+        XCTAssertEqual(emptyScene.updatedAt, 402)
+
+        let movedUp = try XCTUnwrap(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedUp.beats.map(\.id), ["beat-b", "beat-a", "beat-c"])
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-a",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-c",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "missing",
+                to: .end,
+                in: outline
+            )
+        )
+    }
+
+    func testBeatOrderMutationPlannerHandlesBoundariesDragAndStrictRestore() throws {
+        let outline = beatOrderOutline()
+
+        let tiedBeats = [
+            BackendScreenplayBeat(
+                id: "beat-b",
+                label: "Same beat",
+                summary: nil,
+                sceneId: nil,
+                actId: nil,
+                order: 0,
+                status: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayBeat(
+                id: "beat-a",
+                label: "Same beat",
+                summary: nil,
+                sceneId: nil,
+                actId: nil,
+                order: 0,
+                status: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+        XCTAssertEqual(InspectorOrderSupport.sortedBeats(tiedBeats).map(\.id), ["beat-a", "beat-b"])
+
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-c",
+                    to: .beginning,
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-c", "beat-a", "beat-b"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-a",
+                    to: .end,
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-b", "beat-c", "beat-a"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-c",
+                    to: .before("beat-a"),
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-c", "beat-a", "beat-b"]
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.moving(
+                beatID: "beat-b",
+                to: .before("beat-b"),
+                in: outline
+            )
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                BeatOrderMutationPlanner.moving(
+                    beatID: "beat-a",
+                    to: .before("missing-target"),
+                    in: outline
+                )
+            ).beats.map(\.id),
+            ["beat-b", "beat-c", "beat-a"]
+        )
+
+        let restored = try XCTUnwrap(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: [" beat-b ", "beat-c", " beat-a"],
+                in: outline
+            )
+        )
+        XCTAssertEqual(restored.beats.map(\.id), ["beat-b", "beat-c", "beat-a"])
+        XCTAssertEqual(restored.beats.map(\.order), [0, 1, 2])
+
+        let repairedStaleOrders = try XCTUnwrap(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-c", "beat-a", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertEqual(repairedStaleOrders.beats.map(\.id), ["beat-c", "beat-a", "beat-b"])
+        XCTAssertEqual(repairedStaleOrders.beats.map(\.order), [0, 1, 2])
+
+        XCTAssertNil(BeatOrderMutationPlanner.restoring(orderedIDs: [], in: outline))
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b", "beat-b"],
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            BeatOrderMutationPlanner.restoring(
+                orderedIDs: ["beat-a", "beat-b", "unknown"],
+                in: outline
+            )
+        )
+    }
+
+    func testActOrderMutationPlannerValidatesAndReplaysDeterministicMoves() throws {
+        let outline = outlineOrderFixture()
+
+        let movedDown = try XCTUnwrap(
+            ActOrderMutationPlanner.moving(
+                actID: "act-b",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+        XCTAssertEqual(movedDown.acts.map(\.id), ["act-a", "act-c", "act-b"])
+        XCTAssertEqual(movedDown.acts.map(\.order), [0, 1, 2])
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1", "scene-a2"]
+        )
+        let movedAct = try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-b" }))
+        XCTAssertEqual(movedAct.title, "Same title")
+        XCTAssertEqual(movedAct.summary, "Act B summary")
+        XCTAssertEqual(movedAct.sceneIds, ["scene-b1", "scene-b2"])
+        XCTAssertEqual(movedAct.createdAt, 102)
+        XCTAssertEqual(movedAct.updatedAt, 202)
+
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-b",
+                    to: .oneStep(.up),
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-b", "act-a", "act-c"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-c",
+                    to: .before("act-a"),
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-c", "act-a", "act-b"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                ActOrderMutationPlanner.moving(
+                    actID: "act-a",
+                    to: .end,
+                    in: outline
+                )
+            ).acts.map(\.id),
+            ["act-b", "act-c", "act-a"]
+        )
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-a", to: .oneStep(.up), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-c", to: .oneStep(.down), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-b", to: .before("act-b"), in: outline))
+        XCTAssertNil(ActOrderMutationPlanner.moving(actID: "act-b", to: .before("missing"), in: outline))
+    }
+
+    func testStudioInspectorPresentationSupportPinsAnchorsAndMoveBoundaries() {
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(0, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: true)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(1, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: true, canMoveDown: true)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(2, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: true, canMoveDown: false)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(-1, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: false)
+        )
+        XCTAssertEqual(
+            ScreenplayStudioInspectorMoveAvailability.position(3, count: 3),
+            ScreenplayStudioInspectorMoveAvailability(canMoveUp: false, canMoveDown: false)
+        )
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.beat("beat-7"), "inspector-beat-beat-7")
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.act("act-2"), "inspector-act-act-2")
+        XCTAssertEqual(ScreenplayStudioInspectorAnchor.scene("scene-9"), "inspector-scene-scene-9")
+    }
+
+    func testStudioOutlinePresentationPlannerPreservesDeterministicGroupsAndLooseSemantics() {
+        let acts = [
+            BackendScreenplayAct(
+                id: "act-b",
+                title: "Act B",
+                summary: nil,
+                order: 1,
+                sceneIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayAct(
+                id: "act-a",
+                title: "Act A",
+                summary: nil,
+                order: 0,
+                sceneIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+        let scenes = [
+            BackendScreenplayScene(
+                id: "scene-a-late",
+                slugline: nil,
+                title: "A late",
+                objective: nil,
+                summary: nil,
+                actId: "act-a",
+                order: 2,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-unknown",
+                slugline: nil,
+                title: "Unknown",
+                objective: nil,
+                summary: nil,
+                actId: "act-missing",
+                order: 1,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-loose-late",
+                slugline: nil,
+                title: "Loose late",
+                objective: nil,
+                summary: nil,
+                actId: nil,
+                order: 4,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-a-first",
+                slugline: nil,
+                title: "A first",
+                objective: nil,
+                summary: nil,
+                actId: "  act-a  ",
+                order: 0,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            ),
+            BackendScreenplayScene(
+                id: "scene-loose-first",
+                slugline: nil,
+                title: "Loose first",
+                objective: nil,
+                summary: nil,
+                actId: "  ",
+                order: 3,
+                status: nil,
+                beatIds: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        ]
+
+        let presentation = ScreenplayStudioOutlinePresentationPlanner.make(acts: acts, scenes: scenes)
+
+        XCTAssertEqual(presentation.actSections.map(\.id), ["act-a", "act-b"])
+        XCTAssertEqual(presentation.actSections[0].scenes.map(\.id), ["scene-a-first", "scene-a-late"])
+        XCTAssertTrue(presentation.actSections[1].scenes.isEmpty)
+        XCTAssertEqual(presentation.looseScenes.map(\.id), ["scene-loose-first", "scene-loose-late"])
+        XCTAssertFalse(
+            presentation.actSections.flatMap(\.scenes).contains(where: { $0.id == "scene-unknown" })
+        )
+        XCTAssertFalse(presentation.looseScenes.contains(where: { $0.id == "scene-unknown" }))
+    }
+
+    func testSceneOrderMutationPlannerMovesDownAndReplaysBackUp() throws {
+        let outline = outlineOrderFixture()
+        let movedDown = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+
+        XCTAssertEqual(
+            movedDown.scenes.map(\.id),
+            ["scene-a2", "scene-a1", "scene-b1", "scene-b2", "scene-loose"]
+        )
+        XCTAssertEqual(movedDown.scenes.map(\.order), [0, 1, 2, 3, 4])
+        XCTAssertEqual(movedDown.acts.map(\.id), ["act-a", "act-b", "act-c"])
+        XCTAssertEqual(movedDown.acts.map(\.order), [0, 1, 2])
+        let movedScene = try XCTUnwrap(movedDown.scenes.first(where: { $0.id == "scene-a1" }))
+        XCTAssertEqual(movedScene.slugline, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(movedScene.objective, "Find the ledger.")
+        XCTAssertEqual(movedScene.status, "drafted")
+        XCTAssertEqual(movedScene.createdAt, 301)
+        XCTAssertEqual(movedScene.updatedAt, 401)
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a2", "scene-a1"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedDown.beats.first(where: { $0.id == "beat-a2" })).actId,
+            "act-a"
+        )
+
+        let replayOutline = BackendScreenplayOutline(
+            updatedAt: outline.updatedAt,
+            actCount: movedDown.acts.count,
+            sceneCount: movedDown.scenes.count,
+            beatCount: movedDown.beats.count,
+            acts: movedDown.acts,
+            scenes: movedDown.scenes,
+            beats: movedDown.beats
+        )
+        let replayedUp = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.up),
+                in: replayOutline
+            )
+        )
+        XCTAssertEqual(
+            replayedUp.scenes.map(\.id),
+            ["scene-a1", "scene-a2", "scene-b1", "scene-b2", "scene-loose"]
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a1",
+                to: .oneStep(.up),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .oneStep(.down),
+                in: outline
+            )
+        )
+    }
+
+    func testSceneOrderMutationPlannerMovesAcrossActsAndExplicitlyIntoLooseGroup() throws {
+        let outline = outlineOrderFixture()
+        let movedAcrossActs = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-b1", targetActID: " act-b "),
+                in: outline
+            )
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.scenes.first(where: { $0.id == "scene-a2" })).actId,
+            "act-b"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1"]
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(movedAcrossActs.acts.first(where: { $0.id == "act-b" })).sceneIds,
+            ["scene-a2", "scene-b1", "scene-b2"]
+        )
+        let movedBeat = try XCTUnwrap(movedAcrossActs.beats.first(where: { $0.id == "beat-a2" }))
+        XCTAssertEqual(movedBeat.sceneId, "scene-a2")
+        XCTAssertEqual(movedBeat.actId, "act-b")
+        XCTAssertEqual(movedBeat.label, "A2 beat")
+        XCTAssertEqual(movedBeat.createdAt, 501)
+        XCTAssertEqual(movedBeat.updatedAt, 601)
+
+        let movedLoose = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .end(targetActID: nil),
+                in: outline
+            )
+        )
+        XCTAssertEqual(Array(movedLoose.scenes.suffix(2).map(\.id)), ["scene-loose", "scene-a2"])
+        XCTAssertNil(try XCTUnwrap(movedLoose.scenes.first(where: { $0.id == "scene-a2" })).actId)
+        XCTAssertNil(try XCTUnwrap(movedLoose.beats.first(where: { $0.id == "beat-a2" })).actId)
+        XCTAssertEqual(
+            try XCTUnwrap(movedLoose.acts.first(where: { $0.id == "act-a" })).sceneIds,
+            ["scene-a1"]
+        )
+
+        let movedBeforeLoose = try XCTUnwrap(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-loose", targetActID: nil),
+                in: outline
+            )
+        )
+        XCTAssertNil(try XCTUnwrap(movedBeforeLoose.scenes.first(where: { $0.id == "scene-a2" })).actId)
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-a2", targetActID: "act-a"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "missing", targetActID: "act-b"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .before(sceneID: "scene-b1", targetActID: "act-a"),
+                in: outline
+            )
+        )
+        XCTAssertNil(
+            SceneOrderMutationPlanner.moving(
+                sceneID: "scene-a2",
+                to: .end(targetActID: "missing-act"),
+                in: outline
+            )
+        )
+    }
+
+    func testPlannerBuildsActAwareNextSceneCompassAndPagePrompt() {
+        let now = Date().timeIntervalSince1970 * 1000
+        let outline = BackendScreenplayOutline(
+            updatedAt: now,
+            actCount: 1,
+            sceneCount: 2,
+            beatCount: 2,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-1",
+                    title: "Act I",
+                    summary: "A city story begins to corner the protagonist.",
+                    order: 0,
+                    sceneIds: ["scene-opening", "scene-kitchen"],
+                    createdAt: now,
+                    updatedAt: now
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-opening",
+                    slugline: "EXT. OVERPASS - DAWN",
+                    title: "Opening",
+                    objective: "Mara decides to take the impossible call.",
+                    summary: "Mara hears the message that starts the story.",
+                    actId: "act-1",
+                    order: 0,
+                    status: "drafted",
+                    beatIds: ["beat-call"],
+                    createdAt: now,
+                    updatedAt: now
+                ),
+                BackendScreenplayScene(
+                    id: "scene-kitchen",
+                    slugline: "INT. KITCHEN - DAY",
+                    title: "Kitchen",
+                    objective: "Mara hides the call from her brother while choosing whether to leave.",
+                    summary: "The ordinary room becomes a pressure cooker.",
+                    actId: "act-1",
+                    order: 1,
+                    status: "open",
+                    beatIds: ["beat-kitchen-choice"],
+                    createdAt: now,
+                    updatedAt: now
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-call",
+                    label: "The future calls",
+                    summary: "Mara receives a call from tomorrow.",
+                    sceneId: "scene-opening",
+                    actId: "act-1",
+                    order: 0,
+                    status: "drafted",
+                    createdAt: now,
+                    updatedAt: now
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-kitchen-choice",
+                    label: "Mara lies to stay free",
+                    summary: "Mara chooses the mystery over family safety.",
+                    sceneId: "scene-kitchen",
+                    actId: "act-1",
+                    order: 1,
+                    status: "open",
+                    createdAt: now,
+                    updatedAt: now
+                )
+            ]
+        )
+        let structuredDraft = ScreenplayStructuredDraft(
+            updatedAt: Date(),
+            lineCount: 80,
+            sceneCount: 1,
+            paragraphs: [],
+            scenes: [
+                ScreenplayDraftSceneSnapshot(
+                    id: "draft-opening",
+                    line: 1,
+                    endLine: 44,
+                    slugline: "EXT. OVERPASS - DAWN",
+                    shortLabel: "Overpass",
+                    characterCues: ["MARA"],
+                    dialogueLineCount: 4
+                )
+            ],
+            characters: ["MARA"]
+        )
+        let binding = ScreenplayProjectBindingSnapshot(
+            updatedAt: Date(),
+            projectID: "project-1",
+            projectTitle: "Tomorrow Call",
+            versionID: "version-1",
+            phase: "scene_draft",
+            draftSceneCount: 1,
+            outlineSceneCount: 2,
+            boundSceneCount: 1,
+            draftCharacterCount: 1,
+            projectCharacterCount: 1,
+            boundCharacterCount: 1,
+            sceneBindings: [
+                ScreenplayProjectSceneBindingSnapshot(
+                    id: "binding-opening",
+                    draftSceneID: "draft-opening",
+                    draftLine: 1,
+                    draftEndLine: 44,
+                    draftSlugline: "EXT. OVERPASS - DAWN",
+                    draftShortLabel: "Overpass",
+                    outlineSceneID: "scene-opening",
+                    outlineSceneTitle: "Opening",
+                    outlineSceneSlugline: "EXT. OVERPASS - DAWN",
+                    outlineSceneObjective: "Mara decides to take the impossible call.",
+                    outlineSceneSummary: "Mara hears the message that starts the story.",
+                    outlineBeatIDs: ["beat-call"],
+                    outlineBeatLabels: ["The future calls"],
+                    actTitle: "Act I",
+                    matchedBy: "slugline"
+                )
+            ]
+        )
+        let committedWrite = ScreenplayCommittedWrite(
+            id: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+            writeID: "write-kitchen-001",
+            projectID: "project-1",
+            versionID: "version-1",
+            previousDraft: "",
+            committedDraft: "",
+            insertedText: "INT. KITCHEN - DAY\n\nMARA waits.\n\nHer phone buzzes.",
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 45,
+            endLine: 49,
+            committedAt: Date()
+        )
+
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: project(),
+            outline: outline,
+            structuredDraft: structuredDraft,
+            projectBinding: binding,
+            featureSpine: ScreenplayFeatureSpine(
+                logline: "A woman receives emergency calls from tomorrow.",
+                themeArgument: "Control fails when love becomes avoidance.",
+                centralQuestion: "Can Mara save tomorrow without abandoning today?",
+                protagonistWant: "Mara wants to outrun the warning.",
+                protagonistNeed: "Mara needs to trust someone else.",
+                antagonisticForce: "A future disaster closing in.",
+                actPosition: "Act I",
+                endingImage: "Mara answers the phone in daylight.",
+                unresolvedSetups: ["The first call has no caller ID."]
+            ),
+            lastCommittedWrite: committedWrite,
+            acceptedPageBatchCount: 2,
+            currentCursorLine: 30,
+            draftText: "EXT. OVERPASS - DAWN\n\nMARA listens."
+        )
+
+        XCTAssertEqual(snapshot.currentActTitle, "Act I")
+        XCTAssertEqual(snapshot.actProgressLabel, "Scene 1/2")
+        XCTAssertEqual(snapshot.nextSceneTitle, "INT. KITCHEN - DAY")
+        XCTAssertEqual(snapshot.nextMoves.count, 4)
+        XCTAssertEqual(snapshot.nextMoves[2].id, "sequence-turn")
+        XCTAssertTrue(snapshot.nextMoves[2].title.contains("Advance Opening Image"))
+        XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Write 3-5 pages in Fountain format only"))
+        XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Feature sequence guide:"))
+        XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Coming next: Act I - Catalyst To Commitment"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Clementine standard"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Feature Compass:"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Silent preflight: lock act, sequence, scene job"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Sequence engine: write this scene as a step in Act I - Opening Image"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Act-to-act causality"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Page quality gate: no placeholder scenes"))
+        XCTAssertTrue(snapshot.featureSequenceTitle.contains("Act I - Opening Image"))
+        XCTAssertTrue(snapshot.featureSequenceDetail.contains("Plant the emotional question"))
+        XCTAssertTrue(snapshot.featureSequenceMoves.contains("Echo the ending image in a smaller, incomplete form."))
+        XCTAssertTrue(snapshot.comingNextSequence.contains("Act I - Catalyst To Commitment"))
+        XCTAssertTrue(snapshot.acceptedBatchDetail.contains("L45-L49"))
+        XCTAssertTrue(snapshot.hasAcceptedBatch)
+    }
+
+    func testPlannerFallsBackToFeatureSpineWhenOutlineIsEmpty() {
+        let snapshot = ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: nil,
+            outline: BackendScreenplayOutline(
+                updatedAt: nil,
+                actCount: 0,
+                sceneCount: 0,
+                beatCount: 0,
+                acts: [],
+                scenes: [],
+                beats: []
+            ),
+            structuredDraft: ScreenplayStructuredDraft(
+                updatedAt: Date(),
+                lineCount: 120,
+                sceneCount: 0,
+                paragraphs: [],
+                scenes: [],
+                characters: []
+            ),
+            projectBinding: .empty,
+            featureSpine: ScreenplayFeatureSpine(
+                centralQuestion: "Can Nora forgive the machine that learned her grief?",
+                actPosition: "Act II",
+                endingImage: "Nora walks into sunrise without the earpiece."
+            ),
+            lastCommittedWrite: nil,
+            acceptedPageBatchCount: 0,
+            currentCursorLine: 72,
+            draftText: "INT. APARTMENT - NIGHT\n\nNORA listens."
+        )
+
+        XCTAssertEqual(snapshot.currentActTitle, "Act II")
+        XCTAssertTrue(snapshot.featureSequenceTitle.contains("Act II - Promise Of The Premise"))
+        XCTAssertEqual(snapshot.nextSceneTitle, "the next scene")
+        XCTAssertTrue(snapshot.planningPrompt.contains("Give exactly three turns"))
+        XCTAssertTrue(snapshot.planningPrompt.contains("Feature sequence guide:"))
+        XCTAssertTrue(snapshot.planningPrompt.contains("Coming next: Act II - Midpoint Pressure"))
+        XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Scene doctor"))
+        XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Sequence page moves:"))
+        XCTAssertFalse(snapshot.hasAcceptedBatch)
+    }
+
+    func testContinuationPromptElevationOnlyTargetsGenericPageContinuation() {
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("continue"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("write the next scene"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("continue from here, please"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("more"))
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Rewrite the diner scene with sharper subtext."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Plan the next three turns before writing."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Scene doctor this confrontation."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Continue the feature.\n\nClementine standard: elite feature screenwriting."))
+    }
+
+    func testContinuationPromptElevationBuildsFeatureAwareWritingBrief() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Pressure closes in.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Escalate the central pressure and turn the midpoint into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write INT. COURTHOUSE HALLWAY - NIGHT",
+                    detail: "Mara risks a public lie.",
+                    prompt: "Write the hallway scene."
+                ),
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-beat",
+                    title: "Pay off the false alibi",
+                    detail: "The lie saves one person and wounds another.",
+                    prompt: "Write the false alibi beat."
+                )
+            ],
+            pageWritePrompt: """
+            Continue the feature as feature-film screenplay pages.
+
+            Write 3-5 pages in Fountain format only.
+            Current act: Act II
+            Scene target: INT. COURTHOUSE HALLWAY - NIGHT
+            Structural obligation: Escalate the midpoint fallout.
+            """,
+            planningPrompt: "",
+            sceneDoctorPrompt: "",
+            featureSequenceTitle: "Act II - Midpoint Pressure (p41-p55)",
+            featureSequenceDetail: "p42 / 110. The midpoint must turn victory into a trap.",
+            featureSequenceMoves: [
+                "Build to a reversal that redefines what the protagonist thought they wanted.",
+                "Let the emotional truth arrive before the exposition."
+            ],
+            comingNextSequence: "Act II - Reversal Fallout"
+        )
+
+        let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "continue from here",
+            snapshot: snapshot,
+            recentStudioContext: [
+                "Prior page direction: Make Mara's public lie cost her the brother scene.",
+                "Prior Clementine note: Keep the midpoint victory emotionally contaminated."
+            ]
+        )
+
+        XCTAssertNotNil(prompt)
+        XCTAssertTrue(prompt?.contains("Writer's immediate direction: continue from here") == true)
+        XCTAssertTrue(prompt?.contains("Act II (Scene 7/14); 42 pages drafted") == true)
+        XCTAssertTrue(prompt?.contains("Latest: L210-L248") == true)
+        XCTAssertTrue(prompt?.contains("INT. COURTHOUSE HALLWAY - NIGHT") == true)
+        XCTAssertTrue(prompt?.contains("Feature sequence guide:") == true)
+        XCTAssertTrue(prompt?.contains("Act II - Midpoint Pressure (p41-p55)") == true)
+        XCTAssertTrue(prompt?.contains("The midpoint must turn victory into a trap.") == true)
+        XCTAssertTrue(prompt?.contains("Coming next: Act II - Reversal Fallout") == true)
+        XCTAssertTrue(prompt?.contains("Sequence page moves: Build to a reversal") == true)
+        XCTAssertTrue(prompt?.contains("Next story turns:") == true)
+        XCTAssertTrue(prompt?.contains("Restored Studio memory:") == true)
+        XCTAssertTrue(prompt?.contains("Make Mara's public lie cost her the brother scene.") == true)
+        XCTAssertTrue(prompt?.contains("Keep the midpoint victory emotionally contaminated.") == true)
+        XCTAssertTrue(prompt?.contains("finished Fountain screenplay pages") == true)
+
+        XCTAssertNil(ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "Rewrite this as a colder confrontation.",
+            snapshot: snapshot
+        ))
+    }
+
+    func testContinuationPromptMemoryContextIsDedupedAndCapped() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Midpoint pressure.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Turn the midpoint victory into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [],
+            pageWritePrompt: "Continue the feature as feature-film screenplay pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "continue",
+            snapshot: snapshot,
+            recentStudioContext: [
+                "  A remembered pressure.  ",
+                "A remembered pressure.",
+                "Second memory.",
+                "Third memory.",
+                "Fourth memory.",
+                "Fifth memory.",
+                "Sixth memory should not appear."
+            ]
+        )
+
+        XCTAssertEqual(prompt?.components(separatedBy: "- A remembered pressure.").count, 2)
+        XCTAssertTrue(prompt?.contains("- Fifth memory.") == true)
+        XCTAssertFalse(prompt?.contains("Sixth memory should not appear.") == true)
+    }
+
+    func testFeatureWorkflowSnapshotBuildsSessionContextForBackendMetadata() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Midpoint pressure.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Turn the midpoint victory into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write the hallway confession",
+                    detail: "Mara risks a public lie.",
+                    prompt: "Write the hallway confession."
+                ),
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-beat",
+                    title: "Pay off the false alibi",
+                    detail: "The lie saves one person and wounds another.",
+                    prompt: "Write the false alibi beat."
+                )
+            ],
+            pageWritePrompt: "Write the next pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: " studio-123 ",
+            submittedPrompt: " continue ",
+            snapshot: snapshot,
+            featureSpine: ScreenplayFeatureSpine(
+                logline: "A woman receives emergency calls from tomorrow.",
+                themeArgument: "Control fails when love becomes avoidance.",
+                centralQuestion: "Can Mara save tomorrow without abandoning today?",
+                protagonistWant: "Mara wants to outrun the warning.",
+                protagonistNeed: "Mara needs to trust someone else.",
+                antagonisticForce: "A future disaster closing in.",
+                endingImage: "Mara answers the phone in daylight.",
+                unresolvedSetups: [
+                    "The first call has no caller ID.",
+                    "The missing tape has not paid off."
+                ]
+            ),
+            createdAt: Date(timeIntervalSince1970: 100),
+            pageCount: 42,
+            targetPages: 110
+        )
+
+        XCTAssertEqual(context.requestID, "studio-123")
+        XCTAssertEqual(context.submittedPrompt, "continue")
+        XCTAssertEqual(context.act, "Act II")
+        XCTAssertEqual(context.sceneObjective, "Mara must lie in public to protect the person she is starting to trust.")
+        XCTAssertTrue(context.sceneSummary.contains("INT. COURTHOUSE HALLWAY - NIGHT"))
+        XCTAssertEqual(context.currentBeat, "Turn the midpoint victory into irreversible fallout.")
+        XCTAssertEqual(context.featureSequence, "Act II - Scene 7/14; 42 pages drafted")
+        XCTAssertEqual(context.featureObligation, "Turn the midpoint victory into irreversible fallout.")
+        XCTAssertTrue(context.nextScenePlan.contains("Next scene: INT. COURTHOUSE HALLWAY - NIGHT"))
+        XCTAssertEqual(context.nextSceneMoves.count, 2)
+        XCTAssertEqual(context.logline, "A woman receives emergency calls from tomorrow.")
+        XCTAssertEqual(context.themeArgument, "Control fails when love becomes avoidance.")
+        XCTAssertEqual(context.centralQuestion, "Can Mara save tomorrow without abandoning today?")
+        XCTAssertEqual(context.protagonistWant, "Mara wants to outrun the warning.")
+        XCTAssertEqual(context.protagonistNeed, "Mara needs to trust someone else.")
+        XCTAssertEqual(context.antagonisticForce, "A future disaster closing in.")
+        XCTAssertEqual(context.endingImage, "Mara answers the phone in daylight.")
+        XCTAssertEqual(context.unresolvedSetups, [
+            "The first call has no caller ID.",
+            "The missing tape has not paid off."
+        ])
+        XCTAssertTrue(context.continuityNotes.contains("Feature Compass accepted batch: Latest: L210-L248, 39 lines"))
+        XCTAssertEqual(context.emotionalContinuity, "Mara must lie in public to protect the person she is starting to trust.")
+        XCTAssertEqual(context.pageCount, 42)
+        XCTAssertEqual(context.targetPages, 110)
+        XCTAssertFalse(context.isEmpty)
+    }
+
+    func testFeatureWorkflowContextPersistenceRestoresProjectScopedContinuity() throws {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "The midpoint has teeth.",
+            actProgressLabel: "Scene 8/14",
+            draftProgressLabel: "48 pages drafted",
+            acceptedBatchTitle: "4 accepted batches",
+            acceptedBatchDetail: "Latest: L248-L302, 55 lines",
+            acceptedBatchLineRange: 248...302,
+            structuralObligation: "Make the victory cost Mara the relationship she needs most.",
+            nextSceneTitle: "EXT. FLOOD CHANNEL - NIGHT",
+            nextSceneDetail: "Mara follows the signal and realizes the future call came from inside her family.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write the flood-channel discovery",
+                    detail: "Mara turns the clue into a wound.",
+                    prompt: "Write the discovery."
+                )
+            ],
+            pageWritePrompt: "Write the next feature pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+        let createdAt = Date(timeIntervalSince1970: 1_000)
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: " studio-restore ",
+            projectID: " project-feature ",
+            versionID: " version-7 ",
+            submittedPrompt: " continue ",
+            snapshot: snapshot,
+            featureSpine: ScreenplayFeatureSpine(
+                logline: "A woman receives emergency calls from tomorrow.",
+                themeArgument: "Control fails when love becomes avoidance.",
+                centralQuestion: "Can Mara save tomorrow without abandoning today?",
+                protagonistWant: "Mara wants to outrun the warning.",
+                protagonistNeed: "Mara needs to trust someone else.",
+                antagonisticForce: "A future disaster closing in.",
+                endingImage: "Mara answers the phone in daylight.",
+                unresolvedSetups: ["The first call has no caller ID."]
+            ),
+            createdAt: createdAt,
+            pageCount: 48,
+            targetPages: 110
+        )
+
+        let payload = try XCTUnwrap(ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(context))
+        let restored = try XCTUnwrap(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: payload,
+            now: createdAt.addingTimeInterval(60)
+        ))
+
+        XCTAssertEqual(restored.projectID, "project-feature")
+        XCTAssertEqual(restored.versionID, "version-7")
+        XCTAssertEqual(restored.act, "Act II")
+        XCTAssertEqual(restored.featureSequence, "Act II - Scene 8/14; 48 pages drafted")
+        XCTAssertEqual(restored.nextSceneMoves, ["Write the flood-channel discovery: Mara turns the clue into a wound."])
+        XCTAssertEqual(restored.logline, "A woman receives emergency calls from tomorrow.")
+        XCTAssertEqual(restored.themeArgument, "Control fails when love becomes avoidance.")
+        XCTAssertEqual(restored.centralQuestion, "Can Mara save tomorrow without abandoning today?")
+        XCTAssertEqual(restored.protagonistWant, "Mara wants to outrun the warning.")
+        XCTAssertEqual(restored.protagonistNeed, "Mara needs to trust someone else.")
+        XCTAssertEqual(restored.antagonisticForce, "A future disaster closing in.")
+        XCTAssertEqual(restored.endingImage, "Mara answers the phone in daylight.")
+        XCTAssertEqual(restored.unresolvedSetups, ["The first call has no caller ID."])
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(
+            restored,
+            now: createdAt.addingTimeInterval(120)
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(
+            restored,
+            now: createdAt.addingTimeInterval(181)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            restored,
+            matchesProjectID: "project-feature"
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            restored,
+            matchesProjectID: "project-other"
+        ))
+    }
+
+    func testFeatureWorkflowContextPersistenceRejectsExpiredSessionRestore() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act III",
+            currentActDetail: "",
+            actProgressLabel: "Final plan",
+            draftProgressLabel: "90 pages drafted",
+            acceptedBatchTitle: "",
+            acceptedBatchDetail: "",
+            acceptedBatchLineRange: nil,
+            structuralObligation: "Drive the final choice.",
+            nextSceneTitle: "INT. TERMINAL - DAWN",
+            nextSceneDetail: "Mara makes the truth public.",
+            nextMoves: [],
+            pageWritePrompt: "Write the final movement.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+        let createdAt = Date(timeIntervalSince1970: 2_000)
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: "studio-expired",
+            projectID: "project-feature",
+            submittedPrompt: "continue",
+            snapshot: snapshot,
+            createdAt: createdAt
+        )
+        let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(context)
+
+        XCTAssertNil(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: payload,
+            now: createdAt.addingTimeInterval(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredProjectMaxAge + 1)
+        ))
+    }
+
+    func testFeatureWorkflowRestorePolicyKeepsFreshMatchingProjectContext() {
+        let createdAt = Date(timeIntervalSince1970: 3_000)
+        let current = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: current,
+            projectID: " project-feature ",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+    }
+
+    func testFeatureWorkflowRestorePolicyProtectsLiveRequestContext() {
+        let createdAt = Date(timeIntervalSince1970: 3_500)
+        let current = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-6",
+            createdAt: createdAt
+        )
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: current,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(60)
+        ))
+    }
+
+    func testFeatureWorkflowRestorePolicyRefreshesMissingMismatchedExpiredOrChangedVersionContext() {
+        let createdAt = Date(timeIntervalSince1970: 4_000)
+        let matching = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-6",
+            createdAt: createdAt
+        )
+        let otherProject = workflowContext(
+            projectID: "project-other",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+        let expired = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: nil,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: otherProject,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: matching,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: expired,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredProjectMaxAge + 1)
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: nil,
+            projectID: " ",
+            versionID: "version-7",
+            now: createdAt
+        ))
+    }
+
+    private func workflowContext(
+        projectID: String,
+        versionID: String,
+        createdAt: Date
+    ) -> ScreenplayFeatureWorkflowSessionContext {
+        ScreenplayFeatureWorkflowSessionContext(
+            requestID: "studio-restore-\(projectID)",
+            projectID: projectID,
+            versionID: versionID,
+            submittedPrompt: "Restored project continuity",
+            snapshot: ScreenplayFeatureWorkflowSnapshot(
+                currentActTitle: "Act II",
+                currentActDetail: "The middle closes in.",
+                actProgressLabel: "Scene 8/14",
+                draftProgressLabel: "48 pages drafted",
+                acceptedBatchTitle: "3 accepted batches",
+                acceptedBatchDetail: "Latest: L200-L248, 49 lines",
+                acceptedBatchLineRange: 200...248,
+                structuralObligation: "Make the victory cost the protagonist.",
+                nextSceneTitle: "EXT. FLOOD CHANNEL - NIGHT",
+                nextSceneDetail: "Mara follows the signal into a family wound.",
+                nextMoves: [],
+                pageWritePrompt: "Write the next feature pages.",
+                planningPrompt: "",
+                sceneDoctorPrompt: ""
+            ),
+            createdAt: createdAt,
+            pageCount: 48,
+            targetPages: 110
+        )
+    }
+
+    private func beatMutationOutline(targetLabel: String = "Existing label") -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 500,
+            actCount: 99,
+            sceneCount: 99,
+            beatCount: 99,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-1",
+                    title: "Act I",
+                    summary: "The search begins.",
+                    order: nil,
+                    sceneIds: ["stale-scene"],
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayAct(
+                    id: "act-2",
+                    title: "Act II",
+                    summary: "The truth closes in.",
+                    order: 2,
+                    sceneIds: nil,
+                    createdAt: 102,
+                    updatedAt: 202
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-old",
+                    slugline: "INT. ARCHIVE - NIGHT",
+                    title: "Archive",
+                    objective: "Find the ledger.",
+                    summary: "Mara searches the records.",
+                    actId: "act-1",
+                    order: 1,
+                    status: "drafted",
+                    beatIds: ["beat-target", "beat-other", "beat-target"],
+                    createdAt: 201,
+                    updatedAt: 301
+                ),
+                BackendScreenplayScene(
+                    id: "scene-new",
+                    slugline: "EXT. COURTHOUSE - DAWN",
+                    title: "Courthouse",
+                    objective: "Expose the forgery.",
+                    summary: "Mara confronts the clerk.",
+                    actId: "act-2",
+                    order: 2,
+                    status: "open",
+                    beatIds: ["beat-other"],
+                    createdAt: 202,
+                    updatedAt: 302
+                ),
+                BackendScreenplayScene(
+                    id: "scene-loose",
+                    slugline: nil,
+                    title: "Memory",
+                    objective: nil,
+                    summary: nil,
+                    actId: "act-1",
+                    order: 0,
+                    status: nil,
+                    beatIds: nil,
+                    createdAt: 203,
+                    updatedAt: 303
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-other",
+                    label: "Another beat",
+                    summary: "Something else changes.",
+                    sceneId: "scene-new",
+                    actId: "act-2",
+                    order: 1,
+                    status: "open",
+                    createdAt: 112,
+                    updatedAt: 212
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-target",
+                    label: targetLabel,
+                    summary: "The old summary.",
+                    sceneId: "scene-old",
+                    actId: "act-1",
+                    order: 0,
+                    status: "drafted",
+                    createdAt: 111,
+                    updatedAt: 211
+                )
+            ]
+        )
+    }
+
+    private func beatOrderOutline() -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 600,
+            actCount: 1,
+            sceneCount: 2,
+            beatCount: 3,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-order",
+                    title: "Act Order",
+                    summary: nil,
+                    order: 0,
+                    sceneIds: ["scene-order", "scene-empty"],
+                    createdAt: 100,
+                    updatedAt: 200
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-order",
+                    slugline: "INT. EDIT ROOM - NIGHT",
+                    title: "Edit room",
+                    objective: "Put the turns in sequence.",
+                    summary: "The cut finds its shape.",
+                    actId: "act-order",
+                    order: 0,
+                    status: "drafted",
+                    beatIds: ["unknown-1", "beat-c", "beat-a", "unknown-2", "beat-b", "beat-b"],
+                    createdAt: 301,
+                    updatedAt: 401
+                ),
+                BackendScreenplayScene(
+                    id: "scene-empty",
+                    slugline: nil,
+                    title: "Empty scene",
+                    objective: nil,
+                    summary: nil,
+                    actId: "act-order",
+                    order: 1,
+                    status: nil,
+                    beatIds: nil,
+                    createdAt: 302,
+                    updatedAt: 402
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-c",
+                    label: "Beat C",
+                    summary: "C summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 2,
+                    status: "open",
+                    createdAt: 103,
+                    updatedAt: 203
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-a",
+                    label: "Beat A",
+                    summary: "A summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 0,
+                    status: "open",
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-b",
+                    label: "Beat B",
+                    summary: "B summary",
+                    sceneId: "scene-order",
+                    actId: "act-order",
+                    order: 1,
+                    status: "drafted",
+                    createdAt: 102,
+                    updatedAt: 202
+                )
+            ]
+        )
+    }
+
+    private func outlineOrderFixture() -> BackendScreenplayOutline {
+        BackendScreenplayOutline(
+            updatedAt: 700,
+            actCount: 3,
+            sceneCount: 5,
+            beatCount: 3,
+            acts: [
+                BackendScreenplayAct(
+                    id: "act-c",
+                    title: "Same title",
+                    summary: "Act C summary",
+                    order: 1,
+                    sceneIds: nil,
+                    createdAt: 103,
+                    updatedAt: 203
+                ),
+                BackendScreenplayAct(
+                    id: "act-a",
+                    title: "Opening",
+                    summary: "Act A summary",
+                    order: 0,
+                    sceneIds: ["stale"],
+                    createdAt: 101,
+                    updatedAt: 201
+                ),
+                BackendScreenplayAct(
+                    id: "act-b",
+                    title: "Same title",
+                    summary: "Act B summary",
+                    order: 1,
+                    sceneIds: ["stale"],
+                    createdAt: 102,
+                    updatedAt: 202
+                )
+            ],
+            scenes: [
+                BackendScreenplayScene(
+                    id: "scene-loose",
+                    slugline: nil,
+                    title: "Loose memory",
+                    objective: nil,
+                    summary: "A scene outside the acts.",
+                    actId: nil,
+                    order: 4,
+                    status: "open",
+                    beatIds: ["beat-loose"],
+                    createdAt: 305,
+                    updatedAt: 405
+                ),
+                BackendScreenplayScene(
+                    id: "scene-b2",
+                    slugline: "EXT. COURTHOUSE - DAY",
+                    title: "Courthouse",
+                    objective: "Make the accusation public.",
+                    summary: "Mara steps into daylight.",
+                    actId: "act-b",
+                    order: 3,
+                    status: "open",
+                    beatIds: nil,
+                    createdAt: 304,
+                    updatedAt: 404
+                ),
+                BackendScreenplayScene(
+                    id: "scene-a2",
+                    slugline: "INT. STACKS - NIGHT",
+                    title: "Stacks",
+                    objective: "Decode the ledger.",
+                    summary: "The entries point to the court.",
+                    actId: " act-a ",
+                    order: 1,
+                    status: "open",
+                    beatIds: ["beat-a2"],
+                    createdAt: 302,
+                    updatedAt: 402
+                ),
+                BackendScreenplayScene(
+                    id: "scene-b1",
+                    slugline: "INT. COURTHOUSE - DAWN",
+                    title: "Clerk's office",
+                    objective: "Confront the clerk.",
+                    summary: "The forgery becomes undeniable.",
+                    actId: "act-b",
+                    order: 2,
+                    status: "drafted",
+                    beatIds: ["beat-b1"],
+                    createdAt: 303,
+                    updatedAt: 403
+                ),
+                BackendScreenplayScene(
+                    id: "scene-a1",
+                    slugline: "INT. ARCHIVE - NIGHT",
+                    title: "Archive",
+                    objective: "Find the ledger.",
+                    summary: "Mara searches the records.",
+                    actId: "act-a",
+                    order: 0,
+                    status: "drafted",
+                    beatIds: nil,
+                    createdAt: 301,
+                    updatedAt: 401
+                )
+            ],
+            beats: [
+                BackendScreenplayBeat(
+                    id: "beat-a2",
+                    label: "A2 beat",
+                    summary: "The ledger names the clerk.",
+                    sceneId: "scene-a2",
+                    actId: "act-a",
+                    order: 0,
+                    status: "drafted",
+                    createdAt: 501,
+                    updatedAt: 601
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-b1",
+                    label: "B1 beat",
+                    summary: "The clerk folds.",
+                    sceneId: "scene-b1",
+                    actId: "act-b",
+                    order: 1,
+                    status: "open",
+                    createdAt: 502,
+                    updatedAt: 602
+                ),
+                BackendScreenplayBeat(
+                    id: "beat-loose",
+                    label: "Loose beat",
+                    summary: "A memory waits outside structure.",
+                    sceneId: "scene-loose",
+                    actId: nil,
+                    order: 2,
+                    status: "open",
+                    createdAt: 503,
+                    updatedAt: 603
+                )
+            ]
+        )
+    }
+
+    private func project() -> BackendScreenplayProjectSummary {
+        BackendScreenplayProjectSummary(
+            id: "project-1",
+            title: "Tomorrow Call",
+            archived: false,
+            tags: ["feature"],
+            characters: ["MARA"],
+            setting: "Los Angeles",
+            tone: "Tender thriller",
+            promptSeed: nil,
+            logline: "A woman receives emergency calls from tomorrow.",
+            themeArgument: "Control fails when love becomes avoidance.",
+            centralQuestion: "Can Mara save tomorrow without abandoning today?",
+            protagonistWant: "Mara wants to outrun the warning.",
+            protagonistNeed: "Mara needs to trust someone else.",
+            antagonisticForce: "A future disaster closing in.",
+            actPosition: "Act I",
+            endingImage: "Mara answers the phone in daylight.",
+            unresolvedSetups: ["The first call has no caller ID."],
+            createdAt: nil,
+            updatedAt: nil,
+            versionCount: 1,
+            lastPhase: "scene_draft",
+            activeVersionId: "version-1",
+            lastVersionId: "version-1",
+            lastVersionAt: nil,
+            formatScore: nil,
+            storyScore: nil,
+            confidenceClass: nil,
+            latestExcerpt: nil,
+            actCount: 1,
+            sceneCount: 2,
+            beatCount: 2,
+            outlineUpdatedAt: nil,
+            collaboratorCount: nil,
+            approvedEmails: nil,
+            commentCount: nil,
+            lastCommentAt: nil,
+            studioThreadViewState: nil,
+            studioDiffAcknowledged: nil,
+            studioAskNoteHistory: nil,
+            collaborators: nil,
+            comments: nil,
+            versions: nil,
+            outline: nil
+        )
+    }
+}

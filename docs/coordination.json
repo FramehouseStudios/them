@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-18T00:20:06.203Z",
+  "updatedAt": "2026-08-29T03:43:37.089Z",
   "updatedBy": "unknown",
   "openPullRequests": [
     {
@@ -51,7 +51,7 @@
       "status": "merged",
       "branch": "codex/T141-release-config-local-runbook",
       "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team, release BACKEND_URL, and APP_TOKEN can be supplied without committing secrets. Does not clear the missing real values by itself."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team and APP_TOKEN_RELEASE can be supplied without committing secrets. Release BACKEND_URL is hosted as https://api.them.io unless the release backend changes. Does not clear the missing private values by itself."
     },
     {
       "number": 341,
@@ -61,7 +61,7 @@
       "status": "merged",
       "branch": "codex/T139-v1-release-smoke-clearance",
       "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN. No secrets committed."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, APP_TOKEN_RELEASE, signing, and human manual smoke. Release BACKEND_URL is hosted as https://api.them.io. No secrets committed."
     },
     {
       "number": 335,
@@ -1654,6 +1654,18 @@
       "branch": "claude/T07-eval-quality-repair",
       "blocker": null,
       "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
+    },
+    {
+      "number": 374,
+      "title": "release: integrate V1 to human-clearance boundary",
+      "owner": "codex",
+      "tier": 3,
+      "status": "review",
+      "branch": "codex/T-v1-human-clearance",
+      "blocker": "Human approval and release-owner operations are required before merge.",
+      "blocker_kind": "needs_human",
+      "reviewer_note": "Review the AppIcon and inherited Email Address privacy declaration, then complete Apple signing, live deployment, App Store, TestFlight, and physical-iPhone clearance.",
+      "expected_action": "Keep do-not-merge until every human-clearance step in docs/v1-release-preflight-proof.md is green."
     }
   ],
   "blockers": [

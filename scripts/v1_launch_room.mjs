@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,19 +79,20 @@ function extractOpenDecisionTitles(markdown) {
 
 function summarizeReleaseProof(markdown) {
   if (!markdown) return null;
-  const result = markdown.match(/^Failed:\s+(.+)$/m)?.[1]?.replace(/`/g, "") || "unknown";
-  const blockingStart = markdown.indexOf("## Blocking Checks");
+  const result = markdown.match(/^(?:Result:|Failed:)\s+(.+)$/m)?.[1]?.replace(/[`.]/g, "") || "unknown";
+  const blockingHeading = markdown.match(/^## (?:Blocking Checks|Human Clearance Required)$/m)?.[0] || "";
+  const blockingStart = blockingHeading ? markdown.indexOf(blockingHeading) : -1;
   const blockingRest = blockingStart === -1 ? "" : markdown.slice(blockingStart);
-  const nextSection = blockingRest.search(/\n## (Warning|Final Preflight Command Shape|Build Log|Boundary)\b/);
+  const nextSection = blockingRest.slice(blockingHeading.length).search(/\n## /);
   const blockSection = blockingStart === -1
     ? ""
-    : blockingRest.slice(0, nextSection === -1 ? undefined : nextSection);
+    : blockingRest.slice(0, nextSection === -1 ? undefined : blockingHeading.length + nextSection);
   const blockers = [];
   let active = null;
   for (const line of blockSection.split("\n")) {
-    if (line.startsWith("- ")) {
+    if (/^(?:- |\d+\. )/.test(line)) {
       if (active) blockers.push(active.trim());
-      active = line.slice(2).trim();
+      active = line.replace(/^(?:- |\d+\. )/, "").trim();
     } else if (active && /^\s{2,}\S/.test(line)) {
       active += ` ${line.trim()}`;
     }
@@ -108,8 +109,28 @@ function isHumanActionGated(pr) {
 }
 
 function readReleaseLocalConfigStatus() {
+  const script = path.join(repoRoot, "scripts", "release_config_status.mjs");
+  const result = spawnSync(process.execPath, [script, "--json"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   try {
-    return JSON.parse(runNodeScript("scripts/release_config_status.mjs", ["--json"]));
+    const parsed = JSON.parse(result.stdout);
+    const envPath = parsed.envFile?.path || "them/Release.local.env";
+    const blockers = Array.isArray(parsed.blockers) ? [...parsed.blockers] : [];
+    const envMissing = parsed.envFile && !parsed.envFile.exists;
+    if (envMissing && !blockers.some((blocker) => /missing local release config/i.test(blocker))) {
+      blockers.unshift(`missing local release config: ${envPath}`);
+    }
+    return {
+      ...parsed,
+      envFile: envPath,
+      blockers,
+      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      overall: parsed.ok ? "ready" : envMissing ? "missing" : "blocked",
+      exitStatus: result.status,
+    };
   } catch (error) {
     return {
       blockers: ["could not read release local config status"],
@@ -196,7 +217,16 @@ function buildState() {
   const humanGated = coordination.openPullRequests
     .filter((pr) => !["closed", "merged"].includes(pr.status))
     .filter(isHumanActionGated);
-  const claudeNext = claudeBacklog[0] || {
+  const manualSmokeOpen = v1.pillars.some((pillar) =>
+    pillar.remaining.some((item) => /manual smoke/i.test(item))
+  );
+  const claudeNext = manualSmokeOpen
+    ? {
+        request: "Support V1 manual smoke failures",
+        why: "The only incomplete V1 product pillars are human smoke paths; backend fixes should be driven by actual Talk, Studio, Memory, or Realtime smoke failures.",
+        expected: "Stand by for Launch Doctor/manual-smoke evidence, then take one root-cause backend fix at a time and append proof before moving to the next failure.",
+      }
+    : claudeBacklog[0] || {
     request: "Wait for Codex assignment",
     why: "No backend queue row found.",
     expected: "Run node scripts/agent_next.mjs --role=claude.",

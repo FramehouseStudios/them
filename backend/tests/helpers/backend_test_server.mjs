@@ -45,14 +45,16 @@ async function waitForServer(baseUrl, timeoutMs = 15000) {
 export async function startBackend({
   dataDir = createTestDataDir(),
   env = {},
+  port: requestedPort = null,
   unsetEnv = [],
 } = {}) {
-  const port = await getFreePort();
+  const port = requestedPort == null ? await getFreePort() : Number(requestedPort);
   const stdout = [];
   const stderr = [];
   const childEnv = {
     ...process.env,
     PORT: String(port),
+    HOST: "127.0.0.1",
     RUN_SERVER: "1",
     NODE_ENV: "test",
     APP_TOKEN: "them-test-app-token",
@@ -110,16 +112,23 @@ export async function startBackend({
     stdout,
     stderr,
     async stop() {
-      if (child.exitCode != null) return;
+      if (child.exitCode != null) return { forced: false, alreadyExited: true };
       child.kill("SIGTERM");
+      let stopTimer = null;
       const exited = await Promise.race([
         once(child, "exit").then(() => true).catch(() => true),
-        new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+        new Promise((resolve) => {
+          stopTimer = setTimeout(() => resolve(false), 1000);
+        }),
       ]);
+      if (stopTimer) clearTimeout(stopTimer);
+      let forced = false;
       if (!exited && child.exitCode == null) {
+        forced = true;
         child.kill("SIGKILL");
         await once(child, "exit").catch(() => {});
       }
+      return { forced, alreadyExited: false };
     },
   };
 }

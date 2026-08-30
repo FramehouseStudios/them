@@ -38,6 +38,24 @@ struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
     }
 }
 
+enum ScreenplayCraftTwistDismissalOutcome {
+    case unavailable
+    case alreadyDismissed
+    case dismissed(remaining: [ScreenplayCraftTwistSuggestion])
+}
+
+enum ScreenplayCraftTwistDismissal {
+    static func resolve(
+        cardID: String,
+        response: ScreenplayCraftTwistSuggestResponse?
+    ) -> ScreenplayCraftTwistDismissalOutcome {
+        guard let response else { return .unavailable }
+        let remaining = response.twists.filter { $0.id != cardID }
+        guard remaining.count != response.twists.count else { return .alreadyDismissed }
+        return .dismissed(remaining: remaining)
+    }
+}
+
 struct ScreenplayCraftLoglineRailState: Equatable {
     let currentLogline: String
     let sourceLabel: String
@@ -104,9 +122,16 @@ struct ScreenplayCraftRailView: View {
     let isFormatLinting: Bool
     let formatLintErrorText: String
     let formatLintSource: String
+    let coverageSimulationReport: ScreenplayCraftCoverageSimulationReport?
+    let isCoverageSimulating: Bool
+    let coverageSimulationErrorText: String
+    let coverageSimulationSource: String
+    let canSimulateCoverage: Bool
+    let isCoverageSimulationCurrent: Bool
     let onRefresh: () -> Void
     let onRefreshLogline: () -> Void
     let onRefreshFormatLint: () -> Void
+    let onSimulateCoverage: () -> Void
     let onAnalyze: () -> Void
     let onCreateOverride: (ScreenplayCraftTurnOverrideMutation) -> Void
 
@@ -119,6 +144,15 @@ struct ScreenplayCraftRailView: View {
             header
             frameworkPicker
             loglinePanel
+            ScreenplayCraftReaderPreviewView(
+                report: coverageSimulationReport,
+                isLoading: isCoverageSimulating,
+                errorText: coverageSimulationErrorText,
+                sourceText: coverageSimulationSource,
+                canRun: canSimulateCoverage,
+                isCurrent: isCoverageSimulationCurrent,
+                onRun: onSimulateCoverage
+            )
             ScreenplayFormatLintCardListView(
                 title: "Format lint",
                 cards: formatLintCards,
@@ -187,6 +221,7 @@ struct ScreenplayCraftRailView: View {
                     Text("Craft")
                         .font(.system(size: 24, weight: .semibold, design: .serif))
                         .foregroundStyle(Color.herText.opacity(0.92))
+                        .accessibilityIdentifier("studio.craft.panel")
                     Text(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No project selected" : projectTitle)
                         .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.74))
@@ -909,9 +944,16 @@ private struct ScreenplayCraftRailPreviewHost: View {
                 isFormatLinting: false,
                 formatLintErrorText: "",
                 formatLintSource: "Preview",
+                coverageSimulationReport: ScreenplayCraftRailPreviewData.coverageSimulation,
+                isCoverageSimulating: false,
+                coverageSimulationErrorText: "",
+                coverageSimulationSource: "Preview",
+                canSimulateCoverage: true,
+                isCoverageSimulationCurrent: true,
                 onRefresh: {},
                 onRefreshLogline: {},
                 onRefreshFormatLint: {},
+                onSimulateCoverage: {},
                 onAnalyze: {},
                 onCreateOverride: { _ in }
             )
@@ -923,6 +965,31 @@ private struct ScreenplayCraftRailPreviewHost: View {
 }
 
 private enum ScreenplayCraftRailPreviewData {
+    static let coverageSimulation = ScreenplayCraftCoverageSimulationReport(
+        schemaVersion: 1,
+        overview: ScreenplayCraftCoverageOverview(
+            pageCount: 102,
+            sceneCount: 48,
+            dialogueRatio: 0.42,
+            avgSceneLengthLines: 17.8
+        ),
+        pacing: ScreenplayCraftCoveragePacing(
+            intensity: "medium",
+            peakScenes: [],
+            longScenes: [],
+            shortScenes: []
+        ),
+        characters: [],
+        warnings: [
+            ScreenplayCraftCoverageWarning(
+                severity: "medium",
+                code: "scene_too_long",
+                message: "One scene may read longer than its dramatic turn can sustain."
+            )
+        ],
+        frameworkId: "save-the-cat",
+        summary: "48 scenes, 42% dialogue — reads balanced."
+    )
     static let logline = ScreenplayCraftLoglineDistillResponse(
         schemaVersion: 1,
         logline: "A pilot chases a vanished signal through a haunted airport.",

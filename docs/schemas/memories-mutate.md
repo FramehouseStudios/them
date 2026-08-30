@@ -33,12 +33,15 @@ verbs, and per-route fields.
 
 ## Access-control posture
 
-**PER-USER**. Each mutation resolves the writable context via
-`resolveWritableMemoryContext(req, nowTs)` and persists via
-`persistWritableMemoryContext`. Scope matches `memories-list.md`:
-`X-Client-Token` session or token alias when present, otherwise
-the normalized requester IP. The inline handlers do not enforce
-an auth-only mutation gate today.
+**PER-USER**. Each mutation requires trusted authenticated
+identity before resolving writable memory. Scope matches
+`memories-list.md`: auth user scope or auth-bound session only.
+Caller-supplied `X-User-Id` and unauthenticated IP ownership are
+not accepted. Unauthenticated callers receive HTTP 401:
+
+```json
+{ "stage": "memories_<action>", "error": "user_auth_required" }
+```
 
 ## Shared request fields
 
@@ -169,3 +172,6 @@ mutations.
   the four inline handlers in `backend/index.js`. Will be
   amended when Phase 6 extracts the routes to
   `backend/lib/memories_route.js` per the #228 design note.
+- 2026-05-26 — Auth/privacy hardening: mutation routes now
+  require trusted auth identity and no longer fall back to IP
+  memory.

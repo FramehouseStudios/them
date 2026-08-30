@@ -1,9 +1,22 @@
-import { APP_TOKEN, CORS_ALLOW_ORIGIN, LOG_FORMAT, LOG_LEVEL, REQUIRE_APP_TOKEN } from "../config.js";
-import { createRequestId } from "../lib/utils.js";
+import {
+  APP_TOKEN,
+  CORS_ALLOW_ORIGIN,
+  LOG_FORMAT,
+  LOG_LEVEL,
+  REQUIRE_APP_TOKEN,
+} from "../config.js";
 import { createRequestLoggerMiddleware } from "../lib/request_logger.js";
+import { securityHeadersMiddleware } from "../lib/security_headers.js";
+import { createRequestId } from "../lib/utils.js";
 
 function requestIdMiddleware(req, res, next) {
-  req.requestId = createRequestId();
+  // Honor an incoming X-Request-Id when present (typically set by a
+  // load balancer for distributed tracing). Otherwise mint a fresh
+  // one. The header echoes back either way so clients can correlate.
+  const incoming = String(
+    (typeof req.header === "function" ? req.header("x-request-id") : "") || ""
+  ).trim();
+  req.requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(incoming) ? incoming : createRequestId();
   res.setHeader("X-Request-Id", req.requestId);
   next();
 }
@@ -36,17 +49,23 @@ function corsMiddleware(req, res, next) {
   next();
 }
 
-// Structured, PII-safe request logger (logs the matched route template only —
-// never a concrete URL, query string, body, or headers — as JSON in prod or
-// text in dev, one line per request, level-gated, health-probe-filtered).
-// See lib/request_logger.js.
 const requestLoggerMiddleware = createRequestLoggerMiddleware({
   format: LOG_FORMAT,
   level: LOG_LEVEL,
 });
 
+const appTokenBypassPaths = new Set([
+  "/health",
+  "/healthz",
+  "/bridge",
+]);
+
+function isAppTokenBypassPath(pathname) {
+  return appTokenBypassPaths.has(String(pathname || "").trim());
+}
+
 function appTokenMiddleware(req, res, next) {
-  if (req.path === "/health" || req.path === "/bridge") return next();
+  if (isAppTokenBypassPath(req.path)) return next();
   if (!REQUIRE_APP_TOKEN || !APP_TOKEN) return next();
 
   const token = req.header("X-APP-TOKEN");
@@ -58,6 +77,9 @@ function appTokenMiddleware(req, res, next) {
 
 function applyAppMiddleware(app) {
   app.use(requestIdMiddleware);
+  app.use(securityHeadersMiddleware);
+  // Mount before CORS/app-token gates so rejected and aborted requests are
+  // still visible without logging concrete URLs or query strings.
   app.use(requestLoggerMiddleware);
   app.use(corsMiddleware);
   app.use(appTokenMiddleware);
@@ -68,6 +90,8 @@ export {
   appTokenMiddleware,
   applyAppMiddleware,
   corsMiddleware,
+  isAppTokenBypassPath,
   requestIdMiddleware,
   requestLoggerMiddleware,
+  securityHeadersMiddleware,
 };

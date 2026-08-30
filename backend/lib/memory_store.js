@@ -1,3 +1,8 @@
+import {
+  sanitizePendingScreenplayLearningQuestion,
+  sanitizePendingScreenplayLearningQuestions,
+} from "./screenplay_question_planner.js";
+
 const userMemoryByIp = new Map();
 const userMemoryByUserId = new Map();
 const userMemoryByClientToken = new Map();
@@ -18,6 +23,7 @@ function memoryStoreDeps() {
 function sanitizePersistedSessionMemory(rawMemory) {
   const {
     DEFAULT_ASSISTANT_SELF_NAME,
+    SCREENPLAY_PROJECT_MEMORY_MAX = 8,
     SESSION_THREAD_SCHEMA_VERSION,
     SOCIAL_SPARK_MEMORY_MAX,
     TASKS_MAX_STORED,
@@ -30,7 +36,6 @@ function sanitizePersistedSessionMemory(rawMemory) {
     createEmptyEmotionMemory,
     normalizeAffectionStyle,
     normalizeAssistantSelfName,
-    normalizeEmailAddress,
     normalizeLocalActionType,
     normalizeMotivationOutcome,
     normalizeReassuranceStyle,
@@ -49,6 +54,7 @@ function sanitizePersistedSessionMemory(rawMemory) {
     sanitizePersonalitySignalMap,
     sanitizeReassuranceStyleScores,
     sanitizeRememberedPeople,
+    sanitizeScreenplayProjectMemoryItems,
     sanitizeSnippetList,
     sanitizeSocialSparkMoments,
     sanitizeTaskItems,
@@ -145,6 +151,34 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.recentAssistantTurns = sanitizeSnippetList(merged.recentAssistantTurns, 8, 170);
   merged.recentQAPairs = sanitizeSnippetList(merged.recentQAPairs, 8, 260);
   merged.turnHistory = sanitizeTurnHistoryItems(merged.turnHistory).slice(-USER_MEMORY_TURN_HISTORY_MAX);
+  if (typeof sanitizeScreenplayProjectMemoryItems === "function") {
+    merged.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+      merged.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    );
+  } else {
+    merged.screenplayProjectMemory = (Array.isArray(merged.screenplayProjectMemory)
+      ? merged.screenplayProjectMemory
+      : []
+    )
+      .map((item) => (item && typeof item === "object" ? item : null))
+      .filter(Boolean)
+      .slice(-SCREENPLAY_PROJECT_MEMORY_MAX);
+  }
+  merged.screenplayProjectMemoryUpdatedAt = Math.max(
+    0,
+    Number(merged.screenplayProjectMemoryUpdatedAt || 0)
+  );
+  const legacyPendingScreenplayQuestion = sanitizePendingScreenplayLearningQuestion(
+    merged.pendingScreenplayLearningQuestion
+  );
+  merged.pendingScreenplayLearningQuestions = sanitizePendingScreenplayLearningQuestions([
+    ...(Array.isArray(merged.pendingScreenplayLearningQuestions)
+      ? merged.pendingScreenplayLearningQuestions
+      : []),
+    ...(legacyPendingScreenplayQuestion ? [legacyPendingScreenplayQuestion] : []),
+  ]);
+  delete merged.pendingScreenplayLearningQuestion;
 
   let listeningFacts = [];
   const sourceFacts = Array.isArray(merged.listeningFacts) ? merged.listeningFacts : [];
@@ -232,11 +266,6 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.motivationCompletionStreak = Math.max(0, Number(merged.motivationCompletionStreak || 0));
   merged.motivationSetbackCount = Math.max(0, Number(merged.motivationSetbackCount || 0));
   merged.motivationLastStatusAt = Math.max(0, Number(merged.motivationLastStatusAt || 0));
-  merged.pendingEmailRecipient = normalizeEmailAddress(merged.pendingEmailRecipient);
-  merged.pendingEmailSubject = trimToMax(String(merged.pendingEmailSubject || "").trim(), 120);
-  merged.pendingEmailAwaitingBody = Boolean(merged.pendingEmailAwaitingBody) &&
-    Boolean(merged.pendingEmailRecipient);
-  merged.pendingEmailUpdatedAt = Math.max(0, Number(merged.pendingEmailUpdatedAt || 0));
   merged.pendingLocalActionType = normalizeLocalActionType(merged.pendingLocalActionType);
   merged.pendingLocalActionPayload = normalizeSnippet(merged.pendingLocalActionPayload, 2_400);
   merged.pendingLocalActionSummary = normalizeSnippet(merged.pendingLocalActionSummary, 220);
@@ -279,6 +308,19 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.lastUpdatedAt = Math.max(0, Number(merged.lastUpdatedAt || Date.now()));
 
   return merged;
+}
+
+function selectFreshestSessionMemory(activeMemory, persistedMemory) {
+  const hasActive = Boolean(activeMemory && typeof activeMemory === "object");
+  const hasPersisted = Boolean(persistedMemory && typeof persistedMemory === "object");
+  if (!hasActive && !hasPersisted) return sanitizePersistedSessionMemory({});
+  if (!hasActive) return sanitizePersistedSessionMemory(persistedMemory);
+  if (!hasPersisted) return sanitizePersistedSessionMemory(activeMemory);
+  const active = sanitizePersistedSessionMemory(activeMemory);
+  const persisted = sanitizePersistedSessionMemory(persistedMemory);
+  const activeUpdatedAt = Math.max(0, Number(active.lastUpdatedAt || 0));
+  const persistedUpdatedAt = Math.max(0, Number(persisted.lastUpdatedAt || 0));
+  return persistedUpdatedAt > activeUpdatedAt ? persisted : active;
 }
 
 function sanitizeClientTokenAliasList(items, maxItems = 24) {
@@ -369,7 +411,7 @@ function cleanupUserMemoryStore(now = Date.now()) {
   }
 }
 
-function saveUserMemoryStore(now = Date.now()) {
+function saveUserMemoryStore(now = Date.now(), options = {}) {
   const deps = memoryStoreDeps();
   const {
     USER_MEMORY_STORE_PATH,
@@ -394,31 +436,44 @@ function saveUserMemoryStore(now = Date.now()) {
     entries,
     users,
   };
-  // Existing JSON-file path stays canonical until cutover completes.
-  writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
+  // Keep the JSON file as a local recovery mirror for legacy callers. Durable
+  // CAS callers set skipPersistenceWrite after the adapter row has committed.
+  const fileOk = writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
   // T07c: dual-write to the persistence adapter when configured.
   // Records are namespaced by source bucket so reverse migration can
   // reconstruct the legacy byUserId / byIp / byClientToken structure.
-  if (persistence && typeof persistence.put === "function") {
+  const persistenceWrites = [];
+  if (!options?.skipPersistenceWrite && persistence && typeof persistence.put === "function") {
     for (const entry of entries) {
-      void Promise.resolve(persistence.put({
+      persistenceWrites.push(Promise.resolve(persistence.put({
         domain: "user_memory",
         key: `byIp:${entry.ip}`,
         value: entry,
-      })).catch((err) => {
-        console.error(`[user_memory] adapter put byIp:${entry.ip} failed:`, err?.message || err);
-      });
+      })));
     }
     for (const userEntry of users) {
-      void Promise.resolve(persistence.put({
+      persistenceWrites.push(Promise.resolve(persistence.put({
         domain: "user_memory",
         key: `byUserId:${userEntry.userId}`,
         value: userEntry,
-      })).catch((err) => {
-        console.error(`[user_memory] adapter put byUserId:${userEntry.userId} failed:`, err?.message || err);
-      });
+      })));
     }
   }
+  const persistencePromise = persistenceWrites.length
+    ? Promise.allSettled(persistenceWrites).then((settled) => {
+      const failures = settled.filter((item) => item.status === "rejected");
+      for (const item of failures) {
+        console.error("[user_memory] adapter put failed:", item.reason?.message || item.reason);
+      }
+      return { ok: failures.length === 0, failureCount: failures.length };
+    })
+    : null;
+  if (persistencePromise) void persistencePromise;
+  return {
+    ok: Boolean(fileOk),
+    fileOk: Boolean(fileOk),
+    persistencePromise,
+  };
 }
 
 // T07c: load user-memory records from the persistence adapter.
@@ -441,6 +496,7 @@ async function loadUserMemoryStoreFromAdapter(
   if (!Array.isArray(records) || records.length === 0) return false;
   targetByIp.clear();
   targetByToken.clear();
+  userMemoryByUserId.clear();
   for (const { key, value } of records) {
     if (key.startsWith("byIp:")) {
       const ip = (typeof normalizeClientIp === "function") ? normalizeClientIp(value?.ip) : value?.ip;
@@ -467,6 +523,7 @@ function loadUserMemoryStore(targetByIp = userMemoryByIp, targetByToken = userMe
   } = memoryStoreDeps();
   targetByIp.clear();
   targetByToken.clear();
+  userMemoryByUserId.clear();
   try {
     if (!fs.existsSync(USER_MEMORY_STORE_PATH)) {
       return;
@@ -569,12 +626,12 @@ function getPersistedUserMemoryForIp(ip, now = Date.now()) {
   return sanitizePersistedSessionMemory(record.memory);
 }
 
-function setPersistedUserMemoryForUserId(userId, memory, now = Date.now()) {
+function setPersistedUserMemoryForUserId(userId, memory, now = Date.now(), options = {}) {
   const key = String(userId || "").trim();
   if (!key) return sanitizePersistedSessionMemory(memory);
   const sanitized = sanitizePersistedSessionMemory(memory);
   userMemoryByUserId.set(key, { memory: sanitized, updatedAt: now });
-  saveUserMemoryStore(now);
+  saveUserMemoryStore(now, options);
   return sanitized;
 }
 
@@ -599,7 +656,7 @@ function setPersistedUserMemoryForIp(ip, memory, now = Date.now(), options = {})
   for (const token of aliases) {
     userMemoryByClientToken.set(token, key);
   }
-  saveUserMemoryStore(now);
+  saveUserMemoryStore(now, options);
   if (typeof syncUserMemoryRecordToBackplane === "function") {
     syncUserMemoryRecordToBackplane(key, { memory: sanitized, updatedAt: now, clientTokens: aliases });
   }
@@ -617,6 +674,7 @@ export {
   loadUserMemoryStoreFromAdapter,
   sanitizeClientTokenAliasList,
   sanitizePersistedSessionMemory,
+  selectFreshestSessionMemory,
   saveUserMemoryStore,
   setPersistedUserMemoryForIp,
   setPersistedUserMemoryForUserId,

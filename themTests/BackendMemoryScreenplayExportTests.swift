@@ -63,6 +63,146 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(exportRequest.bodyObject?["version_id"] as? String, "version-1")
     }
 
+    func testFDXExportUsesDedicatedBackendRouteAndReturnsFinalDraftArtifact() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export/fdx":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/xml; charset=utf-8",
+                        "Content-Disposition": #"attachment; filename="Kitchen Scene.fdx""#,
+                    ],
+                    body: Data(#"<?xml version="1.0"?><FinalDraft><Content /></FinalDraft>"#.utf8)
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let artifact = try await api.exportScreenplayDraft(
+            draft: """
+            INT. KITCHEN - NIGHT
+
+            Rain bruises the window.
+
+            JUNE
+            (quiet)
+            We are still here.
+
+            CUT TO:
+            """,
+            title: "Kitchen Scene",
+            format: "fdx",
+            projectId: "proj-1",
+            versionId: "version-1"
+        )
+
+        XCTAssertEqual(artifact.format, "fdx")
+        XCTAssertEqual(artifact.filename, "Kitchen Scene.fdx")
+        XCTAssertEqual(artifact.contentType, "application/xml; charset=utf-8")
+        XCTAssertTrue(String(data: artifact.data, encoding: .utf8)?.contains("<FinalDraft") == true)
+
+        let exportRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/export/fdx" })
+        XCTAssertEqual(exportRequest.method, "POST")
+        XCTAssertEqual(exportRequest.acceptHeader, "application/xml")
+        XCTAssertNil(exportRequest.bodyObject?["draft"])
+        XCTAssertNil(exportRequest.bodyObject?["project_id"])
+        XCTAssertNil(exportRequest.bodyObject?["version_id"])
+        let title = try XCTUnwrap(exportRequest.bodyObject?["title"] as? [String: Any])
+        XCTAssertEqual(title["title"] as? String, "Kitchen Scene")
+        let scenes = try XCTUnwrap(exportRequest.bodyObject?["scenes"] as? [[String: Any]])
+        XCTAssertEqual(scenes.first?["heading"] as? String, "INT. KITCHEN - NIGHT")
+        let lines = try XCTUnwrap(scenes.first?["lines"] as? [[String: Any]])
+        XCTAssertEqual(lines.first?["kind"] as? String, "action")
+        XCTAssertEqual(lines.first?["text"] as? String, "Rain bruises the window.")
+        let character = try XCTUnwrap(lines.first { ($0["kind"] as? String) == "character" })
+        XCTAssertEqual(character["name"] as? String, "JUNE")
+        XCTAssertEqual(character["parenthetical"] as? String, "(quiet)")
+        XCTAssertEqual(character["dialogue"] as? [String], ["We are still here."])
+        XCTAssertTrue(recorder.requests.allSatisfy { $0.path != "/screenplay/export" })
+    }
+
+    func testPDFExportRejectionSurfacesMessageAndAlternatives() async throws {
+        ScreenplayExportURLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export":
+                return ScreenplayExportHTTPStub(
+                    status: 400,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_export",
+                          "error": "pdf_export_not_supported_locally",
+                          "message": "PDF export is not implemented on this backend.",
+                          "alternative_formats": ["fountain", "fdx", "md"],
+                          "docs_path": "/screenplay/export/formats"
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        do {
+            _ = try await api.exportScreenplayDraft(
+                draft: "INT. KITCHEN - NIGHT\n",
+                title: "Kitchen Scene",
+                format: "pdf"
+            )
+            XCTFail("Expected PDF export to surface backend rejection alternatives.")
+        } catch BackendScreenplayExportError.rejected(let status, let payload) {
+            XCTAssertEqual(status, 400)
+            XCTAssertEqual(payload.error, "pdf_export_not_supported_locally")
+            XCTAssertEqual(payload.alternativeFormats, ["fountain", "fdx", "md"])
+            XCTAssertEqual(payload.docsPath, "/screenplay/export/formats")
+            XCTAssertTrue(payload.alternativesSummary.contains("Fountain"))
+            XCTAssertTrue(payload.alternativesSummary.contains("FDX"))
+            XCTAssertTrue(payload.alternativesSummary.contains("Markdown"))
+        }
+    }
+
     func testFetchScreenplayExportFormatsDecodesExtensionField() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in
@@ -189,7 +329,7 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         } catch {
             let message = error.localizedDescription
             XCTAssertTrue(message.contains("PDF export is not implemented on this backend."))
-            XCTAssertTrue(message.contains("Alternatives: fountain, fdx, md."))
+            XCTAssertTrue(message.contains("Try Fountain, FDX, Markdown."))
         }
     }
 
@@ -342,6 +482,454 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertNil(routesRequest.bodyObject)
         XCTAssertFalse(recorder.requests.contains { $0.path == "/session" })
     }
+
+    func testStorySpineCorrectionPostsObservedStateVersion() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-spine", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-spine-before",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-spine-before", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
+                )
+            case "/memories/update":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-spine-after",
+                    ],
+                    body: Data(
+                        #"{ "ok": true, "action": "update", "status": "updated", "state_version": "state-spine-after" }"#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let storySpine = try decoder.decode(
+            BackendStorySpineMemory.self,
+            from: Data(
+                #"{ "project_id": "split-ferries", "project_title": "Split Ferries", "next_scene_plan": "Mara returns for Eli before the last ferry leaves." }"#.utf8
+            )
+        )
+
+        let result = try await api.updateMemoryCard(
+            id: "screenplay-project-split-ferries",
+            key: "split-ferries",
+            title: "Split Ferries",
+            summary: "Mara chooses to return.",
+            reason: "Protect the writer's corrected Act II turn.",
+            storySpine: storySpine
+        )
+
+        XCTAssertTrue(result.payload.ok)
+        XCTAssertEqual(result.sync.stateVersion, "state-spine-after")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/update" }
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_state_version"] as? String,
+            "state-spine-before"
+        )
+        let sentSpine = try XCTUnwrap(request.bodyObject?["story_spine"] as? [String: Any])
+        XCTAssertEqual(
+            sentSpine["next_scene_plan"] as? String,
+            "Mara returns for Eli before the last ferry leaves."
+        )
+    }
+
+    func testDurableMemoryForgetPostsObservedStateAndCreativeRevisions() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-forget", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-forget-before",
+                        "X-Creative-Memory-Revision": "cm_forget_before",
+                    ],
+                    body: Data(
+                        #"{ "source": "auth_user", "source_ip": "", "state_version": "state-forget-before", "creative_memory_revision": "cm_forget_before", "memories": [], "conversation_samples": [] }"#.utf8
+                    )
+                )
+            case "/memories/forget":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-forget-after",
+                        "X-Creative-Memory-Revision": "cm_forget_after",
+                    ],
+                    body: Data(
+                        #"{ "ok": true, "action": "forget", "status": "forgotten", "forgotten_id": "character-mara", "durable_memory_deleted": true, "state_version": "state-forget-after", "creative_memory_revision": "cm_forget_after" }"#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let result = try await api.forgetMemoryCard(
+            id: "character-mara",
+            key: "character:Mara"
+        )
+
+        XCTAssertTrue(result.payload.ok)
+        XCTAssertEqual(result.sync.stateVersion, "state-forget-after")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/forget" }
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_state_version"] as? String,
+            "state-forget-before"
+        )
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_forget_before"
+        )
+    }
+
+    func testStorySpineDecodesAcceptedSetupAndPayoffEvidence() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let spine = try decoder.decode(
+            BackendStorySpineMemory.self,
+            from: Data(
+                #"""
+                {
+                  "project_id": "split-ferries",
+                  "project_title": "Split Ferries",
+                  "story_obligation_ledger": [{
+                    "id": "obligation_12_1",
+                    "kind": "promised_payoff",
+                    "obligation": "June returns the token when Mara gives her the wheel.",
+                    "status": "paid_off",
+                    "result": "June returns the token after Mara gives her the wheel.",
+                    "evidence": "June sets the token in Mara's palm, then takes the wheel.",
+                    "source_scene_heading": "INT. PILOT HOUSE - DAWN",
+                    "source_act": "Act III",
+                    "source_position": 12,
+                    "accepted_at": 1800000020000
+                  }],
+                  "current_story_obligation_change": {
+                    "id": "obligation_12_1",
+                    "kind": "promised_payoff",
+                    "obligation": "June returns the token when Mara gives her the wheel.",
+                    "status": "paid_off",
+                    "result": "June returns the token after Mara gives her the wheel.",
+                    "evidence": "June sets the token in Mara's palm, then takes the wheel."
+                  },
+                  "story_obligation_corrections": [{
+                    "id": "obligation_correction_1",
+                    "obligation": "The bell in Mara's apartment",
+                    "action": "retire",
+                    "note": "It is atmosphere, not a setup.",
+                    "source_change_id": "obligation_4_1",
+                    "source_status": "advanced",
+                    "corrected_at": 1800000030000
+                  }]
+                }
+                """#.utf8
+            )
+        )
+
+        XCTAssertEqual(spine.storyObligationLedger?.count, 1)
+        XCTAssertEqual(spine.currentStoryObligationChange?.statusLabel, "Paid off")
+        XCTAssertEqual(spine.currentStoryObligationChange?.kindLabel, "Promised payoff")
+        XCTAssertEqual(
+            spine.currentStoryObligationChange?.evidence,
+            "June sets the token in Mara's palm, then takes the wheel."
+        )
+        XCTAssertEqual(spine.storyObligationCorrections?.first?.actionLabel, "Retired")
+        XCTAssertEqual(
+            spine.storyObligationCorrections?.first?.note,
+            "It is atmosphere, not a setup."
+        )
+        XCTAssertNil(spine.payload["story_obligation_ledger"])
+    }
+
+    func testStoryMovePreferenceCorrectionPostsProjectScopeAndDecodesRefreshedProfile() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories/story-preferences/update":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "X-State-Version": "state-preference-2",
+                    ],
+                    body: Data(
+                        #"""
+                        {
+                          "ok": true,
+                          "action": "story_move_preference",
+                          "status": "prefer",
+                          "creative_memory_revision": "cm_after_preference",
+                          "story_move_preferences": [
+                            {
+                              "project_id": "split-ferries",
+                              "project_title": "Split Ferries",
+                              "family": "relationship_pressure",
+                              "display_name": "Relationship pressure",
+                              "summary": "make plot movement damage, redefine, or test a bond",
+                              "learned_score": -1,
+                              "effective_score": 10,
+                              "evidence_count": 3,
+                              "selected_count": 1,
+                              "passed_over_count": 2,
+                              "accepted_page_count": 1,
+                              "block_resolution_count": 1,
+                              "successful_rescue_count": 1,
+                              "failed_rescue_count": 0,
+                              "explicit_stance": "prefer",
+                              "corrected_at": 5000,
+                              "updated_at": 5000
+                            }
+                          ],
+                          "state_version": "state-preference-2",
+                          "memory_updated_at": 5000
+                        }
+                        """#.utf8
+                    )
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "source": "auth_user",
+                          "source_ip": "",
+                          "creative_memory_revision": "cm_before_preference",
+                          "story_move_preferences": [
+                            {
+                              "project_id": "split-ferries",
+                              "project_title": "Split Ferries",
+                              "family": "relationship_pressure",
+                              "display_name": "Relationship pressure",
+                              "summary": "make plot movement damage, redefine, or test a bond",
+                              "learned_score": -1,
+                              "effective_score": 10,
+                              "evidence_count": 3,
+                              "selected_count": 1,
+                              "passed_over_count": 2,
+                              "accepted_page_count": 1,
+                              "block_resolution_count": 1,
+                              "explicit_stance": "prefer",
+                              "corrected_at": 5000,
+                              "updated_at": 5000
+                            }
+                          ],
+                          "memories": [],
+                          "conversation_samples": []
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let result = try await api.updateStoryMovePreference(
+            projectID: "split-ferries",
+            projectTitle: "Split Ferries",
+            family: "relationship_pressure",
+            action: "prefer"
+        )
+
+        let preference = try XCTUnwrap(result.payload.storyMovePreferences?.first)
+        XCTAssertEqual(preference.family, "relationship_pressure")
+        XCTAssertEqual(preference.explicitStance, "prefer")
+        XCTAssertEqual(preference.effectiveScore, 10)
+        XCTAssertEqual(preference.successfulRescueCount, 1)
+        XCTAssertEqual(preference.failedRescueCount, 0)
+        XCTAssertTrue(preference.isExplicitlyCorrected)
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/story-preferences/update" }
+        )
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
+        XCTAssertEqual(request.bodyObject?["family"] as? String, "relationship_pressure")
+        XCTAssertEqual(request.bodyObject?["action"] as? String, "prefer")
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_before_preference"
+        )
+
+        let scoped = try await api.fetchMemories(
+            limit: 1,
+            storyPreferenceProjectID: "split-ferries",
+            storyPreferenceProjectTitle: "Ignored because the ID is authoritative"
+        )
+        XCTAssertEqual(scoped.payload.storyMovePreferences?.map(\.projectId), ["split-ferries"])
+        let scopedRequest = try XCTUnwrap(
+            recorder.requests.last { $0.path == "/memories" }
+        )
+        XCTAssertEqual(
+            scopedRequest.queryItems["story_preference_project_id"],
+            "split-ferries"
+        )
+        XCTAssertNil(scopedRequest.queryItems["story_preference_project_title"])
+    }
+
+    func testStoryObligationCorrectionPostsWriterAuthorityWithCreativeRevision() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "source": "auth_user", "source_ip": "", "creative_memory_revision": "cm_before_obligation", "memories": [], "conversation_samples": [] }"#.utf8)
+                )
+            case "/memories/story-obligations/correct":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "ok": true,
+                          "action": "story_obligation_correction",
+                          "status": "keep_open",
+                          "message": "Clementine will keep this obligation open.",
+                          "creative_memory_revision": "cm_after_obligation",
+                          "story_obligation_correction": {
+                            "id": "obligation_correction_1",
+                            "obligation": "The cracked ferry token Mara gave June",
+                            "action": "keep_open",
+                            "source_change_id": "obligation_12_1",
+                            "source_status": "paid_off",
+                            "corrected_at": 5000
+                          }
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+        let change = BackendStoryObligationChange(
+            id: "obligation_12_1",
+            kind: "setup",
+            obligation: "The cracked ferry token Mara gave June",
+            status: "paid_off",
+            result: "June returns the token.",
+            evidence: "June places it in Mara's palm.",
+            sourceSceneHeading: nil,
+            sourceAct: nil,
+            sourcePosition: nil,
+            acceptedAt: nil
+        )
+
+        let result = try await api.correctStoryObligation(
+            projectID: "split-ferries",
+            projectTitle: "Split Ferries",
+            change: change,
+            action: "keep_open"
+        )
+
+        XCTAssertEqual(result.payload.storyObligationCorrection?.actionLabel, "Kept open")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/story-obligations/correct" }
+        )
+        XCTAssertEqual(request.bodyObject?["project_id"] as? String, "split-ferries")
+        XCTAssertEqual(request.bodyObject?["obligation"] as? String, change.obligation)
+        XCTAssertEqual(request.bodyObject?["action"] as? String, "keep_open")
+        XCTAssertEqual(request.bodyObject?["source_change_id"] as? String, change.id)
+        XCTAssertEqual(
+            request.bodyObject?["expected_creative_memory_revision"] as? String,
+            "cm_before_obligation"
+        )
+    }
 }
 
 private struct ScreenplayExportHTTPStub {
@@ -389,6 +977,8 @@ private final class ScreenplayExportURLProtocolStub: URLProtocol {
 private struct RecordedScreenplayExportRequest {
     let method: String
     let path: String
+    let queryItems: [String: String]
+    let acceptHeader: String?
     let bodyObject: [String: Any]?
 }
 
@@ -408,6 +998,16 @@ private final class ScreenplayExportRequestRecorder: @unchecked Sendable {
         let record = RecordedScreenplayExportRequest(
             method: request.httpMethod ?? "",
             path: request.url?.path ?? "",
+            queryItems: Dictionary(
+                uniqueKeysWithValues: (URLComponents(
+                    url: request.url ?? URL(fileURLWithPath: "/"),
+                    resolvingAgainstBaseURL: false
+                )?.queryItems ?? []).compactMap { item in
+                    guard let value = item.value else { return nil }
+                    return (item.name, value)
+                }
+            ),
+            acceptHeader: request.value(forHTTPHeaderField: "Accept"),
             bodyObject: bodyObject
         )
         lock.lock()

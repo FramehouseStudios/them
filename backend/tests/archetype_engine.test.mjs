@@ -205,13 +205,12 @@ test("[archetype] GET classifies persisted characters via creativeMemoryStore", 
   });
 });
 
-test("[archetype] GET unauthenticated returns empty entries (not 401)", async () => {
+test("[archetype] GET unauthenticated returns 401", async () => {
   await withTestServer(
     async ({ baseURL }) => {
       const r = await get(baseURL, "/memory/character-archetypes");
-      assert.equal(r.status, 200);
-      assert.equal(r.body.userId, null);
-      assert.deepEqual(r.body.entries, []);
+      assert.equal(r.status, 401);
+      assert.equal(r.body.error, "user_auth_required");
     },
     { userId: null },
   );

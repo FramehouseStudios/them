@@ -272,6 +272,7 @@ struct AppShell: View {
             VoiceSettingsPlaceholderScreen()
         case .profile:
             ProfileAccountScreen(onSessionChanged: {
+                ScreenplayLiveDraftBridge.shared.reconcileCharacterVoiceMemoryAccount()
                 Task { await backendBridge.refresh(force: true) }
             })
         case .none:
@@ -797,15 +798,50 @@ private enum ProfileAuthMode: String, CaseIterable, Identifiable {
     }
 }
 
+nonisolated enum ProfileAppleSignInErrorPolicy {
+    static func userMessage(for backendDescription: String) -> String? {
+        if backendDescription.contains("apple_sign_in_not_configured")
+            || backendDescription.contains("user_auth_not_configured") {
+            return "Apple sign in is not configured on this backend yet."
+        }
+        if backendDescription.contains("invalid_apple_identity_token") {
+            return "Apple sign in returned an invalid identity token. Please try again."
+        }
+        if backendDescription.contains("apple_nonce_required")
+            || backendDescription.contains("invalid_apple_nonce") {
+            return "Apple sign in could not complete its security check. Please try again."
+        }
+        if backendDescription.contains("apple_jwks_unavailable") {
+            return "Apple sign in is temporarily unavailable while Apple’s verification service reconnects. Please try again."
+        }
+        if backendDescription.contains("apple_email_required")
+            || backendDescription.contains("email_required") {
+            return "Apple did not provide a verified email for this new identity. Use email sign-in for that account, or retry Apple only if Apple can share the email."
+        }
+        if backendDescription.contains("apple_subject_taken") {
+            return "This email is already linked to a different Apple identity. Use the original Apple account or sign in with email."
+        }
+        if backendDescription.contains("email_taken") {
+            return "This Apple identity conflicts with an email that is already attached to another account."
+        }
+        return nil
+    }
+}
+
 struct ProfileAccountScreen: View {
     let onSessionChanged: () -> Void
+
+    private static let rememberedLoginUnavailableMessage =
+        "Remembered login is waiting for Apple Keychain to become available."
 
     @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
     @AppStorage("auth_user_email") private var authUserEmail: String = ""
     @AppStorage("auth_user_verified") private var authUserVerified: Bool = false
 
     @State private var authMode: ProfileAuthMode = .signIn
-    @State private var sessionState: BackendAuthSessionState = BackendAuthClient.currentAuthSessionState()
+    // Hydrated from Keychain-backed storage in `.task`. Avoid synchronously
+    // entering the auth queue while SwiftUI is constructing the view tree.
+    @State private var sessionState: BackendAuthSessionState = .signedOut
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
@@ -815,11 +851,15 @@ struct ProfileAccountScreen: View {
     @State private var verifyToken: String = ""
     @State private var debugPasswordResetToken: String = ""
     @State private var debugEmailVerificationToken: String = ""
+    @State private var rememberMe = false
+    @State private var savePassword = false
     @State private var statusMessage: String = ""
     @State private var errorMessage: String = ""
     @State private var isWorking = false
     @State private var isLoadingSessions = false
     @State private var isAppleSigningIn = false
+    @State private var appleSignInRawNonce: String?
+    @State private var appleAuthSessionGeneration: Int?
     @State private var managedSessions: [BackendAuthManagedSession] = []
 
     var body: some View {
@@ -961,12 +1001,38 @@ struct ProfileAccountScreen: View {
                             }
                             .pickerStyle(.segmented)
 
-                            accountField(title: "Email", prompt: "you@example.com", text: $email)
-                            accountField(title: "Password", prompt: "Enter password", text: $password, secure: true)
+                            accountField(
+                                title: "Email",
+                                prompt: "you@example.com",
+                                text: $email,
+                                identifier: "profile-auth-email"
+                            )
+                            accountField(
+                                title: "Password",
+                                prompt: "Enter password",
+                                text: $password,
+                                secure: true,
+                                identifier: "profile-auth-password"
+                            )
 
                             if authMode == .signUp {
                                 accountField(title: "Confirm Password", prompt: "Repeat password", text: $confirmPassword, secure: true)
                             }
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                Toggle("Remember me", isOn: rememberMeBinding)
+                                    .accessibilityIdentifier("profile-auth-remember-me")
+                                Toggle("Save password in Apple Keychain", isOn: savePasswordBinding)
+                                    .accessibilityIdentifier("profile-auth-save-password")
+
+                                Text("Signed-in sessions already restore securely on this device. Saving the password is optional and keeps it in Apple Keychain, never app preferences.")
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundStyle(.white.opacity(0.44))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .tint(Color.white.opacity(0.72))
 
                             primaryActionButton(title: isWorking ? "Working…" : authMode.actionTitle, disabled: authInteractionDisabled) {
                                 Task {
@@ -978,6 +1044,34 @@ struct ProfileAccountScreen: View {
                                 }
                             }
 
+#if DEBUG
+                            if let demoAccount = BackendAuthClient.localDemoAccount() {
+                                Divider().overlay(Color.white.opacity(0.10))
+                                    .padding(.vertical, 2)
+
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Local Demo Account")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.90))
+                                    Text("Debug builds on a local backend only. This uses normal email signup and login; it is not an Apple ID or a production backdoor.")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundStyle(.white.opacity(0.54))
+
+                                    tokenBlock(title: "Demo email", token: demoAccount.email)
+                                    tokenBlock(title: "Demo password", token: demoAccount.password)
+
+                                    secondaryActionButton(title: isWorking ? "Working…" : "Create or Sign In Demo", disabled: authInteractionDisabled) {
+                                        Task { await useLocalDemoAccount(demoAccount) }
+                                    }
+                                    .accessibilityIdentifier("profile-auth-use-local-demo")
+
+                                    Text("The Remember me choices above apply to this account too.")
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundStyle(.white.opacity(0.42))
+                                }
+                            }
+#endif
+
                             Divider().overlay(Color.white.opacity(0.10))
                                 .padding(.vertical, 2)
 
@@ -985,7 +1079,7 @@ struct ProfileAccountScreen: View {
                                 Text("Sign in with Apple")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(.white.opacity(0.90))
-                                Text("Uses the same live backend session flow and creates the account automatically on first sign in if needed.")
+                                Text("Uses an Apple-issued identity token and creates the backend account automatically on first sign in. Apple never gives this app your Apple ID password.")
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundStyle(.white.opacity(0.54))
 
@@ -1007,7 +1101,7 @@ struct ProfileAccountScreen: View {
                                     }
                                 }
 
-                                Text("If Apple does not provide an email on first sign in, create the account with email once and then try Apple again.")
+                                Text("The local demo email/password cannot be used in the Apple button. A new Apple identity needs a verified email from Apple; if Apple does not share one, use email sign-in for that account.")
                                     .font(.system(size: 11, weight: .regular))
                                     .foregroundStyle(.white.opacity(0.42))
                             }
@@ -1094,6 +1188,7 @@ struct ProfileAccountScreen: View {
             }
         }
         .task {
+            restoreRememberedLoginCredentials()
             await reloadScreen(forceRefresh: false, reloadSessions: true)
         }
         .onChange(of: authSignedIn) { _, _ in
@@ -1104,6 +1199,11 @@ struct ProfileAccountScreen: View {
         }
         .onChange(of: authUserVerified) { _, _ in
             syncFromStorage()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .themRememberedLoginKeychainAvailable)
+        ) { _ in
+            restoreRememberedLoginCredentials()
         }
     }
 
@@ -1124,6 +1224,20 @@ struct ProfileAccountScreen: View {
         isWorking || isAppleSigningIn
     }
 
+    private var rememberMeBinding: Binding<Bool> {
+        Binding(
+            get: { rememberMe },
+            set: { updateRememberMe($0) }
+        )
+    }
+
+    private var savePasswordBinding: Binding<Bool> {
+        Binding(
+            get: { savePassword },
+            set: { updateSavePassword($0) }
+        )
+    }
+
     private func clearFeedback() {
         statusMessage = ""
         errorMessage = ""
@@ -1138,6 +1252,80 @@ struct ProfileAccountScreen: View {
         if resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             resetEmail = current.email.isEmpty ? authUserEmail : current.email
         }
+    }
+
+    private func restoreRememberedLoginCredentials(force: Bool = false) {
+        switch BackendAuthClient.rememberedLoginCredentialLoadResult() {
+        case .notRemembered:
+            rememberMe = false
+            savePassword = false
+            if statusMessage == Self.rememberedLoginUnavailableMessage {
+                statusMessage = ""
+            }
+        case .unavailable(let savedPassword):
+            rememberMe = true
+            savePassword = savedPassword
+            if statusMessage.isEmpty {
+                statusMessage = Self.rememberedLoginUnavailableMessage
+            }
+        case .loaded(let remembered):
+            rememberMe = true
+            savePassword = remembered.hasSavedPassword
+            if statusMessage == Self.rememberedLoginUnavailableMessage {
+                statusMessage = ""
+            }
+            if force || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                email = remembered.email
+            }
+            if force || password.isEmpty {
+                password = remembered.password ?? ""
+            }
+        }
+    }
+
+    private func updateRememberMe(_ enabled: Bool) {
+        rememberMe = enabled
+        guard !enabled else { return }
+        savePassword = false
+        if !BackendAuthClient.clearRememberedLoginCredentials() {
+            errorMessage = "Remembered login is disabled. Apple Keychain will retry deleting the saved credential when Keychain becomes available."
+        }
+    }
+
+    private func updateSavePassword(_ enabled: Bool) {
+        savePassword = enabled
+        if enabled {
+            rememberMe = true
+            return
+        }
+        guard rememberMe else { return }
+        switch BackendAuthClient.disableRememberedLoginPassword() {
+        case .saved:
+            break
+        case .unchanged:
+            rememberMe = false
+        case .disabled:
+            rememberMe = false
+            errorMessage = "Remember me was turned off so the unavailable saved password can be deleted safely."
+        case .failed:
+            rememberMe = false
+            errorMessage = "Apple Keychain could not update the remembered login."
+        case .superseded:
+            rememberMe = false
+            errorMessage = "A newer account action kept remembered login disabled."
+        }
+    }
+
+    @discardableResult
+    private func applyRememberedLoginResult(
+        _ result: BackendRememberedLoginMutationResult,
+        requestedRemember: Bool
+    ) -> Bool {
+        if requestedRemember && result != .saved {
+            rememberMe = false
+            savePassword = false
+        }
+        return result == .saved
     }
 
     private func reloadScreen(forceRefresh: Bool, reloadSessions: Bool) async {
@@ -1183,8 +1371,19 @@ struct ProfileAccountScreen: View {
 
     private func configureAppleIDRequest(_ request: ASAuthorizationAppleIDRequest) {
         clearFeedback()
-        isAppleSigningIn = true
         request.requestedScopes = [.fullName, .email]
+        appleSignInRawNonce = nil
+        appleAuthSessionGeneration = BackendAuthClient.reserveAuthSessionIntent()
+        isAppleSigningIn = true
+        do {
+            let rawNonce = try BackendAppleSignInNonce.generateRawNonce()
+            appleSignInRawNonce = rawNonce
+            request.nonce = BackendAppleSignInNonce.sha256Base64URL(rawNonce)
+        } catch {
+            appleAuthSessionGeneration = nil
+            isAppleSigningIn = false
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func handleAppleAuthorizationResult(_ result: Result<ASAuthorization, Error>) {
@@ -1194,8 +1393,22 @@ struct ProfileAccountScreen: View {
     }
 
     private func completeAppleAuthorization(_ result: Result<ASAuthorization, Error>) async {
+        let rawNonce = appleSignInRawNonce
+        let sessionGeneration = appleAuthSessionGeneration
+        appleSignInRawNonce = nil
+        appleAuthSessionGeneration = nil
         switch result {
         case .success(let authorization):
+            guard let rawNonce, !rawNonce.isEmpty else {
+                isAppleSigningIn = false
+                errorMessage = "Apple sign in could not complete its security check. Please try again."
+                return
+            }
+            guard let sessionGeneration else {
+                isAppleSigningIn = false
+                errorMessage = "Apple sign in was superseded by a newer account action."
+                return
+            }
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                 isAppleSigningIn = false
                 errorMessage = "Apple sign in returned an unexpected credential."
@@ -1221,6 +1434,8 @@ struct ProfileAccountScreen: View {
                     identityToken: identityToken,
                     authorizationCode: decodedAppleAuthorizationCode(credential.authorizationCode),
                     userIdentifier: credential.user,
+                    rawNonce: rawNonce,
+                    expectedSessionGeneration: sessionGeneration,
                     email: normalizedCredentialString(credential.email),
                     givenName: normalizedCredentialString(credential.fullName?.givenName),
                     familyName: normalizedCredentialString(credential.fullName?.familyName)
@@ -1281,19 +1496,7 @@ struct ProfileAccountScreen: View {
         }
 
         let message = error.localizedDescription
-        if message.contains("apple_sign_in_not_configured") || message.contains("user_auth_not_configured") {
-            return "Apple sign in is not configured on this backend yet."
-        }
-        if message.contains("invalid_apple_identity_token") {
-            return "Apple sign in returned an invalid identity token. Please try again."
-        }
-        if message.contains("email_required") {
-            return "Apple did not provide an email for this sign in. Try Apple again with email sharing enabled, or create the account with email first and then use Apple sign in."
-        }
-        if message.contains("email_taken") {
-            return "This Apple identity conflicts with an email that is already attached to another account."
-        }
-        return message
+        return ProfileAppleSignInErrorPolicy.userMessage(for: message) ?? message
     }
 
     private func signIn() async {
@@ -1305,13 +1508,30 @@ struct ProfileAccountScreen: View {
         clearFeedback()
         isWorking = true
         defer { isWorking = false }
+        let authIntent = BackendAuthClient.reserveAuthenticationIntent()
         do {
-            sessionState = try await BackendAuthClient.login(email: normalizedEmail, password: password)
+            let submittedPassword = password
+            let requestedRemember = rememberMe
+            let requestedSavePassword = savePassword
+            let result = try await BackendAuthClient.login(
+                email: normalizedEmail,
+                password: submittedPassword,
+                intent: authIntent,
+                rememberEmail: requestedRemember,
+                savePassword: requestedSavePassword
+            )
+            sessionState = result.sessionState
+            let remembered = applyRememberedLoginResult(
+                result.rememberedLoginResult,
+                requestedRemember: requestedRemember
+            )
             password = ""
             confirmPassword = ""
             debugEmailVerificationToken = ""
             debugPasswordResetToken = ""
-            statusMessage = "Signed in to the live backend."
+            statusMessage = requestedRemember && !remembered
+                ? "Signed in, but Apple Keychain could not save the remembered login."
+                : "Signed in to the live backend."
             onSessionChanged()
             await reloadScreen(forceRefresh: false, reloadSessions: true)
         } catch {
@@ -1332,13 +1552,30 @@ struct ProfileAccountScreen: View {
         clearFeedback()
         isWorking = true
         defer { isWorking = false }
+        let authIntent = BackendAuthClient.reserveAuthenticationIntent()
         do {
-            sessionState = try await BackendAuthClient.signUp(email: normalizedEmail, password: password)
+            let submittedPassword = password
+            let requestedRemember = rememberMe
+            let requestedSavePassword = savePassword
+            let result = try await BackendAuthClient.signUp(
+                email: normalizedEmail,
+                password: submittedPassword,
+                intent: authIntent,
+                rememberEmail: requestedRemember,
+                savePassword: requestedSavePassword
+            )
+            sessionState = result.sessionState
+            let remembered = applyRememberedLoginResult(
+                result.rememberedLoginResult,
+                requestedRemember: requestedRemember
+            )
             password = ""
             confirmPassword = ""
-            statusMessage = sessionState.emailVerified
-                ? "Account created and signed in."
-                : "Account created. Check verification status below to finish setup."
+            statusMessage = requestedRemember && !remembered
+                ? "Account created, but Apple Keychain could not save the remembered login."
+                : (sessionState.emailVerified
+                    ? "Account created and signed in."
+                    : "Account created. Check verification status below to finish setup.")
             onSessionChanged()
             await reloadScreen(forceRefresh: false, reloadSessions: true)
         } catch {
@@ -1365,21 +1602,33 @@ struct ProfileAccountScreen: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            try await BackendAuthClient.logout()
-            sessionState = .signedOut
-            managedSessions = []
-            password = ""
-            confirmPassword = ""
-            verifyToken = ""
-            resetToken = ""
-            debugEmailVerificationToken = ""
-            debugPasswordResetToken = ""
-            statusMessage = "Signed out."
-            onSessionChanged()
-            await reloadScreen(forceRefresh: false, reloadSessions: false)
+            let tokensDeleted = try await BackendAuthClient.logout()
+            await finishLocalSignOut(
+                status: tokensDeleted
+                    ? "Signed out."
+                    : "Signed out. Apple Keychain cleanup will retry when Keychain is available."
+            )
         } catch {
+            await finishLocalSignOut(
+                status: "Signed out locally. Backend session revocation could not be confirmed."
+            )
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func finishLocalSignOut(status: String) async {
+        sessionState = .signedOut
+        managedSessions = []
+        password = ""
+        confirmPassword = ""
+        verifyToken = ""
+        resetToken = ""
+        debugEmailVerificationToken = ""
+        debugPasswordResetToken = ""
+        restoreRememberedLoginCredentials(force: true)
+        statusMessage = status
+        onSessionChanged()
+        await reloadScreen(forceRefresh: false, reloadSessions: false)
     }
 
     private func requestVerification() async {
@@ -1455,20 +1704,106 @@ struct ProfileAccountScreen: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            sessionState = try await BackendAuthClient.resetPassword(token: normalizedToken, newPassword: newPassword)
+            let submittedNewPassword = newPassword
+            let resetResult = try await BackendAuthClient.resetPassword(
+                token: normalizedToken,
+                newPassword: submittedNewPassword
+            )
+            sessionState = resetResult.sessionState
+            var rememberedLoginStatusOverride: String?
+            switch resetResult.rememberedLoginResult {
+            case .saved:
+                rememberMe = true
+                savePassword = true
+            case .disabled, .failed:
+                rememberMe = false
+                savePassword = false
+                rememberedLoginStatusOverride = "Password updated. The old remembered login was disabled and queued for secure deletion."
+            case .superseded:
+                rememberedLoginStatusOverride = "Password updated. A newer account action superseded the remembered-login update."
+            case .unchanged:
+                break
+            }
             authMode = .signIn
             password = ""
             confirmPassword = ""
             newPassword = ""
             resetToken = ""
             debugPasswordResetToken = ""
-            statusMessage = "Password updated. Sign in with the new password when you’re ready."
+            statusMessage = rememberedLoginStatusOverride
+                ?? "Password updated. Sign in with the new password when you’re ready."
             onSessionChanged()
             await reloadScreen(forceRefresh: false, reloadSessions: false)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
+
+#if DEBUG
+    private func useLocalDemoAccount(_ account: BackendLocalDemoAccount) async {
+        authMode = .signIn
+        email = account.email
+        password = account.password
+        confirmPassword = account.password
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        let authIntent = BackendAuthClient.reserveAuthenticationIntent()
+
+        do {
+            var created = false
+            let requestedRemember = rememberMe
+            let requestedSavePassword = savePassword
+            let result: BackendEmailAuthenticationResult
+            do {
+                result = try await BackendAuthClient.login(
+                    email: account.email,
+                    password: account.password,
+                    intent: authIntent,
+                    rememberEmail: requestedRemember,
+                    savePassword: requestedSavePassword
+                )
+            } catch {
+                guard shouldCreateLocalDemoAccount(after: error) else { throw error }
+                result = try await BackendAuthClient.signUp(
+                    email: account.email,
+                    password: account.password,
+                    intent: authIntent,
+                    rememberEmail: requestedRemember,
+                    savePassword: requestedSavePassword
+                )
+                created = true
+            }
+
+            sessionState = result.sessionState
+            let remembered = applyRememberedLoginResult(
+                result.rememberedLoginResult,
+                requestedRemember: requestedRemember
+            )
+            password = ""
+            confirmPassword = ""
+            debugEmailVerificationToken = ""
+            debugPasswordResetToken = ""
+            if requestedRemember && !remembered {
+                statusMessage = "Demo signed in, but Apple Keychain could not save the remembered login."
+            } else {
+                statusMessage = created ? "Local demo account created and signed in." : "Signed in with the local demo account."
+            }
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func shouldCreateLocalDemoAccount(after error: Error) -> Bool {
+        guard let backendError = error as? BackendMemoryAPIError,
+              case .server(let status, let message) = backendError else {
+            return false
+        }
+        return status == 401 && message.localizedCaseInsensitiveContains("invalid_credentials")
+    }
+#endif
 
     private func revokeOtherSessions() async {
         guard !sessionState.currentSessionId.isEmpty else {
@@ -1513,7 +1848,7 @@ struct ProfileAccountScreen: View {
     private func sessionDetailLine(_ session: BackendAuthManagedSession) -> String {
         var parts: [String] = []
         if let updatedAt = session.updatedAt, updatedAt > 0 {
-            parts.append("Seen \(Date(timeIntervalSince1970: updatedAt).formatted(date: .abbreviated, time: .shortened))")
+            parts.append("Seen \(themDateFromEpoch(updatedAt).formatted(date: .abbreviated, time: .shortened))")
         }
         if let version = session.device?.clientVersion, !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parts.append("v\(version)")
@@ -1603,7 +1938,13 @@ struct ProfileAccountScreen: View {
     }
 
     @ViewBuilder
-    private func accountField(title: String, prompt: String, text: Binding<String>, secure: Bool = false) -> some View {
+    private func accountField(
+        title: String,
+        prompt: String,
+        text: Binding<String>,
+        secure: Bool = false,
+        identifier: String = ""
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
@@ -1615,6 +1956,7 @@ struct ProfileAccountScreen: View {
                     TextField(prompt, text: text)
                 }
             }
+            .accessibilityIdentifier(identifier)
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(.white.opacity(0.90))
             .textFieldStyle(.plain)

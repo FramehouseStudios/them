@@ -150,6 +150,17 @@ test("LLM classifier classifyScene throws on non-OK response", async () => {
   );
 });
 
+test("LLM classifier aggregate source is honest until scene-level macro coverage is wired", async () => {
+  const c = createLLMClassifier({ openaiApiKey: "k", fetchImpl: async () => ({ ok: true }) });
+  const out = await c.classifyScreenplay({
+    framework: "save-the-cat",
+    screenplay: { pageCount: 110, title: "Smoke" },
+  });
+  assert.equal(out.source, "openai-scene-classifier+deterministic-macro");
+  assert.equal(typeof out._classifyScene, "function");
+  assert.notEqual(out.source, "openai");
+});
+
 test("createDefaultClassifier returns deterministic when no API key is set", () => {
   const c = createDefaultClassifier({ env: {} });
   assert.equal(c.kind, "deterministic-stub");

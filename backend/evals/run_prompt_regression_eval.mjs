@@ -1,25 +1,14 @@
-//
-// Determinism: this eval is deterministic — it reads only frozen
-// canon constants / pure functions and asserts the same output
-// shape on every run. Same input always produces the same output
-// set; no clocks, no random ids, no network.
-//
 #!/usr/bin/env node
+//
+// Provider-backed regression gate: inputs and local scoring are frozen, but
+// model output is non-deterministic by design and the run requires network
+// access plus a real key.
+//
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-
-import {
-  directorFlagsFromTranscript,
-  inferRoutingPriorityLane,
-  buildTurnPlanner,
-  selectChatModelForTurn,
-  evaluateTurnQualityHeuristics,
-  validateAndDirectHerReply,
-  enforceReplyCompletenessGuard,
-} from "../index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +29,19 @@ if (!OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY is required for prompt regression evals.");
   process.exit(2);
 }
+
+// The regression harness imports pure planning/quality helpers from index.js,
+// but it must never start the HTTP server as an import side effect.
+process.env.RUN_SERVER ??= "0";
+const {
+  directorFlagsFromTranscript,
+  inferRoutingPriorityLane,
+  buildTurnPlanner,
+  selectChatModelForTurn,
+  evaluateTurnQualityHeuristics,
+  validateAndDirectHerReply,
+  enforceReplyCompletenessGuard,
+} = await import("../index.js");
 
 const BASE_COMPONENT_KEYS = Object.freeze([
   "specificity",

@@ -1,6 +1,8 @@
 name: quality-gate
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       run_eval:
@@ -87,13 +89,13 @@ jobs:
     runs-on: macos-latest
     env:
       RUN_SERVER: 1
-      RUN_EVAL: ${{ inputs.run_eval && '1' || '0' }}
-      RUN_CANON: ${{ inputs.run_canon && '1' || '0' }}
-      RUN_SPECULATIVE_REUSE_GATE: ${{ inputs.run_speculative_reuse_gate && '1' || '0' }}
-      RUN_SMOKE: ${{ inputs.run_smoke && '1' || '0' }}
-      RUN_TALK_RECOVERY_GATE: ${{ inputs.run_talk_recovery_gate && '1' || '0' }}
-      RUN_ALERT: ${{ inputs.run_alert && '1' || '0' }}
-      RUN_LOAD: ${{ inputs.run_load && '1' || '0' }}
+      RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
+      RUN_CANON: ${{ github.event_name == 'pull_request' && '1' || (inputs.run_canon && '1' || '0') }}
+      RUN_SPECULATIVE_REUSE_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_speculative_reuse_gate && '1' || '0') }}
+      RUN_SMOKE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_smoke && '1' || '0') }}
+      RUN_TALK_RECOVERY_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_talk_recovery_gate && '1' || '0') }}
+      RUN_ALERT: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_alert && '1' || '0') }}
+      RUN_LOAD: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_load && '1' || '0') }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
     steps:
@@ -125,6 +127,29 @@ jobs:
             exit 1
           fi
 
+      # See docs/ci-openai-secret-fix.md for context on issue #33.
+      # This step turns malformed-secret failures into a one-line gate
+      # error instead of a cryptic 401 deep inside eval:gate.
+      - name: Validate OPENAI_API_KEY format
+        if: env.OPENAI_API_KEY != ''
+        run: |
+          set -eo pipefail
+          if [[ "${OPENAI_API_KEY}" =~ [[:space:]] ]]; then
+            echo "::error::OPENAI_API_KEY contains whitespace; rotate per docs/ci-openai-secret-fix.md"
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/openai-validate.json -w "%{http_code}" \
+            https://api.openai.com/v1/models \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}")
+          if [[ "${code}" != "200" ]]; then
+            echo "::error::OPENAI_API_KEY rejected by api.openai.com (HTTP ${code})"
+            head -c 400 /tmp/openai-validate.json || true
+            echo
+            echo "See docs/ci-openai-secret-fix.md for rotation steps."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY validated OK"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -138,6 +163,14 @@ jobs:
 
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
+
+      - name: Run iOS V1 UI smoke tests (soft gate)
+        continue-on-error: true
+        run: scripts/run_v1_ui_smoke.sh
+
+      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
+        continue-on-error: true
+        run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
         if: always()
@@ -160,6 +193,8 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- iOS V1 UI smoke: soft gate (themUITests)"
+            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 

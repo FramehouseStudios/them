@@ -11,8 +11,6 @@
 //   - enqueueActionOutbox honors explicit actionKey override
 //   - enqueueActionOutbox normalizes lastError snippet length cap
 //   - processOutboxBatch honors batch limit
-//   - retryOutboxAction returns calendar_compose URL when target is
-//     missing (falls back to default target)
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -59,7 +57,6 @@ function defaultDeps(overrides = {}) {
     OUTBOX_RETRY_MAX_ATTEMPTS: 5,
     OUTBOX_WORKER_BATCH_SIZE: 16,
     OUTBOX_WORKER_ENABLED: true,
-    CALENDAR_COMPOSE_TARGET: "default",
     buildLocalActionSignature: (prefix, payload) =>
       `${prefix}::${JSON.stringify(payload || {})}`,
     normalizeLocalActionType: (t) => String(t || "").trim().toLowerCase(),
@@ -68,17 +65,7 @@ function defaultDeps(overrides = {}) {
       const s = String(v || "").trim();
       return s.length <= max ? s : s.slice(0, max);
     },
-    buildCalendarComposeUrl: ({ title, target }) => ({
-      url: title ? `https://calendar.example/${target || "default"}?title=${encodeURIComponent(title)}` : "",
-      transport: "url",
-      target: target || "default",
-    }),
     captureLocalNote: async ({ noteText }) => ({ status: "saved", noteText }),
-    sendLocalEmail: async ({ recipient, subject, body }) => {
-      if (!recipient) return { status: "needs_recipient" };
-      if (!body) return { status: "needs_content" };
-      return { status: "composed", recipient, subject, body };
-    },
     scaleBackplane: buildScaleBackplaneStub(),
     ...overrides,
   };
@@ -143,16 +130,16 @@ test("[outbox-store-deeper] computeOutboxRetryAt at attempt=0 returns base delay
 
 test("[outbox-store-deeper] buildOutboxActionKey is deterministic for same inputs", () => {
   configureOutboxStore(defaultDeps());
-  const a = buildOutboxActionKey("email_compose", { recipient: "a@x.com", subject: "Hi" });
-  const b = buildOutboxActionKey("email_compose", { recipient: "a@x.com", subject: "Hi" });
+  const a = buildOutboxActionKey("note_capture", { noteText: "Remember the midpoint image." });
+  const b = buildOutboxActionKey("note_capture", { noteText: "Remember the midpoint image." });
   assert.equal(a, b);
 });
 
 test("[outbox-store-deeper] buildOutboxActionKey normalizes the type prefix", () => {
   configureOutboxStore(defaultDeps());
-  const key = buildOutboxActionKey("Email_COMPOSE", { x: 1 });
+  const key = buildOutboxActionKey("Note_CAPTURE", { x: 1 });
   // Type goes through normalizeLocalActionType (lowercase + trim).
-  assert.match(key, /^outbox_email_compose::/);
+  assert.match(key, /^outbox_note_capture::/);
 });
 
 // ---------- lastError snippet cap ----------
@@ -187,18 +174,4 @@ test("[outbox-store-deeper] processOutboxBatch honors limit (claims only up to l
   const r = await processOutboxBatch({ limit: 3, reqId: "deeper" });
   assert.equal(r.claimed, 3);
   assert.equal(r.completed, 3);
-});
-
-// ---------- calendar fallback target ----------
-
-test("[outbox-store-deeper] retryOutboxAction calendar_compose uses default target when missing", async () => {
-  configureOutboxStore(defaultDeps());
-  const r = await retryOutboxAction({
-    id: "cal_default",
-    type: "calendar_compose",
-    payload: { title: "No Target", startAt: 1000, endAt: 2000 }, // no target field
-  });
-  assert.equal(r.ok, true);
-  assert.equal(r.done, true);
-  assert.ok(r.result.composeUrl.includes("default"));
 });

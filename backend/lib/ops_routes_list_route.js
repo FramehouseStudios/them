@@ -41,6 +41,7 @@ const CURATED_ROUTES = Object.freeze([
   Object.freeze({ method: "GET", path: "/memory/character-archetypes", group: "creative-memory" }),
   Object.freeze({ method: "GET", path: "/memory/block-signal", group: "creative-memory" }),
   Object.freeze({ method: "GET", path: "/memory/block-signal/history", group: "creative-memory" }),
+  Object.freeze({ method: "POST", path: "/memories/story-preferences/update", group: "creative-memory" }),
 
   // screenplay export
   Object.freeze({ method: "POST", path: "/screenplay/export", group: "screenplay-export" }),

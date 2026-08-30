@@ -74,6 +74,7 @@ review should request the doc update before merge.
 - [`realtime-client-secret.md`](./realtime-client-secret.md) —
   `POST /realtime/client_secret` (mint + failover envelope).
 - [`ops-metrics.md`](./ops-metrics.md) — `GET /ops/metrics`.
+- [`ops-alerts.md`](./ops-alerts.md) — `GET /ops/alerts`.
 - [`ops-health-summary.md`](./ops-health-summary.md) —
   `GET /ops/health-summary`.
 - [`memory-stats.md`](./memory-stats.md) — `GET /memory/stats`.

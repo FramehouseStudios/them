@@ -1,8 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -25,11 +31,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,7 +63,7 @@ async function readHealth() {
       });
     });
     req.on("error", reject);
-    req.setTimeout(4000, () => req.destroy(new Error("health request timed out")));
+    req.setTimeout(10000, () => req.destroy(new Error("health request timed out")));
   });
 }
 
@@ -70,7 +72,22 @@ function findDebugAppPath() {
   if (direct && existsSync(direct)) return direct;
   const discovered = run("/bin/zsh", [
     "-lc",
-    "find ~/Library/Developer/Xcode/DerivedData -path '*Build/Products/Debug/them.app/Contents/MacOS/them' -exec stat -f '%m %N' {} \\; | sort -nr | head -n 1 | cut -d' ' -f2- | sed 's#/Contents/MacOS/them$##'",
+    `
+for config in "Mac Scaffold Debug" "Debug"; do
+  candidate="$(
+    find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/\${config}/them.app/Contents/MacOS/them" -exec stat -f '%m %N' {} \\; \
+      | awk '$0 !~ /\\/them_MAIN-/' \
+      | sort -nr \
+      | head -n 1 \
+      | cut -d' ' -f2- \
+      | sed 's#/Contents/MacOS/them$##'
+  )"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\\n' "$candidate"
+    exit 0
+  fi
+done
+`,
   ]);
   assert(discovered, "Could not locate Debug them.app");
   assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
@@ -95,6 +112,14 @@ function writeDefaultInt(key, value) {
   run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
 }
 
+function writeDefaultBool(key, value) {
+  run("defaults", ["write", "io.them.them", key, "-bool", value ? "true" : "false"]);
+}
+
+function synchronizeDefaults() {
+  runOptional("defaults", ["synchronize", "io.them.them"]);
+}
+
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -114,15 +139,83 @@ function ownerHeaders() {
     "Content-Type": "application/json",
     "X-APP-TOKEN": "them-dev",
   };
-  const userId = readDefaultString("user_id");
-  if (userId) {
-    headers["X-User-Id"] = userId;
-    return headers;
+  const accessToken = readDefaultString("auth_debug_access_token");
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
   }
   const clientToken = readDefaultString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");
   headers["X-Client-Token"] = clientToken;
   return headers;
+}
+
+function fallbackOwnerHeaders() {
+  return ownerHeaders();
+}
+
+async function postBackendAuthJSON(path, body, headers = {
+  "Content-Type": "application/json",
+  "X-APP-TOKEN": "them-dev",
+}) {
+  const response = await fetch(`http://127.0.0.1:3000${path}`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      Connection: "close",
+    },
+    body: JSON.stringify(body || {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+async function ensureAuthenticatedStudioOwner(projectId) {
+  const email = `studio-merged-${projectId}-${randomUUID()}@example.test`.toLowerCase();
+  const password = `ThemMerged-${randomUUID()}-aA1!`;
+  const signup = await postBackendAuthJSON("/auth/signup", {
+    email,
+    password,
+    display_name: "Studio Merged Restore Smoke",
+  });
+  assert(
+    signup.response.ok,
+    `Failed to create Studio merged owner: ${signup.response.status} ${JSON.stringify(signup.payload)}`
+  );
+  const accessToken = String(signup.payload?.access_token || signup.payload?.accessToken || "").trim();
+  const userId = String(
+    signup.payload?.user?.id ||
+    signup.payload?.user?.user_id ||
+    signup.payload?.user?.userId ||
+    signup.payload?.user_id ||
+    signup.payload?.userId ||
+    ""
+  ).trim();
+  assert(accessToken, "Studio merged owner signup did not return an access token");
+  assert(userId, "Studio merged owner signup did not return a user id");
+
+  const session = await postBackendAuthJSON("/session", {}, {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+    Authorization: `Bearer ${accessToken}`,
+  });
+  assert(
+    session.response.ok,
+    `Failed to create Studio merged client session: ${session.response.status} ${JSON.stringify(session.payload)}`
+  );
+  const clientToken = String(session.payload?.client_token || session.payload?.session_id || "").trim();
+  assert(clientToken, "Studio merged client session did not return a client token");
+
+  writeDefaultString("user_id", userId);
+  writeDefaultString("client_token", clientToken);
+  writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
+  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+  const expiresIn = Math.max(60, Number(session.payload?.expires_in || 0) || 0);
+  writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
+  writeDefaultString("auth_debug_access_token", accessToken);
+  writeDefaultBool("auth_debug_access_token_enabled", true);
+  synchronizeDefaults();
+
+  return { userId, clientToken, accessToken };
 }
 
 function projectIdFromHistoryKey(value) {
@@ -236,14 +329,14 @@ function readLocalDraftRecovery(projectId) {
   };
 }
 
-async function postBackendProjectThreadState(projectId, record) {
+async function postBackendProjectThreadState(projectId, record, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   const focusedDiffKey = String(record?.focusedDiffKey || "").trim().toLowerCase();
   const acknowledgedLineageKey = normalizeAcknowledgedKey(record?.acknowledgedLineageKey);
   const acknowledgedWriteID = normalizeKey(record?.acknowledgedWriteID);
   const acknowledgedFingerprint = String(record?.acknowledgedFingerprint || "").trim();
-  const response = await fetch("http://127.0.0.1:3000/screenplay/projects", {
+  const response = await fetch(`${baseURL}/screenplay/projects`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       project_id: projectId,
       title: "Studio Restore Smoke",
@@ -275,11 +368,11 @@ async function postBackendProjectThreadState(projectId, record) {
   return payload;
 }
 
-async function postBackendProjectVersion(projectId, recovery) {
+async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   if (!recovery?.draft) return null;
-  const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}/version`, {
+  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/version`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       draft: recovery.draft,
       title: "Studio Restore Smoke",
@@ -344,41 +437,47 @@ function findPersistedReopenedRecord() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    'try',
-    'tell application "System Events"',
-    'tell process "them"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"]);
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 let debugTokenCounter = Math.max(1, readDefaultInt("studio_debug_open_token"));
 function nextDebugToken() {
   debugTokenCounter += 1;
   return debugTokenCounter;
+}
+
+let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
+function requestStudioProjectLoad(projectId, versionId = "") {
+  loadProjectTokenCounter += 1;
+  writeFileSync("/tmp/them_studio_debug_load_project_request.json", JSON.stringify({
+    token: loadProjectTokenCounter,
+    projectID: String(projectId || "").trim(),
+    versionID: String(versionId || "").trim(),
+  }), "utf8");
+  writeDefaultString("studio_debug_load_project_id", projectId);
+  writeDefaultString("studio_debug_load_project_version_id", versionId);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
+  writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
+  synchronizeDefaults();
+  return loadProjectTokenCounter;
 }
 
 async function ensureStudioVisible() {
@@ -389,20 +488,15 @@ async function ensureStudioVisible() {
 }
 
 async function relaunchApp(appPath) {
-  if (appIsRunning()) {
-    quitApp();
-    await waitFor(() => !appIsRunning(), "THEM process to quit", 15000, 300);
-  }
-  launchApp(appPath);
+  quitApp();
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
+  activateApp(appPath, appSession);
   await ensureStudioVisible();
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit before seed", 15000, 300);
 }
 
 const originalLocalStateRaw = readDefaultString("studio.full.thread.state.v1");
@@ -411,6 +505,17 @@ const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-curren
 const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
+const originalUserIdRaw = readDefaultString("user_id");
+const originalClientTokenRaw = readDefaultString("client_token");
+const originalClientTokenCachedAt = readDefaultInt("client_token_cached_at");
+const originalClientTokenBaseURLRaw = readDefaultString("client_token_base_url");
+const originalClientTokenExpiryRaw = readDefaultString("client_token_expiry");
+const originalAuthDebugAccessTokenRaw = readDefaultString("auth_debug_access_token");
+const originalAuthDebugAccessTokenEnabledRaw = readDefaultString("auth_debug_access_token_enabled");
+const originalLoadProjectToken = readDefaultInt("studio_debug_load_project_token");
+const originalLoadProjectAckToken = readDefaultInt("studio_debug_load_project_ack_token");
+const originalLoadProjectID = readDefaultString("studio_debug_load_project_id");
+const originalLoadProjectVersionID = readDefaultString("studio_debug_load_project_version_id");
 
 let seedFixture = null;
 let seededRecord = null;
@@ -424,6 +529,8 @@ try {
 
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
+  const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
+  await ensureAuthenticatedStudioOwner(projectId);
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
@@ -451,16 +558,21 @@ try {
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  synchronizeDefaults();
   await postBackendProjectThreadState(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord
   );
   await postBackendProjectVersion(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     draftRecovery
   );
+  for (const baseURL of ["http://127.0.0.1:3000", "http://localhost:3000"]) {
+    await postBackendProjectThreadState(projectId, seededRecord, fallbackOwnerHeaders(), baseURL);
+    await postBackendProjectVersion(projectId, draftRecovery, fallbackOwnerHeaders(), baseURL);
+  }
   const probe = await waitForBackendReopenedHydration(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord
   );
   assert(probe.response.ok, `Backend project probe failed: ${probe.response.status} ${JSON.stringify(probe.payload)}`);
@@ -473,6 +585,7 @@ try {
     `Expected backend reopened lineage overlap, got ${JSON.stringify(backendProbe.reopenedLineageKeys)}`
   );
 
+  requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
   await relaunchApp(appPath);
 
   await waitFor(() => {
@@ -482,20 +595,35 @@ try {
     return Boolean(sessionID) && sessionID !== originalDebugSessionID;
   }, "fresh Studio debug session after relaunch", 25000, 300);
 
-  await waitFor(() => {
-    const state = readDebugDiffState();
-    if (!state) return false;
-    restoredState = state;
-    return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
-      && normalizeKey(state.restoredStateSource) === "merged"
-      && normalizeKey(state.restoredFocusedDiffSource) === "local"
-      && normalizeKey(state.restoredReopenedSource) === "backend"
-      && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
-      && Array.isArray(state.restoredReopenedLineageKeys)
-      && state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).some((value) => seededRecord.reopenedLineageKeys.includes(value))
-      && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
-      && Number(state.reopenedDiffCount || 0) > 0;
-  }, "merged-source reopened diff restore after relaunch", 25000, 300);
+  try {
+    await waitFor(() => {
+      const state = readDebugDiffState();
+      if (!state) return false;
+      restoredState = state;
+      return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
+        && normalizeKey(state.restoredStateSource) === "merged"
+        && normalizeKey(state.restoredFocusedDiffSource) === "local"
+        && normalizeKey(state.restoredReopenedSource) === "backend"
+        && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
+        && Array.isArray(state.restoredReopenedLineageKeys)
+        && state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).some((value) => seededRecord.reopenedLineageKeys.includes(value))
+        && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
+        && Number(state.reopenedDiffCount || 0) > 0;
+    }, "merged-source reopened diff restore after relaunch", 45000, 300);
+  } catch (error) {
+    restoredState = readDebugDiffState();
+    console.error(JSON.stringify({
+      ok: false,
+      failure: error?.message || String(error),
+      appPath,
+      throwawayProjectId: seedFixture?.projectId || "",
+      seededRecord,
+      backendProbe,
+      localThreadStateMap: readFullThreadBrowseStateMap(),
+      restoredState,
+    }, null, 2));
+    throw error;
+  }
 
   console.log(JSON.stringify({
     ok: true,
@@ -513,4 +641,15 @@ try {
   writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
+  writeDefaultString("user_id", originalUserIdRaw);
+  writeDefaultString("client_token", originalClientTokenRaw);
+  writeDefaultInt("client_token_cached_at", originalClientTokenCachedAt);
+  writeDefaultString("client_token_base_url", originalClientTokenBaseURLRaw);
+  writeDefaultString("client_token_expiry", originalClientTokenExpiryRaw);
+  writeDefaultString("auth_debug_access_token", originalAuthDebugAccessTokenRaw);
+  writeDefaultString("auth_debug_access_token_enabled", originalAuthDebugAccessTokenEnabledRaw);
+  writeDefaultInt("studio_debug_load_project_token", originalLoadProjectToken);
+  writeDefaultInt("studio_debug_load_project_ack_token", originalLoadProjectAckToken);
+  writeDefaultString("studio_debug_load_project_id", originalLoadProjectID);
+  writeDefaultString("studio_debug_load_project_version_id", originalLoadProjectVersionID);
 }

@@ -76,17 +76,27 @@ Canonical codes (load-bearing for `/talk/errors` counters):
 - `realtime_supplier_request_failed`
 - `realtime_supplier_response_invalid`
 - `realtime_supplier_unknown_provider`
+- `realtime_stub_disabled_in_production`
 - `supplier_fallback_failed`
 
 `fallback_attempted` + `fallback_error` only appear when the primary
 failed and the fallback also failed.
 
+`degraded: true` appears on production 503 responses where realtime
+session minting is intentionally unavailable. In `NODE_ENV=production`,
+an explicit or env-selected `stub` provider is refused before minting,
+and an unpinned primary-provider failure does not fall back to a
+synthetic stub success. The response includes `fallback: false`,
+includes `degraded: true`, and omits `client_secret`.
+
 ## Compatibility rules
 
-- The 4 canonical error codes are part of the contract. Renaming
+- The canonical error codes are part of the contract. Renaming
   breaks `/talk/errors`.
 - Adding new optional fields fine. Removing fields is v2.
 
 ## Changelog
 
+- 2026-05-24 — Production realtime stub success disabled; degraded 503
+  documented.
 - 2026-05-14 — Doc created.

@@ -17,37 +17,58 @@ function run(args) {
   });
 }
 
-test("[v1-manual-qa] --json emits the five V1 manual flows", () => {
+test("[v1-manual-qa] --json emits the five V1 manual gates", () => {
   const r = run(["--json"]);
   assert.equal(r.status, 0, r.stderr);
   const payload = JSON.parse(r.stdout);
   assert.equal(payload.manualFlows.length, 5);
   assert.deepEqual(
     payload.manualFlows.map((f) => f.pillar),
-    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iOS Release Readiness"],
+    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iPhone Release Readiness"],
   );
-  assert.equal(payload.parked.length, 0);
-  assert.ok(!payload.parked.some((p) => p.prs.includes("#99")));
-  assert.ok(payload.outOfV1.some((p) => p.prs.includes("#99")));
-  assert.ok(payload.outOfV1.some((p) => p.reason.includes("V1 core-only export already shipped in #94")));
+  assert.ok(payload.parked.some((p) => p.prs.includes("#99")));
+  assert.ok(payload.parked.some((p) => /destructive memory delete remains post-V1/.test(p.reason)));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
-  assert.ok(payload.automatedProof.some((p) => p.command.includes("v1-build-test-readiness")));
+  assert.ok(payload.platformPosture.includes("iPhone TestFlight remains the App Store release lane."));
+  assert.ok(payload.platformPosture.includes("The Mac Studio scaffold is outside V1 and is available only as an explicit opt-in diagnostic lane."));
+  assert.match(payload.currentLocalProof, /2026-08-28/);
+  assert.match(payload.currentLocalProof, /providerless-startup/);
+  assert.match(payload.currentLocalProof, /497\/497 iOS unit tests/);
+  assert.match(payload.currentLocalProof, /31 tests with 24 passed/);
+  assert.match(payload.currentLocalProof, /APP_TOKEN_RELEASE/);
+  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "iPhone Release Readiness");
+  assert.ok(releaseFlow);
+  assert.ok(releaseFlow.steps.some((step) => /DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /https:\/\/api\.them\.io/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /com\.apple\.developer\.applesignin/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /physical iPhone/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /actual Apple ID/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /PrivacyInfo\.xcprivacy/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /AUTH_APPLE_AUDIENCE/.test(step)));
+  assert.ok(!releaseFlow.steps.some((step) => /hosted backend URL, and production app token/.test(step)));
 });
 
-test("[v1-manual-qa] markdown output names pass criteria and current V1 decisions", () => {
+test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
-  assert.match(r.stdout, /### Current app build and tests/);
-  assert.match(r.stdout, /### iOS Release Readiness/);
+  assert.match(r.stdout, /## Platform Posture/);
+  assert.match(r.stdout, /Mac Studio scaffold is outside V1/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
-  assert.match(r.stdout, /Pass: Release config is real, preflight is green/);
-  assert.match(r.stdout, /## Explicitly Out of V1/);
-  assert.match(r.stdout, /Decision record: `docs\/memory-export-delete-decision-packet\.md`/);
-  assert.doesNotMatch(r.stdout, /Postgres eval gate/);
-  assert.doesNotMatch(r.stdout, /#33/);
+  assert.match(r.stdout, /#99/);
   assert.doesNotMatch(r.stdout, /#212/);
-  assert.match(r.stdout, /V1 core-only export already shipped in #94/);
+});
+
+test("[v1-manual-qa] --prompt emits a Launch Doctor result block template", () => {
+  const r = run(["--prompt"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^Overall V1 manual smoke: PASS\/FAIL - <notes>/);
+  assert.match(r.stdout, /^Talk Pipeline: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Screenplay Studio: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Creative Memory: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Realtime: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^iPhone Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.doesNotMatch(r.stdout, /## Manual App Flows/);
 });
 
 test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
@@ -58,18 +79,5 @@ test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
   assert.equal(r.status, 0, r.stderr);
   const body = fs.readFileSync(out, "utf8");
   assert.match(body, /^# io\.them V1 TestFlight Preflight/);
-  assert.match(body, /### Current app build and tests/);
   assert.match(body, /Generated from `scripts\/v1_manual_qa_checklist\.mjs`/);
-});
-
-test("[v1-manual-qa] --prompt prints a compact result block for human signoff", () => {
-  const r = run(["--prompt"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^V1 human smoke prompt/);
-  assert.match(r.stdout, /Talk Pipeline: PASS\/FAIL - <notes>/);
-  assert.match(r.stdout, /iOS Release Readiness: PASS\/FAIL - <notes>/);
-  assert.match(r.stdout, /Explicitly out of V1:/);
-  assert.match(r.stdout, /Decision record: docs\/memory-export-delete-decision-packet\.md/);
-  assert.match(r.stdout, /Overall V1 manual smoke: PASS\/FAIL - <notes>/);
-  assert.match(r.stdout, /Status command: npm run v1:status/);
 });

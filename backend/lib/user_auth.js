@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { createHash, createPublicKey } from "node:crypto";
 
 import {
   authenticateUser,
@@ -6,6 +7,8 @@ import {
   consumePasswordResetToken,
   createOrAttachAppleUser,
   createUser,
+  createUserStoreCheckpoint,
+  flushUserStorePersistenceWrites,
   getAuthSessionById,
   getUserByAppleSubject,
   getUserByEmail,
@@ -18,8 +21,12 @@ import {
   revokeAllAuthSessionsForUser,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
+  restoreUserStoreCheckpoint,
   rotateAuthSession,
+  runUserStoreMutationExclusive,
   updateUserPassword,
+  validateUserPassword,
+  waitForUserStoreMutations,
 } from "./user_store.js";
 
 const ACCESS_TOKEN_AUDIENCE = "io.them.them";
@@ -34,14 +41,21 @@ const USER_PROTECTED_PATTERNS = [
   /^\/recap(?:\/|$)/,
   /^\/talk(?:\/|$)/,
   /^\/screenplay(?:\/|$)/,
-  /^\/linkedin(?:\/|$)/,
-  /^\/secretary(?:\/|$)/,
-  // Day 1 Backend Exposure Lock: cost-attached provider paths. These
-  // mint paid OpenAI realtime/visual calls and must require an
-  // authenticated user so they cannot be driven anonymously (cost +
-  // user-data exposure). /realtime/health and /realtime/bridge are
-  // intentionally NOT listed — they are unauthenticated health probes.
-  /^\/realtime\/(?:call|client_secret|turn_commit|studio_render|studio_render_stream)(?:\/|$)/,
+  /^\/telemetry\/first-page-written(?:\/|$)/,
+  /^\/visual\/context(?:\/|$)/,
+];
+
+// Day 1 Backend Exposure Lock: cost-attached or identity-sensitive realtime
+// + visual endpoints must require authenticated identity *regardless* of the global
+// REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
+// intentionally excluded — they are unauth health/proxy surfaces.
+const PAID_PROVIDER_PATTERNS = [
+  /^\/realtime\/client_secret(?:\/|$)/,
+  /^\/realtime\/project_grounding(?:\/|$)/,
+  /^\/realtime\/turn_commit(?:\/|$)/,
+  /^\/realtime\/call(?:\/|$)/,
+  /^\/realtime\/studio_render(?:\/|$)/,
+  /^\/realtime\/studio_render_stream(?:\/|$)/,
   /^\/visual\/context(?:\/|$)/,
 ];
 
@@ -59,6 +73,15 @@ function normalizeBoolean(value, fallback = false) {
 
 function sanitizeText(value, maxLength = 160) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, Math.max(1, Number(maxLength || 160)));
+}
+
+function sha256Base64Url(value) {
+  return createHash("sha256")
+    .update(String(value || ""), "utf8")
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function buildPublicUser(user) {
@@ -129,12 +152,55 @@ function createUserAuthSubsystem(options = {}) {
   const appleAudience = sanitizeText(options.appleAudience || "", 120);
   const appleTestJwtSecret = String(options.appleTestJwtSecret || "").trim();
   const appleJwtPublicKey = String(options.appleJwtPublicKey || "").trim();
+  const appleJwksUrl = sanitizeText(options.appleJwksUrl || "https://appleid.apple.com/auth/keys", 240);
+  const appleJwks = options.appleJwks && typeof options.appleJwks === "object" ? options.appleJwks : null;
+  const fetchAppleJwks = typeof options.fetchAppleJwks === "function" ? options.fetchAppleJwks : null;
+  const appleJwksCacheTtlMs = Math.max(60_000, Number(options.appleJwksCacheTtlMs || 6 * 60 * 60 * 1000));
+  const appleJwksTimeoutMs = Math.max(25, Number(options.appleJwksTimeoutMs || 5_000));
   const signingSecret = String(options.jwtSecret || "").trim() || (nodeEnv === "production" ? "" : "them-dev-user-jwt-secret");
   const authConfigured = Boolean(signingSecret);
-  const allowDebugTokens = nodeEnv !== "production";
+  const allowDebugTokens = new Set(["test", "development", "local"]).has(String(nodeEnv || "").trim().toLowerCase());
+  const allowAppleTestJwtSecret = nodeEnv !== "production" && Boolean(appleTestJwtSecret);
+  const allowStaticApplePublicKey = nodeEnv !== "production" && Boolean(appleJwtPublicKey);
+  let appleJwksCache = { fetchedAt: 0, keys: [] };
 
   function authMisconfigured(res, stage = "auth_user") {
     return res.status(503).json({ stage, error: "user_auth_not_configured" });
+  }
+
+  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+    try {
+      const result = await flushUserStorePersistenceWrites();
+      if (result?.ok === true) return true;
+    } catch {
+      // The response below is intentionally generic so storage details and
+      // credentials never escape through the auth surface.
+    }
+    let retryable = false;
+    try {
+      restoreUserStoreCheckpoint(checkpoint, Date.now());
+      const rollbackResult = await flushUserStorePersistenceWrites();
+      retryable = rollbackResult?.ok === true;
+    } catch {
+      // The checkpoint has already restored the live maps before its
+      // compensating durability attempt. Do not promise a safe retry unless
+      // that compensation also reached durable storage.
+    }
+    if (!res.headersSent) {
+      res.status(503).json({
+        stage,
+        error: "auth_persistence_failed",
+        retryable,
+      });
+    }
+    return false;
+  }
+
+  function serializeAuthMutation(handler) {
+    return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handler(req, res, checkpoint, next);
+    });
   }
 
   function buildEmailDelivery(action = "noop", transport = "none") {
@@ -250,13 +316,17 @@ function createUserAuthSubsystem(options = {}) {
   }
 
   function attachUserAuth(req, res, next) {
-    // Day 1 Backend Exposure Lock: never trust a client-supplied identity
-    // header. Strip any inbound X-User-Id on EVERY request before any
-    // token logic, so an unauthenticated/invalid-token request can never
-    // smuggle an identity downstream (IDOR / impersonation). Authoritative
-    // identity is ONLY req.authUser.id / req.userId, set below from a
-    // verified access token.
-    delete req.headers["x-user-id"];
+    // Day 1 Backend Exposure Lock: strip any inbound X-User-Id header
+    // *before* identity is attached. Client-supplied identity must never
+    // reach downstream code — ownership must derive from req.authUser.id
+    // / req.userId only. Without this strip, a client could send
+    // `X-User-Id: <victim>` and have any code that fell back to the
+    // header attribute the request to another user.
+    if (req && req.headers) {
+      delete req.headers["x-user-id"];
+      delete req.headers["X-User-Id"];
+      delete req.headers["X-USER-ID"];
+    }
     const token = extractAccessToken(req);
     if (!token) {
       req.authUser = null;
@@ -264,22 +334,26 @@ function createUserAuthSubsystem(options = {}) {
       req.authUserError = "";
       return next();
     }
-    const verified = verifyAccessToken(token);
-    if (!verified.ok) {
-      req.authUser = null;
-      req.authSession = null;
-      req.authUserError = verified.error || "invalid_user_token";
-      return next();
-    }
-    req.authUser = verified.user;
-    req.authSession = verified.session;
-    req.authTokenPayload = verified.payload;
-    req.authUserError = "";
-    req.userId = verified.user.id;
-    // Do NOT rewrite req.headers["x-user-id"]. Downstream identity must
-    // read req.authUser.id / req.userId, never the header — so a future
-    // header reader cannot silently re-open the impersonation vector.
-    return next();
+    return waitForUserStoreMutations()
+      .then(() => {
+        const verified = verifyAccessToken(token);
+        if (!verified.ok) {
+          req.authUser = null;
+          req.authSession = null;
+          req.authUserError = verified.error || "invalid_user_token";
+          return next();
+        }
+        req.authUser = verified.user;
+        req.authSession = verified.session;
+        req.authTokenPayload = verified.payload;
+        req.authUserError = "";
+        req.userId = verified.user.id;
+        // Day 1 Backend Exposure Lock: do not rewrite req.headers["x-user-id"]
+        // with the auth-derived id. Downstream ownership must read req.authUser.id
+        // / req.userId, never a header.
+        return next();
+      })
+      .catch(next);
   }
 
   function isProtectedRoute(pathname) {
@@ -287,9 +361,29 @@ function createUserAuthSubsystem(options = {}) {
     return USER_PROTECTED_PATTERNS.some((pattern) => pattern.test(path));
   }
 
+  function isPaidProviderRoute(pathname) {
+    const path = String(pathname || "").trim();
+    return PAID_PROVIDER_PATTERNS.some((pattern) => pattern.test(path));
+  }
+
   function protectUserRoutes(req, res, next) {
     if (!requireUserAuth) return next();
     if (!isProtectedRoute(req.path)) return next();
+    if (!authConfigured) return authMisconfigured(res, "auth_user");
+    if (req.authUser) return next();
+    return res.status(401).json({
+      stage: "auth_user",
+      error: req.authUserError || "user_auth_required",
+    });
+  }
+
+  // Day 1 Backend Exposure Lock: gate cost-attached realtime + visual
+  // endpoints behind authenticated identity unconditionally. Independent
+  // of the global REQUIRE_USER_AUTH flag — these routes touch paid
+  // provider access and user data, so they must never be reachable by
+  // unauthenticated clients.
+  function protectPaidProviderRoutes(req, res, next) {
+    if (!isPaidProviderRoute(req.path)) return next();
     if (!authConfigured) return authMisconfigured(res, "auth_user");
     if (req.authUser) return next();
     return res.status(401).json({
@@ -340,12 +434,129 @@ function createUserAuthSubsystem(options = {}) {
     };
   }
 
-  function verifyAppleIdentityToken(identityToken) {
+  async function verifyReauthProof(req, user) {
+    const normalizedUserId = String(user?.id || "").trim();
+    if (!normalizedUserId) return false;
+    const password = String(
+      req?.body?.password ?? req?.body?.current_password ?? req?.body?.currentPassword ?? ""
+    );
+    if (password) {
+      const authenticated = authenticateUser(normalizeEmail(user?.email), password);
+      return Boolean(authenticated?.ok && String(authenticated?.user?.id || "").trim() === normalizedUserId);
+    }
+    const identityToken = String(
+      req?.body?.identity_token ?? req?.body?.apple_identity_token ?? req?.body?.appleIdentityToken ?? ""
+    ).trim();
+    const appleSubject = String(user?.appleSubject || "").trim();
+    if (identityToken && appleSubject) {
+      const verified = await verifyAppleIdentityToken(identityToken, req?.body || {});
+      return Boolean(verified?.ok && String(verified.subject || "").trim() === appleSubject);
+    }
+    return false;
+  }
+
+  function normalizeAppleJwksPayload(payload) {
+    const keys = Array.isArray(payload?.keys) ? payload.keys : [];
+    return keys
+      .filter((key) => key && typeof key === "object")
+      .filter((key) => String(key.kid || "").trim() && String(key.kty || "").trim().toUpperCase() === "RSA");
+  }
+
+  async function fetchAppleJwksDefault(url) {
+    if (typeof fetch !== "function") {
+      throw new Error("fetch_unavailable");
+    }
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response || !response.ok) {
+      throw new Error(`apple_jwks_http_${response?.status || "unknown"}`);
+    }
+    return await response.json();
+  }
+
+  async function loadAppleJwks() {
+    if (appleJwks) {
+      return normalizeAppleJwksPayload(appleJwks);
+    }
+    const now = Date.now();
+    if (appleJwksCache.keys.length && (now - appleJwksCache.fetchedAt) < appleJwksCacheTtlMs) {
+      return appleJwksCache.keys;
+    }
+    let timeoutId;
+    let payload;
+    try {
+      payload = await Promise.race([
+        Promise.resolve().then(() => fetchAppleJwks
+          ? fetchAppleJwks(appleJwksUrl)
+          : fetchAppleJwksDefault(appleJwksUrl)),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("apple_jwks_timeout")), appleJwksTimeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      const unavailable = new Error("apple_jwks_unavailable");
+      unavailable.cause = error;
+      throw unavailable;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const keys = normalizeAppleJwksPayload(payload);
+    appleJwksCache = { fetchedAt: now, keys };
+    return keys;
+  }
+
+  function applePublicKeyFromJwk(jwk) {
+    return createPublicKey({ key: jwk, format: "jwk" });
+  }
+
+  function expectedAppleNonceCandidates(body = {}) {
+    const direct = sanitizeText(
+      body.nonce ?? body.expected_nonce ?? body.expectedNonce ?? "",
+      256
+    );
+    const hash = sanitizeText(
+      body.nonce_sha256 ?? body.nonceHash ?? body.nonce_hash ?? "",
+      256
+    );
+    const raw = sanitizeText(
+      body.raw_nonce ?? body.rawNonce ?? "",
+      256
+    );
+    const candidates = new Set();
+    if (direct) {
+      candidates.add(direct);
+      candidates.add(sha256Base64Url(direct));
+    }
+    if (hash) candidates.add(hash);
+    if (raw) candidates.add(sha256Base64Url(raw));
+    return [...candidates].filter(Boolean);
+  }
+
+  function verifyAppleNonce(payload, candidates) {
+    const payloadNonce = sanitizeText(payload?.nonce || "", 256);
+    if (candidates.length > 0) {
+      return Boolean(payloadNonce && candidates.includes(payloadNonce));
+    }
+    if (nodeEnv === "production") {
+      return false;
+    }
+    return true;
+  }
+
+  async function verifyAppleIdentityToken(identityToken, body = {}) {
     const token = String(identityToken || "").trim();
     if (!token) {
       return { ok: false, status: 400, error: "identity_token_required" };
     }
-    if (!appleTestJwtSecret && !appleJwtPublicKey) {
+    // Main production startup rejects a missing audience in config.js. Keep
+    // the verifier independently fail-closed as well so tests, workers, or a
+    // future alternate entry point cannot accidentally verify an Apple token
+    // without binding it to this app's Services ID / bundle identifier.
+    if (nodeEnv === "production" && !appleAudience) {
+      return { ok: false, status: 503, error: "apple_sign_in_not_configured" };
+    }
+    if (!allowAppleTestJwtSecret && !allowStaticApplePublicKey && nodeEnv !== "production" && !fetchAppleJwks && !appleJwks) {
       return { ok: false, status: 503, error: "apple_sign_in_not_configured" };
     }
     const verifyOptions = {
@@ -355,12 +566,41 @@ function createUserAuthSubsystem(options = {}) {
       verifyOptions.audience = appleAudience;
     }
     try {
-      const payload = appleTestJwtSecret
-        ? jwt.verify(token, appleTestJwtSecret, { ...verifyOptions, algorithms: ["HS256"] })
-        : jwt.verify(token, appleJwtPublicKey, { ...verifyOptions, algorithms: ["RS256"] });
+      const nonceCandidates = expectedAppleNonceCandidates(body);
+      const decoded = jwt.decode(token, { complete: true });
+      const header = decoded && typeof decoded === "object" ? decoded.header : null;
+      const alg = String(header?.alg || "").trim();
+      const kid = String(header?.kid || "").trim();
+      let payload = null;
+      if (allowAppleTestJwtSecret) {
+        payload = jwt.verify(token, appleTestJwtSecret, { ...verifyOptions, algorithms: ["HS256"] });
+      } else if (allowStaticApplePublicKey) {
+        payload = jwt.verify(token, appleJwtPublicKey, { ...verifyOptions, algorithms: ["RS256"] });
+      } else {
+        if (alg !== "RS256" || !kid) {
+          return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+        }
+        const keys = await loadAppleJwks();
+        const jwk = keys.find((key) => {
+          const keyKid = String(key?.kid || "").trim();
+          const keyAlg = String(key?.alg || "RS256").trim();
+          return keyKid === kid && (!keyAlg || keyAlg === "RS256");
+        });
+        if (!jwk) {
+          return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+        }
+        payload = jwt.verify(token, applePublicKeyFromJwk(jwk), { ...verifyOptions, algorithms: ["RS256"] });
+      }
       const subject = String(payload?.sub || "").trim();
       if (!subject) {
         return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+      }
+      if (!verifyAppleNonce(payload, nonceCandidates)) {
+        return {
+          ok: false,
+          status: nonceCandidates.length ? 401 : 400,
+          error: nonceCandidates.length ? "invalid_apple_nonce" : "apple_nonce_required",
+        };
       }
       return {
         ok: true,
@@ -368,12 +608,15 @@ function createUserAuthSubsystem(options = {}) {
         email: normalizeEmail(payload?.email),
         emailVerified: normalizeBoolean(payload?.email_verified, false),
       };
-    } catch (_) {
+    } catch (error) {
+      if (String(error?.message || "") === "apple_jwks_unavailable") {
+        return { ok: false, status: 503, error: "apple_jwks_unavailable" };
+      }
       return { ok: false, status: 401, error: "invalid_apple_identity_token" };
     }
   }
 
-  function handleAuthSignup(req, res) {
+  async function handleAuthSignup(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_signup");
     const now = Date.now();
     const email = normalizeEmail(req.body?.email);
@@ -392,6 +635,7 @@ function createUserAuthSubsystem(options = {}) {
     }
     const issued = issueAuthResult(created.user, req);
     if (!issued) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_signup", checkpoint))) return;
       return res.status(500).json({
         stage: "auth_signup",
         error: "session_issue_failed",
@@ -412,6 +656,7 @@ function createUserAuthSubsystem(options = {}) {
         extra.debug_email_verification_token = verification.token;
       }
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_signup", checkpoint))) return;
     return res.status(201).json(buildAuthEnvelope({
       user: created.user,
       accessToken: issued.accessToken,
@@ -421,7 +666,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthLogin(req, res) {
+  async function handleAuthLogin(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_login");
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || "");
@@ -440,6 +685,7 @@ function createUserAuthSubsystem(options = {}) {
         error: "session_issue_failed",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user: authenticated.user,
       accessToken: issued.accessToken,
@@ -448,25 +694,28 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthApple(req, res) {
-    if (!authConfigured) return authMisconfigured(res, "auth_apple");
-    const verified = verifyAppleIdentityToken(req.body?.identity_token);
-    if (!verified.ok) {
-      return res.status(verified.status || 401).json({
+  async function handleAuthAppleMutation(req, res, checkpoint, verified) {
+    const existingBySubject = getUserByAppleSubject(verified.subject);
+    const trustedEmail = verified.emailVerified ? normalizeEmail(verified.email) : "";
+    if (!existingBySubject && !trustedEmail) {
+      return res.status(400).json({
         stage: "auth_apple",
-        error: verified.error || "invalid_apple_identity_token",
+        error: "apple_email_required",
       });
     }
-    const suppliedEmail = normalizeEmail(req.body?.email);
-    const existing = getUserByAppleSubject(verified.subject) || (suppliedEmail ? getUserByEmail(suppliedEmail) : null);
+    const existing = existingBySubject || getUserByEmail(trustedEmail);
     const createdOrAttached = createOrAttachAppleUser({
       appleSubject: verified.subject,
-      email: verified.email || suppliedEmail,
+      email: trustedEmail,
       name: [sanitizeText(req.body?.given_name || "", 80), sanitizeText(req.body?.family_name || "", 80)].filter(Boolean).join(" "),
-      emailVerified: verified.emailVerified || autoVerifyEmails,
+      emailVerified: Boolean(trustedEmail),
+      allowExistingEmailLink: !existingBySubject && Boolean(trustedEmail),
     }, Date.now());
     if (!createdOrAttached.ok) {
-      const statusCode = createdOrAttached.status === "email_taken" ? 409 : 400;
+      const statusCode = createdOrAttached.status === "email_taken"
+        || createdOrAttached.status === "apple_subject_taken"
+        ? 409
+        : 400;
       return res.status(statusCode).json({
         stage: "auth_apple",
         error: createdOrAttached.status || "apple_sign_in_failed",
@@ -474,11 +723,13 @@ function createUserAuthSubsystem(options = {}) {
     }
     const issued = issueAuthResult(createdOrAttached.user, req);
     if (!issued) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_apple", checkpoint))) return;
       return res.status(500).json({
         stage: "auth_apple",
         error: "session_issue_failed",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_apple", checkpoint))) return;
     return res.status(existing ? 200 : 201).json(buildAuthEnvelope({
       user: createdOrAttached.user,
       accessToken: issued.accessToken,
@@ -487,7 +738,25 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthRefresh(req, res) {
+  async function handleAuthApple(req, res) {
+    if (!authConfigured) return authMisconfigured(res, "auth_apple");
+    // Apple key discovery is remote I/O. Verify before taking the mutation
+    // lock so a slow identity provider cannot stall local login, refresh, or
+    // bearer authentication for every user.
+    const verified = await verifyAppleIdentityToken(req.body?.identity_token, req.body || {});
+    if (!verified.ok) {
+      return res.status(verified.status || 401).json({
+        stage: "auth_apple",
+        error: verified.error || "invalid_apple_identity_token",
+      });
+    }
+    return runUserStoreMutationExclusive(async () => {
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handleAuthAppleMutation(req, res, checkpoint, verified);
+    });
+  }
+
+  async function handleAuthRefresh(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_refresh");
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
     if (!refreshToken) {
@@ -509,11 +778,13 @@ function createUserAuthSubsystem(options = {}) {
     const user = getUserById(rotated.session.userId);
     if (!user) {
       revokeAuthSessionById(rotated.session.sessionId, Date.now());
+      if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
       return res.status(401).json({
         stage: "auth_refresh",
         error: "invalid_refresh_token",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       accessToken: signAccessToken(user, rotated.session),
@@ -522,7 +793,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthLogout(req, res) {
+  async function handleAuthLogout(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_logout");
     const now = Date.now();
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
@@ -542,6 +813,8 @@ function createUserAuthSubsystem(options = {}) {
     if (req.authSession && (!revokedRefresh || req.authSession.sessionId !== revokedRefresh.sessionId)) {
       revokedAccess = revokeAuthSessionById(req.authSession.sessionId, now);
     }
+
+    if ((revokedRefresh || revokedAccess) && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
 
     return res.status(200).json(buildAuthEnvelope({
       extra: {
@@ -566,7 +839,7 @@ function createUserAuthSubsystem(options = {}) {
     });
   }
 
-  function handleAuthSessionsRevoke(req, res) {
+  async function handleAuthSessionsRevoke(req, res, checkpoint) {
     const user = requireAuthenticatedUser(req, res, "auth_sessions_revoke");
     if (!user) return;
     const now = Date.now();
@@ -585,6 +858,7 @@ function createUserAuthSubsystem(options = {}) {
         });
       }
       const revoked = revokeAuthSessionById(sessionId, now);
+      if (revoked && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
         revoked: Boolean(revoked),
@@ -601,6 +875,7 @@ function createUserAuthSubsystem(options = {}) {
       const revoked = revokeAllAuthSessionsForUser(user.id, now, {
         exceptSessionId: String(req.authSession?.sessionId || "").trim(),
       });
+      if (revoked.length > 0 && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
         revoked: revoked.length > 0,
@@ -616,7 +891,7 @@ function createUserAuthSubsystem(options = {}) {
     });
   }
 
-  function handleAuthRequestPasswordReset(req, res) {
+  async function handleAuthRequestPasswordReset(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_request_password_reset");
     const email = normalizeEmail(req.body?.email);
     if (!email) {
@@ -626,35 +901,30 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     const user = getUserByEmail(email);
-    if (!user) {
-      return res.status(200).json(buildAuthEnvelope({
-        extra: {
-          password_reset_requested: true,
-          email_delivery: buildEmailDelivery("noop", "none"),
-        },
-      }));
-    }
-    const issued = issuePasswordResetToken({
-      userId: user.id,
-      ttlMs: passwordResetTtlSeconds * 1000,
-    }, Date.now());
+    const issued = user
+      ? issuePasswordResetToken({
+          userId: user.id,
+          ttlMs: passwordResetTtlSeconds * 1000,
+        }, Date.now())
+      : null;
+    const debugResetToken = allowDebugTokens && issued ? issued.token : "";
     const extra = {
-      password_reset_requested: Boolean(issued),
+      password_reset_requested: true,
       email_delivery: buildEmailDelivery(
-        allowDebugTokens && issued ? "token_in_response" : "queued",
-        allowDebugTokens && issued ? "inline_debug" : "none"
+        debugResetToken ? "token_in_response" : "queued",
+        debugResetToken ? "inline_debug" : "none"
       ),
     };
-    if (allowDebugTokens && issued) {
-      extra.debug_password_reset_token = issued.token;
+    if (debugResetToken) {
+      extra.debug_password_reset_token = debugResetToken;
     }
+    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_password_reset", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
-      user,
       extra,
     }));
   }
 
-  function handleAuthResetPassword(req, res) {
+  async function handleAuthResetPassword(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_reset_password");
     const token = String(req.body?.token || "").trim();
     const newPassword = String(req.body?.new_password || req.body?.newPassword || "");
@@ -664,8 +934,16 @@ function createUserAuthSubsystem(options = {}) {
         error: "token_required",
       });
     }
+    const passwordValidation = validateUserPassword(newPassword);
+    if (!passwordValidation.ok) {
+      return res.status(400).json({
+        stage: "auth_reset_password",
+        error: passwordValidation.status,
+      });
+    }
     const consumed = consumePasswordResetToken(token, Date.now());
     if (!consumed) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_reset_password",
         error: "invalid_reset_token",
@@ -673,21 +951,24 @@ function createUserAuthSubsystem(options = {}) {
     }
     const updated = updateUserPassword(consumed.userId, newPassword, Date.now());
     if (!updated.ok) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(updated.status === "not_found" ? 404 : 400).json({
         stage: "auth_reset_password",
         error: updated.status || "password_reset_failed",
       });
     }
-    revokeAllAuthSessionsForUser(updated.user.id, Date.now());
+    const revoked = revokeAllAuthSessionsForUser(updated.user.id, Date.now());
+    if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user: updated.user,
       extra: {
         password_reset: true,
+        revoked_sessions: revoked.length,
       },
     }));
   }
 
-  function handleAuthRequestEmailVerification(req, res) {
+  async function handleAuthRequestEmailVerification(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_request_email_verification");
     const authenticatedUser = req.authUser || null;
     const email = normalizeEmail(req.body?.email);
@@ -727,6 +1008,7 @@ function createUserAuthSubsystem(options = {}) {
     if (allowDebugTokens && issued) {
       extra.debug_email_verification_token = issued.token;
     }
+    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_email_verification", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       session: req.authSession && String(req.authSession.userId || "").trim() === String(user.id || "").trim()
@@ -736,7 +1018,7 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthVerifyEmail(req, res) {
+  async function handleAuthVerifyEmail(req, res, checkpoint) {
     if (!authConfigured) return authMisconfigured(res, "auth_verify_email");
     const token = String(req.body?.token || "").trim();
     if (!token) {
@@ -747,6 +1029,7 @@ function createUserAuthSubsystem(options = {}) {
     }
     const consumed = consumeEmailVerificationToken(token, Date.now());
     if (!consumed) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_verify_email",
         error: "invalid_verification_token",
@@ -754,11 +1037,13 @@ function createUserAuthSubsystem(options = {}) {
     }
     const user = markUserEmailVerified(consumed.userId, Date.now());
     if (!user) {
+      if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
       return res.status(404).json({
         stage: "auth_verify_email",
         error: "account_not_found",
       });
     }
+    if (!(await ensureAuthMutationPersisted(res, "auth_verify_email", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       session: req.authSession && String(req.authSession.userId || "").trim() === String(user.id || "").trim()
@@ -775,17 +1060,19 @@ function createUserAuthSubsystem(options = {}) {
     attachUserAuth,
     buildPublicUser,
     handleAuthApple,
-    handleAuthLogin,
-    handleAuthLogout,
-    handleAuthRefresh,
-    handleAuthRequestEmailVerification,
-    handleAuthRequestPasswordReset,
-    handleAuthResetPassword,
+    handleAuthLogin: serializeAuthMutation(handleAuthLogin),
+    handleAuthLogout: serializeAuthMutation(handleAuthLogout),
+    handleAuthRefresh: serializeAuthMutation(handleAuthRefresh),
+    handleAuthRequestEmailVerification: serializeAuthMutation(handleAuthRequestEmailVerification),
+    handleAuthRequestPasswordReset: serializeAuthMutation(handleAuthRequestPasswordReset),
+    handleAuthResetPassword: serializeAuthMutation(handleAuthResetPassword),
     handleAuthSessions,
-    handleAuthSessionsRevoke,
-    handleAuthSignup,
-    handleAuthVerifyEmail,
+    handleAuthSessionsRevoke: serializeAuthMutation(handleAuthSessionsRevoke),
+    handleAuthSignup: serializeAuthMutation(handleAuthSignup),
+    handleAuthVerifyEmail: serializeAuthMutation(handleAuthVerifyEmail),
+    protectPaidProviderRoutes,
     protectUserRoutes,
+    verifyReauthProof,
   };
 }
 

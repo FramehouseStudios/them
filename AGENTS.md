@@ -35,6 +35,17 @@ If a task is already complete and verified, mark it complete and move on. If a t
 9. Keep commits small, readable, and reversible.
 10. Move continuously from task to task without waiting for extra permission unless human-only authority is required.
 
+## Self-Checking Loop Protocol
+
+Every meaningful implementation pass must run as a loop:
+
+1. Plan: state the single next implementation target.
+2. Do: produce or improve the actual app behavior.
+3. Verify: test the result against strict success criteria, with no soft passes.
+4. Decide: if the criteria pass, commit and continue; if not, fix the weakest score first and verify again.
+
+Do not call work complete until the loop has produced a working, connected, verified improvement or a specific blocker is documented.
+
 ## 14-Day Completion Protocol
 
 The app must be driven through this roadmap until functional:

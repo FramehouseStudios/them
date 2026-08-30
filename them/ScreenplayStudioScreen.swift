@@ -10,3702 +10,10 @@ import AppKit
 #if os(iOS)
 import UIKit
 #endif
-
-#if DEBUG || os(macOS)
-private struct StudioDebugVoiceRenderStatusSnapshot: Decodable {
-    let renderRequestID: String?
-    let renderServerFirstDeltaMs: Int?
-    let renderServerTotalMs: Int?
-    let status: String?
-
-    enum CodingKeys: String, CodingKey {
-        case renderRequestID
-        case renderServerFirstDeltaMs
-        case renderServerTotalMs
-        case status
-    }
-}
-#endif
-
-private enum StudioMoveDirection {
-    case up
-    case down
-    case left
-    case right
-}
-
-private enum InspectorReorderDirection {
-    case up
-    case down
-}
-
-private enum InspectorAutoScrollDirection {
-    case up
-    case down
-}
-
-private struct InspectorAutoScrollRequest {
-    let anchorID: String
-    let anchor: UnitPoint
-    let direction: InspectorAutoScrollDirection
-}
-
-private struct StudioInspectorWorkspaceState: Codable {
-    let rightPanelTabRaw: String
-    let selectedInspectorSectionRaw: String
-    let selectedBeatID: String
-    let beatOrderIDs: [String]
-    let highlightedSceneInspectorKey: String
-    let editingBeatID: String
-    let beatLabel: String
-    let beatSummary: String
-    let beatSceneID: String
-    let beatActID: String
-    let beatDraftProvenanceRaw: String
-}
-
-private enum BeatProvenanceSource: String, Codable, Equatable {
-    case selection
-    case currentScene = "current_scene"
-    case manual
-
-    var title: String {
-        switch self {
-        case .selection:
-            return "Selection"
-        case .currentScene:
-            return "Current Scene"
-        case .manual:
-            return "Manual"
-        }
-
-    }
-
-    var compactTitle: String {
-        switch self {
-        case .selection:
-            return "From Selection"
-        case .currentScene:
-            return "From Scene"
-        case .manual:
-            return "Manual"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .selection:
-            return Color.blue.opacity(0.78)
-        case .currentScene:
-            return Color.orange.opacity(0.82)
-        case .manual:
-            return Color.herText.opacity(0.68)
-        }
-    }
-}
-
-private struct BeatProvenanceHistoryEntry: Codable, Equatable {
-    let createdFromRaw: String
-    let createdAt: TimeInterval
-    let lastRefreshedFromRaw: String
-    let lastRefreshedAt: TimeInterval
-
-    var createdFrom: BeatProvenanceSource {
-        BeatProvenanceSource(rawValue: createdFromRaw) ?? .manual
-    }
-
-    var lastRefreshedFrom: BeatProvenanceSource {
-        BeatProvenanceSource(rawValue: lastRefreshedFromRaw) ?? createdFrom
-    }
-}
-
-private struct BeatQuickCaptureSeed {
-    let label: String
-    let summary: String
-    let sceneID: String
-    let actID: String
-    let infoText: String
-    let provenance: BeatProvenanceSource
-}
-
-private struct BeatQuickLinkTarget: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let sceneID: String
-    let actID: String
-}
-
-#if DEBUG || os(macOS)
-private enum StudioDebugInspectorInteractionAction: String {
-    case makeBeatFromSelection = "make_beat_from_selection"
-    case makeBeatFromCurrentScene = "make_beat_from_current_scene"
-    case updateSelectedBeatFromSelection = "update_selected_beat_from_selection"
-    case previewSelectedBeatDropBefore = "preview_selected_beat_drop_before"
-    case previewSelectedBeatDropToEnd = "preview_selected_beat_drop_to_end"
-    case clearBeatDragPreview = "clear_beat_drag_preview"
-    case selectBeat = "select_beat"
-    case moveSelectedBeatToTop = "move_selected_beat_to_top"
-    case moveSelectedBeatToEnd = "move_selected_beat_to_end"
-    case seedBeatDraft = "seed_beat_draft"
-    case restoreWorkspace = "restore_workspace"
-}
-
-private enum StudioDebugPageWriteToastMode: String {
-    case expanded
-    case collapsed
-    case dismiss
-    case undo
-    case more
-    case escape
-    case returnKey = "return"
-}
-
-private enum StudioDebugPageWriteToastInteractionAction: String {
-    case undo
-    case more
-    case escape
-    case returnKey = "return"
-}
-
-private enum StudioDebugShortcutAction: String {
-    case optionCommandB = "option_command_b"
-    case optionCommandU = "option_command_u"
-}
-
-#if os(macOS)
-private let studioDebugMirroredPreferencesDomain = "io.them.them" as CFString
-
-private func studioDebugMirroredDomains() -> [String] {
-    var domains: [String] = []
-    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !bundleID.isEmpty {
-        domains.append(bundleID)
-    }
-
-    let fallbackDomain = String(studioDebugMirroredPreferencesDomain)
-    if !domains.contains(fallbackDomain) {
-        domains.append(fallbackDomain)
-    }
-    return domains
-}
-
-private func studioDebugMirroredSuiteDefaults(for domain: String) -> UserDefaults? {
-    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-       domain == bundleID {
-        return nil
-    }
-    return UserDefaults(suiteName: domain)
-}
-
-private func studioDebugMirroredPlistURLs(for domain: String) -> [URL] {
-    let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
-    let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
-    return [
-        libraryURL
-            .appendingPathComponent("Containers")
-            .appendingPathComponent(domain)
-            .appendingPathComponent("Data/Library/Preferences")
-            .appendingPathComponent(filename),
-        libraryURL
-            .appendingPathComponent("Preferences")
-            .appendingPathComponent(filename),
-    ]
-}
-
-private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
-    for url in studioDebugMirroredPlistURLs(for: domain) {
-        let directoryURL = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let dictionary = (NSMutableDictionary(contentsOf: url) ?? NSMutableDictionary())
-        dictionary[key] = value
-        dictionary.write(to: url, atomically: true)
-    }
-}
-
-private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
-    UserDefaults.standard.set(value, forKey: key)
-    for domain in studioDebugMirroredDomains() {
-        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
-            suite.set(value, forKey: key)
-            suite.synchronize()
-        }
-        let domainRef = domain as CFString
-        CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
-        CFPreferencesAppSynchronize(domainRef)
-        mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
-    }
-    UserDefaults.standard.synchronize()
-}
-
-private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
-    UserDefaults.standard.set(value, forKey: key)
-    for domain in studioDebugMirroredDomains() {
-        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
-            suite.set(value, forKey: key)
-            suite.synchronize()
-        }
-        let domainRef = domain as CFString
-        CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
-        CFPreferencesAppSynchronize(domainRef)
-        mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
-    }
-    UserDefaults.standard.synchronize()
-}
-
-private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
-    var values: [Any] = []
-    var seenFingerprints: Set<String> = []
-
-    func append(_ value: Any?) {
-        guard let value else { return }
-        let fingerprint = "\(type(of: value))::\(String(describing: value))"
-        guard seenFingerprints.insert(fingerprint).inserted else { return }
-        values.append(value)
-    }
-
-    for domain in studioDebugMirroredDomains() {
-        for url in studioDebugMirroredPlistURLs(for: domain) {
-            if let dictionary = NSDictionary(contentsOf: url) {
-                append(dictionary[key])
-            }
-        }
-        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
-            suite.synchronize()
-            append(suite.object(forKey: key))
-        }
-        let domainRef = domain as CFString
-        CFPreferencesAppSynchronize(domainRef)
-        append(CFPreferencesCopyAppValue(key as CFString, domainRef))
-    }
-    UserDefaults.standard.synchronize()
-    append(UserDefaults.standard.object(forKey: key))
-    return values
-}
-
-private func readMirroredStudioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
-    for value in studioDebugMirroredPreferenceValues(forKey: key) {
-        if let number = value as? NSNumber {
-            return number.intValue
-        }
-        if let string = value as? String,
-           let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return parsed
-        }
-    }
-    return fallback
-}
-
-private func readMirroredStudioDebugPreferenceString(_ key: String, fallback: String = "") -> String {
-    for value in studioDebugMirroredPreferenceValues(forKey: key) {
-        if let string = value as? String {
-            return string
-        }
-        if let number = value as? NSNumber {
-            return number.stringValue
-        }
-    }
-    return fallback
-}
-#endif
-#endif
-
-private struct StudioMoveCommandModifier: ViewModifier {
-    let handler: (StudioMoveDirection) -> Void
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(macOS)
-        content.onMoveCommand { direction in
-            switch direction {
-            case .up:
-                handler(.up)
-            case .down:
-                handler(.down)
-            case .left:
-                handler(.left)
-            case .right:
-                handler(.right)
-            default:
-                break
-            }
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-private struct StudioExitCommandModifier: ViewModifier {
-    let handler: () -> Void
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        #if os(macOS)
-        content.onExitCommand(perform: handler)
-        #else
-        content
-        #endif
-    }
-}
-
-private extension View {
-    func studioMoveCommand(_ handler: @escaping (StudioMoveDirection) -> Void) -> some View {
-        modifier(StudioMoveCommandModifier(handler: handler))
-    }
-
-    func studioExitCommand(_ handler: @escaping () -> Void) -> some View {
-        modifier(StudioExitCommandModifier(handler: handler))
-    }
-}
-
-@MainActor
-private final class ScreenplayStudioViewModel: ObservableObject {
-    struct LocalDraftRecoveryCandidate: Equatable {
-        let projectId: String
-        let draft: String
-        let baseVersionId: String
-        let savedAt: TimeInterval
-    }
-
-    struct SaveConflictState: Equatable {
-        let projectId: String
-        let baseVersionId: String
-        let serverVersionId: String
-        let serverDraft: String
-        let serverDraftExcerpt: String
-        let serverUpdatedAt: TimeInterval
-    }
-
-    @Published var isLoading: Bool = false
-    @Published var isSaving: Bool = false
-    @Published var errorText: String = ""
-    @Published var infoText: String = ""
-
-    @Published var projects: [BackendScreenplayProjectSummary] = []
-    @Published var selectedProjectID: String = ""
-    @Published var selectedProject: BackendScreenplayProjectSummary?
-    @Published var outline: BackendScreenplayOutline = .empty
-
-    @Published var craftFrameworks: [ScreenplayCraftFrameworkReference] = []
-    @Published var selectedCraftFrameworkID: String = ""
-    @Published var craftReport: ScreenplayCraftReport?
-    @Published var isCraftLoading: Bool = false
-    @Published var isCraftAnalyzing: Bool = false
-    @Published var isCraftOverrideSaving: Bool = false
-    @Published var craftErrorText: String = ""
-    @Published var craftInfoText: String = ""
-    @Published var formatLintReport: ScreenplayFormatLintReport?
-    @Published var isFormatLinting: Bool = false
-    @Published var formatLintErrorText: String = ""
-    @Published var formatLintSourceText: String = ""
-    @Published var craftLogline: ScreenplayCraftLoglineDistillResponse?
-    @Published var craftLoglineDrift: ScreenplayCraftLoglineDriftResponse?
-    @Published var craftLoglineHistory: [ScreenplayCraftLoglineEntry] = []
-    @Published var isCraftLoglineLoading: Bool = false
-    @Published var craftLoglineErrorText: String = ""
-    @Published var craftLoglineInfoText: String = ""
-    @Published var blockSignal: BackendBlockSignalResponse?
-    @Published var blockSignalHistory: BackendBlockSignalHistoryResponse?
-    @Published var isBlockSignalLoading: Bool = false
-    @Published var blockSignalErrorText: String = ""
-    @Published var blockSignalInfoText: String = ""
-    @Published var characterTraits: BackendCharacterTraitsResponse?
-    @Published var characterArchetypes: BackendCharacterArchetypesResponse?
-    @Published var isCharacterTraitsLoading: Bool = false
-    @Published var characterTraitsErrorText: String = ""
-    @Published var characterTraitsInfoText: String = ""
-    @Published var craftTwists: ScreenplayCraftTwistSuggestResponse?
-    @Published var isCraftTwistLoading: Bool = false
-    @Published var craftTwistErrorText: String = ""
-    @Published var craftTwistInfoText: String = ""
-    @Published var craftTwistBeatLabel: String = ""
-    @Published var acceptedCraftTwists: [ScreenplayCraftAcceptedTwistEntry] = []
-    @Published var isAcceptedCraftTwistMutating: Bool = false
-    @Published var acceptedCraftTwistErrorText: String = ""
-    @Published var acceptedCraftTwistInfoText: String = ""
-    @Published var screenplayExportFormats: [BackendScreenplayExportFormat] = []
-    @Published var isScreenplayExportFormatsLoading: Bool = false
-    @Published var screenplayExportFormatsErrorText: String = ""
-    private var didLoadScreenplayProjectsFromBackend: Bool = false
-
-    var formatLintCards: [ScreenplayFormatLintCard] {
-        ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
-    }
-
-    var screenplayExportMenuItems: [ScreenplayExportMenuItem] {
-        ScreenplayExportFormatMenu.items(
-            from: screenplayExportFormats,
-            localPDFSupported: Self.localPDFExportSupported
-        )
-    }
-
-    var screenplayExportPDFUnavailableText: String {
-        ScreenplayExportFormatMenu.pdfUnavailableText(
-            from: screenplayExportFormats,
-            localPDFSupported: Self.localPDFExportSupported
-        )
-    }
-
-    #if os(macOS)
-    private static let localPDFExportSupported = true
-    #else
-    private static let localPDFExportSupported = false
-    #endif
-
-    @Published var newProjectTitle: String = ""
-    @Published var newSceneSlugline: String = ""
-    @Published var newSceneTitle: String = ""
-    @Published var newSceneObjective: String = ""
-    @Published var newSceneSummary: String = ""
-    @Published var newSceneActID: String = ""
-    @Published var editingSceneID: String = ""
-    @Published var editingSceneTitle: String = ""
-    @Published var editingSceneObjective: String = ""
-    @Published var editingSceneSummary: String = ""
-
-    @Published var newBeatLabel: String = ""
-    @Published var newBeatSummary: String = ""
-    @Published var newBeatSceneID: String = ""
-    @Published var newBeatActID: String = ""
-    @Published var editingBeatID: String = ""
-
-    @Published var fountainDraft: String = ""
-    @Published var latestVersionID: String = ""
-    @Published var studioWriteAnchors: [BackendScreenplayWriteAnchor] = []
-    @Published var screenplayBindings: [BackendScreenplayBindingRecord] = []
-    @Published var autosaveEnabled: Bool = true
-    @Published var autosaveStatusText: String = "Ready"
-    @Published var hasUnsavedDraftChanges: Bool = false
-    @Published var isStreamingDraftPreviewActive: Bool = false
-    @Published var isManualDraftEditing: Bool = false
-    @Published var paginationPages: [BackendScreenplayPaginationPage] = []
-    @Published var linesPerPage: Int = 55
-    @Published var revisionColor: String = "blue"
-    @Published var revisionSummary: BackendScreenplayRevisionSummary?
-    @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
-
-    @Published var collaborators: [BackendScreenplayCollaborator] = []
-    @Published var approvedEmails: [String] = []
-    @Published var collaboratorEmail: String = ""
-    @Published var collaboratorNote: String = ""
-    @Published var collaboratorInvitedBy: String = ""
-
-    @Published var comments: [BackendScreenplayComment] = []
-    @Published var commentText: String = ""
-    @Published var commentAuthorEmail: String = ""
-    @Published var commentAuthorName: String = ""
-    @Published var commentActorEmail: String = ""
-    @Published var commentAnchorLine: String = ""
-    @Published var commentType: String = "text"
-    @Published var commentVoiceURL: String = ""
-    @Published var commentVoiceTranscript: String = ""
-    @Published var commentVoiceDurationMs: String = ""
-    @Published var commentReplyToID: String = ""
-    @Published var commentEditID: String = ""
-    @Published var showResolvedComments: Bool = true
-    @Published var snapshotLabel: String = ""
-    @Published var recoveryCandidate: LocalDraftRecoveryCandidate?
-    @Published var conflictState: SaveConflictState?
-
-    private var draftDebounceCancellable: AnyCancellable?
-    private var isHydratingDraft = false
-    private var lastSavedDraftFingerprint = ""
-    private var lastRevisionBaseDraft = ""
-    private var loadedDraftProjectID: String = ""
-    private var lastManualDraftEditAt: Date = .distantPast
-    private let localDraftRecoveryStoreKey = "screenplay.studio.localDraftRecovery.v1"
-    private let craftClient = BackendClient()
-
-    init() {
-        draftDebounceCancellable = $fountainDraft
-            .removeDuplicates()
-            .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
-            .sink { [weak self] draft in
-                guard let self else { return }
-                Task { await self.handleDraftDebouncedChange(draft) }
-            }
-    }
-
-    deinit {
-        draftDebounceCancellable?.cancel()
-    }
-
-    func load() async {
-        guard !IOThemRuntime.isRunningTests else {
-            didLoadScreenplayProjectsFromBackend = false
-            projects = []
-            selectedProjectID = ""
-            selectedProject = nil
-            outline = .empty
-            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        errorText = ""
-        infoText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(
-                limit: 24,
-                includeVersions: false,
-                includeDrafts: false
-            )
-            didLoadScreenplayProjectsFromBackend = true
-            projects = result.payload.screenplayProjects
-            let preferredID = (result.payload.screenplayActiveProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !preferredID.isEmpty, projects.contains(where: { $0.id == preferredID }) {
-                selectedProjectID = preferredID
-            } else {
-                selectedProjectID = projects.first?.id ?? ""
-            }
-            await loadSelectedProjectOutline()
-        } catch {
-            didLoadScreenplayProjectsFromBackend = false
-            errorText = error.localizedDescription
-            selectedProject = nil
-            outline = .empty
-            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
-        }
-    }
-
-    func refresh() async {
-        await load()
-    }
-
-    func refreshLiveDraftBridgeContext() {
-        syncLiveDraftBridgeProjectContext()
-    }
-
-    var debugLoadedDraftProjectID: String {
-        loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func selectProject(_ projectID: String) async {
-        selectedProjectID = projectID
-        resetCraftReportForProjectChange()
-        await loadSelectedProjectOutline()
-    }
-
-    func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String) {
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        guard fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
-    }
-
-    func noteManualDraftEdit() {
-        guard !isHydratingDraft else { return }
-        isManualDraftEditing = true
-        lastManualDraftEditAt = Date()
-        if !isStreamingDraftPreviewActive {
-            autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Editing draft"
-        }
-    }
-
-    func setStreamingDraftPreviewActive(_ isActive: Bool) {
-        isStreamingDraftPreviewActive = isActive
-        if isActive {
-            autosaveStatusText = "Receiving live draft..."
-        } else if autosaveStatusText == "Receiving live draft..." {
-            autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Ready"
-        }
-    }
-
-    func createProject() async {
-        let title = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else {
-            errorText = "Enter a project title first."
-            return
-        }
-        let seededDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
-                title: title,
-                phase: "scene_draft"
-            )
-            if let project = result.payload.project {
-                upsertProject(project)
-                selectedProjectID = project.id
-                selectedProject = project
-                if !seededDraft.isEmpty {
-                    let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                        projectId: project.id,
-                        draft: seededDraft,
-                        title: project.title,
-                        phase: project.lastPhase ?? "scene_draft",
-                        notes: "Initial Studio draft",
-                        source: "studio_initial_seed",
-                        baseVersionId: "",
-                        conflictStrategy: "reject_if_stale"
-                    )
-                    if let nextProject = versionResult.payload.project {
-                        upsertProject(nextProject)
-                        selectedProject = nextProject
-                        selectedProjectID = nextProject.id
-                    }
-                    let nextVersionId = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !nextVersionId.isEmpty {
-                        latestVersionID = nextVersionId
-                    }
-                    lastSavedDraftFingerprint = fingerprint(for: seededDraft)
-                    lastRevisionBaseDraft = seededDraft
-                    hasUnsavedDraftChanges = false
-                    autosaveStatusText = "Saved now"
-                }
-            }
-            newProjectTitle = ""
-            infoText = seededDraft.isEmpty
-                ? "Project saved."
-                : "Project created with the live Studio draft."
-            await loadSelectedProjectOutline()
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func pushOutlineSnapshot() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: outline.acts,
-                scenes: outline.scenes,
-                beats: outline.beats,
-                merge: true,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            infoText = "Outline synced."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func addScene() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let slugline = newSceneSlugline.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = newSceneTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let objective = newSceneObjective.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = newSceneSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if slugline.isEmpty && title.isEmpty && objective.isEmpty && summary.isEmpty {
-            errorText = "Add at least a slugline, title, objective, or summary."
-            return
-        }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let draft = BackendScreenplaySceneDraft(
-                slugline: slugline,
-                title: title,
-                objective: objective,
-                summary: summary,
-                actId: normalizedOrNil(newSceneActID)
-            )
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayScene(
-                projectId: project.id,
-                scene: draft,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            newSceneSlugline = ""
-            newSceneTitle = ""
-            newSceneObjective = ""
-            newSceneSummary = ""
-            newSceneActID = ""
-            infoText = "Scene saved."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func addSceneFromNavigator(slugline rawSlugline: String) async -> String? {
-        guard let project = selectedProject else { return nil }
-        let slugline = rawSlugline.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !slugline.isEmpty else { return "Add a slugline first." }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let draft = BackendScreenplaySceneDraft(
-                slugline: slugline,
-                title: "",
-                objective: "",
-                summary: "",
-                actId: nil
-            )
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayScene(
-                projectId: project.id,
-                scene: draft,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            if let scene = result.payload.scene ??
-                result.payload.outline?.scenes.last(where: { ($0.slugline ?? "").caseInsensitiveCompare(slugline) == .orderedSame }) {
-                beginEditingScene(scene)
-            }
-            infoText = "Scene added to outline."
-            return nil
-        } catch {
-            errorText = error.localizedDescription
-            return error.localizedDescription
-        }
-    }
-
-    func beginEditingScene(_ scene: BackendScreenplayScene) {
-        editingSceneID = scene.id
-        editingSceneTitle = scene.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        editingSceneObjective = (scene.objective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        editingSceneSummary = (scene.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func cancelEditingScene() {
-        editingSceneID = ""
-        editingSceneTitle = ""
-        editingSceneObjective = ""
-        editingSceneSummary = ""
-    }
-
-    func saveEditingScene() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let sceneId = editingSceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sceneId.isEmpty else {
-            errorText = "Select a scene to edit."
-            return
-        }
-        guard let existingScene = outline.scenes.first(where: { $0.id == sceneId }) else {
-            errorText = "That scene is no longer available."
-            cancelEditingScene()
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let draft = BackendScreenplaySceneDraft(
-                id: existingScene.id,
-                slugline: (existingScene.slugline ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                title: editingSceneTitle,
-                objective: editingSceneObjective,
-                summary: editingSceneSummary,
-                actId: existingScene.actId,
-                order: existingScene.order,
-                status: existingScene.status,
-                beatIds: existingScene.beatIds ?? []
-            )
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayScene(
-                projectId: project.id,
-                scene: draft,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            infoText = "Scene details saved."
-            cancelEditingScene()
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func addBeat() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let editingID = editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingBeat = outline.beats.first(where: { $0.id == editingID })
-        let label = newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if label.isEmpty && summary.isEmpty {
-            errorText = "Add at least a beat label or summary."
-            return
-        }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let draft = BackendScreenplayBeatDraft(
-                id: existingBeat?.id,
-                label: label,
-                summary: summary,
-                sceneId: normalizedOrNil(newBeatSceneID),
-                actId: normalizedOrNil(newBeatActID),
-                order: existingBeat?.order,
-                status: existingBeat?.status
-            )
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayBeat(
-                projectId: project.id,
-                beat: draft,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            newBeatLabel = ""
-            newBeatSummary = ""
-            newBeatSceneID = ""
-            newBeatActID = ""
-            editingBeatID = ""
-            infoText = existingBeat == nil ? "Beat saved." : "Beat updated."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func beginEditingBeat(_ beat: BackendScreenplayBeat) {
-        editingBeatID = beat.id
-        newBeatLabel = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        newBeatSummary = (beat.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        newBeatSceneID = (beat.sceneId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        newBeatActID = (beat.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func cancelEditingBeat() {
-        editingBeatID = ""
-        newBeatLabel = ""
-        newBeatSummary = ""
-        newBeatSceneID = ""
-        newBeatActID = ""
-    }
-
-    func deleteBeat(_ beat: BackendScreenplayBeat) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        let updatedScenes = outline.scenes.map { scene in
-            let filteredBeatIDs = (scene.beatIds ?? []).filter { $0 != beat.id }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: filteredBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        let updatedBeats = outline.beats.filter { $0.id != beat.id }
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: outline.acts,
-                scenes: updatedScenes,
-                beats: updatedBeats,
-                merge: false,
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: outline.acts.count,
-                    sceneCount: updatedScenes.count,
-                    beatCount: updatedBeats.count,
-                    acts: outline.acts,
-                    scenes: updatedScenes,
-                    beats: updatedBeats
-                )
-            }
-            if editingBeatID == beat.id {
-                cancelEditingBeat()
-            }
-            infoText = "Beat removed."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    private func persistOutlineMutation(
-        acts: [BackendScreenplayAct],
-        scenes: [BackendScreenplayScene],
-        beats: [BackendScreenplayBeat],
-        successMessage: String
-    ) async -> Bool {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return false
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: acts,
-                scenes: scenes,
-                beats: beats,
-                merge: false,
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: acts.count,
-                    sceneCount: scenes.count,
-                    beatCount: beats.count,
-                    acts: acts,
-                    scenes: scenes,
-                    beats: beats
-                )
-            }
-            infoText = successMessage
-            return true
-        } catch {
-            errorText = error.localizedDescription
-            return false
-        }
-    }
-
-    private func rebuiltActsForOutline(from acts: [BackendScreenplayAct], scenes: [BackendScreenplayScene]) -> [BackendScreenplayAct] {
-        acts.enumerated().map { index, act in
-            let sceneIDs = scenes
-                .filter { ($0.actId ?? "") == act.id }
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                .map(\.id)
-            return BackendScreenplayAct(
-                id: act.id,
-                title: act.title,
-                summary: act.summary,
-                order: index,
-                sceneIds: sceneIDs,
-                createdAt: act.createdAt,
-                updatedAt: act.updatedAt
-            )
-        }
-    }
-
-    func moveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) async {
-        let orderedBeats = outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == beat.id }) else { return }
-        let targetIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
-        guard orderedBeats.indices.contains(targetIndex) else { return }
-        await moveBeat(id: beat.id, before: orderedBeats[targetIndex].id)
-    }
-
-    func moveBeat(id beatID: String, before targetBeatID: String?) async {
-        let orderedBeats = outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == beatID }) else { return }
-
-        var reorderedBeats = orderedBeats
-        let movingBeat = reorderedBeats.remove(at: sourceIndex)
-        let destinationIndex: Int
-        if let targetBeatID,
-           let targetIndex = reorderedBeats.firstIndex(where: { $0.id == targetBeatID }) {
-            destinationIndex = targetIndex
-        } else {
-            destinationIndex = reorderedBeats.count
-        }
-        reorderedBeats.insert(movingBeat, at: min(max(0, destinationIndex), reorderedBeats.count))
-
-        let reindexedBeats = reorderedBeats.enumerated().map { index, item in
-            BackendScreenplayBeat(
-                id: item.id,
-                label: item.label,
-                summary: item.summary,
-                sceneId: item.sceneId,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reindexedBeats.map { ($0.id, $0.order ?? Int.max) })
-        let updatedScenes = outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: updatedScenes)
-        _ = await persistOutlineMutation(
-            acts: updatedActs,
-            scenes: updatedScenes,
-            beats: reindexedBeats,
-            successMessage: "Reordered beats."
-        )
-    }
-
-    func moveAct(_ act: BackendScreenplayAct, direction: InspectorReorderDirection) async {
-        let orderedActs = outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedActs.firstIndex(where: { $0.id == act.id }) else { return }
-        let targetIndex = direction == .up ? sourceIndex - 1 : sourceIndex + 1
-        guard orderedActs.indices.contains(targetIndex) else { return }
-        await moveAct(id: act.id, before: orderedActs[targetIndex].id)
-    }
-
-    func moveAct(id actID: String, before targetActID: String?) async {
-        let orderedActs = outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedActs.firstIndex(where: { $0.id == actID }) else { return }
-
-        var reorderedActs = orderedActs
-        let movingAct = reorderedActs.remove(at: sourceIndex)
-        let destinationIndex: Int
-        if let targetActID,
-           let targetIndex = reorderedActs.firstIndex(where: { $0.id == targetActID }) {
-            destinationIndex = targetIndex
-        } else {
-            destinationIndex = reorderedActs.count
-        }
-        reorderedActs.insert(movingAct, at: min(max(0, destinationIndex), reorderedActs.count))
-
-        let reindexedActs = reorderedActs.enumerated().map { index, item in
-            BackendScreenplayAct(
-                id: item.id,
-                title: item.title,
-                summary: item.summary,
-                order: index,
-                sceneIds: outline.scenes
-                    .filter { ($0.actId ?? "") == item.id }
-                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                    .map(\.id),
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        _ = await persistOutlineMutation(
-            acts: reindexedActs,
-            scenes: outline.scenes,
-            beats: outline.beats,
-            successMessage: "Reordered outline sections."
-        )
-    }
-
-    func moveScene(_ scene: BackendScreenplayScene, direction: InspectorReorderDirection) async {
-        let orderedScenes = outline.scenes.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        let normalizedActID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupScenes = orderedScenes.filter {
-            ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedActID
-        }
-        guard let sourceGroupIndex = groupScenes.firstIndex(where: { $0.id == scene.id }) else { return }
-        let targetGroupIndex = direction == .up ? sourceGroupIndex - 1 : sourceGroupIndex + 1
-        guard groupScenes.indices.contains(targetGroupIndex) else { return }
-        await moveScene(id: scene.id, before: groupScenes[targetGroupIndex].id, targetActID: normalizedActID)
-    }
-
-    func moveScene(id sceneID: String, before targetSceneID: String?, targetActID: String?) async {
-        let orderedScenes = outline.scenes.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
-        guard let sourceIndex = orderedScenes.firstIndex(where: { $0.id == sceneID }) else { return }
-
-        var reorderedScenes = orderedScenes
-        let movingScene = reorderedScenes.remove(at: sourceIndex)
-        let resolvedTargetActID = normalizedOrNil(targetActID ?? "")
-            ?? targetSceneID.flatMap { targetID in
-                reorderedScenes
-                    .first(where: { $0.id == targetID })?
-                    .actId
-                    .flatMap { self.normalizedOrNil($0) }
-            }
-            ?? normalizedOrNil(movingScene.actId ?? "")
-
-        let movedScene = BackendScreenplayScene(
-            id: movingScene.id,
-            slugline: movingScene.slugline,
-            title: movingScene.title,
-            objective: movingScene.objective,
-            summary: movingScene.summary,
-            actId: resolvedTargetActID,
-            order: movingScene.order,
-            status: movingScene.status,
-            beatIds: movingScene.beatIds,
-            createdAt: movingScene.createdAt,
-            updatedAt: movingScene.updatedAt
-        )
-
-        let destinationIndex: Int
-        if let targetSceneID,
-           let targetIndex = reorderedScenes.firstIndex(where: { $0.id == targetSceneID }) {
-            destinationIndex = targetIndex
-        } else {
-            destinationIndex = insertionIndexForSceneGroup(
-                actID: resolvedTargetActID,
-                in: reorderedScenes
-            )
-        }
-        reorderedScenes.insert(movedScene, at: min(max(0, destinationIndex), reorderedScenes.count))
-
-        let reindexedScenes = reorderedScenes.enumerated().map { index, item in
-            BackendScreenplayScene(
-                id: item.id,
-                slugline: item.slugline,
-                title: item.title,
-                objective: item.objective,
-                summary: item.summary,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                beatIds: item.beatIds,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let updatedBeats = outline.beats.map { beat in
-            guard beat.sceneId == movedScene.id else { return beat }
-            return BackendScreenplayBeat(
-                id: beat.id,
-                label: beat.label,
-                summary: beat.summary,
-                sceneId: beat.sceneId,
-                actId: resolvedTargetActID,
-                order: beat.order,
-                status: beat.status,
-                createdAt: beat.createdAt,
-                updatedAt: beat.updatedAt
-            )
-        }
-        let updatedActs = rebuiltActsForOutline(from: outline.acts, scenes: reindexedScenes)
-        _ = await persistOutlineMutation(
-            acts: updatedActs,
-            scenes: reindexedScenes,
-            beats: updatedBeats,
-            successMessage: "Reordered scenes in the outline."
-        )
-    }
-
-    private func insertionIndexForSceneGroup(
-        actID: String?,
-        in scenes: [BackendScreenplayScene]
-    ) -> Int {
-        if let actID {
-            if let lastSceneIndex = scenes.lastIndex(where: { normalizedOrNil($0.actId ?? "") == actID }) {
-                return lastSceneIndex + 1
-            }
-            let orderedActs = outline.acts.sorted {
-                let lhsOrder = $0.order ?? Int.max
-                let rhsOrder = $1.order ?? Int.max
-                if lhsOrder == rhsOrder { return $0.title < $1.title }
-                return lhsOrder < rhsOrder
-            }
-            let targetActIndex = orderedActs.firstIndex(where: { $0.id == actID }) ?? orderedActs.count
-            for (index, scene) in scenes.enumerated() {
-                guard let sceneActID = normalizedOrNil(scene.actId ?? "") else { continue }
-                let sceneActIndex = orderedActs.firstIndex(where: { $0.id == sceneActID }) ?? orderedActs.count
-                if sceneActIndex > targetActIndex {
-                    return index
-                }
-            }
-            return scenes.count
-        }
-
-        if let lastLooseIndex = scenes.lastIndex(where: { normalizedOrNil($0.actId ?? "") == nil }) {
-            return lastLooseIndex + 1
-        }
-        return scenes.count
-    }
-
-    func linkBeat(_ beat: BackendScreenplayBeat, to scene: BackendScreenplayScene) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayBeat(
-                projectId: project.id,
-                beat: BackendScreenplayBeatDraft(
-                    id: beat.id,
-                    label: beat.label,
-                    summary: beat.summary ?? "",
-                    sceneId: scene.id,
-                    actId: scene.actId ?? beat.actId,
-                    order: beat.order,
-                    status: beat.status
-                ),
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            if editingBeatID == beat.id {
-                newBeatSceneID = scene.id
-                newBeatActID = (scene.actId ?? beat.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            infoText = "Linked \(beat.label) to \(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func promoteBeatToSceneGoal(_ beat: BackendScreenplayBeat, scene: BackendScreenplayScene) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-
-        let nextObjectiveSource = (beat.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? beat.label
-            : beat.summary ?? beat.label
-        let nextObjective = nextObjectiveSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !nextObjective.isEmpty else {
-            errorText = "That beat needs a label or summary before it can become a scene goal."
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayScene(
-                projectId: project.id,
-                scene: BackendScreenplaySceneDraft(
-                    id: scene.id,
-                    slugline: (scene.slugline ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                    title: scene.title,
-                    objective: nextObjective,
-                    summary: (scene.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                    actId: scene.actId,
-                    order: scene.order,
-                    status: scene.status,
-                    beatIds: scene.beatIds ?? []
-                ),
-                title: project.title,
-                phase: project.lastPhase
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            }
-            infoText = "Promoted \(beat.label) into the goal for \(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    @discardableResult
-    func applyDevelopmentReplyToOutline(prompt: String, reply: String) async -> Bool {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return false
-        }
-
-        let parsed = Self.parseDevelopmentOutline(prompt: prompt, reply: reply)
-        guard !parsed.actTitles.isEmpty || !parsed.beats.isEmpty else {
-            errorText = "Ask io.them for a beat sheet or outline, then try Apply to Outline again."
-            return false
-        }
-
-        let mergedActsResult = Self.mergeImportedActs(
-            existing: outline.acts,
-            parsedActTitles: parsed.actTitles,
-            parsedBeatCount: parsed.beats.count
-        )
-        let mergedBeats = Self.mergeImportedBeats(
-            existing: outline.beats,
-            parsedBeats: parsed.beats,
-            actIdByTitle: mergedActsResult.actIdByTitle
-        )
-
-        let addedActCount = max(0, mergedActsResult.acts.count - outline.acts.count)
-        let addedBeatCount = max(0, mergedBeats.count - outline.beats.count)
-        guard addedActCount > 0 || addedBeatCount > 0 else {
-            infoText = "Outline already reflects that development note."
-            return false
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: project.id,
-                acts: mergedActsResult.acts,
-                scenes: outline.scenes,
-                beats: mergedBeats,
-                merge: true,
-                title: project.title
-            )
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            if let nextOutline = result.payload.outline {
-                outline = nextOutline
-            } else {
-                outline = BackendScreenplayOutline(
-                    updatedAt: Date().timeIntervalSince1970 * 1000,
-                    actCount: mergedActsResult.acts.count,
-                    sceneCount: outline.scenes.count,
-                    beatCount: mergedBeats.count,
-                    acts: mergedActsResult.acts,
-                    scenes: outline.scenes,
-                    beats: mergedBeats
-                )
-            }
-
-            var parts: [String] = []
-            if addedActCount > 0 {
-                parts.append("\(addedActCount) act\(addedActCount == 1 ? "" : "s")")
-            }
-            if addedBeatCount > 0 {
-                parts.append("\(addedBeatCount) beat\(addedBeatCount == 1 ? "" : "s")")
-            }
-            infoText = "Applied to Outline: " + parts.joined(separator: " and ") + "."
-            return true
-        } catch {
-            errorText = error.localizedDescription
-            return false
-        }
-    }
-
-    private struct ParsedDevelopmentOutline {
-        struct BeatDraft {
-            let label: String
-            let summary: String
-            let actTitle: String?
-        }
-
-        let actTitles: [String]
-        let beats: [BeatDraft]
-    }
-
-    private struct MergedActsResult {
-        let acts: [BackendScreenplayAct]
-        let actIdByTitle: [String: String]
-    }
-
-    private static func parseDevelopmentOutline(prompt: String, reply: String) -> ParsedDevelopmentOutline {
-        let cleanReply = normalizedOutlineImportText(reply)
-        guard !cleanReply.isEmpty else {
-            return ParsedDevelopmentOutline(actTitles: [], beats: [])
-        }
-
-        let promptHint = prompt.lowercased()
-        let rawLines = cleanReply
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        var actTitles: [String] = []
-        var parsedBeats: [ParsedDevelopmentOutline.BeatDraft] = []
-        var currentActTitle: String? = nil
-        var isInsideBeatsSection = false
-
-        for rawLine in rawLines {
-            if let actTitle = normalizedActTitle(from: rawLine) {
-                currentActTitle = actTitle
-                if !actTitles.contains(actTitle) {
-                    actTitles.append(actTitle)
-                }
-                continue
-            }
-
-            if isOutlineSectionHeader(rawLine) {
-                isInsideBeatsSection = true
-                continue
-            }
-
-            let stripped = strippedOutlineListPrefix(rawLine)
-            guard !stripped.isEmpty else { continue }
-
-            let isStructuredBeat = isInsideBeatsSection
-                || rawLine != stripped
-                || stripped.contains(":")
-            guard isStructuredBeat else { continue }
-            guard !isLikelyStandaloneHeading(stripped) else { continue }
-
-            let labelSummary = beatLabelAndSummary(for: stripped, index: parsedBeats.count)
-            parsedBeats.append(
-                ParsedDevelopmentOutline.BeatDraft(
-                    label: labelSummary.label,
-                    summary: labelSummary.summary,
-                    actTitle: currentActTitle
-                )
-            )
-        }
-
-        if parsedBeats.isEmpty {
-            let fallbackSentences = developmentImportSentences(from: cleanReply)
-            let wantsOutlineShape = promptHint.contains("outline")
-                || promptHint.contains("beat sheet")
-                || promptHint.contains("beat-sheet")
-                || promptHint.contains("story beats")
-                || promptHint.contains("synopsis")
-            let limitedSentences = Array(fallbackSentences.prefix(wantsOutlineShape ? 5 : 4))
-            parsedBeats = limitedSentences.enumerated().map { index, sentence in
-                ParsedDevelopmentOutline.BeatDraft(
-                    label: fallbackBeatLabel(index: index, total: limitedSentences.count),
-                    summary: sentence,
-                    actTitle: defaultActTitle(for: index, total: limitedSentences.count)
-                )
-            }
-        }
-
-        if actTitles.isEmpty, parsedBeats.count >= 4 {
-            actTitles = ["Act I", "Act II", "Act III"]
-            parsedBeats = parsedBeats.enumerated().map { index, beat in
-                ParsedDevelopmentOutline.BeatDraft(
-                    label: beat.label,
-                    summary: beat.summary,
-                    actTitle: beat.actTitle ?? defaultActTitle(for: index, total: parsedBeats.count)
-                )
-            }
-        }
-
-        return ParsedDevelopmentOutline(
-            actTitles: actTitles,
-            beats: parsedBeats
-        )
-    }
-
-    private static func mergeImportedActs(
-        existing: [BackendScreenplayAct],
-        parsedActTitles: [String],
-        parsedBeatCount: Int
-    ) -> MergedActsResult {
-        var acts = existing
-        let desiredTitles = parsedActTitles.isEmpty && parsedBeatCount >= 4
-            ? ["Act I", "Act II", "Act III"]
-            : parsedActTitles
-
-        var actIdByTitle = Dictionary(
-            uniqueKeysWithValues: acts.map {
-                (normalizedOutlineKey($0.title), $0.id)
-            }
-        )
-
-        for (index, title) in desiredTitles.enumerated() {
-            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = normalizedOutlineKey(cleanTitle)
-            guard !cleanTitle.isEmpty, actIdByTitle[key] == nil else { continue }
-            let nextAct = BackendScreenplayAct(
-                id: "act-\(UUID().uuidString.lowercased())",
-                title: cleanTitle,
-                summary: nil,
-                order: (acts.last?.order ?? (acts.count - 1)) + max(1, index + 1),
-                sceneIds: nil,
-                createdAt: nil,
-                updatedAt: nil
-            )
-            acts.append(nextAct)
-            actIdByTitle[key] = nextAct.id
-        }
-
-        return MergedActsResult(acts: acts, actIdByTitle: actIdByTitle)
-    }
-
-    private static func mergeImportedBeats(
-        existing: [BackendScreenplayBeat],
-        parsedBeats: [ParsedDevelopmentOutline.BeatDraft],
-        actIdByTitle: [String: String]
-    ) -> [BackendScreenplayBeat] {
-        var beats = existing
-        var seenKeys = Set(existing.map {
-            normalizedOutlineKey($0.label) + "|" + normalizedOutlineKey($0.summary ?? "")
-        })
-        var nextOrder = (existing.compactMap(\.order).max() ?? (existing.count - 1)) + 1
-
-        for beat in parsedBeats {
-            let label = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let summary = beat.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !label.isEmpty || !summary.isEmpty else { continue }
-
-            let key = normalizedOutlineKey(label) + "|" + normalizedOutlineKey(summary)
-            guard !seenKeys.contains(key) else { continue }
-
-            let actId = beat.actTitle.flatMap { actIdByTitle[normalizedOutlineKey($0)] }
-            beats.append(
-                BackendScreenplayBeat(
-                    id: "beat-\(UUID().uuidString.lowercased())",
-                    label: label.isEmpty ? "Beat \(nextOrder + 1)" : label,
-                    summary: summary.isEmpty ? nil : summary,
-                    sceneId: nil,
-                    actId: actId,
-                    order: nextOrder,
-                    status: nil,
-                    createdAt: nil,
-                    updatedAt: nil
-                )
-            )
-            seenKeys.insert(key)
-            nextOrder += 1
-        }
-
-        return beats
-    }
-
-    private static func normalizedOutlineImportText(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func normalizedOutlineKey(_ text: String) -> String {
-        text
-            .lowercased()
-            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func normalizedActTitle(from line: String) -> String? {
-        let lower = line.lowercased()
-        let mapping: [(String, String)] = [
-            ("act i", "Act I"),
-            ("act 1", "Act I"),
-            ("act one", "Act I"),
-            ("act ii", "Act II"),
-            ("act 2", "Act II"),
-            ("act two", "Act II"),
-            ("act iii", "Act III"),
-            ("act 3", "Act III"),
-            ("act three", "Act III")
-        ]
-        return mapping.first(where: { lower.hasPrefix($0.0) })?.1
-    }
-
-    private static func isOutlineSectionHeader(_ line: String) -> Bool {
-        let clean = normalizedOutlineKey(line)
-        return clean == "beats"
-            || clean == "beat sheet"
-            || clean == "outline"
-            || clean == "story beats"
-            || clean == "story spine"
-    }
-
-    private static func strippedOutlineListPrefix(_ line: String) -> String {
-        line
-            .replacingOccurrences(of: #"^\s*(?:[-*•]+|\d+[.)])\s*"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func isLikelyStandaloneHeading(_ line: String) -> Bool {
-        let clean = normalizedOutlineKey(line)
-        guard !clean.isEmpty else { return true }
-        let headingSignals = [
-            "story engine",
-            "synopsis",
-            "theme",
-            "hook",
-            "premise",
-            "why it works",
-            "development moves"
-        ]
-        if headingSignals.contains(clean) {
-            return true
-        }
-        return clean.split(separator: " ").count <= 2 && !line.contains(":")
-    }
-
-    private static func beatLabelAndSummary(for line: String, index: Int) -> (label: String, summary: String) {
-        let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = clean.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-        if parts.count == 2 {
-            let candidateLabel = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let candidateSummary = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if candidateLabel.split(separator: " ").count <= 5 && !candidateSummary.isEmpty {
-                return (titleCaseLabel(candidateLabel), candidateSummary)
-            }
-        }
-        return (fallbackBeatLabel(index: index, total: 6), clean)
-    }
-
-    private static func developmentImportSentences(from text: String) -> [String] {
-        let sanitized = text
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: #"(?i)\b(story engine|synopsis|development moves|beats|outline):"#, with: "", options: .regularExpression)
-        let pieces = sanitized.components(separatedBy: .punctuationCharacters)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { $0.split(separator: " ").count >= 4 }
-        return pieces
-    }
-
-    private static func fallbackBeatLabel(index: Int, total: Int) -> String {
-        let defaultLabels = total >= 5
-            ? ["Setup", "Complication", "Pressure", "Break", "Aftermath"]
-            : ["Setup", "Pressure", "Turn", "Aftermath"]
-        if index < defaultLabels.count {
-            return defaultLabels[index]
-        }
-        return "Beat \(index + 1)"
-    }
-
-    private static func defaultActTitle(for index: Int, total: Int) -> String? {
-        guard total >= 4 else { return nil }
-        if index <= 1 { return "Act I" }
-        if index >= total - 1 { return "Act III" }
-        return "Act II"
-    }
-
-    private static func titleCaseLabel(_ text: String) -> String {
-        text
-            .split(separator: " ")
-            .map { part in
-                let lower = part.lowercased()
-                return lower.prefix(1).uppercased() + lower.dropFirst()
-            }
-            .joined(separator: " ")
-    }
-
-    func refreshCollaborationData() async {
-        let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        await loadCollaborators(projectId: id)
-        await loadComments(projectId: id)
-    }
-
-    func approveCollaborator() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let email = collaboratorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !email.isEmpty else {
-            errorText = "Enter a collaborator email."
-            return
-        }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayCollaborator(
-                projectId: project.id,
-                email: email,
-                action: "approve",
-                note: collaboratorNote,
-                invitedBy: collaboratorInvitedBy
-            )
-            applyCollaboratorsPayload(result.payload)
-            collaboratorEmail = ""
-            collaboratorNote = ""
-            collaboratorInvitedBy = ""
-            infoText = "Collaborator approved."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func revokeCollaborator(email: String) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedEmail.isEmpty else { return }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayCollaborator(
-                projectId: project.id,
-                email: normalizedEmail,
-                action: "revoke"
-            )
-            applyCollaboratorsPayload(result.payload)
-            infoText = "Collaborator removed."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func addComment() async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let text = commentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let voiceURL = commentVoiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let voiceTranscript = commentVoiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !voiceURL.isEmpty || !voiceTranscript.isEmpty else {
-            errorText = "Add comment text or voice note details."
-            return
-        }
-        let anchorLine = Int(commentAnchorLine.trimmingCharacters(in: .whitespacesAndNewlines))
-        let durationMs = Int(commentVoiceDurationMs.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        let authorEmail = resolvedCommentAuthorEmail()
-        let actorEmail = resolvedCommentActorEmail()
-
-        if !approvedEmails.isEmpty && authorEmail.isEmpty {
-            errorText = "Use an approved author email for comments."
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: text,
-                authorEmail: authorEmail,
-                authorName: commentAuthorName,
-                anchorLine: anchorLine,
-                versionId: latestVersionID,
-                voiceURL: voiceURL,
-                voiceTranscript: voiceTranscript,
-                voiceDurationMs: durationMs,
-                type: normalizedCommentType(),
-                action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
-                commentId: commentEditID,
-                parentCommentId: commentReplyToID,
-                actorEmail: actorEmail
-            )
-            applyCommentsPayload(result.payload)
-            clearCommentComposer()
-            infoText = "Comment saved."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func deleteComment(_ comment: BackendScreenplayComment) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let actorEmail = resolvedCommentActorEmail()
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: "",
-                authorEmail: comment.authorEmail ?? "",
-                authorName: comment.authorName ?? "",
-                anchorLine: comment.anchorLine,
-                versionId: comment.versionId ?? latestVersionID,
-                voiceURL: "",
-                voiceTranscript: "",
-                voiceDurationMs: 0,
-                type: comment.type ?? "text",
-                action: "delete",
-                commentId: id,
-                parentCommentId: comment.parentCommentId ?? "",
-                actorEmail: actorEmail
-            )
-            applyCommentsPayload(result.payload)
-            if commentEditID == id {
-                clearCommentComposer()
-            }
-            infoText = "Comment removed."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func setCommentResolved(_ comment: BackendScreenplayComment, resolved: Bool) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        isSaving = true
-        defer { isSaving = false }
-        errorText = ""
-        do {
-            let actorEmail = resolvedCommentActorEmail()
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: "",
-                authorEmail: comment.authorEmail ?? "",
-                authorName: comment.authorName ?? "",
-                anchorLine: comment.anchorLine,
-                versionId: comment.versionId ?? latestVersionID,
-                voiceURL: "",
-                voiceTranscript: "",
-                voiceDurationMs: 0,
-                type: comment.type ?? "text",
-                action: resolved ? "resolve" : "unresolve",
-                commentId: id,
-                parentCommentId: comment.parentCommentId ?? "",
-                actorEmail: actorEmail
-            )
-            applyCommentsPayload(result.payload)
-            infoText = resolved ? "Comment resolved." : "Comment reopened."
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
-
-    func startReply(to comment: BackendScreenplayComment) {
-        commentEditID = ""
-        commentReplyToID = comment.id
-        commentType = "text"
-        commentText = ""
-        let actor = resolvedCommentActorEmail()
-        if commentAuthorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentAuthorEmail = actor
-        }
-        infoText = "Replying to \(comment.id)."
-    }
-
-    func startEdit(_ comment: BackendScreenplayComment) {
-        commentEditID = comment.id
-        commentReplyToID = comment.parentCommentId ?? ""
-        commentType = (comment.type ?? "text").lowercased() == "voice" ? "voice" : "text"
-        commentText = comment.text ?? ""
-        commentAuthorEmail = comment.authorEmail ?? commentAuthorEmail
-        commentAuthorName = comment.authorName ?? commentAuthorName
-        commentAnchorLine = comment.anchorLine.map(String.init) ?? ""
-        commentVoiceURL = comment.voiceUrl ?? ""
-        commentVoiceTranscript = comment.voiceTranscript ?? ""
-        if let ms = comment.voiceDurationMs, ms > 0 {
-            commentVoiceDurationMs = String(ms)
-        } else {
-            commentVoiceDurationMs = ""
-        }
-        infoText = "Editing comment \(comment.id)."
-    }
-
-    func clearCommentComposer() {
-        commentText = ""
-        commentAnchorLine = ""
-        commentVoiceURL = ""
-        commentVoiceTranscript = ""
-        commentVoiceDurationMs = ""
-        commentType = "text"
-        commentReplyToID = ""
-        commentEditID = ""
-    }
-
-    func preloadVoiceComment(from latestVoiceTurn: String) {
-        let cleaned = latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return }
-        commentType = "voice"
-        if commentVoiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentVoiceTranscript = cleaned
-        }
-        if commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentText = "Voice note"
-        }
-        infoText = "Latest voice turn loaded into voice comment."
-    }
-
-    func manualSaveDraft() async {
-        await saveCurrentDraft(source: "studio_manual")
-    }
-
-    func createRevisionSnapshot() async {
-        let label = snapshotLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let note = label.isEmpty ? "Snapshot" : label
-        await saveCurrentDraft(source: "studio_snapshot", notes: note)
-        snapshotLabel = ""
-    }
-
-    func loadSnapshot(_ version: BackendScreenplayVersion) {
-        let snapshotDraft = (version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !snapshotDraft.isEmpty else {
-            errorText = "Snapshot draft is empty."
-            return
-        }
-        isHydratingDraft = true
-        fountainDraft = snapshotDraft
-        isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: snapshotDraft) != lastSavedDraftFingerprint
-        autosaveStatusText = "Snapshot loaded (unsaved)"
-        infoText = "Snapshot loaded. Save to publish."
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: snapshotDraft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
-    }
-
-    func restoreDraftFromRecovery() {
-        guard let candidate = recoveryCandidate else { return }
-        isHydratingDraft = true
-        fountainDraft = candidate.draft
-        isHydratingDraft = false
-        if !candidate.baseVersionId.isEmpty {
-            latestVersionID = candidate.baseVersionId
-        }
-        syncLiveDraftBridgeProjectContext()
-        hasUnsavedDraftChanges = fingerprint(for: candidate.draft) != lastSavedDraftFingerprint
-        autosaveStatusText = "Recovered local draft"
-        infoText = "Recovered your local unsaved draft."
-        recoveryCandidate = nil
-        persistLocalDraftRecovery(
-            projectId: candidate.projectId,
-            draft: candidate.draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
-    }
-
-    func keepServerDraft() {
-        guard let projectId = recoveryCandidate?.projectId else { return }
-        recoveryCandidate = nil
-        clearLocalDraftRecovery(projectId: projectId)
-        autosaveStatusText = "Using server draft"
-        infoText = "Using latest server draft."
-    }
-
-    func applyServerVersionFromConflict() {
-        guard let conflict = conflictState else { return }
-        if !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            applyServerDraft(
-                conflict.serverDraft,
-                versionId: conflict.serverVersionId,
-                allowOverwriteDirtyLocalDraft: true
-            )
-        } else {
-            Task { await loadSelectedProjectOutline() }
-        }
-        clearLocalDraftRecovery(projectId: conflict.projectId)
-        conflictState = nil
-        infoText = "Loaded latest server draft."
-    }
-
-    func keepLocalDraftAfterConflict() async {
-        guard let conflict = conflictState else { return }
-        conflictState = nil
-        await saveCurrentDraft(
-            source: "studio_conflict_resolve",
-            notes: "Conflict resolved: keep local",
-            baseVersionOverride: conflict.serverVersionId
-        )
-    }
-
-    func clearDraft() {
-        fountainDraft = ""
-        hasUnsavedDraftChanges = false
-        isManualDraftEditing = false
-        lastManualDraftEditAt = .distantPast
-        autosaveStatusText = "Draft cleared"
-        paginationPages = []
-        revisionSummary = nil
-        revisionRanges = []
-        formatLintReport = nil
-        formatLintErrorText = ""
-        formatLintSourceText = ""
-        conflictState = nil
-        if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
-        }
-    }
-
-    func normalizeDraftToHollywoodFormat() {
-        let cleanDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDraft.isEmpty else {
-            errorText = "Draft is empty."
-            return
-        }
-
-        let normalized = FountainFormatter.normalizeHollywoodDraft(cleanDraft)
-        guard !normalized.isEmpty else {
-            errorText = "Could not normalize this draft."
-            return
-        }
-
-        if normalized == cleanDraft {
-            infoText = "Draft already matches the simple Hollywood format."
-            return
-        }
-
-        isHydratingDraft = true
-        fountainDraft = normalized
-        isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
-        autosaveStatusText = "Normalized format"
-        infoText = "Draft normalized to the simple Hollywood format."
-
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: normalized,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
-        Task { await refreshDraftInsights() }
-    }
-
-    func importExternalDraft(_ importedDraft: String, sourceName: String, appendToExisting: Bool) {
-        let cleanImport = importedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanImport.isEmpty else {
-            errorText = "That file did not contain readable screenplay text."
-            return
-        }
-
-        let normalizedImport = FountainFormatter.normalizeHollywoodDraft(cleanImport)
-        let importBlock = normalizedImport.isEmpty ? cleanImport : normalizedImport
-
-        errorText = ""
-        conflictState = nil
-        let existingDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldAppend = appendToExisting && !existingDraft.isEmpty
-        let nextDraft = shouldAppend
-            ? existingDraft + "\n\n" + importBlock
-            : importBlock
-
-        isHydratingDraft = true
-        fountainDraft = nextDraft
-        isHydratingDraft = false
-        hasUnsavedDraftChanges = fingerprint(for: nextDraft) != lastSavedDraftFingerprint
-        autosaveStatusText = "Imported draft"
-        infoText = shouldAppend
-            ? "Imported \(sourceName) and appended it to the current draft. Clear the draft first if you want a clean replacement."
-            : "Imported \(sourceName) into the draft."
-
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: nextDraft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
-        Task { await refreshDraftInsights() }
-    }
-
-    func refreshDraftInsights() async {
-        await recomputePagination(for: fountainDraft)
-        await recomputeRevision(for: fountainDraft)
-        await refreshFormatLint(source: "Draft")
-    }
-
-    func refreshRevisionColor() async {
-        await recomputeRevision(for: fountainDraft)
-    }
-
-    func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
-        craftReport = nil
-        craftErrorText = ""
-        craftInfoText = ""
-        craftLogline = nil
-        craftLoglineDrift = nil
-        craftLoglineHistory = []
-        craftLoglineErrorText = ""
-        craftLoglineInfoText = ""
-        craftTwists = nil
-        craftTwistErrorText = ""
-        craftTwistInfoText = ""
-        craftTwistBeatLabel = ""
-        acceptedCraftTwists = []
-        acceptedCraftTwistErrorText = ""
-        acceptedCraftTwistInfoText = ""
-        if clearFrameworks {
-            craftFrameworks = []
-            selectedCraftFrameworkID = ""
-        }
-    }
-
-    func noteCraftFrameworkSelectionChanged() {
-        let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let report = craftReport, !cleanSelected.isEmpty, report.framework.id != cleanSelected else { return }
-        craftReport = nil
-        craftInfoText = "Analyze with the selected framework to update the beat sheet."
-    }
-
-    func loadCraftReport(force: Bool = false) async {
-        guard !isCraftLoading else { return }
-        guard let project = selectedProject else {
-            craftReport = nil
-            craftErrorText = ""
-            craftInfoText = "Select a screenplay project to see craft analysis."
-            return
-        }
-        if !force, craftReport?.projectId == project.id {
-            return
-        }
-
-        isCraftLoading = true
-        defer { isCraftLoading = false }
-        craftErrorText = ""
-        do {
-            try await ensureCraftFrameworksLoaded()
-            let report = try await craftClient.fetchCraftReport(
-                projectId: project.id,
-                versionId: activeCraftVersionID
-            )
-            craftReport = report
-            if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                selectedCraftFrameworkID = report.framework.id
-            }
-            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
-            craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft report loaded."
-        } catch BackendError.http(let status, _) where status == 404 {
-            craftReport = nil
-            craftInfoText = "No craft report exists for this screenplay version yet."
-        } catch {
-            craftReport = nil
-            craftErrorText = error.localizedDescription
-        }
-    }
-
-    func analyzeCraftReport() async {
-        guard !isCraftAnalyzing else { return }
-        guard let project = selectedProject else {
-            craftReport = nil
-            craftErrorText = ""
-            craftInfoText = "Select a screenplay project before running craft analysis."
-            return
-        }
-
-        isCraftAnalyzing = true
-        defer { isCraftAnalyzing = false }
-        craftErrorText = ""
-        do {
-            try await ensureCraftFrameworksLoaded()
-            let report = try await craftClient.analyzeCraft(
-                projectId: project.id,
-                versionId: activeCraftVersionID,
-                frameworkId: normalizedOrNil(selectedCraftFrameworkID),
-                screenplay: craftAnalysisScreenplay(for: project)
-            )
-            craftReport = report
-            selectedCraftFrameworkID = report.framework.id
-            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
-            craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
-        } catch {
-            craftErrorText = error.localizedDescription
-        }
-    }
-
-    func createCraftTurnOverride(_ override: ScreenplayCraftTurnOverrideMutation) async {
-        guard !isCraftOverrideSaving else { return }
-
-        isCraftOverrideSaving = true
-        defer { isCraftOverrideSaving = false }
-        craftErrorText = ""
-        do {
-            let stored = try await craftClient.recordCraftTurnOverride(override)
-            craftInfoText = "Override saved for \(stored.turnId). Run Analyze to rebuild craft coverage."
-        } catch {
-            craftErrorText = error.localizedDescription
-        }
-    }
-
-    func refreshFormatLint(source: String = "Draft") async {
-        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else {
-            formatLintReport = nil
-            formatLintErrorText = ""
-            formatLintSourceText = ""
-            return
-        }
-        guard !isFormatLinting else { return }
-
-        isFormatLinting = true
-        defer { isFormatLinting = false }
-        formatLintErrorText = ""
-        do {
-            let report = try await craftClient.lintCraftFormat(
-                text: draft,
-                frameworkId: normalizedOrNil(selectedCraftFrameworkID)
-            )
-            guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            formatLintReport = report
-            formatLintSourceText = source
-        } catch BackendError.http(400, _) {
-            formatLintReport = nil
-            formatLintErrorText = "Draft is empty."
-            formatLintSourceText = source
-        } catch {
-            formatLintReport = nil
-            formatLintErrorText = error.localizedDescription
-            formatLintSourceText = source
-        }
-    }
-
-    func refreshCraftLogline(source: String = "Draft") async {
-        guard let project = selectedProject else {
-            craftLogline = nil
-            craftLoglineDrift = nil
-            craftLoglineHistory = []
-            craftLoglineErrorText = ""
-            craftLoglineInfoText = "Select a screenplay project to track a logline."
-            return
-        }
-        guard !isCraftLoglineLoading else { return }
-
-        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else {
-            craftLogline = nil
-            craftLoglineDrift = nil
-            craftLoglineErrorText = ""
-            craftLoglineInfoText = "Draft text is empty."
-            await loadCraftLoglineHistoryOnly(projectId: project.id)
-            return
-        }
-
-        isCraftLoglineLoading = true
-        defer { isCraftLoglineLoading = false }
-        craftLoglineErrorText = ""
-        do {
-            let versionId = activeCraftVersionID
-            let frameworkId = normalizedOrNil(selectedCraftFrameworkID)
-            let response = try await craftClient.distillCraftLogline(
-                text: draft,
-                projectId: project.id,
-                versionId: versionId,
-                frameworkId: frameworkId
-            )
-            let drift = try? await craftClient.fetchCraftLoglineDrift(
-                projectId: project.id,
-                currentLogline: response.logline
-            )
-            let history = try? await craftClient.fetchCraftLoglineHistory(projectId: project.id)
-            guard selectedProject?.id == project.id else { return }
-            guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            craftLogline = response
-            craftLoglineDrift = drift
-            craftLoglineHistory = history?.entries ?? craftLoglineHistory
-            craftLoglineInfoText = source
-        } catch BackendError.http(400, _) {
-            craftLogline = nil
-            craftLoglineErrorText = "Draft text is required before distilling a logline."
-            craftLoglineInfoText = source
-        } catch {
-            craftLogline = nil
-            craftLoglineErrorText = error.localizedDescription
-            craftLoglineInfoText = source
-        }
-    }
-
-    private func loadCraftLoglineHistoryOnly(projectId: String) async {
-        do {
-            let history = try await craftClient.fetchCraftLoglineHistory(projectId: projectId)
-            guard selectedProject?.id == projectId else { return }
-            craftLoglineHistory = history.entries
-        } catch {
-            craftLoglineHistory = []
-        }
-    }
-
-    func refreshBlockSignal(source: String = "io.them") async {
-        guard !IOThemRuntime.isRunningTests else { return }
-        guard !isBlockSignalLoading else { return }
-        isBlockSignalLoading = true
-        defer { isBlockSignalLoading = false }
-        do {
-            let response = try await craftClient.fetchMemoryBlockSignal()
-            blockSignal = response
-            blockSignalErrorText = ""
-            blockSignalInfoText = source
-        } catch {
-            blockSignalErrorText = error.localizedDescription
-            blockSignalInfoText = source
-        }
-        if let history = try? await craftClient.fetchMemoryBlockSignalHistory() {
-            blockSignalHistory = history
-        }
-    }
-
-    func refreshCharacterTraits(source: String = "io.them") async {
-        guard !IOThemRuntime.isRunningTests else { return }
-        guard !isCharacterTraitsLoading else { return }
-        isCharacterTraitsLoading = true
-        defer { isCharacterTraitsLoading = false }
-        do {
-            let response = try await craftClient.fetchMemoryCharacterTraits()
-            characterTraits = response
-            characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()
-            characterTraitsErrorText = ""
-            characterTraitsInfoText = source
-        } catch {
-            characterTraitsErrorText = error.localizedDescription
-            characterTraitsInfoText = source
-        }
-    }
-
-    func refreshCraftTwists(source: String = "io.them") async {
-        guard !IOThemRuntime.isRunningTests else { return }
-        guard !isCraftTwistLoading else { return }
-        let context = preferredCraftTwistContext()
-        isCraftTwistLoading = true
-        defer { isCraftTwistLoading = false }
-        craftTwistBeatLabel = context.beatLabel
-        do {
-            let response = try await craftClient.suggestCraftTwists(
-                frameworkId: context.frameworkId,
-                currentBeatId: context.beatId,
-                sceneSummary: context.sceneSummary,
-                count: 3
-            )
-            craftTwists = response
-            craftTwistErrorText = ""
-            craftTwistInfoText = source
-        } catch {
-            craftTwistErrorText = error.localizedDescription
-            craftTwistInfoText = source
-        }
-    }
-
-    func refreshAcceptedCraftTwists(source: String = "io.them") async {
-        guard !IOThemRuntime.isRunningTests else { return }
-        guard let project = selectedProject else {
-            acceptedCraftTwists = []
-            acceptedCraftTwistErrorText = ""
-            acceptedCraftTwistInfoText = "Select a screenplay project to track kept reversals."
-            return
-        }
-        await loadAcceptedCraftTwists(projectId: project.id, source: source)
-    }
-
-    private func loadAcceptedCraftTwists(projectId: String, source: String) async {
-        do {
-            let response = try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
-            guard selectedProject?.id == projectId else { return }
-            acceptedCraftTwists = response.entries
-            acceptedCraftTwistErrorText = ""
-            acceptedCraftTwistInfoText = source
-        } catch {
-            acceptedCraftTwistErrorText = error.localizedDescription
-            acceptedCraftTwistInfoText = source
-        }
-    }
-
-    func acceptCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
-        guard !isAcceptedCraftTwistMutating else { return }
-        guard let project = selectedProject else {
-            acceptedCraftTwistErrorText = "Select a screenplay project before keeping a reversal."
-            return
-        }
-
-        isAcceptedCraftTwistMutating = true
-        defer { isAcceptedCraftTwistMutating = false }
-        acceptedCraftTwistErrorText = ""
-        let context = preferredCraftTwistContext()
-        do {
-            let response = try await craftClient.recordAcceptedCraftTwist(
-                projectId: project.id,
-                versionId: activeCraftVersionID,
-                frameworkId: craftTwists?.frameworkId ?? context.frameworkId,
-                beatId: craftTwists?.currentBeatId ?? context.beatId,
-                twist: card.suggestion,
-                sceneId: nil,
-                note: nil
-            )
-            guard selectedProject?.id == project.id else { return }
-            acceptedCraftTwists.removeAll { existing in
-                existing.twist.id == response.entry.twist.id && (existing.versionId ?? "") == (response.entry.versionId ?? "")
-            }
-            acceptedCraftTwists.append(response.entry)
-            acceptedCraftTwistInfoText = "Kept \(card.label) for future draft context."
-        } catch {
-            acceptedCraftTwistErrorText = "Could not keep reversal yet: \(error.localizedDescription)"
-            acceptedCraftTwistInfoText = "Keep action stayed local."
-        }
-    }
-
-    func dismissAcceptedCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
-        guard !isAcceptedCraftTwistMutating else { return }
-        guard let project = selectedProject else {
-            acceptedCraftTwistErrorText = "Select a screenplay project before dismissing a reversal."
-            return
-        }
-
-        isAcceptedCraftTwistMutating = true
-        defer { isAcceptedCraftTwistMutating = false }
-        do {
-            _ = try await craftClient.deleteAcceptedCraftTwist(
-                twistId: card.id,
-                projectId: project.id,
-                versionId: activeCraftVersionID
-            )
-            guard selectedProject?.id == project.id else { return }
-            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
-            acceptedCraftTwistErrorText = ""
-            acceptedCraftTwistInfoText = "Dismissed \(card.label)."
-        } catch {
-            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
-            acceptedCraftTwistErrorText = "Dismiss sync is pending: \(error.localizedDescription)"
-            acceptedCraftTwistInfoText = "Dismissed locally."
-        }
-    }
-
-    private struct CraftTwistContext {
-        let frameworkId: String
-        let beatId: String
-        let beatLabel: String
-        let sceneSummary: String?
-    }
-
-    private func preferredCraftTwistContext() -> CraftTwistContext {
-        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? "save-the-cat"
-        if let report = craftReport {
-            let unsatisfied = report.majorTurns.first { !$0.isSatisfied }
-            let drifting = report.majorTurns.first { abs($0.driftPages ?? 0) >= 4 }
-            let midpoint = report.majorTurns.first { $0.turnId.lowercased().contains("midpoint") }
-            if let turn = unsatisfied ?? drifting ?? midpoint ?? report.majorTurns.first {
-                let sceneSummaryParts: [String?] = [turn.sceneTitle, report.summary]
-                let sceneSummary = sceneSummaryParts
-                    .compactMap { $0 }
-                    .compactMap { normalizedOrNil($0) }
-                    .joined(separator: " | ")
-                return CraftTwistContext(
-                    frameworkId: report.framework.id,
-                    beatId: turn.turnId,
-                    beatLabel: turn.label,
-                    sceneSummary: sceneSummary.isEmpty ? nil : sceneSummary
-                )
-            }
-        }
-        let fallback = Self.fallbackTwistBeat(for: selectedFramework)
-        return CraftTwistContext(
-            frameworkId: selectedFramework,
-            beatId: fallback.id,
-            beatLabel: fallback.label,
-            sceneSummary: normalizedOrNil(fountainDraft).map { String($0.prefix(480)) }
-        )
-    }
-
-    private static func fallbackTwistBeat(for frameworkId: String) -> (id: String, label: String) {
-        switch frameworkId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "three-act": return ("midpoint-twist", "Midpoint Twist")
-        case "story-circle": return ("find", "Find")
-        case "hero-journey": return ("ordeal", "Ordeal")
-        default: return ("midpoint", "Midpoint")
-        }
-    }
-
-    private var activeCraftVersionID: String? {
-        if let direct = normalizedOrNil(latestVersionID) {
-            return direct
-        }
-        if let active = normalizedOrNil(selectedProject?.activeVersionId ?? "") {
-            return active
-        }
-        return normalizedOrNil(selectedProject?.lastVersionId ?? "")
-    }
-
-    private func ensureCraftFrameworksLoaded() async throws {
-        if craftFrameworks.isEmpty {
-            let response = try await craftClient.fetchCraftFrameworks()
-            craftFrameworks = response.frameworks
-        }
-        let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleanSelected.isEmpty || !craftFrameworks.contains(where: { $0.id == cleanSelected }) {
-            selectedCraftFrameworkID = craftFrameworks.first?.id ?? ""
-        }
-    }
-
-    private func craftAnalysisScreenplay(for project: BackendScreenplayProjectSummary) -> ScreenplayCraftAnalysisScreenplay {
-        let orderedScenes = outline.scenes.sorted { lhs, rhs in
-            let lhsOrder = lhs.order ?? Int.max
-            let rhsOrder = rhs.order ?? Int.max
-            if lhsOrder == rhsOrder { return lhs.title < rhs.title }
-            return lhsOrder < rhsOrder
-        }
-        let scenes = orderedScenes.map { scene in
-            let text = [scene.slugline, scene.title, scene.objective, scene.summary]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-            return ScreenplayCraftAnalysisScene(
-                id: scene.id,
-                title: scene.title,
-                pageStart: nil,
-                pageEnd: nil,
-                text: text.isEmpty ? nil : text
-            )
-        }
-        return ScreenplayCraftAnalysisScreenplay(
-            title: project.title,
-            pageCount: craftFallbackPageCount,
-            text: normalizedOrNil(fountainDraft),
-            scenes: scenes
-        )
-    }
-
-    var craftFallbackPageCount: Int {
-        let wordCount = fountainDraft
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-        let wordEstimate = max(1, Int((Double(wordCount) / 180.0).rounded()))
-        return max(max(1, paginationPages.count), wordEstimate)
-    }
-
-    func exportArtifact(format: String) async throws -> BackendScreenplayExportArtifact {
-        guard let project = selectedProject else {
-            throw BackendMemoryAPIError.server(status: 400, message: "Select a project first.")
-        }
-        return try await BackendMemoryAPI.shared.exportScreenplayDraft(
-            draft: fountainDraft,
-            title: project.title,
-            phase: project.lastPhase ?? "scene_draft",
-            format: format,
-            projectId: project.id,
-            versionId: latestVersionID.isEmpty ? nil : latestVersionID
-        )
-    }
-
-    func refreshScreenplayExportFormats(reportErrors: Bool = true) async {
-        guard !isScreenplayExportFormatsLoading else { return }
-        isScreenplayExportFormatsLoading = true
-        defer { isScreenplayExportFormatsLoading = false }
-        do {
-            let response = try await BackendMemoryAPI.shared.fetchScreenplayExportFormats()
-            screenplayExportFormats = response.formats
-            screenplayExportFormatsErrorText = ""
-        } catch {
-            screenplayExportFormats = []
-            screenplayExportFormatsErrorText = reportErrors ? error.localizedDescription : ""
-        }
-    }
-
-    func refreshScreenplayExportFormatsAutomatically() async {
-        guard ScreenplayExportFormatRefreshPolicy.shouldAutoRefresh(
-            projectListLoadedFromBackend: didLoadScreenplayProjectsFromBackend
-        ) else {
-            return
-        }
-        await refreshScreenplayExportFormats(reportErrors: false)
-    }
-
-    private func loadSelectedProjectOutline() async {
-        let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else {
-            selectedProject = nil
-            outline = .empty
-            resetCraftReportForProjectChange()
-            applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
-            collaborators = []
-            approvedEmails = []
-            comments = []
-            recoveryCandidate = nil
-            conflictState = nil
-            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
-            return
-        }
-        do {
-            let outlineResult = try await BackendMemoryAPI.shared.fetchScreenplayOutline(
-                projectId: id,
-                includeProject: true
-            )
-            let detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
-                projectId: id,
-                includeDrafts: true,
-                versionLimit: 24
-            )
-            if let project = detailResult.payload.project {
-                selectedProject = project
-                selectedProjectID = project.id
-                upsertProject(project)
-                hydrateDraft(from: project)
-                hydrateCollaboration(from: project)
-            } else if let project = outlineResult.payload.project {
-                selectedProject = project
-                selectedProjectID = project.id
-                upsertProject(project)
-                hydrateDraft(from: project)
-                hydrateCollaboration(from: project)
-            } else {
-                selectedProject = projects.first(where: { $0.id == id })
-            }
-            outline = outlineResult.payload.outline ?? .empty
-            await refreshCollaborationData()
-            errorText = ""
-            syncLiveDraftBridgeProjectContext()
-        } catch {
-            selectedProject = projects.first(where: { $0.id == id })
-            outline = .empty
-            errorText = error.localizedDescription
-            syncLiveDraftBridgeProjectContext()
-        }
-    }
-
-    private func normalizedOrNil(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func upsertProject(_ project: BackendScreenplayProjectSummary) {
-        if let index = projects.firstIndex(where: { $0.id == project.id }) {
-            projects[index] = project
-        } else {
-            projects.insert(project, at: 0)
-        }
-        projects.sort { lhs, rhs in
-            (lhs.updatedAt ?? 0) > (rhs.updatedAt ?? 0)
-        }
-    }
-
-    func applyProjectMetadataUpdate(_ project: BackendScreenplayProjectSummary) {
-        upsertProject(project)
-        if selectedProjectID == project.id {
-            selectedProject = project
-        }
-    }
-
-    private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
-        let versions = (project.versions ?? []).sorted { lhs, rhs in
-            (lhs.updatedAt ?? lhs.createdAt ?? 0) > (rhs.updatedAt ?? rhs.createdAt ?? 0)
-        }
-        let preferredVersionId = (project.activeVersionId ?? project.lastVersionId ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedVersion = versions.first(where: { $0.id == preferredVersionId }) ?? versions.first
-        let nextDraft = (selectedVersion?.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
-            !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
-        }
-        screenplayBindings = selectedVersion?.screenplayBindings ?? []
-        applyServerDraft(nextDraft, versionId: selectedVersion?.id ?? "")
-    }
-
-    private func applyServerDraft(
-        _ draft: String,
-        versionId: String,
-        allowOverwriteDirtyLocalDraft: Bool = false
-    ) {
-        let normalizedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedServerDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localFingerprint = fingerprint(for: normalizedLocalDraft)
-        let serverFingerprint = fingerprint(for: normalizedServerDraft)
-        let isSameLoadedProject = !normalizedProjectID.isEmpty && normalizedProjectID == loadedDraftProjectID
-        let localEditsNeedProtection =
-            !allowOverwriteDirtyLocalDraft &&
-            isSameLoadedProject &&
-            !normalizedLocalDraft.isEmpty &&
-            localFingerprint != serverFingerprint &&
-            (
-                hasUnsavedDraftChanges ||
-                (isManualDraftEditing && Date().timeIntervalSince(lastManualDraftEditAt) < 120)
-            )
-
-        if localEditsNeedProtection {
-            autosaveStatusText = "Unsaved changes"
-            if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                infoText == "Loaded latest draft" {
-                infoText = "Kept your manual edits on the page. Save when you're ready."
-            }
-            conflictState = nil
-            evaluateLocalDraftRecovery(
-                projectId: selectedProjectID,
-                serverDraft: draft,
-                serverVersionId: versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-            return
-        }
-
-        isHydratingDraft = true
-        fountainDraft = draft
-        latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        isHydratingDraft = false
-        loadedDraftProjectID = normalizedProjectID
-        isManualDraftEditing = false
-        lastManualDraftEditAt = .distantPast
-        syncLiveDraftBridgeProjectContext()
-        lastSavedDraftFingerprint = fingerprint(for: draft)
-        lastRevisionBaseDraft = draft
-        hasUnsavedDraftChanges = false
-        autosaveStatusText = draft.isEmpty ? "Ready" : "Loaded latest draft"
-        conflictState = nil
-        evaluateLocalDraftRecovery(
-            projectId: selectedProjectID,
-            serverDraft: draft,
-            serverVersionId: latestVersionID
-        )
-        Task { await refreshDraftInsights() }
-    }
-
-    private func handleDraftDebouncedChange(_ draft: String) async {
-        guard !isHydratingDraft else { return }
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentFingerprint = fingerprint(for: normalized)
-        hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
-
-        await recomputePagination(for: draft)
-        await recomputeRevision(for: draft)
-        Task { await self.refreshFormatLint(source: "Draft") }
-
-        if isStreamingDraftPreviewActive {
-            autosaveStatusText = "Receiving live draft..."
-            return
-        }
-
-        guard !normalized.isEmpty else {
-            autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
-            }
-            return
-        }
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
-        if selectedProject == nil {
-            autosaveStatusText = hasUnsavedDraftChanges ? "Create project to save" : "Live draft"
-            return
-        }
-        guard autosaveEnabled else {
-            autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
-            return
-        }
-        guard hasUnsavedDraftChanges else {
-            isManualDraftEditing = false
-            autosaveStatusText = "Saved"
-            return
-        }
-        await saveCurrentDraft(source: "studio_autosave")
-    }
-
-    private func saveCurrentDraft(
-        source: String,
-        notes: String = "",
-        baseVersionOverride: String? = nil
-    ) async {
-        guard let project = selectedProject else {
-            errorText = "Select a project first."
-            return
-        }
-        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            autosaveStatusText = "Draft empty"
-            return
-        }
-
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                projectId: project.id,
-                draft: fountainDraft,
-                title: project.title,
-                phase: project.lastPhase ?? "scene_draft",
-                notes: notes,
-                source: source,
-                studioWriteAnchors: studioWriteAnchors,
-                screenplayBindings: screenplayBindings,
-                baseVersionId: (baseVersionOverride ?? latestVersionID)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                conflictStrategy: "reject_if_stale"
-            )
-            let conflictDetected = (result.payload.conflict ?? false)
-                || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
-            if conflictDetected {
-                let baseVersionId = (result.payload.baseVersionId ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let serverVersionId = (result.payload.serverVersionId ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                conflictState = SaveConflictState(
-                    projectId: project.id,
-                    baseVersionId: baseVersionId,
-                    serverVersionId: serverVersionId,
-                    serverDraft: result.payload.serverVersion?.draft ?? "",
-                    serverDraftExcerpt: result.payload.serverVersion?.draftExcerpt ?? "",
-                    serverUpdatedAt: result.payload.serverVersion?.updatedAt ?? 0
-                )
-                hasUnsavedDraftChanges = true
-                autosaveStatusText = "Conflict detected"
-                infoText = "Another collaborator updated this draft. Choose keep mine or load server."
-                return
-            }
-            conflictState = nil
-            if let nextProject = result.payload.project {
-                upsertProject(nextProject)
-                selectedProject = nextProject
-                selectedProjectID = nextProject.id
-            }
-            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !nextVersionId.isEmpty {
-                latestVersionID = nextVersionId
-            }
-            if let savedAnchors = result.payload.version?.studioWriteAnchors {
-                studioWriteAnchors = savedAnchors.filter { anchor in
-                    !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
-                }
-            }
-            if let savedBindings = result.payload.version?.screenplayBindings {
-                screenplayBindings = savedBindings
-            }
-            syncLiveDraftBridgeProjectContext()
-            lastSavedDraftFingerprint = fingerprint(for: normalized)
-            lastRevisionBaseDraft = normalized
-            hasUnsavedDraftChanges = false
-            isManualDraftEditing = false
-            lastManualDraftEditAt = .distantPast
-            loadedDraftProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            autosaveStatusText = source == "studio_manual" ? "Saved now" : "Autosaved"
-            if source == "studio_manual" {
-                infoText = "Draft saved."
-            } else if source == "studio_snapshot" {
-                infoText = "Snapshot saved."
-            }
-            if source == "studio_snapshot" || source == "studio_conflict_resolve" {
-                await loadSelectedProjectOutline()
-            }
-            persistLocalDraftRecovery(
-                projectId: project.id,
-                draft: normalized,
-                baseVersionId: latestVersionID,
-                dirty: false
-            )
-            await recomputeRevision(for: fountainDraft)
-            if !errorText.isEmpty {
-                errorText = ""
-            }
-        } catch {
-            autosaveStatusText = "Autosave failed"
-            errorText = error.localizedDescription
-        }
-    }
-
-    private func recomputePagination(for draft: String) async {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            paginationPages = []
-            return
-        }
-        do {
-            let result = try await BackendMemoryAPI.shared.paginateScreenplayDraft(
-                draft: draft,
-                title: selectedProject?.title ?? "",
-                phase: selectedProject?.lastPhase ?? "scene_draft",
-                linesPerPage: linesPerPage
-            )
-            paginationPages = result.payload.pages
-        } catch {
-            if paginationPages.isEmpty {
-                errorText = error.localizedDescription
-            }
-        }
-    }
-
-    private func recomputeRevision(for draft: String) async {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else {
-            revisionSummary = nil
-            revisionRanges = []
-            return
-        }
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayRevisionColors(
-                baseDraft: lastRevisionBaseDraft,
-                draft: draft,
-                revisionColor: revisionColor
-            )
-            revisionSummary = result.payload.summary
-            revisionRanges = result.payload.ranges
-        } catch {
-            if revisionRanges.isEmpty {
-                errorText = error.localizedDescription
-            }
-        }
-    }
-
-    private func loadCollaborators(projectId: String) async {
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayCollaborators(projectId: projectId)
-            applyCollaboratorsPayload(result.payload)
-        } catch {
-            if errorText.isEmpty {
-                errorText = error.localizedDescription
-            }
-        }
-    }
-
-    private func loadComments(projectId: String) async {
-        do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayComments(
-                projectId: projectId,
-                limit: 160,
-                actorEmail: resolvedCommentActorEmail()
-            )
-            applyCommentsPayload(result.payload)
-        } catch {
-            if errorText.isEmpty {
-                errorText = error.localizedDescription
-            }
-        }
-    }
-
-    private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) {
-        if let project = payload.project {
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
-            hydrateCollaboration(from: project)
-            syncLiveDraftBridgeProjectContext()
-        }
-        if !payload.collaborators.isEmpty {
-            collaborators = payload.collaborators.sorted { lhs, rhs in
-                let lhsStatus = lhs.status ?? ""
-                let rhsStatus = rhs.status ?? ""
-                if lhsStatus != rhsStatus { return lhsStatus < rhsStatus }
-                return lhs.email.localizedCaseInsensitiveCompare(rhs.email) == .orderedAscending
-            }
-        }
-        if let emails = payload.approvedEmails {
-            approvedEmails = emails
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-                .sorted()
-        } else {
-            approvedEmails = collaborators
-                .filter { ($0.status ?? "").caseInsensitiveCompare("approved") == .orderedSame }
-                .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-                .sorted()
-        }
-        if commentAuthorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentAuthorEmail = approvedEmails.first ?? commentAuthorEmail
-        }
-        if commentActorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentActorEmail = approvedEmails.first ?? commentActorEmail
-        }
-    }
-
-    private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) {
-        if let project = payload.project {
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
-            hydrateCollaboration(from: project)
-            syncLiveDraftBridgeProjectContext()
-        }
-        comments = payload.comments.sorted { lhs, rhs in
-            let lhsTs = lhs.updatedAt ?? lhs.createdAt ?? 0
-            let rhsTs = rhs.updatedAt ?? rhs.createdAt ?? 0
-            return lhsTs > rhsTs
-        }
-    }
-
-    private func syncLiveDraftBridgeProjectContext(clearWhenEmpty: Bool = false) {
-        let bridge = ScreenplayLiveDraftBridge.shared
-        let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            : selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let versionID = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let projectTitle = (selectedProject?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let phase = (selectedProject?.lastPhase ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let projectCharacters = selectedProject?.characters ?? []
-
-        if clearWhenEmpty || !projectID.isEmpty {
-            bridge.preferredProjectID = projectID
-        }
-        if clearWhenEmpty || !versionID.isEmpty || !bridge.preferredVersionID.isEmpty {
-            bridge.preferredVersionID = versionID
-        }
-        if clearWhenEmpty || !phase.isEmpty || !bridge.latestPhase.isEmpty {
-            bridge.latestPhase = phase
-        }
-        if clearWhenEmpty || !projectID.isEmpty || !projectTitle.isEmpty || !outline.scenes.isEmpty {
-            bridge.bindStructuredDraftToProject(
-                projectID: projectID,
-                projectTitle: projectTitle,
-                versionID: versionID,
-                phase: phase,
-                outline: outline,
-                projectCharacters: projectCharacters
-            )
-        }
-    }
-
-    private func hydrateCollaboration(from project: BackendScreenplayProjectSummary) {
-        collaborators = (project.collaborators ?? []).sorted { lhs, rhs in
-            let lhsStatus = lhs.status ?? ""
-            let rhsStatus = rhs.status ?? ""
-            if lhsStatus != rhsStatus { return lhsStatus < rhsStatus }
-            return lhs.email.localizedCaseInsensitiveCompare(rhs.email) == .orderedAscending
-        }
-        if let emails = project.approvedEmails, !emails.isEmpty {
-            approvedEmails = emails
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-                .sorted()
-        } else {
-            approvedEmails = collaborators
-                .filter { ($0.status ?? "").caseInsensitiveCompare("approved") == .orderedSame }
-                .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-                .sorted()
-        }
-        if commentAuthorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentAuthorEmail = approvedEmails.first ?? commentAuthorEmail
-        }
-        if commentActorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            commentActorEmail = approvedEmails.first ?? commentActorEmail
-        }
-        comments = (project.comments ?? []).sorted { lhs, rhs in
-            let lhsTs = lhs.updatedAt ?? lhs.createdAt ?? 0
-            let rhsTs = rhs.updatedAt ?? rhs.createdAt ?? 0
-            return lhsTs > rhsTs
-        }
-    }
-
-    private func normalizedCommentType() -> String {
-        let kind = commentType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return kind == "voice" ? "voice" : "text"
-    }
-
-    private func resolvedCommentAuthorEmail() -> String {
-        let explicit = commentAuthorEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !explicit.isEmpty { return explicit }
-        return approvedEmails.first ?? ""
-    }
-
-    private func resolvedCommentActorEmail() -> String {
-        let explicit = commentActorEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !explicit.isEmpty { return explicit }
-        let author = resolvedCommentAuthorEmail()
-        if !author.isEmpty { return author }
-        return approvedEmails.first ?? ""
-    }
-
-    private func fingerprint(for value: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
-    }
-
-    private func evaluateLocalDraftRecovery(
-        projectId: String,
-        serverDraft: String,
-        serverVersionId: String
-    ) {
-        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else {
-            recoveryCandidate = nil
-            return
-        }
-        let payloads = draftRecoveryPayloads()
-        guard let stored = payloads[normalizedProjectId] else {
-            recoveryCandidate = nil
-            return
-        }
-        let storedDraft = String(describing: stored["draft"] ?? "")
-        let storedDirty = stored["dirty"] as? Bool ?? false
-        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            recoveryCandidate = nil
-            return
-        }
-        let serverFingerprint = fingerprint(for: serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        let localFingerprint = fingerprint(for: storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
-            recoveryCandidate = nil
-            clearLocalDraftRecovery(projectId: normalizedProjectId)
-            return
-        }
-        let baseVersionId = String(describing: stored["baseVersionId"] ?? "")
-        let savedAt = stored["savedAt"] as? TimeInterval ?? 0
-        if !serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            baseVersionId == serverVersionId &&
-            !hasUnsavedDraftChanges {
-            recoveryCandidate = nil
-            clearLocalDraftRecovery(projectId: normalizedProjectId)
-            return
-        }
-        recoveryCandidate = LocalDraftRecoveryCandidate(
-            projectId: normalizedProjectId,
-            draft: storedDraft,
-            baseVersionId: baseVersionId,
-            savedAt: savedAt
-        )
-    }
-
-    private func persistLocalDraftRecovery(
-        projectId: String,
-        draft: String,
-        baseVersionId: String,
-        dirty: Bool
-    ) {
-        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return }
-        var payloads = draftRecoveryPayloads()
-        payloads[normalizedProjectId] = [
-            "draft": draft,
-            "baseVersionId": baseVersionId,
-            "dirty": dirty,
-            "savedAt": Date().timeIntervalSince1970,
-        ]
-        storeDraftRecoveryPayloads(payloads)
-        if !dirty {
-            recoveryCandidate = nil
-        }
-    }
-
-    private func clearLocalDraftRecovery(projectId: String) {
-        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedProjectId.isEmpty else { return }
-        var payloads = draftRecoveryPayloads()
-        payloads.removeValue(forKey: normalizedProjectId)
-        storeDraftRecoveryPayloads(payloads)
-        if recoveryCandidate?.projectId == normalizedProjectId {
-            recoveryCandidate = nil
-        }
-    }
-
-    private func draftRecoveryPayloads() -> [String: [String: Any]] {
-        let raw = UserDefaults.standard.dictionary(forKey: localDraftRecoveryStoreKey) ?? [:]
-        var out: [String: [String: Any]] = [:]
-        for (key, value) in raw {
-            guard let payload = value as? [String: Any] else { continue }
-            out[key] = payload
-        }
-        return out
-    }
-
-    private func storeDraftRecoveryPayloads(_ payloads: [String: [String: Any]]) {
-        UserDefaults.standard.set(payloads, forKey: localDraftRecoveryStoreKey)
-    }
-}
-
-extension BackendScreenplayOutline {
-    static let empty = BackendScreenplayOutline(
-        updatedAt: 0,
-        actCount: 0,
-        sceneCount: 0,
-        beatCount: 0,
-        acts: [],
-        scenes: [],
-        beats: []
-    )
-}
-
 struct ScreenplayStudioScreen: View {
-    enum PromptRoutingMode: String, CaseIterable, Identifiable {
-        case automatic
-        case page
-        case voicePin
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .automatic: return "Auto"
-            case .page: return "Write to Page"
-            case .voicePin: return "Keep in Voice Pin"
-            }
-        }
-    }
-
-    enum StudioPromptIntent: String, CaseIterable, Identifiable {
-        case advice
-        case rewrite
-        case voicePin
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .advice: return "Advice"
-            case .rewrite: return "Rewrite"
-            case .voicePin: return "Voice Pin"
-            }
-        }
-    }
-
-    private enum DraftImportMode: String {
-        case replace
-        case append
-    }
-
-    private static let draftImportTextExtensions: Set<String> = [
-        "fountain",
-        "txt",
-        "md",
-        "text",
-        "screenplay",
-    ]
-
-    private static var draftImportContentTypes: [UTType] {
-        var types: [UTType] = [.pdf, .plainText, .text]
-        for ext in draftImportTextExtensions.sorted() {
-            if let type = UTType(filenameExtension: ext), !types.contains(type) {
-                types.append(type)
-            }
-        }
-        return types
-    }
-
-    private enum StudioTarget: String, Codable, Equatable {
-        case page
-        case voicePin
-
-        var label: String {
-            switch self {
-            case .page: return "Page"
-            case .voicePin: return "Voice Pin"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .page: return "doc.text"
-            case .voicePin: return "text.bubble"
-            }
-        }
-
-        var tint: Color {
-            switch self {
-            case .page: return Color.green
-            case .voicePin: return Color.blue
-            }
-        }
-
-        var fill: Color {
-            switch self {
-            case .page: return Color.green.opacity(0.12)
-            case .voicePin: return Color.blue.opacity(0.12)
-            }
-        }
-    }
-
-    private enum StudioPromptSource: String, Codable, Equatable {
-        case typed
-        case voice
-
-        var label: String {
-            switch self {
-            case .typed: return "Typed"
-            case .voice: return "Voice"
-            }
-        }
-    }
-
-    private enum DraftToolsSection: String, CaseIterable, Identifiable {
-        case pages
-        case revisions
-        case snapshots
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .pages: return "Pages"
-            case .revisions: return "Revisions"
-            case .snapshots: return "Snapshots"
-            }
-        }
-
-        var iconName: String {
-            switch self {
-            case .pages: return "doc.plaintext"
-            case .revisions: return "highlighter"
-            case .snapshots: return "clock.arrow.circlepath"
-            }
-        }
-    }
-
-    private enum DirectionOneDraftShortcut: String, CaseIterable, Identifiable {
-        case pages
-        case revisions
-        case snapshots
-        case saved
-
-        var id: String { rawValue }
-
-        var color: Color {
-            switch self {
-            case .pages: return .blue
-            case .revisions: return .pink
-            case .snapshots: return .yellow
-            case .saved: return .green
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .pages: return "Draft Pages"
-            case .revisions: return "Draft Revisions"
-            case .snapshots: return "Draft Snapshots"
-            case .saved: return "Saved Drafts"
-            }
-        }
-
-        var hoverLabel: String {
-            switch self {
-            case .pages: return "Pages"
-            case .revisions: return "Revisions"
-            case .snapshots: return "Snapshots"
-            case .saved: return "Saved"
-            }
-        }
-    }
-
-    private enum IntelligenceFixQueueKind: String, Equatable {
-        case bindScene
-        case attachCharacter
-        case mergeDuplicateBeats
-        case reanchorScene
-        case rewriteBrief
-
-        var isSafe: Bool {
-            switch self {
-            case .bindScene, .attachCharacter, .mergeDuplicateBeats:
-                return true
-            case .reanchorScene, .rewriteBrief:
-                return false
-            }
-        }
-    }
-
-    private struct IntelligenceFixQueueItem: Identifiable, Equatable {
-        let id: String
-        let title: String
-        let detail: String
-        let actionTitle: String
-        let kind: IntelligenceFixQueueKind
-        let issue: ScreenplayIntelligenceIssue?
-        let drift: ScreenplaySceneDriftSummary?
-
-        var isSafe: Bool { kind.isSafe }
-    }
-
-    private struct IntelligenceFixBatchSnapshot: Equatable {
-        let id: String
-        let createdAt: Date
-        let project: BackendScreenplayProjectSummary
-        let outline: BackendScreenplayOutline
-        let queuedFixesBefore: [IntelligenceFixQueueItem]
-        let appliedFixIDs: [String]
-        let studioPromptSeed: String
-        let studioPromptRoutingModeRaw: String
-        let selectedInspectorSectionRaw: String
-        let highlightedSceneInspectorKey: String
-
-        var shortID: String {
-            String(id.prefix(8)).uppercased()
-        }
-    }
-
-    private enum StudioDebugIntelligenceQueueAction: String {
-        case previewAll = "preview_all"
-        case applyOne = "apply_one"
-        case applyAllSafe = "apply_all_safe"
-        case rollbackLastBatch = "rollback_last_batch"
-    }
-
-    private enum SidebarSection: String, CaseIterable, Identifiable {
-        case projects
-        case files
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .projects: return "Projects"
-            case .files: return "Files"
-            }
-        }
-
-        var iconName: String {
-            switch self {
-            case .projects: return "film.stack"
-            case .files: return "folder"
-            }
-        }
-    }
-
-    private enum InspectorSection: String, CaseIterable, Identifiable {
-        case comments
-        case collaborators
-        case scenes
-        case beats
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .comments: return "Comments"
-            case .collaborators: return "Collaborators"
-            case .scenes: return "Scenes"
-            case .beats: return "Beats"
-            }
-        }
-
-        var iconName: String {
-            switch self {
-            case .comments: return "text.bubble"
-            case .collaborators: return "person.2"
-            case .scenes: return "film.stack"
-            case .beats: return "waveform.path.ecg"
-            }
-        }
-    }
-
-    private enum FullThreadFilter: String, CaseIterable, Identifiable {
-        case all
-        case pageWrites
-        case voicePin
-        case companion
-        case currentScene
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .all: return "All"
-            case .pageWrites: return "Page Writes"
-            case .voicePin: return "Voice Pin"
-            case .companion: return "Companion"
-            case .currentScene: return "Current Scene"
-            }
-        }
-    }
-
-    private enum DirectionOneLeftRailTab: String, CaseIterable, Identifiable {
-        case scenes
-        case projects
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .scenes: return "Scenes"
-            case .projects: return "Projects"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .scenes: return "list.bullet.rectangle"
-            case .projects: return "folder"
-            }
-        }
-    }
-
-    private enum DirectionOneRightPanelTab: String, CaseIterable, Identifiable {
-        case draft
-        case beats
-        case craft
-        case outline
-        case them
-        case saved
-
-        var id: String { rawValue }
-
-        static func resolved(from raw: String) -> Self? {
-            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "intelligence", "companion", "them":
-                return .them
-            default:
-                return Self(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .draft: return "Draft"
-            case .beats: return "Beats"
-            case .craft: return "Craft"
-            case .outline: return "Outline"
-            case .them: return "io.them"
-            case .saved: return "Saved"
-            }
-        }
-
-        var iconName: String {
-            switch self {
-            case .draft: return "doc.text"
-            case .beats: return "flag"
-            case .craft: return "chart.line.uptrend.xyaxis"
-            case .outline: return "list.bullet.rectangle.portrait"
-            case .them: return "sparkles"
-            case .saved: return "checkmark.circle"
-            }
-        }
-    }
-
-
-    private enum DirectionOneWorkspaceMode: String, CaseIterable, Identifiable {
-        case draft
-        case beats
-        case outline
-
-        var id: String { rawValue }
-
-        init?(tab: DirectionOneRightPanelTab) {
-            switch tab {
-            case .draft:
-                self = .draft
-            case .beats:
-                self = .beats
-            case .outline:
-                self = .outline
-            case .craft, .them, .saved:
-                return nil
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .draft:
-                return "Draft"
-            case .beats:
-                return "Beats"
-            case .outline:
-                return "Outline"
-            }
-        }
-
-        var subtitle: String {
-            switch self {
-            case .draft:
-                return "Page"
-            case .beats:
-                return "Story beats"
-            case .outline:
-                return "Structure"
-            }
-        }
-
-        var tab: DirectionOneRightPanelTab {
-            switch self {
-            case .draft:
-                return .draft
-            case .beats:
-                return .beats
-            case .outline:
-                return .outline
-            }
-        }
-    }
-
-    private enum DirectionOneAssistantGuidanceKind {
-        case anchorProject
-        case reviewPendingAction
-        case reviewSignals
-        case reopenThread
-        case advanceDraft
-    }
-
-    private struct StudioFileEntry: Identifiable, Hashable {
-        let url: URL
-        let isDirectory: Bool
-        let modifiedAt: Date?
-        var id: String { url.path }
-        var name: String { url.lastPathComponent }
-    }
+    private static let crossDeviceRefreshTimer = Timer
+        .publish(every: 3, on: .main, in: .common)
+        .autoconnect()
 
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -3721,7 +29,8 @@ struct ScreenplayStudioScreen: View {
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
     @Binding var typedReplyAudioEnabled: Bool
-    var onSubmitPrompt: (String, PromptRoutingMode, String) async -> String?
+    var streamingAssistantReply: String
+    var onSubmitPrompt: @MainActor (String, PromptRoutingMode, String) async -> String?
     var shouldRoutePromptToPage: (String, PromptRoutingMode) -> Bool
 
     init(
@@ -3737,7 +46,8 @@ struct ScreenplayStudioScreen: View {
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
         typedReplyAudioEnabled: Binding<Bool>,
-        onSubmitPrompt: @escaping (String, PromptRoutingMode, String) async -> String?,
+        streamingAssistantReply: String,
+        onSubmitPrompt: @escaping @MainActor (String, PromptRoutingMode, String) async -> String?,
         shouldRoutePromptToPage: @escaping (String, PromptRoutingMode) -> Bool
     ) {
         self.onDone = onDone
@@ -3752,11 +62,13 @@ struct ScreenplayStudioScreen: View {
         self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
         self.isSubmittingPrompt = isSubmittingPrompt
         self._typedReplyAudioEnabled = typedReplyAudioEnabled
+        self.streamingAssistantReply = streamingAssistantReply
         self.onSubmitPrompt = onSubmitPrompt
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
 
     @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
     @State private var navigatorBackStack: [URL] = []
@@ -3766,16 +78,12 @@ struct ScreenplayStudioScreen: View {
     @State private var navigatorShowHidden: Bool = false
     @State private var navigatorNewFolderName: String = ""
     @State private var navigatorDropIsTargeted: Bool = false
-    @State private var directionOneLeftRailTab: DirectionOneLeftRailTab?
     @State private var isDirectionOneSidebarVisible = true
+    @State private var isDirectionOneCompactLayout = false
     @State private var directionOneWorkspaceMode: DirectionOneWorkspaceMode = .draft
     @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
     @State private var isDirectionOneRightRailExpanded = true
     @State private var isDirectionOneComposerExpanded = false
-    @State private var isDirectionOneStoryToolsExpanded = true
-    @State private var isDirectionOneMemoryExpanded = true
-    @State private var isDirectionOneSignalsExpanded = false
-    @State private var isDirectionOneSavedExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
@@ -3785,15 +93,13 @@ struct ScreenplayStudioScreen: View {
     @State private var studioPromptSeed: String = ""
     @State private var studioPromptIntent: StudioPromptIntent = .advice
     @State private var isSubmittingStudioPrompt: Bool = false
+    @State private var isResolvingPendingScreenplayQuestion: Bool = false
     @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
     @State private var pendingDraftImportURL: URL?
     @State private var pendingDraftImportSourceName: String = ""
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
-    @State private var showingLeadReferenceDetails = false
-    @State private var showingScreenplayShortcuts = false
-    @State private var hoveredScreenplayElement: ScreenplayEditorElement?
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
     @State private var selectedBeatInspectorID: String = ""
     @State private var draggedBeatID: String?
@@ -3807,8 +113,6 @@ struct ScreenplayStudioScreen: View {
     @State private var isBeatListDropTargeted = false
     @State private var isActListDropTargeted = false
     @State private var sceneGroupDropTargetID: String = ""
-    @State private var isInspectorAutoScrollTopTargeted = false
-    @State private var isInspectorAutoScrollBottomTargeted = false
     @State private var inspectorAutoScrollTask: Task<Void, Never>?
     @State private var isRestoringInspectorWorkspaceState = false
     @State private var beatComposerProvenance: BeatProvenanceSource = .manual
@@ -3818,6 +122,9 @@ struct ScreenplayStudioScreen: View {
     @State private var selectedDraftToolsSection: DraftToolsSection = .pages
     @State private var queuedIntelligenceFixes: [IntelligenceFixQueueItem] = []
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
+    @State private var studioAppliedMemoryCorrectionDraft = ""
+    @State private var isSavingStudioAppliedMemoryCorrection = false
+    @State private var correctingStudioStoryObligationID = ""
     @State private var isPageCommitNoticeVisible = false
     @State private var pageCommitNoticeTask: Task<Void, Never>?
     @State private var isLastCommittedWriteActionVisible = false
@@ -3849,16 +156,18 @@ struct ScreenplayStudioScreen: View {
     @State private var isAwaitingInitialAcknowledgedDiffHydration = false
     @State private var pendingStudioTurnEvents: [BackendTurnCommittedEvent] = []
     @State private var backendThreadViewStatePersistTask: Task<Void, Never>?
+    @State private var backendAskNoteHistoryPersistTask: Task<Void, Never>?
+    @State private var studioBackgroundSyncNoticeText = ""
     @State private var isRestoringFullThreadBrowseState = false
     @State private var isAwaitingInitialFullThreadRestore = true
     @State private var studioDebugSessionID = UUID().uuidString
-    @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var studioSpeakingPace: Double = 1.0
+    @State private var studioDebugInitialLoadSettled = false
     @State private var isSceneQuickInsertVisible = false
-    @State private var sceneQuickInsertSlugline: String = ""
     @State private var highlightedSceneInspectorKey: String = ""
     @State private var highlightedStudioExchangeID: UUID?
     @AppStorage("studio.ask.note.history.v2") private var studioAskNoteHistoryStorage = ""
     @AppStorage("studio.ask.note.selection.v1") private var studioAskNoteSelectionStorage = ""
+    @AppStorage("studio.ask.note.cleared.backend.voicepin.ids.v1") private var studioClearedBackendVoicePinIDsStorage = ""
     @AppStorage("studio.write.anchor.records.v1") private var studioWriteAnchorStorage = ""
     @AppStorage("studio.diff.keep-current.v1") private var studioDiffAcknowledgedStorage = ""
     @AppStorage("studio.diff.keep-current.writeids.v1") private var studioDiffAcknowledgedWriteIDStorage = ""
@@ -3867,6 +176,7 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio.inspector.workspace.v1") private var studioInspectorWorkspaceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.v1") private var studioInspectorBeatProvenanceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.history.v1") private var studioInspectorBeatProvenanceHistoryStorage = ""
+    @AppStorage(ScreenplayFeaturePlannerActionRecoveryStore.defaultKey) private var featurePlannerPendingActionStorage = ""
 #if DEBUG || os(macOS)
     @AppStorage("studio_debug_voice_turn_result_json") private var studioDebugVoiceTurnResultJSON = ""
     @AppStorage("studio_debug_prepare_token") private var studioDebugPrepareToken: Int = 0
@@ -3983,16 +293,15 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_inspector_interaction_result_status") private var studioDebugInspectorInteractionResultStatus = ""
     @AppStorage("studio_debug_inspector_interaction_result_error") private var studioDebugInspectorInteractionResultError = ""
     @AppStorage("studio_debug_inspector_interaction_result_json") private var studioDebugInspectorInteractionResultJSON = ""
+    @State private var didRunStudioThreadViewStateRegressionSmoke = false
+#endif
     @State private var restoredStudioDebugStateSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugFocusedDiffSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugReopenedSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugFocusedDiffKey = ""
     @State private var restoredStudioDebugReopenedLineageKeys: [String] = []
     @State private var restoredStudioDebugLatestReopenedWriteID = ""
-    @State private var didRunStudioThreadViewStateRegressionSmoke = false
-#endif
     @FocusState private var studioPromptFocused: Bool
-    @FocusState private var sceneQuickInsertFocused: Bool
     @FocusState private var sceneInspectorTitleFocused: Bool
     @FocusState private var studioThreadListFocused: Bool
     @FocusState private var studioInspectorFocused: Bool
@@ -4020,6 +329,10 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugPageWriteToastInteractionToken: Int = 0
     @State private var lastAppliedStudioDebugShortcutToken: Int = 0
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
+    @State private var didApplyUITestLaunchActions = false
+    @State private var didApplyUITestDraftConflictFixture = false
+    @State private var didApplyUITestSaveNetworkFault = false
+    @State private var didResolveUITestPendingQuestionFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
     @State private var trackedStudioDebugProjectLoadRequestedVersionID = ""
@@ -4027,6 +340,7 @@ struct ScreenplayStudioScreen: View {
     @State private var trackedStudioDebugProjectLoadReady = false
     @State private var trackedStudioDebugProjectLoadError = ""
     @State private var studioDebugProjectLoadInFlight = false
+    @State private var activeStudioDebugProjectLoadOperationID: UUID?
     #if os(macOS)
     @State private var studioDebugPreparePollTask: Task<Void, Never>?
     @State private var studioCommandReturnKeyMonitor: Any?
@@ -4035,7 +349,134 @@ struct ScreenplayStudioScreen: View {
 
     var body: some View {
         studioConfiguredView
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("studio.surface")
+            .task(id: uiTestLiveMemoryRefreshEnabled) {
+                guard uiTestLiveMemoryRefreshEnabled else { return }
+                await vm.refreshCharacterTraits(
+                    source: "Manual cross-device memory smoke",
+                    allowDuringTests: true
+                )
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)
+            ) { _ in
+                Task { await vm.refreshPendingScreenplayQuestion() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayQuestionResolved)
+            ) { _ in
+                Task { await vm.refreshPendingScreenplayQuestion() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxUpdated)
+            ) { _ in
+                Task { await vm.refreshDraftSaveOutboxStatus() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxRetryRequested)
+            ) { _ in
+                Task { await vm.reconnectAndResumeQueuedDraftSaves() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayOutlineMutationOutboxUpdated)
+            ) { _ in
+                Task { await vm.refreshOutlineMutationOutboxStatus() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .themScreenplayOutlineMutationOutboxRetryRequested)
+            ) { _ in
+                Task { await vm.reconnectAndResumeQueuedOutlineMutations() }
+            }
+            .overlay(alignment: .topLeading) {
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests {
+                    Text(uiTestStudioRestoreSnapshotJSON)
+                        .font(.system(size: 1))
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .accessibilityIdentifier("studio.restore.snapshot")
+                }
+                #endif
+            }
     }
+
+    private var uiTestLiveMemoryRefreshEnabled: Bool {
+        #if DEBUG
+        IOThemRuntime.isRunningUITests &&
+            ProcessInfo.processInfo.arguments.contains("--ui-live-memory")
+        #else
+        false
+        #endif
+    }
+
+    #if DEBUG
+    private var uiTestStudioRestoreSnapshotJSON: String {
+        let normalizedDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let backendAskNoteHistory = backendStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+        return studioDebugJSONString(from: [
+            "project_key": activeStudioAskNoteHistoryKey,
+            "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
+            "selected_project_present": vm.selectedProject != nil,
+            "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            "conflict_project_id": vm.conflictState?.projectId ?? "",
+            "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
+            "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
+            "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
+            "load_project_token": trackedStudioDebugProjectLoadToken,
+            "load_project_ack_token": studioDebugLoadProjectAckToken,
+            "load_project_stage": trackedStudioDebugProjectLoadStage,
+            "load_project_ready": trackedStudioDebugProjectLoadReady,
+            "load_project_error": trackedStudioDebugProjectLoadError,
+            "restored_state_source": restoredStudioDebugStateSourceRaw,
+            "restored_focused_diff_source": restoredStudioDebugFocusedDiffSourceRaw,
+            "restored_reopened_source": restoredStudioDebugReopenedSourceRaw,
+            "restored_focused_diff_key": restoredStudioDebugFocusedDiffKey,
+            "restored_reopened_lineage_keys": restoredStudioDebugReopenedLineageKeys,
+            "restored_latest_reopened_write_id": restoredStudioDebugLatestReopenedWriteID,
+            "reopened_diff_count": reopenedDiffExchangeKeys.count,
+            "acknowledged_diff_count": acknowledgedDiffExchangeKeys.count,
+            "ask_note_history_count": studioAskNoteHistory.count,
+            "backend_ask_note_history_count": backendAskNoteHistory.count,
+            "latest_ask_note_prompt": studioAskNoteHistory.first?.prompt ?? "",
+            "latest_ask_note_inserted_text": studioAskNoteHistory.first?.insertedText ?? "",
+            "draft_preview": String(normalizedDraft.prefix(260)),
+            "draft_tail_preview": String(normalizedDraft.suffix(260)),
+            "draft_character_count": normalizedDraft.count,
+            "draft_fingerprint": ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
+            "has_unsaved_draft_changes": vm.hasUnsavedDraftChanges,
+            "is_manual_draft_editing": vm.isManualDraftEditing,
+            "is_saving": vm.isSaving,
+            "queued_draft_save_count": vm.queuedDraftSaveCount,
+            "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "outline_revision": vm.outlineRevision,
+            "queued_outline_mutation_count": vm.queuedOutlineMutationCount,
+            "parked_outline_mutation_count": vm.parkedOutlineMutationCount,
+            "outline_mutation_drain_inflight": vm.isOutlineMutationDrainInFlight,
+            "autosave_status_text": vm.autosaveStatusText,
+            "info_text": vm.infoText,
+            "error_text": vm.errorText,
+            "collaborator_count": vm.collaborators.count,
+            "approved_emails": vm.approvedEmails,
+            "comment_count": vm.comments.count,
+            "latest_comment_text": vm.comments.first?.text ?? "",
+            "latest_comment_author": vm.comments.first?.authorEmail ?? "",
+            "latest_comment_resolved": vm.comments.first?.resolved ?? false,
+            "latest_comment_deleted": vm.comments.first?.isDeleted ?? false,
+            "character_memory_loading": vm.isCharacterTraitsLoading,
+            "character_memory_count": vm.characterTraits?.characters.count ?? 0,
+            "character_memory_error": vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "character_memory_source": vm.characterTraitsInfoText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "pending_screenplay_question_id": vm.pendingScreenplayQuestion?.id ?? "",
+            "pending_screenplay_question_project_id": vm.pendingScreenplayQuestion?.projectId ?? "",
+            "applied_memory_has_content": liveDraftBridge.latestAppliedMemory.hasContent,
+            "story_obligation_count": liveDraftBridge.latestAppliedMemory.storyObligationChanges?.count ?? 0,
+            "story_obligation_status": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.status ?? "",
+            "story_obligation_result": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.result ?? "",
+            "story_obligation_evidence": liveDraftBridge.latestAppliedMemory.currentStoryObligationChange?.evidence ?? ""
+        ])
+    }
+    #endif
 
     private var studioConfiguredView: some View {
         studioPresentationBoundView
@@ -4097,6 +538,13 @@ Replace is best when this file should become the script you edit. Append is safe
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
                 handleStudioTurnCommittedEvent(event)
             }
+            .onChange(of: backendAskNoteHistorySignature(for: activeStudioAskNoteHistoryKey)) { _, newValue in
+                guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                Task {
+                    await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+                    publishDebugStudioDiffState()
+                }
+            }
             .onChange(of: backendThreadViewRestoreSignature(for: activeStudioAskNoteHistoryKey)) { _, newValue in
                 guard shouldRetryFullThreadBrowseStateRestore(
                     for: activeStudioAskNoteHistoryKey,
@@ -4122,6 +570,18 @@ Replace is best when this file should become the script you edit. Append is safe
                 publishDebugStudioDiffState()
             }
             .onChange(of: rawBackendProjectMetadataDebugSignature(for: activeStudioAskNoteHistoryKey)) { _, _ in
+                let backendSignature = backendThreadViewRestoreSignature(for: activeStudioAskNoteHistoryKey)
+                if shouldRetryFullThreadBrowseStateRestore(
+                    for: activeStudioAskNoteHistoryKey,
+                    backendSignature: backendSignature
+                ) {
+                    restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
+                }
+                if !backendAskNoteHistorySignature(for: activeStudioAskNoteHistoryKey).isEmpty {
+                    Task {
+                        await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+                    }
+                }
                 publishDebugStudioDiffState()
             }
     }
@@ -4146,6 +606,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
     }
 
+    #if DEBUG
     private var studioLifecycleDebugPrimaryBoundView: some View {
         studioLifecycleTaskBoundView
             .onChange(of: studioDebugPrepareToken) { _, _ in
@@ -4226,23 +687,37 @@ Replace is best when this file should become the script you edit. Append is safe
                 applyDebugShortcutIfNeeded()
             }
     }
+    #else
+    private var studioLifecycleDebugBoundView: some View {
+        studioLifecycleTaskBoundView
+    }
+    #endif
 
     private var studioLifecycleTaskBoundView: some View {
         studioStateBoundView
             .onDisappear {
                 backendThreadViewStatePersistTask?.cancel()
+                backendAskNoteHistoryPersistTask?.cancel()
                 liveDraftBridge.clearAnchoredTextRect()
                 isSceneQuickInsertVisible = false
                 clearWriteCommitUI()
                 #if os(macOS)
-                stopStudioDebugPreparePolling()
+                #if DEBUG
+                if IOThemRuntime.isStudioAutomationSession {
+                    stopStudioDebugPreparePolling()
+                }
+                #endif
                 removeStudioCommandReturnKeyMonitor()
                 #endif
             }
             .task {
                 studioDebugSessionID = UUID().uuidString
                 #if os(macOS)
-                startStudioDebugPreparePollingIfNeeded()
+                #if DEBUG
+                if IOThemRuntime.isStudioAutomationSession {
+                    startStudioDebugPreparePollingIfNeeded()
+                }
+                #endif
                 installStudioCommandReturnKeyMonitorIfNeeded()
                 #endif
                 restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
@@ -4254,7 +729,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     !restoredAcknowledgements.isEmpty
                     || !acknowledgedDiffWriteIDs.isEmpty
                     || !reopenedDiffExchangeKeys.isEmpty
-#if DEBUG || os(macOS)
+#if DEBUG
                 if !didRunStudioThreadViewStateRegressionSmoke {
                     runStudioThreadViewStateDecodeMergeRegressionSmoke()
                     didRunStudioThreadViewStateRegressionSmoke = true
@@ -4278,6 +753,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 applyDebugRouteMetadataSeedIfNeeded()
                 applyDebugIntelligenceQueueIfNeeded()
                 applyDebugShortcutIfNeeded()
+                applyUITestLaunchActionsIfNeeded()
                 publishDebugStudioDiffState()
             }
     }
@@ -4317,6 +793,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 publishDebugStudioDiffState()
             }
+            .onChange(of: vm.isSaving) { _, _ in
+                publishDebugStudioDiffState()
+            }
             .onChange(of: vm.isManualDraftEditing) { _, _ in
                 publishDebugStudioDiffState()
             }
@@ -4345,6 +824,13 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: vm.selectedProjectID) { _, _ in
                 restoreInspectorWorkspaceState()
                 publishDebugStudioDiffState()
+                creativeInstincts.activate(
+                    projectID: vm.selectedProjectID,
+                    projectTitle: vm.selectedProject?.title ?? ""
+                )
+                Task {
+                    await refreshStudioCreativeInstincts(force: true)
+                }
             }
             .onChange(of: vm.outline) { _, _ in
                 if shouldRestoreInspectorWorkspaceOnNextOutlineChange {
@@ -4361,21 +847,22 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: directionOneRightPanelTab) { _, newValue in
                 if let mode = DirectionOneWorkspaceMode(tab: newValue) {
                     directionOneWorkspaceMode = mode
-                    isDirectionOneStoryToolsExpanded = true
                 }
-                if newValue == .them {
-                    isDirectionOneMemoryExpanded = true
-                }
-                if newValue == .them {
+                #if DEBUG
+                let shouldRefreshThemRail = !UITestLaunchConfiguration.hasStructuralStudioFixture()
+                #else
+                let shouldRefreshThemRail = true
+                #endif
+                if newValue == .them, shouldRefreshThemRail {
                     Task {
+                        await refreshStudioCreativeInstincts(force: true)
                         await vm.refreshBlockSignal(source: "io.them rail")
-                        await vm.refreshCharacterTraits(source: "io.them rail")
+                        if !IOThemRuntime.isRunningUITests {
+                            await vm.refreshCharacterTraits(source: "io.them rail")
+                        }
                         await vm.refreshCraftTwists(source: "io.them rail")
                         await vm.refreshAcceptedCraftTwists(source: "io.them rail")
                     }
-                }
-                if newValue == .saved {
-                    isDirectionOneSavedExpanded = true
                 }
                 if newValue == .craft {
                     Task {
@@ -4423,25 +910,35 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioProjectStateBoundView: some View {
         studioBrowseStateBoundView
             .onChange(of: activeStudioAskNoteHistoryKey) { oldValue, newValue in
-                persistSelectedStudioThreadID(highlightedStudioExchangeID, for: oldValue)
-                persistAcknowledgedStudioDiffs(currentAcknowledgedStudioDiffRecords(), for: oldValue)
-                persistAcknowledgedStudioDiffWriteIDs(currentAcknowledgedStudioDiffWriteIDs(), for: oldValue)
-                persistFullThreadBrowseState(for: oldValue)
-                restoreFullThreadBrowseState(for: newValue)
-                focusedPageDiffExchangeID = nil
-                let restoredAcknowledgements = restoredAcknowledgedStudioDiffRecords(for: newValue)
-                acknowledgedDiffFingerprints = restoredAcknowledgements
-                acknowledgedDiffExchangeKeys = Set(restoredAcknowledgements.keys)
-                acknowledgedDiffWriteIDs = restoredAcknowledgedStudioDiffWriteIDs(for: newValue)
-                isAwaitingInitialAcknowledgedDiffHydration =
-                    !restoredAcknowledgements.isEmpty
-                    || !acknowledgedDiffWriteIDs.isEmpty
-                    || !reopenedDiffExchangeKeys.isEmpty
-                publishDebugStudioDiffState()
-                Task {
-                    await restoreStudioAskNoteHistory(for: newValue)
-                }
+                handleActiveStudioAskNoteHistoryKeyChange(from: oldValue, to: newValue)
             }
+    }
+
+    private func handleActiveStudioAskNoteHistoryKeyChange(from oldValue: String, to newValue: String) {
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: oldValue)
+        persistSelectedStudioThreadID(highlightedStudioExchangeID, for: oldValue)
+        persistAcknowledgedStudioDiffs(currentAcknowledgedStudioDiffRecords(), for: oldValue)
+        persistAcknowledgedStudioDiffWriteIDs(currentAcknowledgedStudioDiffWriteIDs(), for: oldValue)
+        persistFullThreadBrowseState(for: oldValue)
+        let migratedLiveDraftHistory = migrateLiveDraftHistoryToProjectIfNeeded(from: oldValue, to: newValue)
+        restoreFullThreadBrowseState(for: newValue)
+        focusedPageDiffExchangeID = nil
+        let restoredAcknowledgements = restoredAcknowledgedStudioDiffRecords(for: newValue)
+        acknowledgedDiffFingerprints = restoredAcknowledgements
+        acknowledgedDiffExchangeKeys = Set(restoredAcknowledgements.keys)
+        acknowledgedDiffWriteIDs = restoredAcknowledgedStudioDiffWriteIDs(for: newValue)
+        isAwaitingInitialAcknowledgedDiffHydration =
+            !restoredAcknowledgements.isEmpty
+            || !acknowledgedDiffWriteIDs.isEmpty
+            || !reopenedDiffExchangeKeys.isEmpty
+        publishDebugStudioDiffState()
+        Task {
+            await restoreStudioAskNoteHistory(for: newValue)
+            if migratedLiveDraftHistory,
+               isCurrentStudioAskNoteHistoryRestore(key: newValue) {
+                vm.infoText = "Carried this first Studio thread into the new project."
+            }
+        }
     }
 
     private var studioBrowseStateBoundView: some View {
@@ -4518,7 +1015,16 @@ Replace is best when this file should become the script you edit. Append is safe
                     expandFullThreadSectionIfNeeded(for: exchange)
                 } else {
                     isFocusedPageDiffOverlayPresented = false
-                    focusedPageDiffPersistentKey = ""
+                    let clearContext = StudioThreadViewPersistDeferralContext(
+                        hasProjectKey: screenplayProjectIdFromHistoryKey(activeStudioAskNoteHistoryKey) != nil,
+                        isRestoringFullThreadBrowseState: isRestoringFullThreadBrowseState,
+                        isAwaitingInitialFullThreadRestore: isAwaitingInitialFullThreadRestore,
+                        isAwaitingInitialAcknowledgedDiffHydration: isAwaitingInitialAcknowledgedDiffHydration,
+                        isRestoringReopenedDiffState: isRestoringReopenedDiffState
+                    )
+                    if StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(clearContext) {
+                        focusedPageDiffPersistentKey = ""
+                    }
                 }
                 syncFocusedPageDiffAnchorRequest()
                 persistFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
@@ -4546,41 +1052,82 @@ Replace is best when this file should become the script you edit. Append is safe
             }
     }
 
-    private var studioObservedView: some View {
+    private var studioCreativeInstinctsBoundView: some View {
         studioBaseLayout
             .task {
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests,
+                   UITestLaunchConfiguration.shouldBypassStudioHydration() {
+                    return
+                }
+                #endif
                 await vm.load()
+                _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
+                _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
+                await restoreStudioWorkspaceAfterProjectHydration()
+                #if DEBUG
+                studioDebugInitialLoadSettled = true
+                publishDebugStudioDiffState()
+                #endif
+                #if DEBUG
+                await applyUITestSaveNetworkFaultIfNeeded()
+                #endif
                 await vm.refreshScreenplayExportFormatsAutomatically()
-                await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
-                await applyBridgeDebugProjectLoadIfNeeded(force: true)
-                vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
-                bootstrapNavigatorIfNeeded()
-                await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
-                restoreInspectorWorkspaceState()
                 if directionOneRightPanelTab == .them {
+                    await refreshStudioCreativeInstincts(force: true)
                     await vm.refreshBlockSignal(source: "Studio open")
-                    await vm.refreshCharacterTraits(source: "Studio open")
                     await vm.refreshCraftTwists(source: "Studio open")
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
             }
-            .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
+            .onReceive(Self.crossDeviceRefreshTimer) { _ in
+                guard !IOThemRuntime.isRunningTests else { return }
                 Task {
-                    await selectPreferredProjectIfNeeded(newValue)
+                    await vm.refreshCrossDeviceStateIfNeeded()
+                    if directionOneRightPanelTab == .them {
+                        await refreshStudioCreativeInstincts(
+                            force: false,
+                            reportErrors: false
+                        )
+                    }
+                }
+            }
+    }
+
+    private var studioObservedView: some View {
+        studioCreativeInstinctsBoundView
+            .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests,
+                   ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict") {
+                    return
+                }
+                #endif
+                Task {
+                    if await selectPreferredProjectIfNeeded(newValue) {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.debugProjectLoadToken) { _, _ in
                 Task {
-                    await applyBridgeDebugProjectLoadIfNeeded()
+                    if await applyBridgeDebugProjectLoadIfNeeded() {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.debugRequestedProjectID) { _, _ in
                 Task {
-                    await applyBridgeDebugProjectLoadIfNeeded(force: true)
+                    if await applyBridgeDebugProjectLoadIfNeeded(force: true) {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.draftText) { _, newValue in
-                vm.replaceDraftFromVoiceBridgeIfNeeded(newValue)
+                vm.replaceDraftFromVoiceBridgeIfNeeded(
+                    newValue,
+                    draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
+                )
             }
             .onChange(of: liveDraftBridge.isStreamingDraftPreviewActive) { _, isActive in
                 vm.setStreamingDraftPreviewActive(isActive)
@@ -4625,12 +1172,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                let previousDraft = committedWrite.previousDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                let committedDraft = committedWrite.committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if currentDraft == previousDraft, currentDraft != committedDraft {
-                    vm.fountainDraft = committedWrite.committedDraft
-                }
+                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -4895,7 +1437,10 @@ Replace is best when this file should become the script you edit. Append is safe
         let currentScene = liveDraftBridge.currentSceneSnapshot()
         let binding = currentScene.flatMap { liveDraftBridge.projectBindingSnapshot(forDraftSceneID: $0.id) }
         let summary = selection.trimmedText
-        let label = beatLabel(from: summary, sceneLabel: selection.sceneLabel ?? currentScene?.shortLabel)
+        let label = BeatQuickCaptureSeedPlanner.makeLabel(
+            from: summary,
+            sceneLabel: selection.sceneLabel ?? currentScene?.shortLabel
+        )
         let result: BackendReadResult<BackendScreenplayBeatMutationResponse>
         do {
             result = try await BackendMemoryAPI.shared.upsertScreenplayBeat(
@@ -4916,13 +1461,13 @@ Replace is best when this file should become the script you edit. Append is safe
             return
         }
 
-        if let nextProject = result.payload.project {
-            vm.applyProjectMetadataUpdate(nextProject)
-        }
-        if let nextOutline = result.payload.outline {
-            vm.outline = nextOutline
-        }
-        vm.refreshLiveDraftBridgeContext()
+        vm.adoptCanonicalOutlineState(
+            result.payload.outlineRevision,
+            outline: result.payload.outline,
+            project: result.payload.project,
+            projectId: project.id
+        )
+        await vm.reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
         let scenePhrase = binding?.outlineSceneTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? binding?.outlineSceneTitle ?? ""
             : (selection.sceneLabel ?? currentScene?.shortLabel ?? "")
@@ -5438,10 +1983,7 @@ Replace is best when this file should become the script you edit. Append is safe
         scenes: [BackendScreenplayScene]
     ) -> [BackendScreenplayAct] {
         acts.enumerated().map { index, act in
-            let sceneIDs = scenes
-                .filter { ($0.actId ?? "") == act.id }
-                .sorted { ($0.order ?? 0) < ($1.order ?? 0) }
-                .map(\.id)
+            let sceneIDs = InspectorOrderSupport.sceneIDs(for: act.id, scenes: scenes)
             return BackendScreenplayAct(
                 id: act.id,
                 title: act.title,
@@ -5454,71 +1996,156 @@ Replace is best when this file should become the script you edit. Append is safe
         }
     }
 
-    private func beatLabel(from text: String, sceneLabel: String?) -> String {
-        let normalized = text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-        if !normalized.isEmpty {
-            let words = normalized.split(separator: " ")
-            let prefix = words.prefix(6).joined(separator: " ")
-            let clean = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !clean.isEmpty {
-                return String(clean.prefix(72))
-            }
-        }
-        let fallback = (sceneLabel ?? "Story beat")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return fallback.isEmpty ? "Story beat" : "Beat: \(fallback)"
-    }
-
     private var studioBaseLayout: some View {
         directionOneStudioLayout
     }
 
     private var directionOneStudioLayout: some View {
-        ZStack {
-            LinearGradient(
-                gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .saturation(0.40)
-            .brightness(0.07)
-            .overlay(Color.black.opacity(0.03))
-            .ignoresSafeArea()
+        GeometryReader { geometry in
+            let usesDrawers = StudioResponsiveLayout.usesDrawers(containerWidth: geometry.size.width)
+            let compactTopInset: CGFloat = {
+                #if os(iOS)
+                usesDrawers
+                    ? StudioResponsiveLayout.compactTopInset(
+                        safeAreaInset: geometry.safeAreaInsets.top,
+                        isPhone: UIDevice.current.userInterfaceIdiom == .phone
+                    )
+                    : 0
+                #else
+                0
+                #endif
+            }()
 
-            VStack(spacing: 0) {
-                directionOneHeader
-                directionOneBodyColumns
-                if directionOneTransientStatusIsVisible {
-                    directionOneTransientStatusBar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .saturation(0.40)
+                .brightness(0.07)
+                .overlay(Color.black.opacity(0.03))
+                .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    directionOneHeader(usesDrawers: usesDrawers)
+                        .frame(height: usesDrawers ? 46 : nil)
+                        .zIndex(2)
+                    directionOneBodyColumns(
+                        usesDrawers: usesDrawers,
+                        availableWidth: geometry.size.width
+                    )
+                    if directionOneTransientStatusIsVisible {
+                        directionOneTransientStatusBar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .padding(.top, compactTopInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                if let conflict = vm.conflictState {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+
+                    draftConflictBanner(conflict)
+                        .frame(maxWidth: 560)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 70 + compactTopInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let recovery = vm.recoveryCandidate {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+
+                    draftRecoveryBanner(recovery)
+                        .frame(maxWidth: 560)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 70 + compactTopInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)
+            .animation(.easeOut(duration: 0.18), value: vm.recoveryCandidate != nil)
+            .onAppear {
+                configureDirectionOneResponsiveLayout(usesDrawers: usesDrawers)
+            }
+            .onChange(of: usesDrawers) { _, nextUsesDrawers in
+                configureDirectionOneResponsiveLayout(usesDrawers: nextUsesDrawers)
+            }
+            .onChange(of: isDirectionOneSidebarVisible) { _, isVisible in
+                guard isDirectionOneCompactLayout, isVisible else { return }
+                isDirectionOneRightRailExpanded = false
+            }
+            .onChange(of: isDirectionOneRightRailExpanded) { _, isVisible in
+                guard isDirectionOneCompactLayout, isVisible else { return }
+                isDirectionOneSidebarVisible = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func directionOneBodyColumns(
+        usesDrawers: Bool,
+        availableWidth: CGFloat
+    ) -> some View {
+        if usesDrawers {
+            ZStack {
+                directionOneScriptEditor
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isDirectionOneCompactLayout,
+                   isDirectionOneSidebarVisible || isDirectionOneRightRailExpanded {
+                    Color.black.opacity(0.10)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            closeDirectionOneCompactDrawers()
+                        }
+                        .accessibilityIdentifier("studio.compact.drawer.backdrop")
+                }
+
+                if isDirectionOneCompactLayout, isDirectionOneRightRailExpanded {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        directionOneInspectorColumn(
+                            width: StudioResponsiveLayout.inspectorDrawerWidth(
+                                containerWidth: availableWidth
+                            )
+                        )
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if isDirectionOneCompactLayout, isDirectionOneSidebarVisible {
+                    HStack(spacing: 0) {
+                        directionOneSidebarColumn(
+                            width: StudioResponsiveLayout.sidebarDrawerWidth(
+                                containerWidth: availableWidth
+                            )
+                        )
+                        Spacer(minLength: 0)
+                    }
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+            }
+            .clipped()
+        } else {
+            HStack(spacing: 0) {
+                if isDirectionOneSidebarVisible {
+                    directionOneSidebarColumn(width: 208)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                directionOneScriptEditor
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isDirectionOneRightRailExpanded {
+                    directionOneInspectorColumn(width: 248)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
         }
     }
 
-    private var directionOneBodyColumns: some View {
-        HStack(spacing: 0) {
-            if isDirectionOneSidebarVisible {
-                directionOneSidebarColumn
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-
-            directionOneScriptEditor
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if isDirectionOneRightRailExpanded {
-                directionOneInspectorColumn
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.34, dampingFraction: 0.90), value: isDirectionOneSidebarVisible)
-        .animation(.spring(response: 0.34, dampingFraction: 0.90), value: isDirectionOneRightRailExpanded)
-    }
-
-    private var directionOneSidebarColumn: some View {
+    private func directionOneSidebarColumn(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             sidebarModeTabs
                 .padding(.horizontal, 12)
@@ -5537,16 +2164,18 @@ Replace is best when this file should become the script you edit. Append is safe
             .padding(.horizontal, 10)
             .padding(.vertical, 12)
         }
-        .frame(width: 208)
+        .frame(width: width)
         .background(directionOneColumnSurface)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(directionOneChromeStroke.opacity(0.22))
                 .frame(width: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.sidebar.left.drawer")
     }
 
-    private var directionOneInspectorColumn: some View {
+    private func directionOneInspectorColumn(width: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -5588,761 +2217,44 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: draggedSceneID) { _, _ in
                 updateInspectorAutoScroll(proxy: proxy)
             }
+            .onChange(of: vm.pendingScreenplayQuestion?.id) { _, pendingID in
+                guard pendingID != nil else { return }
+                withAnimation(.easeOut(duration: 0.20)) {
+                    proxy.scrollTo("studio.pending-question.anchor", anchor: .top)
+                }
+            }
+            .onChange(of: isDirectionOneComposerExpanded) { _, isExpanded in
+                guard isExpanded else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeOut(duration: 0.20)) {
+                        proxy.scrollTo("studio.composer.anchor", anchor: .top)
+                    }
+                }
+            }
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil
             }
         }
-        .frame(width: 248)
+        .frame(width: width)
         .background(directionOneColumnSurface)
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(directionOneChromeStroke.opacity(0.22))
                 .frame(width: 1)
         }
-    }
-
-    private var directionOneAssistantIdentityCard: some View {
-        let report = liveDraftBridge.intelligenceReport
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("io.them")
-                        .font(.system(size: 28, weight: .semibold, design: .serif))
-                        .foregroundStyle(directionOneChromeText)
-                    Text("Creative Partner")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .tracking(0.9)
-                        .foregroundStyle(directionOneChromeTertiaryText)
-                        .textCase(.uppercase)
-                    Text("Mode, memory, and page guidance now move through one composed companion surface.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    directionOneAssistantPill("Mode", value: liveDraftBridge.companionMode.shortTitle, tint: directionOneChromeText.opacity(0.88))
-                    directionOneAssistantPill("Status", value: directionOneAssistantCurrentStatusTitle, tint: directionOneAssistantCurrentStatusTint)
-                }
-            }
-
-            HStack(spacing: 8) {
-                directionOneCompactMetricPill("Pins", value: "\(voicePinTurns.count)")
-                directionOneCompactMetricPill(
-                    "Signals",
-                    value: "\(report.continuityIssues.count + report.sceneGoalDrift.count + report.duplicateBeatIssues.count)"
-                )
-                directionOneCompactMetricPill("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
-            }
-
-            HStack(spacing: 8) {
-                directionOneAssistantPill("Memory", value: liveDraftBridge.latestMemoryDomain.title, tint: studioRouteTint.opacity(0.82))
-                directionOneAssistantPill("Output", value: latestRoutedStudioTarget == .page ? "Page" : "Pin", tint: directionOneChromeText.opacity(0.78))
-                directionOneAssistantPill("Pace", value: studioSpeakingPaceLabel, tint: directionOneChromeText.opacity(0.78))
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.96))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
-        )
-        .shadow(color: Color.herPaperShadow.opacity(0.18), radius: 16, y: 8)
-    }
-
-    private var directionOneAssistantNextStepCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Best next move")
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .tracking(0.9)
-                .foregroundStyle(directionOneChromeTertiaryText)
-                .textCase(.uppercase)
-
-            Text(directionOneAssistantGuidanceTitle)
-                .font(.system(size: 16, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText)
-
-            Text(directionOneAssistantGuidanceDetail)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(directionOneChromeSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 8) {
-                Button(directionOneAssistantGuidancePrimaryTitle) {
-                    performDirectionOneAssistantPrimaryAction()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                if let secondaryTitle = directionOneAssistantGuidanceSecondaryTitle {
-                    Button(secondaryTitle) {
-                        performDirectionOneAssistantSecondaryAction()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.94))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.34), lineWidth: 1)
-        )
-    }
-
-    private var directionOneAssistantStoryToolsGroup: some View {
-        directionOneAssistantDisclosureSection(
-            title: "Story Tools",
-            subtitle: "\(directionOneWorkspaceMode.title) is active in the workspace.",
-            systemImage: directionOneWorkspaceMode == .draft ? "doc.text" : (directionOneWorkspaceMode == .beats ? "flag" : "list.bullet.rectangle.portrait"),
-            isExpanded: $isDirectionOneStoryToolsExpanded
-        ) {
-            directionOneAssistantCurrentWorkspaceContent
-        }
-    }
-
-    private var directionOneAssistantMemoryGroup: some View {
-        directionOneAssistantDisclosureSection(
-            title: "Memory & Pins",
-            subtitle: "Thread history, voice notes, and companion mode stay together.",
-            systemImage: "waveform.and.mic",
-            isExpanded: $isDirectionOneMemoryExpanded
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                companionModePickerCard
-                directionOneCompactVoicePinSection
-
-                if companionVoicePinEntries.isEmpty {
-                    directionOneCompactEmptyThreadSummary
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Recent thread")
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .tracking(0.7)
-                            .foregroundStyle(directionOneChromeTertiaryText)
-                            .textCase(.uppercase)
-
-                        ForEach(Array(companionVoicePinEntries.prefix(4))) { exchange in
-                            companionThreadInspectorCard(exchange)
-                        }
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Button("Clear Thread") {
-                        clearCompanionThreadHistory()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Clear Memory") {
-                        liveDraftBridge.clearCompanionMemory()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .controlSize(.small)
-            }
-        }
-    }
-
-    private var directionOneAssistantSignalsGroup: some View {
-        let report = liveDraftBridge.intelligenceReport
-
-        return directionOneAssistantDisclosureSection(
-            title: "Signals & Context",
-            subtitle: "What io.them is tracking across the screenplay right now.",
-            systemImage: "scope",
-            isExpanded: $isDirectionOneSignalsExpanded
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    directionOneMiniStat("Continuity", value: "\(report.continuityIssues.count)")
-                    directionOneMiniStat("Drift", value: "\(report.sceneGoalDrift.count)")
-                    directionOneMiniStat("Duplicates", value: "\(report.duplicateBeatIssues.count)")
-                }
-
-                if !report.changeSummary.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recent movement")
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .tracking(0.7)
-                            .foregroundStyle(directionOneChromeTertiaryText)
-                            .textCase(.uppercase)
-
-                        ForEach(Array(report.changeSummary.prefix(3)), id: \.self) { line in
-                            Text(line)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(directionOneChromeSecondaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-
-                intelligenceFixQueueCard
-
-                HStack(spacing: 8) {
-                    directionOneAssistantPill("Intent", value: studioPromptIntent.title, tint: directionOneChromeText.opacity(0.82))
-                    directionOneAssistantPill("Route", value: studioPromptRoutingMode.title, tint: directionOneChromeText.opacity(0.76))
-                    directionOneAssistantPill("Focus", value: directionOneWorkspaceMode.subtitle, tint: directionOneChromeText.opacity(0.76))
-                }
-            }
-        }
-    }
-
-    private var directionOneAssistantSavedGroup: some View {
-        directionOneAssistantDisclosureSection(
-            title: "Output & Saved",
-            subtitle: "Versions, recovery, and export stay within reach.",
-            systemImage: "square.and.arrow.up",
-            isExpanded: $isDirectionOneSavedExpanded
-        ) {
-            directionOneSavedPanel
-        }
-    }
-
-    @ViewBuilder
-    private var directionOneAssistantCurrentWorkspaceContent: some View {
-        switch directionOneWorkspaceMode {
-        case .draft:
-            draftToolsCard
-        case .beats:
-            directionOneBeatsPanel
-        case .outline:
-            directionOneOutlinePanel
-        }
-    }
-
-    private var directionOneAssistantCommandDock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Ask io.them")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(directionOneChromeText.opacity(0.90))
-                    Text(studioPromptHelperText)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 10)
-
-                Button(isDirectionOneComposerExpanded ? "Hide options" : "Intent & Output") {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        isDirectionOneComposerExpanded.toggle()
-                    }
-                    if isDirectionOneComposerExpanded {
-                        studioPromptFocused = true
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeSecondaryText)
-            }
-
-            if isDirectionOneComposerExpanded {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Intent")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .tracking(0.7)
-                        .foregroundStyle(directionOneChromeTertiaryText)
-                        .textCase(.uppercase)
-                    studioPromptIntentControl
-                    Text("Destination")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .tracking(0.7)
-                        .foregroundStyle(directionOneChromeTertiaryText)
-                        .textCase(.uppercase)
-                    promptRoutingControl
-                }
-            }
-
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField(studioPromptPlaceholder, text: $studioPromptSeed, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .focused($studioPromptFocused)
-                    .lineLimit(1...4)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.herPaper.opacity(studioPromptFocused ? 0.98 : 0.94))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(
-                                studioPromptFocused
-                                    ? directionOneChromeSelectionStroke.opacity(0.92)
-                                    : directionOneChromeStroke.opacity(0.18),
-                                lineWidth: 1
-                            )
-                    )
-                    .accessibilityIdentifier("studio.prompt.field")
-
-                Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
-                    submitStudioPromptSeed()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(
-                    isSubmittingStudioPrompt ||
-                    isSubmittingPrompt ||
-                    studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-                .accessibilityIdentifier("studio.prompt.send")
-            }
-
-            HStack(spacing: 8) {
-                directionOneAssistantPill("Intent", value: studioPromptIntent.title, tint: directionOneChromeText.opacity(0.82))
-                directionOneAssistantPill("Output", value: studioPromptRoutingMode.title, tint: directionOneChromeText.opacity(0.76))
-                if typedReplyAudioEnabled {
-                    directionOneAssistantPill("Replies", value: "Voice", tint: directionOneChromeText.opacity(0.74))
-                }
-                Spacer(minLength: 0)
-                Toggle("Speak Replies", isOn: $typedReplyAudioEnabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-            }
-        }
-        .padding(16)
-        .background(
-            Rectangle()
-                .fill(directionOneChromeTopBar.opacity(0.94))
-        )
-    }
-
-    private var directionOneAssistantGuidanceKind: DirectionOneAssistantGuidanceKind {
-        if vm.selectedProject == nil {
-            return .anchorProject
-        }
-        if liveDraftBridge.pendingStudioActionPreview != nil {
-            return .reviewPendingAction
-        }
-        if !availableIntelligenceFixQueueItems.isEmpty {
-            return .reviewSignals
-        }
-        if companionVoicePinEntries.isEmpty && voicePinTurns.isEmpty {
-            return .reopenThread
-        }
-        return .advanceDraft
-    }
-
-    private var directionOneAssistantGuidanceTitle: String {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            return "Anchor this draft to a project before the story branches further."
-        case .reviewPendingAction:
-            return "A proposed page change is waiting for confirmation."
-        case .reviewSignals:
-            return "io.them has screenplay signals worth resolving before the next pass."
-        case .reopenThread:
-            return "Open the thread and give io.them the next move."
-        case .advanceDraft:
-            return "Use io.them for one precise move that pushes the current scene forward."
-        }
-    }
-
-    private var directionOneAssistantGuidanceDetail: String {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            return "Creating a project keeps versions, outline structure, memory, and exports attached to the screenplay instead of leaving this as a floating live draft."
-        case .reviewPendingAction:
-            return "Review the transaction while the page context is still fresh. Confirm it if the change is right, or cancel it before it muddies the next instruction."
-        case .reviewSignals:
-            return "The assistant is already tracking continuity, drift, or duplicate beats. Preview the queued fixes now so the next draft pass starts from a cleaner structure."
-        case .reopenThread:
-            return "There is room to establish the companion lane. Open the command bar or talk live so the next note lands with intent, memory, and routing already set."
-        case .advanceDraft:
-            return "Keep the guidance specific: ask for the next beat, a scene rewrite, or one structural move. The page should stay the hero and the assistant should stay crisp."
-        }
-    }
-
-    private var directionOneAssistantGuidancePrimaryTitle: String {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            return "Open Projects"
-        case .reviewPendingAction:
-            return "Review change"
-        case .reviewSignals:
-            return "Preview fixes"
-        case .reopenThread:
-            return "Open command bar"
-        case .advanceDraft:
-            return "Write on page"
-        }
-    }
-
-    private var directionOneAssistantGuidanceSecondaryTitle: String? {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            return vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "Keep drafting"
-        case .reviewPendingAction:
-            return "Focus page"
-        case .reviewSignals:
-            return "Story tools"
-        case .reopenThread, .advanceDraft:
-            return canTalk ? "Talk" : "Focus page"
-        }
-    }
-
-    private func performDirectionOneAssistantPrimaryAction() {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                isDirectionOneSidebarVisible = true
-                selectedSidebarSection = .projects
-            }
-        case .reviewPendingAction:
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                isDirectionOneRightRailExpanded = true
-                isDirectionOneSignalsExpanded = true
-            }
-        case .reviewSignals:
-            _ = previewAllSuggestedIntelligenceFixes()
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                isDirectionOneRightRailExpanded = true
-                isDirectionOneSignalsExpanded = true
-            }
-        case .reopenThread:
-            openStudioCommandBar(routingMode: .voicePin, intent: .advice)
-        case .advanceDraft:
-            openStudioCommandBar(routingMode: .page, intent: .rewrite)
-        }
-    }
-
-    private func performDirectionOneAssistantSecondaryAction() {
-        switch directionOneAssistantGuidanceKind {
-        case .anchorProject:
-            openStudioCommandBar(routingMode: .page, intent: .rewrite)
-        case .reviewPendingAction:
-            liveDraftBridge.requestEditorFocus()
-        case .reviewSignals:
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                isDirectionOneStoryToolsExpanded = true
-            }
-        case .reopenThread, .advanceDraft:
-            if talkIsActive {
-                onStopTalk()
-            } else if canTalk {
-                onArmTalk()
-            } else {
-                liveDraftBridge.requestEditorFocus()
-            }
-        }
-    }
-
-    private var directionOneAssistantCurrentStatusTitle: String {
-        if talkIsActive {
-            return "Listening"
-        }
-        if liveDraftBridge.isStreamingDraftPreviewActive {
-            return "Drafting"
-        }
-        if vm.hasUnsavedDraftChanges {
-            return "Unsaved"
-        }
-        return "Synced"
-    }
-
-    private var directionOneAssistantCurrentStatusTint: Color {
-        if talkIsActive {
-            return Color.red.opacity(0.82)
-        }
-        if liveDraftBridge.isStreamingDraftPreviewActive {
-            return Color.green.opacity(0.82)
-        }
-        if vm.hasUnsavedDraftChanges {
-            return Color.orange.opacity(0.86)
-        }
-        return Color.green.opacity(0.78)
-    }
-
-    private func directionOneAssistantPill(_ label: String, value: String, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeTertiaryText)
-            Text(value)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(tint)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color.herShellPanelSoft.opacity(0.90))
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-    }
-
-    private func directionOneAssistantDisclosureSection<Content: View>(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isExpanded: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        DisclosureGroup(isExpanded: isExpanded) {
-            VStack(alignment: .leading, spacing: 14) {
-                content()
-            }
-            .padding(.top, 12)
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.82))
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.herShellPanel.opacity(0.84))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(directionOneChromeText.opacity(0.90))
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
-        )
-    }
-
-    private var directionOneThemCollaboratorSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Creative partner")
-                            .font(.system(size: 14, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.90))
-                        Text("Mode, Voice Pin, and page requests move through one calmer lane.")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.50))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 8) {
-                            studioCompanionMetaPill("Mode", value: liveDraftBridge.companionMode.shortTitle)
-                            studioTargetBadge(currentStudioPromptTarget, prefix: nil, compact: true)
-                            studioPromptWorkflowBadge
-                        }
-
-                        HStack(spacing: 6) {
-                            directionOneCompactMetricPill("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
-                            directionOneCompactMetricPill("Pins", value: "\(voicePinTurns.count)")
-                            directionOneCompactMetricPill("Fixes", value: "\(queuedIntelligenceFixes.count)")
-                        }
-                    }
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Companion mode")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Spacer(minLength: 0)
-                    studioRouteMetaStrip(
-                        memory: currentStudioPromptTarget == .page ? .project : .companion,
-                        output: currentStudioPromptTarget,
-                        mode: nil
-                    )
-                }
-            }
-
-            companionModePickerCard
-
-            Text(liveDraftBridge.companionMode.summary)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.62))
-                .fixedSize(horizontal: false, vertical: true)
-
-            directionOneThemSectionDivider
-            directionOneCompactVoicePinSection
-            directionOneThemSectionDivider
-            directionOneCompactComposerSection
-            directionOneThemSectionDivider
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Context")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                    Text("Thread memory, routing, and screenplay fixes stay attached to this same partner surface.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.50))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 8) {
-                    Button("Clear Thread") {
-                        clearCompanionThreadHistory()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Clear Memory") {
-                        liveDraftBridge.clearCompanionMemory()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .controlSize(.small)
-                .foregroundStyle(Color.herText.opacity(0.82))
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var directionOneThemSectionDivider: some View {
-        Rectangle()
-            .fill(Color.herShellStroke.opacity(0.16))
-            .frame(height: 1)
-    }
-
-    private func directionOneCompactMetricPill(_ label: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(value)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.76))
-            Text(label)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.48))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.30))
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
-        )
-        .clipShape(Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.sidebar.right.drawer")
     }
 
     private var directionOneComposerClusterIsActive: Bool {
         studioPromptFocused || isSubmittingStudioPrompt || isSubmittingPrompt
     }
 
-    private var directionOneCompactVoicePinSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Voice Pin")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.74))
-                Spacer(minLength: 0)
-                if !voicePinTurns.isEmpty {
-                    Text("\(voicePinTurns.count)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.82))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.herStudioActiveFill.opacity(0.10))
-                        .clipShape(Capsule())
-                }
-            }
-
-            if let latestTurn = voicePinTurns.last,
-               let latestExchange = studioAskNoteHistory.first(where: { $0.id == latestTurn.exchangeID }) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(latestTurn.userAskLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.84))
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(latestTurn.timeAgo)
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.40))
-                    }
-
-                    Text(latestTurn.outputExcerpt)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.58))
-                        .lineLimit(2)
-
-                    HStack(spacing: 8) {
-                        Button("Reuse") {
-                            reloadStudioAskNoteExchange(latestExchange)
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 11, weight: .medium, design: .default))
-
-                        Button("To Page") {
-                            openStudioCommandBar(
-                                prefill: latestExchange.prompt,
-                                routingMode: .page,
-                                intent: .rewrite
-                            )
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.accentColor.opacity(0.84))
-                    }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.black.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-                )
-            } else {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.herStudioActiveFill.opacity(0.08))
-                            .frame(width: 30, height: 30)
-                        Image(systemName: "waveform")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.herStudioActiveFill.opacity(0.54))
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("No active Voice Pin")
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.66))
-                        Text("Dictate or send a note to keep it off the page.")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.42))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 2)
-            }
-        }
-    }
-
     private var directionOneCompactComposerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let shouldShowComposer = isDirectionOneComposerExpanded
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Ask io.them")
                     .font(.system(size: 11, weight: .semibold, design: .default))
@@ -6358,8 +2270,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 .buttonStyle(.borderless)
                 .font(.system(size: 11, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.68))
+                .accessibilityIdentifier("studio.commandbar.toggle")
             }
-            if isDirectionOneComposerExpanded {
+            if shouldShowComposer {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Intent")
                         .font(.system(size: 11, weight: .semibold, design: .default))
@@ -6383,7 +2296,27 @@ Replace is best when this file should become the script you edit. Append is safe
                     .textFieldStyle(.plain)
                     .focused($studioPromptFocused)
                     .lineLimit(1...3)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        submitStudioPromptSeed()
+                    }
                     .accessibilityIdentifier("studio.prompt.field")
+#if os(iOS)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Send") {
+                                submitStudioPromptSeed()
+                            }
+                            .accessibilityIdentifier("studio.prompt.keyboard-send")
+                            .disabled(
+                                isSubmittingStudioPrompt ||
+                                isSubmittingPrompt ||
+                                studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+                        }
+                    }
+#endif
 
                     Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
                         submitStudioPromptSeed()
@@ -6477,19 +2410,27 @@ private var directionOneColumnSurface: some View {
         .fill(directionOneChromePanelSoft.opacity(0.98))
 }
     private var isDirectionOneRailOverlayPresented: Bool {
-        showingDirectionOneSettings || showingScreenplayShortcuts || isFocusedPageDiffOverlayPresented
+        showingDirectionOneSettings || isFocusedPageDiffOverlayPresented
     }
 
     private func dismissDirectionOneRailOverlays() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
             showingDirectionOneSettings = false
-            showingScreenplayShortcuts = false
             isFocusedPageDiffOverlayPresented = false
             focusedPageDiffExchangeID = nil
         }
     }
 
-private var directionOneHeader: some View {
+@ViewBuilder
+private func directionOneHeader(usesDrawers: Bool) -> some View {
+    if usesDrawers {
+        directionOneCompactHeader
+    } else {
+        directionOneExpandedHeader
+    }
+}
+
+private var directionOneExpandedHeader: some View {
     HStack(spacing: 12) {
         directionOneHeaderLeftToggle
         directionOneHeaderProjectBlock
@@ -6504,6 +2445,39 @@ private var directionOneHeader: some View {
         directionOneHeaderDoneButton
     }
     .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(directionOneChromeTopBar)
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.55))
+            .frame(height: 1)
+    }
+}
+
+private var directionOneCompactHeader: some View {
+    HStack(spacing: 8) {
+        directionOneHeaderLeftToggle
+            .fixedSize()
+            .layoutPriority(2)
+
+        directionOneHeaderProjectBlock
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .clipped()
+
+        directionOneCompactTalkButton
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneHeaderRightToggle
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneHeaderSettingsButton
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneCompactDoneButton
+            .fixedSize()
+            .layoutPriority(2)
+    }
+    .padding(.horizontal, 10)
     .padding(.vertical, 9)
     .background(directionOneChromeTopBar)
     .overlay(alignment: .bottom) {
@@ -6531,6 +2505,8 @@ private var directionOneHeaderLeftToggle: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel(isDirectionOneSidebarVisible ? "Close project drawer" : "Open project drawer")
+    .accessibilityIdentifier("studio.sidebar.left.toggle")
 }
 
 private var directionOneHeaderProjectBlock: some View {
@@ -6644,9 +2620,7 @@ private var directionOneHeaderDraftButton: some View {
 
 private var directionOneHeaderRightToggle: some View {
     Button {
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-            isDirectionOneRightRailExpanded.toggle()
-        }
+        toggleDirectionOneRightRailVisibility()
     } label: {
         Image(systemName: "sidebar.right")
             .font(.system(size: 13, weight: .regular))
@@ -6662,6 +2636,8 @@ private var directionOneHeaderRightToggle: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel(isDirectionOneRightRailExpanded ? "Close Studio inspector" : "Open Studio inspector")
+    .accessibilityIdentifier("studio.sidebar.right.toggle")
 }
 
 private var directionOneHeaderSettingsButton: some View {
@@ -6704,6 +2680,66 @@ private var directionOneHeaderDoneButton: some View {
             .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
     )
     .buttonStyle(.plain)
+}
+
+private var directionOneCompactTalkButton: some View {
+    Button {
+        if talkIsActive {
+            onStopTalk()
+        } else if canTalk {
+            onArmTalk()
+        }
+    } label: {
+        Image(systemName: talkIsActive ? "stop.fill" : "waveform")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(
+                talkIsActive
+                    ? Color.red.opacity(0.86)
+                    : (canTalk ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
+            )
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(talkIsActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(
+                        talkIsActive
+                            ? Color.red.opacity(0.22)
+                            : directionOneChromeStroke.opacity(0.55),
+                        lineWidth: 1
+                    )
+            )
+    }
+    .buttonStyle(.plain)
+    .disabled(!canTalk && !talkIsActive)
+    .accessibilityLabel(talkIsActive ? "Stop talking" : "Start talking")
+    .accessibilityIdentifier("studio.compact.talk")
+    .help(talkIsActive ? "Stop talking" : "Start talking")
+}
+
+private var directionOneCompactDoneButton: some View {
+    Button {
+        onDone()
+    } label: {
+        Image(systemName: "xmark")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(directionOneChromeText.opacity(0.90))
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Close Studio")
+    .accessibilityIdentifier("studio.compact.done")
+    .help("Close Studio")
 }
 
 private var directionOneTalkButton: some View {
@@ -6777,13 +2813,17 @@ private var directionOneScriptEditor: some View {
 }
     private func directionOnePageEditor(_ size: CGSize) -> some View {
         let verticalBreathingRoom = min(max(size.height * 0.07, 52), 86)
-        let pageWidth = min(560, max(size.width * 0.56, 500))
+        let pageWidth = StudioResponsiveLayout.pageWidth(editorWidth: size.width)
         let pageMinHeight = max(size.height - (verticalBreathingRoom * 1.5), 660)
         let pageMaxHeight = max(size.height - 34, 940)
+        let integrityIssues = screenplayIntegrityIssues
 
         return VStack(spacing: 14) {
-            if !screenplayIntegrityIssues.isEmpty {
-                pageIntegrityBanner
+            if !integrityIssues.isEmpty {
+                ScreenplayStudioPageIntegrityBanner(
+                    issues: integrityIssues,
+                    actions: draftIntegrityActions
+                )
                     .frame(width: pageWidth)
                     .frame(maxWidth: .infinity)
             }
@@ -6840,9 +2880,6 @@ private var directionOneScriptEditor: some View {
         }
     }
 
-    private var isVoicePinPerceivedResponseActive: Bool {
-        perceivedSpeedState.isActive && perceivedSpeedState.target == .voicePin
-    }
 
     private var studioPerceivedPageSkeleton: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -6872,296 +2909,10 @@ private var directionOneScriptEditor: some View {
         .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
     }
 
-    private var studioPerceivedVoicePinPendingCard: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(perceivedSpeedState.statusText)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.78))
-                Spacer(minLength: 0)
-                if let ms = perceivedSpeedState.firstFeedbackMilliseconds {
-                    Text("\(Int(ms))ms")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.herText.opacity(0.42))
-                }
-            }
 
-            Text(perceivedSpeedState.prompt)
-                .font(.system(size: 12, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.58))
-                .lineLimit(2)
 
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.herText.opacity(0.20))
-                            .frame(width: 4, height: 4)
-                        Text(line)
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.42))
-                            .lineLimit(1)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(Color.white.opacity(0.12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 
-    private var directionOneDraftFooterStrip: some View {
-        let wordCount = vm.fountainDraft
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-        let estimatedPages = max(1, Int(round(Double(wordCount) / 180.0)))
-        let streamingProgress = min(max(liveDraftBridge.streamingProgress, 0), 1)
-        let projectBinding = liveDraftBridge.projectBinding
-        let bindingTotal = max(max(projectBinding.draftSceneCount, projectBinding.outlineSceneCount), 1)
-        let showBinding = projectBinding.outlineSceneCount > 0 || projectBinding.draftSceneCount > 0
-        let showStreaming = streamingProgress > 0.001
 
-        return HStack(spacing: 10) {
-            Text("~\(estimatedPages) pg")
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.36))
-            Text("\(wordCount) words")
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.32))
-            footerDivider
-            studioMemoryFooterPill
-            footerDivider
-            studioOutputFooterPill
-            if liveDraftBridge.latestMemoryDomain != .project {
-                footerDivider
-                studioCompanionModeFooterPill
-            }
-            if showBinding {
-                footerDivider
-                studioBindingFooterPill(boundCount: projectBinding.boundSceneCount, totalCount: bindingTotal)
-            }
-            if showStreaming {
-                footerDivider
-                studioTypingFooterPill(progress: streamingProgress)
-            }
-            footerDivider
-            Button {
-                onOpenVoiceSettings()
-            } label: {
-                HStack(spacing: 5) {
-                    Text("Pace")
-                        .font(.system(size: 9, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.38))
-                    Text(studioSpeakingPaceLabel)
-                        .font(.system(size: 9, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.herText.opacity(0.44))
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.06))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Open Voice settings.")
-            Rectangle()
-                .fill(Color.herText.opacity(0.08))
-                .frame(width: 1, height: 10)
-            Button {
-                onOpenVoiceSettings()
-            } label: {
-                Text("Auto")
-                    .font(.system(size: 9, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.38))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Open Voice settings.")
-            Toggle("", isOn: $liveDraftBridge.autoInsertEnabled)
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .scaleEffect(0.58)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(Color.black.opacity(0.20))
-        )
-        .overlay(
-            Capsule()
-                .stroke(Color.white.opacity(0.06), lineWidth: 0.8)
-        )
-        .padding(.bottom, 18)
-        .animation(.easeInOut(duration: 0.20), value: streamingProgress > 0.001)
-        .animation(.linear(duration: 0.16), value: streamingProgress)
-    }
-
-    private var footerDivider: some View {
-        Rectangle()
-            .fill(Color.herText.opacity(0.08))
-            .frame(width: 1, height: 10)
-    }
-
-    private var studioMemoryFooterPill: some View {
-        HStack(spacing: 5) {
-            Text("Memory")
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(studioRouteTint.opacity(0.72))
-            Text(liveDraftBridge.latestMemoryDomain.title)
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.44))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
-    }
-
-    private var studioOutputFooterPill: some View {
-        HStack(spacing: 5) {
-            Text("Output")
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.40))
-            Text(latestRoutedStudioTarget == .page ? "Page" : "Pin")
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.44))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
-    }
-
-    private var studioCompanionModeFooterPill: some View {
-        HStack(spacing: 5) {
-            Text("Mode")
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.40))
-            Text(liveDraftBridge.companionMode.shortTitle)
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.44))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
-    }
-
-    private func studioBindingFooterPill(boundCount: Int, totalCount: Int) -> some View {
-        HStack(spacing: 5) {
-            Text("Bind")
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.38))
-            Text("\(boundCount)/\(totalCount)")
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.44))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
-        .help(studioProjectBindingHelpText)
-    }
-
-    private func studioTypingFooterPill(progress: Double) -> some View {
-        let clamped = min(max(progress, 0), 1)
-        let percentText = "\(Int((clamped * 100).rounded()))%"
-        let label = liveDraftBridge.activeSyncedVoiceInsertPlan == nil ? "Typing" : "Speaking"
-
-        return HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 9, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.08))
-                GeometryReader { geometry in
-                    Capsule()
-                        .fill(Color.herText.opacity(0.48))
-                        .frame(width: max(6, geometry.size.width * clamped))
-                }
-            }
-            .frame(width: 42, height: 4)
-            Text(percentText)
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.34))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.06))
-        .clipShape(Capsule())
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-    }
-
-    private var studioSpeakingPaceLabel: String {
-        let clamped = min(max(studioSpeakingPace, 0.7), 1.5)
-        if clamped < 0.85 { return "Slower" }
-        if clamped < 1.08 { return "Natural" }
-        if clamped < 1.28 { return "Brisk" }
-        return "Fast"
-    }
-
-    private var latestRoutedStudioTarget: StudioTarget {
-        if let latest = studioAskNoteHistory.first?.target {
-            return latest
-        }
-        return lastCommittedStudioPromptTarget
-    }
-
-    private var studioCollaboratorSubtitle: String {
-        switch liveDraftBridge.latestMemoryDomain {
-        case .project:
-            return "Page collaborator"
-        case .companion:
-            return "Companion · \(liveDraftBridge.companionMode.title)"
-        case .mixed:
-            return "Companion + craft · \(liveDraftBridge.companionMode.title)"
-        }
-    }
-
-    private var studioRouteTint: Color {
-        switch liveDraftBridge.latestMemoryDomain {
-        case .project:
-            return Color.herText
-        case .companion:
-            return Color(red: 0.79, green: 0.53, blue: 0.58)
-        case .mixed:
-            return Color(red: 0.72, green: 0.61, blue: 0.43)
-        }
-    }
-
-    private var studioProjectBindingHelpText: String {
-        let binding = liveDraftBridge.projectBinding
-        if binding.outlineSceneCount <= 0 {
-            return "No outline scene binding yet."
-        }
-        return "Bound \(binding.boundSceneCount) of \(binding.draftSceneCount) draft scenes to the active outline."
-    }
-
-    private var latestRoutedStudioMemoryDomain: StudioMemoryDomain {
-        if let latest = studioAskNoteHistory.first {
-            return resolvedMemoryDomain(for: latest)
-        }
-        return liveDraftBridge.latestMemoryDomain
-    }
-
-    private var latestRoutedStudioCompanionMode: StudioCompanionMode? {
-        if let latest = studioAskNoteHistory.first {
-            return resolvedCompanionMode(for: latest)
-        }
-        guard latestRoutedStudioMemoryDomain != .project else { return nil }
-        return liveDraftBridge.companionMode
-    }
 
     private func studioCompanionMetaPill(_ label: String, value: String) -> some View {
         HStack(spacing: 4) {
@@ -7546,206 +3297,6 @@ private var directionOneScriptEditor: some View {
             drift: drift
         )
     }
-
-    private var intelligenceFixQueueCard: some View {
-        let available = availableIntelligenceFixQueueItems
-        let safeQueuedCount = queuedIntelligenceFixes.filter(\.isSafe).count
-
-        return intelligenceCollectionCard(title: "Suggested Fix Queue", icon: "wand.and.stars") {
-            HStack(alignment: .top) {
-                Text(
-                    queuedIntelligenceFixes.isEmpty
-                    ? "Preview all to stage the current screenplay fixes before you touch the outline."
-                    : "Queued \(queuedIntelligenceFixes.count) fixes. Apply safe ones in a batch or work them one at a time."
-                )
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.60))
-                .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 12)
-
-                if let lastAppliedIntelligenceFixBatch {
-                    Text(lastAppliedIntelligenceFixBatch.shortID)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.herText.opacity(0.50))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.62))
-                        .clipShape(Capsule())
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button("Preview All") {
-                    previewAllSuggestedIntelligenceFixes()
-                }
-                .buttonStyle(.bordered)
-                .disabled(available.isEmpty)
-
-                Button("Apply All Safe") {
-                    Task { await applyAllSafeQueuedIntelligenceFixes() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(safeQueuedCount == 0)
-
-                if lastAppliedIntelligenceFixBatch != nil {
-                    Button("Rollback Last Batch") {
-                        Task { await rollbackLastIntelligenceFixBatch() }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            if queuedIntelligenceFixes.isEmpty {
-                Text(available.isEmpty ? "No queued fixes right now." : "\(available.count) suggested fixes are ready to preview.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(queuedIntelligenceFixes.prefix(6)) { item in
-                        intelligenceFixQueueRow(item)
-                    }
-                }
-            }
-        }
-    }
-
-    private func intelligenceFixQueueRow(_ item: IntelligenceFixQueueItem) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(item.title)
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.76))
-                    Text(item.isSafe ? "SAFE" : "REVIEW")
-                        .font(.system(size: 9, weight: .semibold, design: .default))
-                        .foregroundStyle(item.isSafe ? Color.green.opacity(0.92) : Color.orange.opacity(0.92))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background((item.isSafe ? Color.green : Color.orange).opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                Text(item.detail)
-                    .font(.system(size: 10, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 10)
-            Button(item.actionTitle) {
-                Task { await applyQueuedIntelligenceFix(item) }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .semibold, design: .default))
-            .foregroundStyle(Color.herStudioActiveFill.opacity(0.90))
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.66))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-    }
-
-    private func intelligenceIssueBlock(
-        title: String,
-        emptyText: String,
-        lines: [String] = [],
-        issues: [ScreenplayIntelligenceIssue] = [],
-        drift: [ScreenplaySceneDriftSummary] = []
-    ) -> some View {
-        intelligenceCollectionCard(title: title, icon: "text.alignleft") {
-            if !lines.isEmpty {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.64))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else if !issues.isEmpty {
-                ForEach(issues.prefix(6)) { issue in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(issue.title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.80))
-                        Text(issue.detail)
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.60))
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let actionTitle = intelligencePrimaryActionLabel(for: issue) {
-                            Button(actionTitle) {
-                                Task { await handleIntelligenceIssueAction(issue) }
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herStudioActiveFill.opacity(0.88))
-                            .padding(.top, 2)
-                        }
-                    }
-                }
-            } else if !drift.isEmpty {
-                ForEach(drift.prefix(5)) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.sceneLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.80))
-                        Text("Goal: \(item.objective)")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.60))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("Draft signal: \(item.draftSignal)")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.48))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Re-anchor Scene") {
-                            reanchorDriftedScene(item)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.88))
-                        .padding(.top, 2)
-                    }
-                }
-            } else {
-                Text(emptyText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-            }
-        }
-    }
-
-    private func intelligencePrimaryActionLabel(for issue: ScreenplayIntelligenceIssue) -> String? {
-        if issue.id.hasPrefix("unbound-") {
-            return "Bind Scene"
-        }
-        if issue.id.hasPrefix("character-") {
-            return "Attach Character"
-        }
-        if issue.id.hasPrefix("duplicate-beat-") {
-            return "Merge Beats"
-        }
-        if issue.id.hasPrefix("beatless-") || issue.severity == .critical || issue.severity == .warning {
-            return "Rewrite Brief"
-        }
-        return nil
-    }
-
-    @MainActor
-    private func handleIntelligenceIssueAction(_ issue: ScreenplayIntelligenceIssue) async -> Bool {
-        if issue.id.hasPrefix("unbound-") {
-            return await bindUnboundSceneFromIssue(issue)
-        }
-        if issue.id.hasPrefix("character-") {
-            return await attachOrphanCharacterFromIssue(issue)
-        }
-        if issue.id.hasPrefix("duplicate-beat-") {
-            return await mergeDuplicateBeatsFromIssue(issue)
-        }
-        return loadContinuityRewriteBrief(for: issue)
-    }
-
     @MainActor
     private func bindUnboundSceneFromIssue(_ issue: ScreenplayIntelligenceIssue) async -> Bool {
         guard let project = vm.selectedProject else {
@@ -7770,13 +3321,13 @@ private var directionOneScriptEditor: some View {
                 title: project.title,
                 phase: project.lastPhase
             )
-            if let nextProject = result.payload.project {
-                vm.applyProjectMetadataUpdate(nextProject)
-            }
-            if let nextOutline = result.payload.outline {
-                vm.outline = nextOutline
-            }
-            vm.refreshLiveDraftBridgeContext()
+            vm.adoptCanonicalOutlineState(
+                result.payload.outlineRevision,
+                outline: result.payload.outline,
+                project: result.payload.project,
+                projectId: project.id
+            )
+            await vm.reapplyLatestQueuedOutlineSnapshotIfNeeded(projectId: project.id)
             selectedInspectorSection = .scenes
             highlightedSceneInspectorKey = normalizedSceneNavigatorKey(binding.draftSlugline)
             liveDraftBridge.jumpToLine(binding.draftLine)
@@ -8117,25 +3668,24 @@ Detail:
                 studioDiffAcknowledgedKeys: snapshot.project.studioDiffAcknowledged?.keys,
                 studioDiffAcknowledgedEntries: snapshot.project.studioDiffAcknowledged?.entries
             )
-            let outlineResult = try await BackendMemoryAPI.shared.upsertScreenplayOutline(
-                projectId: snapshot.project.id,
-                acts: snapshot.outline.acts,
-                scenes: snapshot.outline.scenes,
-                beats: snapshot.outline.beats,
-                merge: false,
-                title: snapshot.project.title,
-                phase: snapshot.project.lastPhase
-            )
-
-            if let nextProject = outlineResult.payload.project ?? projectResult.payload.project {
+            if let nextProject = projectResult.payload.project {
                 vm.applyProjectMetadataUpdate(nextProject)
             } else {
                 vm.applyProjectMetadataUpdate(snapshot.project)
             }
-            if let nextOutline = outlineResult.payload.outline {
-                vm.outline = nextOutline
-            } else {
-                vm.outline = snapshot.outline
+            let accepted = await vm.persistOutlineMutation(
+                acts: snapshot.outline.acts,
+                scenes: snapshot.outline.scenes,
+                beats: snapshot.outline.beats,
+                successMessage: snapshot.appliedFixIDs.count == 1
+                    ? "Rolled back 1 suggested fix."
+                    : "Rolled back \(snapshot.appliedFixIDs.count) suggested fixes.",
+                source: "studio_intelligence_rollback"
+            )
+            guard accepted else {
+                vm.errorText = "The project details rolled back, but the outline rollback could not be accepted safely."
+                vm.infoText = "Partial rollback saved. The outline change is parked for review, and this fix batch remains available to retry."
+                return 0
             }
 
             queuedIntelligenceFixes = snapshot.queuedFixesBefore
@@ -8199,254 +3749,102 @@ Detail:
         return liveDraftBridge.companionMode
     }
 
+    private var hasCompanionThreadHistory: Bool {
+        studioAskNoteHistory.contains { $0.target == .voicePin }
+    }
+
     private func clearCompanionThreadHistory() {
-        studioAskNoteHistory.removeAll { exchange in
-            guard exchange.target == .voicePin else { return false }
-            let domain = resolvedMemoryDomain(for: exchange)
-            return domain == .companion || domain == .mixed
+        guard hasCompanionThreadHistory else {
+            vm.infoText = "There is no companion thread to clear."
+            return
         }
+
+        let clearedBackendIDs = Set(
+            studioAskNoteHistory
+                .filter { $0.target == .voicePin }
+                .map { normalizedBackendThreadID($0.backendThreadID) }
+                .filter { !$0.isEmpty }
+        )
+        addClearedBackendVoicePinIDs(clearedBackendIDs)
+        studioAskNoteHistory.removeAll { $0.target == .voicePin }
         liveDraftBridge.clearCompanionPinHistory()
         highlightedStudioExchangeID = studioAskNoteHistory.first?.id
-        vm.infoText = "Cleared the companion-side thread history."
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
+        vm.infoText = "Cleared the Voice Pin thread. Screenplay pages were kept."
     }
 
-    private var directionOneLeftRailOverlay: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                Spacer().frame(height: 50)
+    private func clearCreativePartnerMemory() {
+        let hasMemory = liveDraftBridge.companionSignalState.hasContent ||
+            !liveDraftBridge.companionRecentTurns.isEmpty
+        guard hasMemory else {
+            vm.infoText = "There is no companion memory to clear."
+            return
+        }
 
-                VStack(spacing: 6) {
-                    ForEach(DirectionOneLeftRailTab.allCases) { tab in
-                        directionOneRailIcon(tab, isActive: directionOneLeftRailTab == tab) {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                                directionOneLeftRailTab = directionOneLeftRailTab == tab ? nil : tab
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 8)
-                .padding(.horizontal, 6)
-
-                Spacer(minLength: 0)
-            }
-            .frame(width: 40)
-            .background(directionOneChromeRail)
-            .overlay(
-                Rectangle()
-                    .fill(directionOneChromeStroke.opacity(0.42))
-                    .frame(width: 1),
-                alignment: .trailing
-            )
-
-            if let tab = directionOneLeftRailTab {
-                Group {
-                    switch tab {
-                    case .scenes:
-                        directionOneScenesPanel
-                    case .projects:
-                        directionOneProjectsPanel
-                    }
-                }
-                .frame(width: 240)
-                .background(directionOneChromePanel)
-                .overlay(
-                    Rectangle()
-                        .fill(directionOneChromeStroke.opacity(0.42))
-                        .frame(width: 1),
-                    alignment: .trailing
-                )
-                .transition(.move(edge: .leading).combined(with: .opacity))
+        Task { @MainActor in
+            do {
+                try await liveDraftBridge.clearCompanionMemoryAndSync()
+                vm.infoText = "Cleared companion memory. Screenplay pages and project facts were kept."
+            } catch {
+                vm.infoText = "Could not clear companion memory. Try again when io.them is online."
             }
         }
-        .frame(maxHeight: .infinity)
     }
 
-    private func directionOneRailIcon(
-        _ tab: DirectionOneLeftRailTab,
-        isActive: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: tab.systemImage)
-                .font(.system(size: 14, weight: isActive ? .semibold : .regular))
-                .foregroundStyle(isActive ? directionOneChromeText.opacity(0.96) : directionOneChromeSecondaryText)
-                .frame(width: 28, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isActive ? directionOneChromeSelectionFill : Color.clear)
-                )
+    private func useLiveIntentPrompt(
+        _ rawPrompt: String,
+        intentKind: CreativeIntentKind?
+    ) {
+        guard let plan = ScreenplayStudioLiveIntentComposerPlanner.make(
+            rawPrompt: rawPrompt,
+            intentKind: intentKind
+        ) else {
+            vm.infoText = "No live ask is available yet."
+            return
         }
-        .buttonStyle(.plain)
-        .help(tab.title)
+
+        openStudioCommandBar(
+            prefill: plan.prompt,
+            routingMode: plan.routingMode,
+            intent: plan.intent
+        )
+        vm.infoText = plan.routingMode == .page
+            ? "Loaded the live page move into the composer."
+            : "Loaded the live ask into the companion composer."
     }
 
-    private var directionOneScenesPanel: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Scenes")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-                    .textCase(.uppercase)
-                scenesInspectorContent
-            }
-            .padding(12)
-        }
+    private func selectCreativePartnerMode(rawValue: String) {
+        guard let mode = StudioCompanionMode(rawValue: rawValue) else { return }
+        liveDraftBridge.setCompanionMode(mode)
     }
 
-    private var directionOneProjectsPanel: some View {
-        ScrollView {
-            projectsSidebarContent
-                .padding(12)
-        }
+    private func reuseCreativePartnerVoicePin(exchangeID: UUID) {
+        guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
+              exchange.target == .voicePin else { return }
+        reloadStudioAskNoteExchange(exchange)
     }
 
-    private var directionOneRightRailOverlay: some View {
-        HStack(spacing: 0) {
-            if isDirectionOneRightRailExpanded {
-                VStack(spacing: 0) {
-                    Spacer().frame(height: 50)
-
-                    voicePinPanel
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    Divider()
-                        .overlay(Color.herShellStroke.opacity(0.18))
-
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            studioPromptComposerCard
-                            if let preview = liveDraftBridge.pendingStudioActionPreview {
-                                pendingStudioActionPreviewCard(preview)
-                            }
-                            directionOneRightPanelTabs
-                            directionOneRightPanelContent
-                            leadReferenceDisclosure
-                            if !vm.infoText.isEmpty || !vm.errorText.isEmpty {
-                                studioRailStatusStrip
-                            }
-                        }
-                        .padding(12)
-                    }
-                .frame(maxHeight: directionOneRightPanelContentMaxHeight)
-            }
-            .frame(width: directionOneRightPanelWidth)
-            .background(directionOneChromePanel)
-            .overlay(
-                Rectangle()
-                    .fill(directionOneChromeStroke.opacity(0.42))
-                    .frame(width: 1),
-                alignment: .leading
-            )
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
-
-            VStack(spacing: 0) {
-                Spacer().frame(height: 58)
-
-                Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                        isDirectionOneRightRailExpanded.toggle()
-                    }
-                } label: {
-                    VStack(spacing: 6) {
-                        ZStack {
-                            Circle()
-                                .stroke(Color.herStudioActiveFill.opacity(talkIsActive ? 0.62 : 0.16), lineWidth: 1.5)
-                                .frame(width: 26, height: 26)
-                                .scaleEffect(talkIsActive ? 1.10 : 1.0)
-                                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: talkIsActive)
-
-                            Circle()
-                                .fill(Color.herStudioActiveFill.opacity(talkIsActive ? 0.90 : 0.34))
-                                .frame(width: 12, height: 12)
-                        }
-
-                        if !voicePinTurns.isEmpty {
-                            Text("\(voicePinTurns.count)")
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.herStudioActiveFill.opacity(0.78))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 12)
-
-                Spacer(minLength: 0)
-            }
-            .frame(width: 40)
-            .background(directionOneChromeRail)
-            .overlay(
-                Rectangle()
-                    .fill(directionOneChromeStroke.opacity(0.42))
-                    .frame(width: 1),
-                alignment: .leading
-            )
-        }
-        .frame(maxHeight: .infinity)
-    }
-
-    private var directionOneRightPanelWidth: CGFloat {
-        372
-    }
-
-    private var directionOneRightPanelContentMaxHeight: CGFloat {
-        switch directionOneRightPanelTab {
-        case .draft:
-            return 560
-        case .beats:
-            return 700
-        case .craft:
-            return 760
-        case .outline:
-            return 660
-        case .them:
-            return 1120
-        case .saved:
-            return 560
-        }
+    private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
+        guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
+              exchange.target == .voicePin else { return }
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: .page,
+            intent: .rewrite,
+            focusComposer: false
+        )
     }
 
     private var directionOneRightPanelTabs: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
-        return LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(DirectionOneRightPanelTab.allCases) { tab in
-                let isActive = directionOneRightPanelTab == tab
-                Button {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        directionOneRightPanelTab = tab
-                    }
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: tab.iconName)
-                            .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .default))
-
-                        Text(tab.title)
-                            .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(isActive ? directionOneChromeText.opacity(0.96) : directionOneChromeSecondaryText)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(isActive ? Color.white.opacity(0.96) : directionOneChromePanel)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isActive ? directionOneChromeSelectionStroke.opacity(0.72) : directionOneChromeStroke.opacity(0.36), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(6)
-        .background(directionOneChromePanelSoft)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+        ScreenplayStudioRightPanelTabs(
+            selection: $directionOneRightPanelTab,
+            textColor: directionOneChromeText,
+            secondaryTextColor: directionOneChromeSecondaryText,
+            panelColor: directionOneChromePanel,
+            panelSoftColor: directionOneChromePanelSoft,
+            selectionStrokeColor: directionOneChromeSelectionStroke,
+            strokeColor: directionOneChromeStroke
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
@@ -8496,6 +3894,12 @@ Detail:
             isFormatLinting: vm.isFormatLinting,
             formatLintErrorText: vm.formatLintErrorText,
             formatLintSource: vm.formatLintSourceText,
+            coverageSimulationReport: vm.coverageSimulationReport,
+            isCoverageSimulating: vm.isCoverageSimulating,
+            coverageSimulationErrorText: vm.coverageSimulationErrorText,
+            coverageSimulationSource: vm.coverageSimulationSourceText,
+            canSimulateCoverage: vm.canSimulateCraftCoverage,
+            isCoverageSimulationCurrent: vm.isCoverageSimulationCurrent,
             onRefresh: {
                 Task { await vm.loadCraftReport(force: true) }
             },
@@ -8504,6 +3908,9 @@ Detail:
             },
             onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Manual check") }
+            },
+            onSimulateCoverage: {
+                Task { await vm.refreshCraftCoverage(source: "Manual check") }
             },
             onAnalyze: {
                 Task { await vm.analyzeCraftReport() }
@@ -8516,729 +3923,448 @@ Detail:
 
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
-            let orderedActs = vm.outline.acts.sorted {
-                let lhsOrder = $0.order ?? Int.max
-                let rhsOrder = $1.order ?? Int.max
-                if lhsOrder == rhsOrder { return $0.title < $1.title }
-                return lhsOrder < rhsOrder
-            }
-            let orphanScenes = vm.outline.scenes
-                .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+            let featureSnapshot = featureWorkflowSnapshot
 
-            VStack(alignment: .leading, spacing: 18) {
-                inspectorPanelLead(
-                    title: "Track the spine of the movie.",
-                    detail: "Keep acts, scenes, and loose structure visible while the page evolves. The rail should tell you what the story is doing at a glance."
-                )
-
-                HStack(spacing: 10) {
-                    directionOneMiniStat("Acts", value: "\(vm.outline.acts.count)")
-                    directionOneMiniStat("Scenes", value: "\(vm.outline.scenes.count)")
-                    directionOneMiniStat("Beats", value: "\(vm.outline.beats.count)")
-                }
-
-                inspectorSubsectionLabel("Story spine")
-
-                if vm.outline.acts.isEmpty && vm.outline.scenes.isEmpty {
-                    inspectorMessageCard(
-                        icon: "list.bullet.rectangle",
-                        title: "No outline yet",
-                        detail: "Add scenes from the page or capture beats first. Acts and grouped scenes will start filling in here as the draft takes shape."
-                    )
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(orderedActs, id: \.id) { act in
-                            outlineActInspectorCard(
-                                act,
-                                scenes: vm.outline.scenes
-                                    .filter { $0.actId == act.id }
-                                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                            )
-                        }
-
-                        if draggedActID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this act to the end",
-                                isTargeted: $isActListDropTargeted
-                            ) { _ in
+            ScreenplayStudioOutlineInspectorLayout(
+                actCount: vm.outline.acts.count,
+                sceneCount: vm.outline.scenes.count,
+                beatCount: vm.outline.beats.count,
+                hasOutline: !vm.outline.acts.isEmpty || !vm.outline.scenes.isEmpty,
+                hasFocusedScene: currentSceneInspectorSelection != nil,
+                compass: {
+                    featureWorkflowCompassCard(featureSnapshot)
+                },
+                storySpine: {
+                    ScreenplayStudioOutlineStorySpine(
+                        acts: vm.outline.acts,
+                        scenes: vm.outline.scenes,
+                        isActDragActive: draggedActID != nil,
+                        isSceneDragActive: draggedSceneID != nil,
+                        settledAnchorID: inspectorSettledAnchorID,
+                        isSceneActive: { scene in
+                            isSceneInspectorRowActive(scene)
+                        },
+                        actDropTargetID: $actDropTargetID,
+                        sceneDropTargetID: $sceneDropTargetID,
+                        sceneGroupDropTargetID: $sceneGroupDropTargetID,
+                        isActEndDropTargeted: $isActListDropTargeted,
+                        actions: ScreenplayStudioOutlineStorySpineActions(
+                            onMoveAct: { act, direction in
+                                Task { await vm.moveAct(act, direction: direction) }
+                            },
+                            onBeginActDrag: { act in
+                                draggedActID = act.id
+                            },
+                            onDropActBefore: { act in
+                                handleActDrop(before: act)
+                            },
+                            onDropActAtEnd: {
                                 guard let draggedActID else { return false }
                                 settleInspectorDrop(at: inspectorScrollAnchorID(forActID: draggedActID))
                                 Task { await vm.moveAct(id: draggedActID, before: nil) }
                                 self.draggedActID = nil
                                 actDropTargetID = ""
                                 return true
+                            },
+                            onSelectScene: { scene in
+                                revealSceneInInspector(scene)
+                            },
+                            onMoveScene: { scene, direction in
+                                Task { await vm.moveScene(scene, direction: direction) }
+                            },
+                            onBeginSceneDrag: { scene in
+                                draggedSceneID = scene.id
+                            },
+                            onDropSceneBefore: { scene in
+                                handleSceneDrop(before: scene)
+                            },
+                            onDropSceneAtEndOfAct: { act in
+                                guard let draggedSceneID else { return false }
+                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
+                                self.draggedSceneID = nil
+                                sceneDropTargetID = ""
+                                sceneGroupDropTargetID = ""
+                                return true
+                            },
+                            onDropSceneAtEndOfLoose: {
+                                guard let draggedSceneID else { return false }
+                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
+                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
+                                self.draggedSceneID = nil
+                                sceneDropTargetID = ""
+                                sceneGroupDropTargetID = ""
+                                return true
                             }
-                        }
-
-                        if !orphanScenes.isEmpty {
-                            outlineLooseScenesCard(orphanScenes)
-                        } else if draggedSceneID != nil {
-                            intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
-                                inspectorReorderDropZone(
-                                    title: "Drop here to keep this scene loose",
-                                    isTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID)
-                                ) { _ in
-                                    guard let draggedSceneID else { return false }
-                                    settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                    Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
-                                    self.draggedSceneID = nil
-                                    sceneDropTargetID = ""
-                                    sceneGroupDropTargetID = ""
-                                    return true
-                                }
-                            }
-                        }
+                        )
+                    )
+                },
+                focusedScene: {
+                    if let selectedScene = currentSceneInspectorSelection {
+                        outlineFocusedSceneCard(selectedScene)
                     }
                 }
-
-                if let selectedScene = currentSceneInspectorSelection {
-                    inspectorSubsectionLabel("Focused scene")
-                    outlineFocusedSceneCard(selectedScene)
-                }
-            }
+            )
         }
+    }
+
+    private var acceptedStudioPageWriteExchanges: [StudioAskNoteExchange] {
+        studioAskNoteHistory.filter { exchange in
+            exchange.target == .page &&
+                (!exactInsertedText(for: exchange).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                 !(exchange.insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                 exchange.anchorLine != nil)
+        }
+    }
+
+    private var featureWorkflowSnapshot: ScreenplayFeatureWorkflowSnapshot {
+        ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: vm.selectedProject,
+            outline: vm.outline,
+            structuredDraft: liveDraftBridge.structuredDraft,
+            projectBinding: liveDraftBridge.projectBinding,
+            featureSpine: liveDraftBridge.featureSpine,
+            lastCommittedWrite: liveDraftBridge.lastCommittedWrite,
+            acceptedPageBatchCount: acceptedStudioPageWriteExchanges.count,
+            currentCursorLine: liveDraftBridge.currentCursorLine,
+            draftText: vm.fountainDraft
+        )
+    }
+
+    private var restoredStudioPromptContinuityContext: [String] {
+        studioPromptContinuityContext(from: studioAskNoteHistory)
+    }
+
+    private func studioPromptContinuityContext(
+        from entries: [StudioAskNoteExchange],
+        limit: Int = 5
+    ) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for exchange in entries.prefix(12) {
+            let prompt = compactStudioContinuitySnippet(exchange.prompt, limit: 110)
+            let responseSource = [
+                exactInsertedText(for: exchange),
+                exchange.revisedBlockText ?? "",
+                exchange.developmentText ?? "",
+                exchange.noteBody,
+                exchange.resolvedAnchorExcerpt ?? "",
+                exchange.anchorExcerpt ?? ""
+            ]
+                .map { compactStudioContinuitySnippet($0, limit: 140) }
+                .first(where: { !$0.isEmpty }) ?? ""
+
+            guard !prompt.isEmpty || !responseSource.isEmpty else { continue }
+            let label = exchange.target == .page ? "Prior page direction" : "Prior Clementine note"
+            let scene = compactStudioContinuitySnippet(exchange.anchorSceneLabel ?? "", limit: 60)
+            let core = prompt.isEmpty ? responseSource : prompt
+            var line = "\(label): \(core)"
+            if !scene.isEmpty {
+                line += " [\(scene)]"
+            }
+            if !prompt.isEmpty, !responseSource.isEmpty {
+                line += " -> \(responseSource)"
+            }
+            let key = line.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(line)
+            if result.count >= limit { break }
+        }
+
+        return result
+    }
+
+    private func compactStudioContinuitySnippet(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(max(0, limit))).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func featureWorkflowCompassCard(_ snapshot: ScreenplayFeatureWorkflowSnapshot) -> some View {
+        ScreenplayStudioFeatureCompassCard(
+            snapshot: snapshot,
+            acceptedPageBatchCount: acceptedStudioPageWriteExchanges.count,
+            isWriteDisabled: isSubmittingStudioPrompt || isSubmittingPrompt,
+            canPolishLastBatch: liveDraftBridge.lastCommittedWrite != nil,
+            onWriteNextPages: {
+                submitFeatureWorkflowPageWrite(
+                    snapshot.pageWritePrompt,
+                    displayText: "Continue feature: \(snapshot.nextSceneTitle)"
+                )
+            },
+            onPlan: {
+                openStudioCommandBar(
+                    prefill: snapshot.planningPrompt,
+                    routingMode: .voicePin,
+                    intent: .advice
+                )
+                vm.infoText = "Loaded a next-three-turns plan for Clementine."
+            },
+            onDoctor: {
+                openStudioCommandBar(
+                    prefill: snapshot.sceneDoctorPrompt,
+                    routingMode: .voicePin,
+                    intent: .advice
+                )
+                vm.infoText = "Loaded a feature scene-doctor brief."
+            },
+            onReviewBatch: {
+                revealFeatureWorkflowAcceptedBatch(snapshot)
+            },
+            onPolishLastBatch: {
+                guard let committedWrite = liveDraftBridge.lastCommittedWrite else { return }
+                reviseLastCommittedWrite(committedWrite, preset: .moreVisual)
+            },
+            onWriteMove: { move in
+                submitFeatureWorkflowPageWrite(move.prompt, displayText: move.shortTitle)
+            }
+        )
+    }
+
+    private func submitFeatureWorkflowPageWrite(_ prompt: String, displayText: String) {
+        submitStudioPromptText(
+            prompt,
+            displayText: displayText,
+            source: .typed,
+            routingMode: .page,
+            successMessage: "Asked Clementine to continue the feature on the page.",
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil
+        )
+    }
+
+    private func revealFeatureWorkflowAcceptedBatch(_ snapshot: ScreenplayFeatureWorkflowSnapshot) {
+        guard let lineRange = snapshot.acceptedBatchLineRange else {
+            vm.infoText = "No accepted page batch is available yet."
+            return
+        }
+        liveDraftBridge.jumpToLine(lineRange.lowerBound)
+        liveDraftBridge.highlightLineRange(startLine: lineRange.lowerBound, endLine: lineRange.upperBound)
+        expandLastCommittedWriteActions()
+        vm.infoText = "Opened the latest accepted page batch."
     }
 
 private var directionOneThemPanel: some View {
-    let analytics = liveDraftBridge.companionAnalytics
-    let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
     let blockSignalHistoryTrend = BackendBlockSignalHistoryTrendState.make(history: vm.blockSignalHistory)
+    let presentation = ScreenplayStudioThemRailPresentationPlanner.make(
+        signalState: liveDraftBridge.companionSignalState,
+        analytics: liveDraftBridge.companionAnalytics,
+        isBlockSignalLoading: vm.isBlockSignalLoading,
+        blockSignalErrorText: vm.blockSignalErrorText,
+        blockSignalNudge: blockSignalNudge,
+        blockSignalHistory: blockSignalHistoryTrend
+    )
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
+    let characterMemoryPresentation = ScreenplayStudioCharacterMemoryPresentationPlanner.make(
+        isLoading: vm.isCharacterTraitsLoading,
+        errorText: vm.characterTraitsErrorText,
+        hasResponse: vm.characterTraits != nil,
+        cards: characterTraitCards
+    )
+    let reversalCardsPresentation = ScreenplayStudioReversalCardsPresentationPlanner.make(
+        beatLabel: vm.craftTwistBeatLabel,
+        acceptedErrorText: vm.acceptedCraftTwistErrorText,
+        acceptedCount: vm.acceptedCraftTwists.count,
+        isLoading: vm.isCraftTwistLoading,
+        errorText: vm.craftTwistErrorText,
+        hasResponse: vm.craftTwists != nil,
+        cards: twistCards,
+        isMutating: vm.isAcceptedCraftTwistMutating,
+        hasSelectedProject: vm.selectedProject != nil
+    )
+    let hasCompanionMemory = liveDraftBridge.companionSignalState.hasContent ||
+        !liveDraftBridge.companionRecentTurns.isEmpty
+    let creativePartnerPresentation = ScreenplayStudioCreativePartnerPresentationPlanner.make(
+        modes: StudioCompanionMode.allCases.map { mode in
+            ScreenplayStudioCreativePartnerModeInput(
+                rawValue: mode.rawValue,
+                title: mode.title,
+                shortTitle: mode.shortTitle,
+                summary: mode.summary
+            )
+        },
+        selectedModeRawValue: liveDraftBridge.companionMode.rawValue,
+        routesToPage: currentStudioPromptTarget == .page,
+        recentTurnCount: liveDraftBridge.companionRecentTurns.count,
+        queuedFixCount: queuedIntelligenceFixes.count,
+        hasCompanionThread: hasCompanionThreadHistory,
+        hasCompanionMemory: hasCompanionMemory,
+        voicePinTurns: voicePinTurns.map { turn in
+            ScreenplayStudioCreativePartnerVoicePinTurnInput(
+                id: turn.id,
+                exchangeID: turn.exchangeID,
+                userAskLabel: turn.userAskLabel,
+                fountainOutput: turn.fountainOutput,
+                timestamp: turn.timestamp
+            )
+        },
+        exchanges: studioAskNoteHistory.map { exchange in
+            ScreenplayStudioCreativePartnerVoicePinExchangeInput(
+                id: exchange.id,
+                prompt: exchange.prompt,
+                source: exchange.source == .voice ? .voice : .typed,
+                developmentText: exchange.developmentText
+            )
+        },
+        now: Date()
+    )
 
-    return VStack(alignment: .leading, spacing: 16) {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("io.them")
-                .font(.system(size: 30, weight: .semibold, design: .serif))
-                .foregroundStyle(Color.herText.opacity(0.92))
-            Text("Keep io.them's instincts, memory, and craft signals together.")
-                .font(.system(size: 15, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.82))
-            Text("The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.60))
-                .fixedSize(horizontal: false, vertical: true)
+    return ScreenplayStudioThemRailView(
+        presentation: presentation,
+        actions: ScreenplayStudioThemRailActions(
+            onRefreshMomentum: {
+                Task { await vm.refreshBlockSignal(source: "Manual check") }
+            },
+            onUseLiveIntentPrompt: { prompt, intentKind in
+                useLiveIntentPrompt(prompt, intentKind: intentKind)
+            }
+        )
+    ) {
+        if liveDraftBridge.latestAppliedMemory.hasContent {
+            studioAppliedMemoryBanner
         }
 
-        if signalState.hasContent {
-            intelligenceCollectionCard(title: "Live Intent", icon: "dot.radiowaves.left.and.right") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(signalState.presence.title.isEmpty ? "Creative Presence" : signalState.presence.title)
-                            .font(.system(size: 13, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.88))
-                        Spacer(minLength: 0)
-                        if !signalState.intent.label.isEmpty {
-                            Text(signalState.intent.label)
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.14))
-                                .clipShape(Capsule())
-                        }
-                    }
+        pendingScreenplayQuestionPrompt
+        directionOneCompactComposerSection
+            .id("studio.composer.anchor")
 
-                    if !signalState.presence.detail.isEmpty {
-                        Text(signalState.presence.detail)
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.72))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        // Keep the current creative exchange and its Reuse/To Page actions
+        // adjacent to the composer on compact iPhone rails. Passive memory and
+        // craft collections can grow much taller and must not bury this live
+        // routing control below the reachable scroll range.
+        ScreenplayStudioCreativePartnerView(
+            presentation: creativePartnerPresentation,
+            actions: ScreenplayStudioCreativePartnerActions(
+                onSelectMode: selectCreativePartnerMode,
+                onReuseVoicePin: reuseCreativePartnerVoicePin,
+                onSendVoicePinToPage: sendCreativePartnerVoicePinToPage,
+                onClearThread: clearCompanionThreadHistory,
+                onClearMemory: clearCreativePartnerMemory
+            )
+        )
 
-                    if let proactive = signalState.proactiveSuggestion,
-                       !proactive.prompt.isEmpty {
-                        Text(proactive.prompt)
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
+        directionOneCreativeInstinctsCard
+
+        ScreenplayStudioCharacterMemoryView(
+            presentation: characterMemoryPresentation,
+            actions: ScreenplayStudioCharacterMemoryActions(
+                onRefresh: {
+                    Task { await vm.refreshCharacterTraits(source: "Manual check") }
+                }
+            )
+        )
+    } trailingContent: {
+        ScreenplayStudioReversalCardsView(
+            presentation: reversalCardsPresentation,
+            actions: ScreenplayStudioReversalCardsActions(
+                onRefresh: {
+                    Task {
+                        await vm.refreshCraftTwists(source: "Manual check")
+                        await vm.refreshAcceptedCraftTwists(source: "Manual check")
+                    }
+                },
+                onKeep: { card in
+                    Task { await vm.acceptCraftTwist(card) }
+                },
+                onDismiss: { card in
+                    if card.isAccepted {
+                        Task { await vm.dismissAcceptedCraftTwist(card) }
+                    } else {
+                        vm.dismissCraftTwistSuggestion(card)
                     }
                 }
-            }
-        }
-
-        if vm.isBlockSignalLoading {
-            intelligenceCollectionCard(title: "Momentum", icon: "hourglass") {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Checking writing momentum without interrupting the page.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        } else if !vm.blockSignalErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            intelligenceCollectionCard(title: "Momentum", icon: "exclamationmark.triangle") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(vm.blockSignalErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button {
-                        Task { await vm.refreshBlockSignal(source: "Manual check") }
-                    } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-        } else if blockSignalNudge.shouldRender || blockSignalHistoryTrend.shouldRender {
-            directionOneBlockSignalNudgeCard(blockSignalNudge, history: blockSignalHistoryTrend)
-        }
-
-        if vm.isCharacterTraitsLoading ||
-            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            vm.characterTraits != nil {
-            directionOneCharacterTraitsCard(characterTraitCards)
-        }
-
-        if vm.isCraftTwistLoading ||
-            !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            vm.craftTwists != nil {
-            directionOneTwistCardsCard(twistCards)
-        }
-
-        directionOneThemCollaboratorSection
-
-        intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
-            HStack(spacing: 8) {
-                directionOneMiniStat("Home", value: "\(analytics.homeTurns)")
-                directionOneMiniStat("Studio", value: "\(analytics.studioTurns)")
-                directionOneMiniStat("Voice", value: "\(analytics.voiceTurns)")
-                directionOneMiniStat("Typed", value: "\(analytics.typedTurns)")
-            }
-
-            Text("Companion turns stay attached to the same creative lane, whether they start on the page, in voice, or in the command bar.")
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.54))
-                .fixedSize(horizontal: false, vertical: true)
+            )
+        )
+    }
+    .task {
+        if !IOThemRuntime.isRunningUITests {
+            await vm.refreshCharacterTraits(source: "io.them rail")
         }
     }
-    .padding(18)
-    .background(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(Color.herShellPanelSoft.opacity(0.96))
-    )
-    .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
+}
+
+private var directionOneCreativeInstinctsCard: some View {
+    intelligenceCollectionCard(title: "Creative Instincts", icon: "brain.head.profile") {
+        StudioCreativeInstinctsView(
+            projectTitle: vm.selectedProject?.title ?? "",
+            hasSelectedProject: vm.selectedProject != nil,
+            preferences: creativeInstincts.preferences,
+            isLoading: creativeInstincts.isLoading,
+            updatingFamily: creativeInstincts.updatingFamily,
+            errorText: creativeInstincts.errorText,
+            onRefresh: {
+                Task {
+                    await refreshStudioCreativeInstincts(force: true)
+                }
+            },
+            onUpdate: { preference, action in
+                Task {
+                    await creativeInstincts.update(preference, action: action)
+                    await vm.refreshBlockSignal(source: "Creative Instinct correction")
+                    await vm.refreshCraftTwists(source: "Creative Instinct correction")
+                }
+            },
+            onResetAll: {
+                Task {
+                    await creativeInstincts.resetAll()
+                    await vm.refreshBlockSignal(source: "Creative Instinct reset")
+                    await vm.refreshCraftTwists(source: "Creative Instinct reset")
+                }
+            }
+        )
+    }
+}
+
+private func refreshStudioCreativeInstincts(
+    force: Bool,
+    reportErrors: Bool = true
+) async {
+    await creativeInstincts.load(
+        projectID: vm.selectedProjectID,
+        projectTitle: vm.selectedProject?.title ?? "",
+        force: force,
+        reportErrors: reportErrors
     )
 }
 
-    private func directionOneBlockSignalNudgeCard(
-        _ state: BackendBlockSignalNudgeState,
-        history: BackendBlockSignalHistoryTrendState
-    ) -> some View {
-        let title = state.shouldRender ? state.title : history.title
-        let icon = state.shouldRender ? (state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") : "chart.xyaxis.line"
-
-        return intelligenceCollectionCard(title: title, icon: icon) {
-            VStack(alignment: .leading, spacing: 10) {
-                if state.shouldRender {
-                    HStack(spacing: 8) {
-                        Text(state.scoreLabel)
-                            .font(.system(size: 18, weight: .semibold, design: .serif))
-                            .foregroundStyle(blockSignalTint(state.level))
-                        if !state.topSignalLabel.isEmpty {
-                            Text(state.topSignalLabel)
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.62))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.16))
-                                .clipShape(Capsule())
-                        }
-                        Spacer(minLength: 0)
-                        Button {
-                            Task { await vm.refreshBlockSignal(source: "Manual check") }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Refresh momentum signal")
-                    }
-
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color.herShellStroke.opacity(0.20))
-                            Capsule()
-                                .fill(blockSignalTint(state.level).opacity(0.58))
-                                .frame(width: max(8, geometry.size.width * state.progress))
-                        }
-                    }
-                    .frame(height: 5)
-
-                    Text(state.summary)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.78))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(state.detailLabel)
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    HStack(spacing: 8) {
-                        Text(history.trendLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(blockSignalTint(history.latestLevel))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Button {
-                            Task { await vm.refreshBlockSignal(source: "Manual check") }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Refresh momentum history")
-                    }
-                }
-
-                if history.shouldRender {
-                    directionOneBlockSignalHistorySparkline(history)
-                }
-            }
-        }
-    }
-
-    private func directionOneBlockSignalHistorySparkline(_ history: BackendBlockSignalHistoryTrendState) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(Array(history.sparklineScores.enumerated()), id: \.offset) { _, score in
-                    Capsule()
-                        .fill(blockSignalTint(history.latestLevel).opacity(0.30 + (0.42 * score)))
-                        .frame(width: 5, height: CGFloat(max(5, 26 * score)))
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(height: 28)
-
-            HStack(spacing: 8) {
-                Text(history.countLabel)
-                Text(history.levelMixLabel)
-                Spacer(minLength: 0)
-            }
-            .font(.system(size: 10, weight: .medium, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.48))
-        }
-    }
-
-    private func blockSignalTint(_ level: BackendBlockSignalLevel) -> Color {
-        switch level {
-        case .high: return Color.red.opacity(0.74)
-        case .medium: return Color.orange.opacity(0.76)
-        case .low, .unknown: return Color.green.opacity(0.66)
-        }
-    }
-
-    private func directionOneCharacterTraitsCard(_ cards: [BackendCharacterTraitCardState]) -> some View {
-        intelligenceCollectionCard(title: "Character Memory", icon: "person.2") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text("Voice inventory")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.78))
-                    Spacer(minLength: 0)
-                    Button {
-                        Task { await vm.refreshCharacterTraits(source: "Manual check") }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh character memory")
-                }
-
-                if vm.isCharacterTraitsLoading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Reading the character voice library.")
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.70))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else if !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.characterTraitsErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if cards.isEmpty {
-                    Text("No character traits saved yet. Dialogue and rendered character cues will teach io.them who belongs in the draft.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.66))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(cards) { card in
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 8) {
-                                Text(card.name)
-                                    .font(.system(size: 13, weight: .semibold, design: .serif))
-                                    .foregroundStyle(Color.herText.opacity(0.88))
-                                if card.hasTraits {
-                                    Text("learned")
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.54))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.14))
-                                        .clipShape(Capsule())
-                                }
-                                if card.hasArchetype {
-                                    Text(card.archetypeLabel)
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.herStudioActiveFill.opacity(0.14))
-                                        .clipShape(Capsule())
-                                }
-                                Spacer(minLength: 0)
-                            }
-
-                            Text(card.summary)
-                                .font(.system(size: 12, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            if card.hasArchetype && !card.archetypeSummary.isEmpty {
-                                Text(card.archetypeScoreLabel.isEmpty ? card.archetypeSummary : "\(card.archetypeSummary) - \(card.archetypeScoreLabel)")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.62))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            if !card.chips.isEmpty {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ForEach(card.chips, id: \.self) { chip in
-                                        Text(chip)
-                                            .font(.system(size: 10, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.62))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.herStudioActiveFill.opacity(0.14))
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                            }
-
-                            Text(card.detail)
-                                .font(.system(size: 10, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.46))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(10)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-
-    private func directionOneTwistCardsCard(_ cards: [ScreenplayCraftTwistCardState]) -> some View {
-        intelligenceCollectionCard(title: "Reversal Cards", icon: "sparkles") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(vm.craftTwistBeatLabel.isEmpty ? "Beat-aware twist pass" : vm.craftTwistBeatLabel)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.78))
-                        Text("Derived from the current craft framework.")
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.48))
-                    }
-                    Spacer(minLength: 0)
-                    Button {
-                        Task {
-                            await vm.refreshCraftTwists(source: "Manual check")
-                            await vm.refreshAcceptedCraftTwists(source: "Manual check")
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh reversal cards")
-                }
-
-                if !vm.acceptedCraftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.acceptedCraftTwistErrorText)
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.56))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if !vm.acceptedCraftTwists.isEmpty {
-                    Text("\(vm.acceptedCraftTwists.count) kept reversal\(vm.acceptedCraftTwists.count == 1 ? "" : "s") linked to this project.")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.56))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if vm.isCraftTwistLoading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Asking the twist engine for reversible pressure.")
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.70))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else if !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(vm.craftTwistErrorText)
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if cards.isEmpty {
-                    Text("No reversal cards yet. Run craft analysis or refresh once the draft has a major turn to pressure-test.")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.66))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(cards) { card in
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 8) {
-                                Text(card.label)
-                                    .font(.system(size: 13, weight: .semibold, design: .serif))
-                                    .foregroundStyle(Color.herText.opacity(0.88))
-                                Text(card.severityLabel)
-                                    .font(.system(size: 9, weight: .semibold, design: .default))
-                                    .foregroundStyle(twistSeverityTint(card.severity))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(twistSeverityTint(card.severity).opacity(0.12))
-                                    .clipShape(Capsule())
-                                if card.isAccepted {
-                                    Text("Kept")
-                                        .font(.system(size: 9, weight: .semibold, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.78))
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.16))
-                                        .clipShape(Capsule())
-                                }
-                                Spacer(minLength: 0)
-                            }
-
-                            Text(card.hook)
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.76))
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            if !card.rationale.isEmpty {
-                                Text(card.rationale)
-                                    .font(.system(size: 10, weight: .medium, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.48))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            HStack(spacing: 8) {
-                                Button {
-                                    Task { await vm.acceptCraftTwist(card) }
-                                } label: {
-                                    Label(card.isAccepted ? "Kept" : "Keep", systemImage: card.isAccepted ? "checkmark.circle.fill" : "pin")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(vm.isAcceptedCraftTwistMutating || card.isAccepted || vm.selectedProject == nil)
-
-                                Button {
-                                    Task { await vm.dismissAcceptedCraftTwist(card) }
-                                } label: {
-                                    Label("Dismiss", systemImage: "xmark.circle")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(vm.isAcceptedCraftTwistMutating || vm.selectedProject == nil)
-
-                                if vm.isAcceptedCraftTwistMutating {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        .padding(10)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-
-    private func twistSeverityTint(_ severity: String) -> Color {
-        switch severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "high": return Color.red.opacity(0.76)
-        case "medium": return Color.orange.opacity(0.76)
-        default: return Color.herText.opacity(0.58)
-        }
-    }
-
     private var directionOneSavedPanel: some View {
-        let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let latestVersionTag = latestVersionID.isEmpty ? "" : "Version \(String(latestVersionID.suffix(6)).uppercased())"
-
-        return sectionCard(title: "Saved") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Button {
-                        triggerStudioManualSave(revealSavedTab: false)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                            Text(vm.isSaving ? "Saving…" : "Save Script")
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                        }
-                        .foregroundStyle(Color.herText.opacity(0.88))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.herStudioActiveFill.opacity(0.18))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(vm.isSaving || !hasDraft)
-
-                    draftStatusChip(vm.autosaveStatusText, prominence: .muted)
-
-                    if !latestVersionTag.isEmpty {
-                        draftStatusChip(latestVersionTag, prominence: .muted)
-                    }
-                }
-
-                Text("Command+S saves the current script here and keeps recent versions inside Studio.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-
-                Divider()
-                    .overlay(Color.herShellStroke.opacity(0.18))
-
-                if vm.selectedProject == nil {
-                    Text("Select or create a project to keep saved screenplay versions here.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                } else if snapshotVersions.isEmpty {
-                    Text("No saved versions yet. Press Command+S or use Save Script to create the first one.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recent saves")
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.40))
-                            .textCase(.uppercase)
-
-                        ForEach(Array(snapshotVersions.enumerated()), id: \.element.id) { index, version in
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        Text(version.phase?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Draft")
-                                            .font(.system(size: 12, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.88))
-                                        if index == 0 {
-                                            draftStatusChip("Latest", prominence: .success)
-                                        }
-                                    }
-
-                                    HStack(spacing: 6) {
-                                        if let updated = dateFromTimestamp(version.updatedAt ?? version.createdAt) {
-                                            Text(relativeTimestamp(updated))
-                                                .font(.system(size: 11, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.62))
-                                        }
-                                        if let notes = version.notes,
-                                           !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            Text(notes)
-                                                .font(.system(size: 11, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.62))
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                }
-
-                                Spacer(minLength: 0)
-
-                                Button("Restore") {
-                                    vm.loadSnapshot(version)
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled((version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.white.opacity(0.10))
-                            )
-                        }
-                    }
-                }
-            }
+        sectionCard(title: "Saved") {
+            ScreenplayStudioSavedPanel(
+                presentation: savedPanelPresentation,
+                actions: savedPanelActions
+            )
         }
     }
 
-    private func directionOneMiniStat(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.system(size: 17, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.90))
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-                .textCase(.uppercase)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.46))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
+    private var savedPanelPresentation: ScreenplayStudioSavedPanelPresentation {
+        ScreenplayStudioSavedPanelPresentation(
+            isSaving: vm.isSaving,
+            hasDraft: !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            autosaveStatusText: vm.autosaveStatusText,
+            latestVersionID: vm.latestVersionID,
+            backgroundSyncNoticeText: studioBackgroundSyncNoticeText,
+            hasSelectedProject: vm.selectedProject != nil,
+            snapshotVersions: draftSnapshotPresentations
         )
     }
 
-    private var directionOneClementineBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .overlay(Color.herShellStroke.opacity(0.18))
-
-            HStack(spacing: 12) {
-                Button {
-                    triggerStudioManualSave()
-                } label: {
-                    Text(vm.isSaving ? "Saving…" : "Save")
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(vm.hasUnsavedDraftChanges ? 0.58 : 0.28))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(vm.hasUnsavedDraftChanges ? 0.08 : 0.03))
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(vm.isSaving || vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Spacer(minLength: 0)
-
-                Text(talkStatusText)
-                    .font(.system(size: 9, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(talkIsActive ? 0.56 : 0.24))
-
-                directionOneTalkButton
+    private var savedPanelActions: ScreenplayStudioSavedPanelActions {
+        ScreenplayStudioSavedPanelActions(
+            onSave: {
+                triggerStudioManualSave(revealSavedTab: false)
+            },
+            onRetryBackgroundSync: {
+                retryStudioBackgroundPersistence()
+            },
+            onRestore: { version in
+                vm.loadSnapshot(version)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.28))
-        }
+        )
     }
 
 
@@ -9353,7 +4479,7 @@ private var directionOneThemPanel: some View {
                         }
                         .buttonStyle(.borderedProminent)
                         Button("Discard") {
-                            vm.keepServerDraft()
+                            vm.discardLocalRecoveryCopy()
                         }
                         .buttonStyle(.bordered)
                     }
@@ -9428,10 +4554,6 @@ private var directionOneThemPanel: some View {
         Color(.sRGB, red: 0.955, green: 0.953, blue: 0.950, opacity: 0.90)
     }
 
-    private var directionOneChromeRail: Color {
-        Color(.sRGB, red: 0.912, green: 0.908, blue: 0.902, opacity: 0.84)
-    }
-
     private var directionOneChromeStroke: Color {
         Color.black.opacity(0.09)
     }
@@ -9456,160 +4578,11 @@ private var directionOneThemPanel: some View {
         Color.accentColor.opacity(0.24)
     }
 
-    private var directionOneWritingStageFill: Color {
-        Color.herShellPanel.opacity(0.42)
-    }
-
-    private var directionOneWritingStageStroke: Color {
-        Color.herShellStroke.opacity(0.18)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Screenplay Studio")
-                        .font(.system(size: 30, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.95))
-                    Text("Write on the page or think beside it with io.them.")
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                }
-                Spacer()
-                headerUtilityCluster
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .background(Color.herShellPanel)
-    }
-
-    private var headerUtilityCluster: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            HStack(spacing: 8) {
-                if vm.isLoading || vm.isSaving {
-                    ProgressView().controlSize(.small)
-                }
-                Circle()
-                    .fill(talkIsActive ? Color.green.opacity(0.85) : Color.herShellStroke.opacity(0.85))
-                    .frame(width: 8, height: 8)
-                Text(talkStatusText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.76))
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    // Primary interaction is long-press to arm voice.
-                } label: {
-                    Text("Hold to Dictate")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.92))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.herStudioActiveFill)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .opacity(canTalk ? 1.0 : 0.5)
-                .allowsHitTesting(canTalk)
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.08, maximumDistance: 80).onEnded { _ in
-                        guard canTalk else { return }
-                        onArmTalk()
-                    }
-                )
-
-                if talkIsActive {
-                    headerUtilityButton("Stop", prominence: true) {
-                        onStopTalk()
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                headerSecondaryUtilityButton("Refresh") {
-                    Task { await vm.refresh() }
-                }
-                headerSecondaryUtilityButton("Done") {
-                    onDone()
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.96))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.28), lineWidth: 1)
-        )
-    }
-
-    private func headerUtilityButton(
-        _ title: String,
-        prominence: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(prominence ? 0.92 : 0.84))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(prominence ? Color.herStudioActiveFill : Color.herShellPanel)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func headerSecondaryUtilityButton(
-        _ title: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.68))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func sidebarSectionLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .default))
-            .tracking(0.7)
-            .foregroundStyle(directionOneChromeTertiaryText)
-    }
-
 private var sidebarModeTabs: some View {
-    HStack(spacing: 10) {
-        ForEach(SidebarSection.allCases) { section in
-            sidebarModeButton(section)
-        }
-    }
-}
-
-private func sidebarModeButton(_ section: SidebarSection) -> some View {
-    let isActive = selectedSidebarSection == section
-    return Button {
-        selectedSidebarSection = section
-    } label: {
-        Text(section.title)
-            .font(.system(size: 11, weight: .semibold, design: .default))
-            .foregroundStyle(isActive ? Color.white : directionOneChromeSecondaryText)
-            .padding(.horizontal, isActive ? 10 : 0)
-            .padding(.vertical, isActive ? 6 : 0)
-            .background(
-                Capsule()
-                    .fill(isActive ? Color.accentColor.opacity(0.96) : Color.clear)
-            )
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(section.title)
-    .accessibilityAddTraits(isActive ? .isSelected : [])
+    ScreenplayStudioSidebarModeTabs(
+        selection: $selectedSidebarSection,
+        secondaryTextColor: directionOneChromeSecondaryText
+    )
 }
     private var directionOneSortedProjects: [BackendScreenplayProjectSummary] {
         vm.projects.sorted { lhs, rhs in
@@ -9622,2067 +4595,639 @@ private func sidebarModeButton(_ section: SidebarSection) -> some View {
         }
     }
 
-    private var directionOnePinnedProjects: [BackendScreenplayProjectSummary] {
-        directionOneSortedProjects.filter { $0.id == vm.selectedProjectID }
-    }
-
-    private var directionOneRecentProjects: [BackendScreenplayProjectSummary] {
-        Array(directionOneSortedProjects.filter { $0.id != vm.selectedProjectID }.prefix(3))
-    }
-
-    private var directionOneDraftShelfProjects: [BackendScreenplayProjectSummary] {
-        let excluded = Set(directionOnePinnedProjects.map(\.id) + directionOneRecentProjects.map(\.id))
-        return directionOneSortedProjects
-            .filter { !excluded.contains($0.id) }
-            .sorted { lhs, rhs in
-                let lhsDraft = (lhs.versionCount ?? 0) == 0
-                let rhsDraft = (rhs.versionCount ?? 0) == 0
-                if lhsDraft != rhsDraft {
-                    return lhsDraft && !rhsDraft
-                }
-                return directionOneProjectRecency(lhs) > directionOneProjectRecency(rhs)
-            }
-    }
 
     private func directionOneProjectRecency(_ project: BackendScreenplayProjectSummary) -> TimeInterval {
         project.updatedAt ?? project.lastVersionAt ?? project.createdAt ?? 0
     }
 
-    private func directionOneProjectTimestampText(_ project: BackendScreenplayProjectSummary) -> String {
-        guard let date = dateFromTimestamp(directionOneProjectRecency(project)) else {
-            return "No recent activity"
-        }
-        return relativeTimestamp(date)
-    }
-
-    private var directionOneSidebarWorkspaceCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Workspace")
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .tracking(0.9)
-                .foregroundStyle(directionOneChromeTertiaryText)
-                .textCase(.uppercase)
-            Text("Keep projects, drafts, and files in one calmer rail.")
-                .font(.system(size: 14, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.92))
-            Text(directionOneSortedProjects.isEmpty ? "No screenplay projects yet." : "\(directionOneSortedProjects.count) projects ready for writing, saving, and export.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(directionOneChromeSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
-        )
-    }
-
-    private var directionOneNewProjectComposer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                Text("New project")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.88))
-                Spacer(minLength: 0)
-                directionOneAssistantPill("Phase", value: "Scene draft", tint: directionOneChromeText.opacity(0.72))
-            }
-
-            TextField("Start with a title for the script world you are building", text: $vm.newProjectTitle)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.herPaper.opacity(0.96))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-                )
-
-            HStack(alignment: .center, spacing: 10) {
-                Text("Create the project now, then let versions, outline, and memory attach themselves to the same script home.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 10)
-                Button(vm.isSaving ? "Creating…" : "Create") {
-                    Task { await vm.createProject() }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSaving)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.96))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
-        )
-    }
-
-    private func directionOneProjectSection(
-        title: String,
-        projects: [BackendScreenplayProjectSummary],
-        emptyText: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sidebarSectionLabel(title)
-            if projects.isEmpty {
-                Text(emptyText)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(projects, id: \.id) { project in
-                        directionOneProjectRow(project)
-                    }
-                }
-            }
-        }
-    }
-
-    private func directionOneProjectRow(_ project: BackendScreenplayProjectSummary) -> some View {
-        let isActive = vm.selectedProjectID == project.id
-        let sceneCount = project.sceneCount ?? 0
-        let beatCount = project.beatCount ?? 0
-        let phase = (project.lastPhase ?? "scene_draft").replacingOccurrences(of: "_", with: " ").capitalized
-        let excerpt = project.latestExcerpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        return Button {
-            Task { await vm.selectProject(project.id) }
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(project.title)
-                            .font(.system(size: 13, weight: isActive ? .semibold : .medium, design: .default))
-                            .foregroundStyle(directionOneChromeText.opacity(isActive ? 0.96 : 0.88))
-                            .lineLimit(2)
-                        Text("\(sceneCount) scenes · \(beatCount) beats")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(directionOneChromeSecondaryText.opacity(isActive ? 0.92 : 0.82))
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        directionOneAssistantPill("Phase", value: phase, tint: directionOneChromeText.opacity(0.72))
-                        Text(directionOneProjectTimestampText(project))
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(directionOneChromeTertiaryText)
-                    }
-                }
-
-                if !excerpt.isEmpty {
-                    Text(excerpt)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isActive ? directionOneChromeSelectionFill.opacity(1.05) : Color.herShellPanelSoft.opacity(0.82))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isActive ? directionOneChromeSelectionStroke : Color.herShellStroke.opacity(0.18), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
 
 private var projectsSidebarContent: some View {
-    VStack(alignment: .leading, spacing: 12) {
-        sidebarSectionLabel("Projects")
-            .padding(.top, 2)
-
-        HStack(spacing: 8) {
-            TextField("New project title", text: $vm.newProjectTitle)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .default))
-                .foregroundStyle(Color.white.opacity(0.94))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.black.opacity(0.86))
-                )
-            Button("Create") {
-                Task { await vm.createProject() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSaving)
+    ScreenplayStudioProjectsSidebar(
+        projects: directionOneSortedProjects,
+        selectedProjectID: vm.selectedProjectID,
+        hasSelectedProject: vm.selectedProject != nil,
+        newProjectTitle: $vm.newProjectTitle,
+        isSaving: vm.isSaving,
+        isLoading: vm.isLoading,
+        errorText: vm.errorText,
+        textColor: directionOneChromeText,
+        secondaryTextColor: directionOneChromeSecondaryText,
+        tertiaryTextColor: directionOneChromeTertiaryText,
+        selectionFill: directionOneChromeSelectionFill,
+        onCreate: {
+            Task { await vm.createProject() }
+        },
+        onSelect: { projectID in
+            Task { await vm.selectProject(projectID) }
+        },
+        featureSpine: {
+            featureSpineSidebarEditor
         }
-
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(directionOneSortedProjects, id: \.id) { project in
-                    Button {
-                        Task { await vm.selectProject(project.id) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(project.title)
-                                .font(.system(size: 13, weight: vm.selectedProjectID == project.id ? .semibold : .medium, design: .default))
-                                .foregroundStyle(directionOneChromeText.opacity(vm.selectedProjectID == project.id ? 0.96 : 0.88))
-                                .lineLimit(2)
-                            Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
-                                .font(.system(size: 11, weight: .regular, design: .default))
-                                .foregroundStyle(directionOneChromeSecondaryText.opacity(vm.selectedProjectID == project.id ? 0.92 : 0.82))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(vm.selectedProjectID == project.id ? directionOneChromeSelectionFill.opacity(0.82) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if directionOneSortedProjects.isEmpty && !vm.isLoading {
-                    Text("No screenplay projects yet.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(directionOneChromeSecondaryText)
-                        .padding(.top, 8)
-                }
-            }
-            .padding(.vertical, 4)
-        }
-
-        Spacer(minLength: 0)
-
-        if !vm.errorText.isEmpty {
-            Text(vm.errorText)
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(Color.red.opacity(0.74))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+    )
 }
-    private var filesSidebarContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                sidebarSectionLabel("Local Files")
-                Spacer()
-                Button("Open Folder") {
-                    openNavigatorRootPicker()
-                }
-                .buttonStyle(.bordered)
+
+    private var featureSpineSidebarEditor: some View {
+        let pendingAction = pendingFeaturePlannerActionForSelectedProject()
+        return ScreenplayStudioFeatureSpineEditor(
+            logline: $vm.featureLogline,
+            themeArgument: $vm.featureThemeArgument,
+            centralQuestion: $vm.featureCentralQuestion,
+            protagonistWant: $vm.featureProtagonistWant,
+            protagonistNeed: $vm.featureProtagonistNeed,
+            antagonisticForce: $vm.featureAntagonisticForce,
+            actPosition: $vm.featureActPosition,
+            endingImage: $vm.featureEndingImage,
+            unresolvedSetupsText: $vm.featureUnresolvedSetupsText,
+            guide: vm.featureProgressionGuide,
+            pendingAction: pendingAction,
+            pendingActionTimestampText: pendingAction.map { relativeTimestamp($0.submittedDate) } ?? "",
+            hasSelectedProject: vm.selectedProject != nil,
+            isSaving: vm.isSaving,
+            isSubmitting: isSubmittingStudioPrompt || isSubmittingPrompt,
+            textColor: directionOneChromeText,
+            secondaryTextColor: directionOneChromeSecondaryText,
+            tertiaryTextColor: directionOneChromeTertiaryText,
+            onSave: {
+                Task { await vm.saveFeatureSpineMetadata() }
+            },
+            onCommand: { command, guide in
+                submitFeatureProgressionCommand(command, guide: guide)
+            },
+            onRetry: retryFeaturePlannerAction,
+            onClear: clearFeaturePlannerActionSnapshot
+        )
+    }
+
+    private func featureActionContext() -> ScreenplayFeatureActionContext {
+        ScreenplayFeatureActionContext(
+            logline: vm.featureLogline,
+            themeArgument: vm.featureThemeArgument,
+            centralQuestion: vm.featureCentralQuestion,
+            protagonistWant: vm.featureProtagonistWant,
+            protagonistNeed: vm.featureProtagonistNeed,
+            antagonisticForce: vm.featureAntagonisticForce,
+            endingImage: vm.featureEndingImage,
+            unresolvedSetups: vm.featureUnresolvedSetups
+        )
+    }
+
+    private func submitFeatureProgressionCommand(
+        _ command: ScreenplayFeatureActionCommand,
+        guide: ScreenplayFeatureProgressionGuide
+    ) {
+        let projectId = selectedFeaturePlannerProjectID()
+        guard !projectId.isEmpty else {
+            vm.errorText = "Select a project first."
+            return
+        }
+        let prompt = ScreenplayFeatureActionPromptBuilder.prompt(
+            for: command,
+            guide: guide,
+            context: featureActionContext()
+        )
+        let requestID = "feature-planner-\(UUID().uuidString.lowercased())"
+        let snapshot = ScreenplayFeaturePlannerActionSnapshot(
+            id: requestID,
+            projectId: projectId,
+            projectTitle: selectedFeaturePlannerProjectTitle(),
+            commandRawValue: command.rawValue,
+            displayText: command.displayText,
+            prompt: prompt,
+            currentAct: guide.currentAct,
+            sequenceLabel: guide.sequenceLabel,
+            pageRangeText: guide.pageRangeText,
+            requestID: requestID,
+            submittedAt: Date().timeIntervalSince1970,
+            routingModeRawValue: command.routingModeRawValue
+        )
+        persistFeaturePlannerActionSnapshot(snapshot)
+        submitStudioPromptText(
+            prompt,
+            displayText: command.displayText,
+            source: .typed,
+            routingMode: featurePlannerRoutingMode(for: command),
+            successMessage: command.successMessage,
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil,
+            requestIDOverride: requestID,
+            completion: { error in
+                handleFeaturePlannerActionCompletion(snapshot, error: error)
             }
+        )
+    }
 
-            HStack(spacing: 8) {
-                Button {
-                    navigateNavigatorBack()
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.bordered)
-                .disabled(navigatorBackStack.isEmpty)
+    private func selectedFeaturePlannerProjectID() -> String {
+        let selectedProjectID = (vm.selectedProject?.id ?? vm.selectedProjectID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return selectedProjectID
+    }
 
-                Button {
-                    navigateNavigatorForward()
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.bordered)
-                .disabled(navigatorForwardStack.isEmpty)
+    private func selectedFeaturePlannerProjectTitle() -> String {
+        let title = vm.selectedProject?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Untitled screenplay" : title
+    }
 
-                Button {
-                    navigateNavigatorUp()
-                } label: {
-                    Image(systemName: "arrow.up")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canNavigateUpInNavigator)
+    private func featurePlannerRoutingMode(for command: ScreenplayFeatureActionCommand) -> PromptRoutingMode {
+        PromptRoutingMode(rawValue: command.routingModeRawValue) ?? .page
+    }
 
-                Toggle("Hidden", isOn: $navigatorShowHidden)
-                    .toggleStyle(.switch)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-            }
+    private func featurePlannerRoutingMode(for snapshot: ScreenplayFeaturePlannerActionSnapshot) -> PromptRoutingMode {
+        PromptRoutingMode(rawValue: snapshot.resolvedRoutingModeRawValue) ?? .page
+    }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(navigatorBreadcrumbs, id: \.path) { crumb in
-                        Button(crumb.lastPathComponent.isEmpty ? "/" : crumb.lastPathComponent) {
-                            navigateNavigatorTo(crumb, pushHistory: true)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(Color.herShellPanelSoft.opacity(0.55))
-                        .clipShape(Capsule())
-                    }
-                }
-            }
+    private func pendingFeaturePlannerActionForSelectedProject() -> ScreenplayFeaturePlannerActionSnapshot? {
+        ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(
+            projectId: selectedFeaturePlannerProjectID(),
+            in: featurePlannerPendingActionStorage
+        )
+    }
 
-            TextField("Filter files", text: $navigatorFilterText)
-                .textFieldStyle(.roundedBorder)
+    private func persistFeaturePlannerActionSnapshot(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.save(
+            snapshot,
+            in: featurePlannerPendingActionStorage
+        )
+    }
 
-            HStack(spacing: 8) {
-                TextField("New folder name", text: $navigatorNewFolderName)
-                    .textFieldStyle(.roundedBorder)
-                Button("Create") {
-                    createFolderInNavigator()
-                }
-                .buttonStyle(.bordered)
-            }
+    private func clearFeaturePlannerActionSnapshot(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+            id: snapshot.id,
+            in: featurePlannerPendingActionStorage
+        )
+        vm.infoText = "Cleared the saved feature planner action."
+    }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(filteredNavigatorEntries) { entry in
-                        HStack(spacing: 6) {
-                            Button {
-                                openNavigatorEntry(entry)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: entry.isDirectory ? "folder.fill" : "doc.text")
-                                        .font(.system(size: 12, weight: .regular, design: .default))
-                                        .foregroundStyle(entry.isDirectory ? Color.yellow.opacity(0.9) : Color.herText.opacity(0.78))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(entry.name)
-                                            .font(.system(size: 12, weight: .medium, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.90))
-                                            .lineLimit(1)
-                                        if let modified = entry.modifiedAt {
-                                            Text(relativeTimestamp(modified))
-                                                .font(.system(size: 9, weight: .regular, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.58))
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                renameNavigatorEntry(entry)
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button {
-                                deleteNavigatorEntry(entry)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(Color.herShellPanelSoft.opacity(0.44))
-                        )
-                        .contextMenu {
-                            Button("Open") {
-                                openNavigatorEntry(entry)
-                            }
-                            Button("Rename") {
-                                renameNavigatorEntry(entry)
-                            }
-                            Button(role: .destructive) {
-                                deleteNavigatorEntry(entry)
-                            } label: {
-                                Text("Delete")
-                            }
-                        }
-                    }
-                    if filteredNavigatorEntries.isEmpty {
-                        Text("No files in this folder.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.64))
-                            .padding(.top, 4)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            .frame(minHeight: 130, maxHeight: 210)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(navigatorDropIsTargeted ? Color.white.opacity(0.65) : Color.white.opacity(0.12), lineWidth: navigatorDropIsTargeted ? 2 : 1)
+    private func handleFeaturePlannerActionCompletion(
+        _ snapshot: ScreenplayFeaturePlannerActionSnapshot,
+        error: String?
+    ) {
+        let cleanError = (error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanError.isEmpty {
+            featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+                id: snapshot.id,
+                in: featurePlannerPendingActionStorage
             )
-            .onDrop(of: [UTType.fileURL], isTargeted: $navigatorDropIsTargeted) { providers in
-                handleNavigatorDrop(providers: providers)
-            }
-
-            HStack(spacing: 8) {
-                Button("Save Draft As…") {
-                    saveDraftToLocalFile()
-                }
-                .buttonStyle(.bordered)
-                Button("Refresh Files") {
-                    refreshNavigatorEntries()
-                }
-                .buttonStyle(.bordered)
-            }
+        } else {
+            persistFeaturePlannerActionSnapshot(snapshot)
+            vm.infoText = "\(cleanError) Saved this feature planner action so you can retry it."
         }
     }
 
-    private var content: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 286)
-                .background(Color.herShellPanel.opacity(0.92))
-
-            Divider().overlay(Color.herShellStroke.opacity(0.55))
-
-            details
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.herShellPanel)
-
-            Divider().overlay(Color.herShellStroke.opacity(0.46))
-
-            studioCollaboratorRail
-                .frame(width: 360)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .background(Color.herShellPanelSoft)
+    private func retryFeaturePlannerAction(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        let projectId = selectedFeaturePlannerProjectID()
+        guard ScreenplayProjectScopedState.matches(snapshot.projectId, selectedProjectId: projectId) else {
+            featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+                id: snapshot.id,
+                in: featurePlannerPendingActionStorage
+            )
+            vm.infoText = "That saved feature planner action belonged to a different project."
+            return
         }
-    }
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sidebarModeTabs
-
-            if selectedSidebarSection == .projects {
-                projectsSidebarContent
-            } else {
-                filesSidebarContent
+        let requestID = "feature-planner-\(UUID().uuidString.lowercased())"
+        let retrySnapshot = snapshot.retrySnapshot(requestID: requestID)
+        persistFeaturePlannerActionSnapshot(retrySnapshot)
+        submitStudioPromptText(
+            retrySnapshot.prompt,
+            displayText: retrySnapshot.displayText,
+            source: .typed,
+            routingMode: featurePlannerRoutingMode(for: retrySnapshot),
+            successMessage: retrySnapshot.command?.successMessage ?? "Asked io.them to continue the feature plan.",
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil,
+            requestIDOverride: requestID,
+            completion: { error in
+                handleFeaturePlannerActionCompletion(retrySnapshot, error: error)
             }
-            Spacer(minLength: 4)
-        }
-        .padding(.horizontal, 14)
+        )
     }
 
-    private var details: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let project = vm.selectedProject {
-                    studioModeStrip(projectLabel: project.title)
+    private var filesSidebarContent: some View {
+        ScreenplayStudioFilesSidebar(
+            breadcrumbs: navigatorBreadcrumbs,
+            entries: filteredNavigatorEntries,
+            showHidden: $navigatorShowHidden,
+            filterText: $navigatorFilterText,
+            newFolderName: $navigatorNewFolderName,
+            dropIsTargeted: $navigatorDropIsTargeted,
+            canNavigateBack: !navigatorBackStack.isEmpty,
+            canNavigateForward: !navigatorForwardStack.isEmpty,
+            canNavigateUp: canNavigateUpInNavigator,
+            tertiaryTextColor: directionOneChromeTertiaryText,
+            onOpenFolder: openNavigatorRootPicker,
+            onNavigateBack: navigateNavigatorBack,
+            onNavigateForward: navigateNavigatorForward,
+            onNavigateUp: navigateNavigatorUp,
+            onNavigateTo: { navigateNavigatorTo($0, pushHistory: true) },
+            onCreateFolder: createFolderInNavigator,
+            onOpenEntry: openNavigatorEntry,
+            onRenameEntry: renameNavigatorEntry,
+            onDeleteEntry: deleteNavigatorEntry,
+            onDropFiles: { handleNavigatorDrop(providers: $0) },
+            onSaveDraft: saveDraftToLocalFile,
+            onRefresh: refreshNavigatorEntries,
+            relativeTimestamp: relativeTimestamp
+        )
+    }
 
-                    Text(project.title)
-                        .font(.system(size: 28, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.95))
 
-                    projectOverviewStrip(project: project)
 
-                    sectionCard(title: "Fountain Editor") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            draftEditorStatusStrip
+    private var studioAppliedMemoryBanner: some View {
+        let memory = liveDraftBridge.latestAppliedMemory
+        let character = memory.primaryCharacter
+        let canSaveCorrection =
+            !character.isEmpty &&
+            !studioAppliedMemoryCorrectionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isSavingStudioAppliedMemoryCorrection
 
-                            if let recovery = vm.recoveryCandidate {
-                                draftRecoveryBanner(recovery)
-                            }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: memory.correctionAppliedToPrompt ? "checkmark.seal.fill" : "brain.head.profile")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.herStudioAccent.opacity(0.92))
+                    .frame(width: 20, height: 20)
 
-                            if let conflict = vm.conflictState {
-                                draftConflictBanner(conflict)
-                            }
-
-                            if !liveDraftBridge.autoInsertStatusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(liveDraftBridge.autoInsertStatusText)
-                                    .font(.system(size: 12, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.86))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(Color.yellow.opacity(0.16))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            }
-
-                            syncedVoiceTurnStatusBanner
-
-                            if !screenplayIntegrityIssues.isEmpty {
-                                pageIntegrityBanner
-                            }
-
-                            hollywoodFormatGuideStrip
-                            draftSceneNavigatorStrip
-
-                            screenplayPageSurface(
-                                minHeight: 260,
-                                maxHeight: 420,
-                                isDropTargeted: draftDropIsTargeted,
-                                isDraftingPreviewActive: liveDraftBridge.isStreamingDraftPreviewActive,
-                                isCommitNoticeVisible: isPageCommitNoticeVisible
-                            ) {
-                                CursorInsertTextEditor(
-                                    text: $vm.fountainDraft,
-                                    activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
-                                    insertionRequest: $liveDraftBridge.pendingInsertion,
-                                    lineJumpRequest: $liveDraftBridge.pendingLineJump,
-                                    lineHighlightRequest: $liveDraftBridge.pendingLineHighlight,
-                                    anchoredTextRectRequest: $liveDraftBridge.pendingAnchoredTextRectRequest,
-                                    anchoredTextRectSnapshot: $liveDraftBridge.anchoredTextRectSnapshot,
-                                    editorFocusRequest: $liveDraftBridge.pendingEditorFocus,
-                                    editorActionRequest: $liveDraftBridge.pendingEditorAction,
-                                    editorSelection: $liveDraftBridge.editorSelection,
-                                    currentCursorLine: $liveDraftBridge.currentCursorLine,
-                                    lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
-                                    pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
-                                    submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                                    onUserEdit: vm.noteManualDraftEdit
-                                )
-                                .overlay(alignment: .topLeading) {
-                                    focusedPageDiffAnchoredOverlay
-                                }
-                            }
-                            .overlay(alignment: .bottomTrailing) {
-                                if isLastCommittedWriteActionVisible {
-                                    lastCommittedWriteInlineActions
-                                        .padding(.trailing, 20)
-                                        .padding(.bottom, 18)
-                                }
-                            }
-                            .onDrop(of: [UTType.fileURL], isTargeted: $draftDropIsTargeted) { providers in
-                                handleDraftDrop(providers: providers)
-                            }
-
-                            projectDraftActionRows
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(memory.correctionAppliedToPrompt ? "Correction memory applied" : "Project memory applied")
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.92))
+                        if !memory.source.isEmpty {
+                            Text(memory.source.replacingOccurrences(of: "_", with: " "))
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Color.herText.opacity(0.42))
                         }
                     }
 
-                    projectInspectorCard
-                } else if vm.isLoading {
-                    ProgressView("Loading screenplay projects…")
-                        .controlSize(.large)
-                } else {
-                    liveDraftFallback
-                }
-            }
-            .padding(18)
-        }
-    }
-
-    private var liveDraftFallback: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            studioModeStrip(projectLabel: "Live Draft")
-
-            Text("Live Script Draft")
-                .font(.system(size: 28, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.95))
-
-            Text("io.them writes the screenplay here as you talk. Create a project when you want versions, comments, autosave, and export.")
-                .font(.system(size: 14, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.78))
-
-            sectionCard(title: "On-Screen Draft") {
-                VStack(alignment: .leading, spacing: 10) {
-                    liveDraftStatusStrip
-
-                    if !liveDraftBridge.autoInsertStatusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(liveDraftBridge.autoInsertStatusText)
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.86))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(Color.yellow.opacity(0.16))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-
-                    syncedVoiceTurnStatusBanner
-
-                    hollywoodFormatGuideStrip
-                    draftSceneNavigatorStrip
-
-                    screenplayPageSurface(
-                        minHeight: 320,
-                        maxHeight: 480,
-                        isDropTargeted: draftDropIsTargeted,
-                        isDraftingPreviewActive: liveDraftBridge.isStreamingDraftPreviewActive,
-                        isCommitNoticeVisible: isPageCommitNoticeVisible
-                    ) {
-                        CursorInsertTextEditor(
-                            text: $vm.fountainDraft,
-                            activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
-                            insertionRequest: $liveDraftBridge.pendingInsertion,
-                            lineJumpRequest: $liveDraftBridge.pendingLineJump,
-                            lineHighlightRequest: $liveDraftBridge.pendingLineHighlight,
-                            anchoredTextRectRequest: $liveDraftBridge.pendingAnchoredTextRectRequest,
-                            anchoredTextRectSnapshot: $liveDraftBridge.anchoredTextRectSnapshot,
-                            editorFocusRequest: $liveDraftBridge.pendingEditorFocus,
-                            editorActionRequest: $liveDraftBridge.pendingEditorAction,
-                            editorSelection: $liveDraftBridge.editorSelection,
-                            currentCursorLine: $liveDraftBridge.currentCursorLine,
-                            lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
-                            pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
-                            submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                            onUserEdit: vm.noteManualDraftEdit
-                        )
-                        .overlay(alignment: .topLeading) {
-                            focusedPageDiffAnchoredOverlay
-                        }
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        if isLastCommittedWriteActionVisible {
-                            lastCommittedWriteInlineActions
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 18)
-                        }
-                    }
-                    .onDrop(of: [UTType.fileURL], isTargeted: $draftDropIsTargeted) { providers in
-                        handleDraftDrop(providers: providers)
-                    }
-
-                    liveDraftActionRows
-                }
-            }
-
-            sectionCard(title: "Create Project") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Give this draft a project title and we will keep the pages already written on screen.")
+                    Text(memory.summary)
                         .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 8) {
-                        TextField("New project title", text: $vm.newProjectTitle)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Create Project From Draft") {
-                            Task { await vm.createProject() }
+                    if !memory.storyRunwayLines.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(memory.storyRunwayLines, id: \.self) { line in
+                                Text(line)
+                                    .font(.system(size: 11, weight: .regular, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.66))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 2)
+                    }
+
+                    if let change = memory.currentStoryObligationChange {
+                        Divider()
+                            .overlay(Color.herText.opacity(0.12))
+                            .padding(.vertical, 2)
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Image(systemName: change.statusLabel == "Paid off" ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                                    .accessibilityHidden(true)
+                                Text(change.statusLabel)
+                                    .accessibilityIdentifier("studio.story-obligation.current.status")
+                                Text(change.kindLabel)
+                                    .foregroundStyle(Color.herText.opacity(0.48))
+                                Spacer(minLength: 8)
+                                if correctingStudioStoryObligationID == change.id {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .frame(width: 24, height: 24)
+                                        .accessibilityLabel("Saving story correction")
+                                } else {
+                                    Menu {
+                                        Button {
+                                            correctStudioStoryObligation(change, action: "keep_open")
+                                        } label: {
+                                            Label("Keep Open", systemImage: "arrow.uturn.backward.circle")
+                                        }
+                                        .accessibilityIdentifier("studio.story-obligation.current.keep-open")
+
+                                        Button(role: .destructive) {
+                                            correctStudioStoryObligation(change, action: "retire")
+                                        } label: {
+                                            Label("Retire Obligation", systemImage: "archivebox")
+                                        }
+                                        .accessibilityIdentifier("studio.story-obligation.current.retire")
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                            .frame(width: 24, height: 24)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .help("Correct this setup or payoff")
+                                    .accessibilityLabel("Correct \(change.obligation)")
+                                    .accessibilityIdentifier("studio.story-obligation.current.correct")
+                                }
+                            }
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herStudioAccent.opacity(0.90))
+
+                            Text(change.obligation)
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Text(change.result)
+                                .font(.system(size: 12, weight: .regular, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.88))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("studio.story-obligation.current.result")
+
+                            Text(change.evidence)
+                                .font(.system(size: 10, weight: .regular, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.58))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("studio.story-obligation.current.evidence")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("studio.story-obligation.current")
+                    }
+
+                    if !memory.lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Saved: \(memory.lastSavedCorrection)")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.58))
+                            .lineLimit(2)
                     }
                 }
+
+                Spacer(minLength: 8)
             }
 
-            if !vm.infoText.isEmpty {
-                Text(vm.infoText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.75))
-            }
-            if !vm.errorText.isEmpty {
-                Text(vm.errorText)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.red.opacity(0.88))
-            }
-        }
-    }
-
-    private var draftEditorStatusStrip: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            draftStatusChipRow(
-                includeSyncState: true,
-                includeAutosaveStatus: true,
-                includeLatestHandoff: true
-            )
-
-            HStack(spacing: 18) {
-                Toggle(isOn: $liveDraftBridge.autoInsertEnabled) {
-                    Text("Auto-insert voice turns at cursor")
+            if !character.isEmpty {
+                HStack(spacing: 8) {
+                    TextField("Correct \(character)'s memory", text: $studioAppliedMemoryCorrectionDraft)
+                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.84))
-                }
-                .toggleStyle(.switch)
 
-                Toggle(isOn: $vm.autosaveEnabled) {
-                    Text("Autosave")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.84))
+                    Button {
+                        saveStudioAppliedMemoryCorrection()
+                    } label: {
+                        if isSavingStudioAppliedMemoryCorrection {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 18, height: 18)
+                        } else {
+                            Label("Save", systemImage: "checkmark")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!canSaveCorrection)
+                    .help("Save this as authoritative character memory.")
                 }
-                .toggleStyle(.switch)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.72))
-        )
+        .padding(.horizontal, 11)
+        .padding(.vertical, 10)
+        .background(Color.herStudioAccentSoft.opacity(0.14))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.herStudioAccent.opacity(0.22), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private var liveDraftStatusStrip: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            draftStatusChipRow(
-                includeSyncState: false,
-                includeAutosaveStatus: false,
-                includeLatestHandoff: false
-            )
-
-            Toggle(isOn: $liveDraftBridge.autoInsertEnabled) {
-                Text("Auto-insert voice turns on the page")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.84))
+    private func saveStudioAppliedMemoryCorrection() {
+        let correction = studioAppliedMemoryCorrectionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !correction.isEmpty, !isSavingStudioAppliedMemoryCorrection else { return }
+        isSavingStudioAppliedMemoryCorrection = true
+        Task { @MainActor in
+            defer { isSavingStudioAppliedMemoryCorrection = false }
+            do {
+                let character = try await liveDraftBridge.saveInlineAppliedMemoryCorrection(correction)
+                studioAppliedMemoryCorrectionDraft = ""
+                liveDraftBridge.autoInsertStatusText = "Saved correction for \(character)."
+            } catch {
+                liveDraftBridge.autoInsertStatusText = "Memory correction failed: \(error.localizedDescription)"
             }
-            .toggleStyle(.switch)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
-        )
-    }
-
-    private var projectDraftActionRows: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            draftActionRowLabel("Page Actions")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    Button("Insert Latest") {
-                        liveDraftBridge.insertLatestAtCursor()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(liveDraftBridge.latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("Save Now") {
-                        triggerStudioManualSave()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Normalize Format") {
-                        vm.normalizeDraftToHollywoodFormat()
-                    }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("Import Script…") {
-                        importDraftDocument()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.vertical, 2)
-            }
-
-            draftUtilityRow(
-                message: "Save, import, export, and page review live in the Draft rail so the screenplay page can stay clear."
-            )
         }
     }
 
-    private var liveDraftActionRows: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            draftActionRowLabel("Page Actions")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    Button("Insert Latest") {
-                        liveDraftBridge.insertLatestAtCursor()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(liveDraftBridge.latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("Normalize Format") {
-                        vm.normalizeDraftToHollywoodFormat()
-                    }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("Import Script…") {
-                        importDraftDocument()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.vertical, 2)
+    private func correctStudioStoryObligation(
+        _ change: BackendStoryObligationChange,
+        action: String
+    ) {
+        guard correctingStudioStoryObligationID.isEmpty else { return }
+        correctingStudioStoryObligationID = change.id
+        Task { @MainActor in
+            defer { correctingStudioStoryObligationID = "" }
+            do {
+                let message = try await liveDraftBridge.correctStoryObligation(
+                    change,
+                    action: action
+                )
+                liveDraftBridge.autoInsertStatusText = message
+            } catch {
+                liveDraftBridge.autoInsertStatusText = "Story correction failed: \(error.localizedDescription)"
             }
-
-            draftUtilityRow(
-                message: vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Talk in Studio and the screenplay appears here."
-                    : "Create a project to turn this live draft into a saved screenplay."
-            )
         }
     }
 
-    private func draftActionRowLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .default))
-            .tracking(0.6)
-            .foregroundStyle(Color.herText.opacity(0.54))
-    }
-
-    private func draftUtilityRow(message: String) -> some View {
-        HStack(spacing: 10) {
-            Button("Clear Draft") {
-                vm.clearDraft()
-                liveDraftBridge.clearDraft()
-            }
-            .buttonStyle(.bordered)
-            .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            Text(message)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.66))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-        }
-    }
 
     private var draftToolsCard: some View {
-        sectionCard(title: "Document") {
-            VStack(alignment: .leading, spacing: 16) {
-                draftDocumentControlsSection
+        ScreenplayStudioDraftToolsCard(
+            selectedSection: $selectedDraftToolsSection,
+            autosaveEnabled: $vm.autosaveEnabled,
+            linesPerPage: $vm.linesPerPage,
+            revisionColor: $vm.revisionColor,
+            snapshotLabel: $vm.snapshotLabel,
+            presentation: draftToolsPresentation,
+            actions: draftToolsActions
+        )
+    }
 
-                if !screenplayIntegrityIssues.isEmpty {
-                    draftIntegrityWarningSection
-                }
+    private var draftToolsPresentation: ScreenplayStudioDraftToolsPresentation {
+        let isDraftEmpty = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return ScreenplayStudioDraftToolsPresentation(
+            document: ScreenplayStudioDraftDocumentPresentation(
+                isSaving: vm.isSaving,
+                exportItems: vm.screenplayExportMenuItems,
+                autosaveStatusText: vm.autosaveStatusText,
+                exportFormatsErrorText: vm.screenplayExportFormatsErrorText,
+                pdfUnavailableText: vm.screenplayExportPDFUnavailableText
+            ),
+            integrityIssues: screenplayIntegrityIssues,
+            formatLint: ScreenplayStudioDraftFormatPresentation(
+                cards: vm.formatLintCards,
+                isLoading: vm.isFormatLinting,
+                errorText: vm.formatLintErrorText,
+                sourceText: vm.formatLintSourceText
+            ),
+            pages: ScreenplayStudioDraftPagesPresentation(
+                isRefreshing: vm.isPaginationRefreshing,
+                isDraftEmpty: isDraftEmpty,
+                errorText: vm.paginationErrorText,
+                pages: draftPaginationPagePresentations
+            ),
+            revisions: ScreenplayStudioDraftRevisionPresentation(
+                isRefreshing: vm.isRevisionRefreshing,
+                isDraftEmpty: isDraftEmpty,
+                errorText: vm.revisionErrorText,
+                summary: vm.revisionSummary,
+                ranges: vm.revisionRanges
+            ),
+            snapshots: ScreenplayStudioDraftSnapshotsPresentation(
+                versions: draftSnapshotPresentations
+            )
+        )
+    }
 
-                if shouldShowDraftFormatLintSection {
-                    draftFormatLintWarningSection
-                }
-
-                draftToolsTabs
-
-                draftToolsContent
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.black.opacity(0.24))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-            }
+    private var draftPaginationPagePresentations: [ScreenplayStudioPaginationPagePresentation] {
+        vm.paginationPages.map { page in
+            ScreenplayStudioPaginationPagePresentation(
+                page: page,
+                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                    for: page,
+                    draft: vm.fountainDraft
+                ),
+                isActive: ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(
+                    page,
+                    cursorLine: liveDraftBridge.currentCursorLine
+                )
+            )
         }
     }
 
-    private var shouldShowDraftFormatLintSection: Bool {
-        vm.isFormatLinting
-            || !vm.formatLintCards.isEmpty
-            || !vm.formatLintErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var draftSnapshotPresentations: [ScreenplayStudioSnapshotPresentation] {
+        snapshotVersions.map { version in
+            ScreenplayStudioSnapshotPresentation(
+                version: version,
+                phaseTitle: ScreenplayStudioDraftToolsPresentationPlanner.snapshotPhaseTitle(version),
+                relativeTimestampText: dateFromTimestamp(version.updatedAt ?? version.createdAt).map {
+                    relativeTimestamp($0)
+                },
+                notes: ScreenplayStudioDraftToolsPresentationPlanner.snapshotNotes(version),
+                canRestore: ScreenplayStudioDraftToolsPresentationPlanner.snapshotCanRestore(version)
+            )
+        }
     }
 
-    private var draftFormatLintWarningSection: some View {
-        ScreenplayFormatLintCardListView(
-            title: "Format warnings",
-            cards: vm.formatLintCards,
-            isLoading: vm.isFormatLinting,
-            errorText: vm.formatLintErrorText,
-            sourceText: vm.formatLintSourceText,
-            maxVisible: 3,
-            onRefresh: {
+    private var draftIntegrityActions: ScreenplayStudioDraftIntegrityActions {
+        ScreenplayStudioDraftIntegrityActions(
+            onOpenInspector: {
+                openDraftInspector()
+            },
+            onReview: { issue in
+                reviewScreenplayIntegrityIssue(issue)
+            },
+            onMoveToPin: { issue in
+                convertScreenplayIntegrityIssueToPin(issue)
+            },
+            onRemove: { issue in
+                removeScreenplayIntegrityIssue(issue)
+            },
+            onMoveAllToPin: {
+                convertAllScreenplayIntegrityIssuesToPin()
+            }
+        )
+    }
+
+    private var draftToolsActions: ScreenplayStudioDraftToolsActions {
+        ScreenplayStudioDraftToolsActions(
+            onSaveNow: {
+                triggerStudioManualSave(revealSavedTab: false)
+            },
+            onImport: {
+                importDraftDocument()
+            },
+            onExport: { format in
+                Task { await exportCurrentDraft(format: format) }
+            },
+            onRefreshExportFormats: {
+                Task { await vm.refreshScreenplayExportFormats() }
+            },
+            onOpenGoogleDocs: {
+                openInGoogleDocs(draft: vm.fountainDraft)
+            },
+            onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Document") }
+            },
+            integrity: draftIntegrityActions,
+            onRefreshPagination: {
+                Task { await vm.refreshPagination(source: "Manual retry") }
+            },
+            onJumpToPage: { page in
+                jumpToPaginationPage(page)
+            },
+            onRefreshRevision: {
+                Task { await vm.refreshRevisionColor(source: "Manual retry") }
+            },
+            onCreateSnapshot: {
+                Task { await vm.createRevisionSnapshot() }
+            },
+            onRestoreSnapshot: { version in
+                vm.loadSnapshot(version)
             }
         )
     }
 
-    private var draftDocumentControlsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Document Controls")
-                Text("Save, import, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-            }
 
-            HStack(spacing: 10) {
-                Button {
-                    triggerStudioManualSave(revealSavedTab: false)
-                } label: {
-                    Label(vm.isSaving ? "Saving…" : "Save Now", systemImage: vm.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(vm.isSaving)
 
-                Button {
-                    importDraftDocument()
-                } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.bordered)
 
-                Menu {
-                    ForEach(vm.screenplayExportMenuItems) { item in
-                        Button(item.title) {
-                            Task { await exportCurrentDraft(format: item.format) }
-                        }
-                        .disabled(!item.isEnabled)
-                    }
-                    Divider()
-                    Button("Refresh Formats") {
-                        Task { await vm.refreshScreenplayExportFormats() }
-                    }
-                    Button("Open in Google Docs") {
-                        openInGoogleDocs(draft: vm.fountainDraft)
-                    }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.bordered)
 
-                Spacer(minLength: 0)
 
-                Toggle("Autosave", isOn: $vm.autosaveEnabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.70))
-            }
 
-            Text(vm.autosaveStatusText.isEmpty ? "Document controls live here. Analysis stays in the other rail tabs so the page can stay focused on writing." : vm.autosaveStatusText)
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.66))
-                .textCase(.uppercase)
-                .tracking(0.5)
 
-            if !vm.screenplayExportFormatsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(vm.screenplayExportFormatsErrorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.orange.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if !vm.screenplayExportPDFUnavailableText.isEmpty {
-                Text(vm.screenplayExportPDFUnavailableText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.28))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-    }
 
-    private var draftIntegrityWarningSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            draftIntegrityWarningHeader
 
-            Text("Companion-style or conversational prose is sitting on the screenplay page. Review or remove it before it gets baked into the script.")
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.68))
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(screenplayIntegrityIssues.prefix(4))) { issue in
-                    draftIntegrityIssueRow(issue)
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.orange.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
 
-    private var draftIntegrityWarningHeader: some View {
-        let issueCount = screenplayIntegrityIssues.count
-        return HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-            Text(issueCount == 1 ? "1 non-screenplay block detected" : "\(issueCount) non-screenplay blocks detected")
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.88))
-            Spacer(minLength: 0)
-            if issueCount > 1 {
-                Button("Move all to Pin") {
-                    convertAllScreenplayIntegrityIssuesToPin()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            Text("Review")
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(Capsule())
-        }
-    }
 
-    private func draftIntegrityIssueRow(_ issue: ScreenplayPageIntegrityIssue) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(issue.preview)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.80))
-                .lineLimit(3)
 
-            Text("Lines \(issue.startLine)-\(issue.endLine) · \(issue.reason)")
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.58))
 
-            HStack(spacing: 8) {
-                Button("Jump") {
-                    reviewScreenplayIntegrityIssue(issue)
-                }
-                .buttonStyle(.bordered)
 
-                Button("Move to Pin") {
-                    convertScreenplayIntegrityIssueToPin(issue)
-                }
-                .buttonStyle(.bordered)
 
-                Button("Remove") {
-                    removeScreenplayIntegrityIssue(issue)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange.opacity(0.28))
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
 
-    private var pageIntegrityBanner: some View {
-        let issueCount = screenplayIntegrityIssues.count
-        let primaryIssue = primaryScreenplayIntegrityIssue
 
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(Color.orange.opacity(0.92))
-                .padding(.top, 1)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(issueCount == 1 ? "1 non-screenplay block detected" : "\(issueCount) non-screenplay blocks detected")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.88))
-
-                if let primaryIssue {
-                    Text("Lines \(primaryIssue.startLine)-\(primaryIssue.endLine) read like companion prose, not screenplay: \"\(primaryIssue.preview)\"")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .lineLimit(2)
-                } else {
-                    Text("Non-screenplay text is sitting on the page and should be reviewed before it stays in the draft.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                Button("Review") {
-                    if let primaryIssue {
-                        reviewScreenplayIntegrityIssue(primaryIssue)
-                    } else {
-                        openDraftInspector()
-                    }
-                }
-                .buttonStyle(.bordered)
-
-                if issueCount > 1 {
-                    Button("Move all to Pin") {
-                        convertAllScreenplayIntegrityIssuesToPin()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if let primaryIssue {
-                    Button("Move to Pin") {
-                        convertScreenplayIntegrityIssueToPin(primaryIssue)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Remove") {
-                        removeScreenplayIntegrityIssue(primaryIssue)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange.opacity(0.28))
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.orange.opacity(0.16), lineWidth: 1)
-        )
-    }
-
-    private var draftToolsTabs: some View {
-        HStack(spacing: 8) {
-            ForEach(DraftToolsSection.allCases) { section in
-                draftToolsSectionButton(section)
-            }
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.20))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-    }
-
-    private func draftToolsSectionButton(_ section: DraftToolsSection) -> some View {
-        let isActive = selectedDraftToolsSection == section
-        return Button {
-            selectedDraftToolsSection = section
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: section.iconName)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                Text(section.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.70))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.76) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        isActive ? Color.herStudioActiveStroke.opacity(0.90) : Color.clear,
-                        lineWidth: isActive ? 1.3 : 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private var draftToolsContent: some View {
-        switch selectedDraftToolsSection {
-        case .pages:
-            draftPageToolsContent
-        case .revisions:
-            draftRevisionToolsContent
-        case .snapshots:
-            draftSnapshotToolsContent
-        }
-    }
-
-    private var draftPageToolsContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Pages")
-                Text("Use the page browser to jump the cursor without losing the visual rhythm of the draft.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-            }
-
-            HStack(spacing: 10) {
-                Stepper("Lines/Page \(vm.linesPerPage)", value: $vm.linesPerPage, in: 24...90)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.76))
-                Spacer()
-            }
-
-            paginationStrip
-        }
-    }
-
-    private var draftRevisionToolsContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            inspectorSubsectionLabel("Revision Color")
-
-            HStack(spacing: 8) {
-                Picker("Revision", selection: $vm.revisionColor) {
-                    Text("Blue").tag("blue")
-                    Text("Pink").tag("pink")
-                    Text("Yellow").tag("yellow")
-                    Text("Green").tag("green")
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
-                Spacer()
-            }
-
-            revisionSummaryView
-        }
-    }
-
-    private var draftSnapshotToolsContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            inspectorSubsectionLabel("Revision Snapshots")
-
-            HStack(spacing: 8) {
-                TextField("Snapshot note (optional)", text: $vm.snapshotLabel)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 260)
-                Button("Create Snapshot") {
-                    Task { await vm.createRevisionSnapshot() }
-                }
-                .buttonStyle(.borderedProminent)
-                Spacer()
-            }
-
-            if snapshotVersions.isEmpty {
-                Text("No snapshots yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(snapshotVersions, id: \.id) { version in
-                        HStack(spacing: 8) {
-                            Text(version.phase?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Draft")
-                                .font(.system(size: 12, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.88))
-                            if let updated = dateFromTimestamp(version.updatedAt ?? version.createdAt) {
-                                Text(relativeTimestamp(updated))
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.66))
-                            }
-                            if let notes = version.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(notes)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.66))
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Button("Restore") {
-                                vm.loadSnapshot(version)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled((version.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.white.opacity(0.12))
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private func draftStatusChipRow(
-        includeSyncState: Bool,
-        includeAutosaveStatus: Bool,
-        includeLatestHandoff: Bool
-    ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if !liveDraftBridge.latestPack.isEmpty {
-                    draftStatusChip(
-                        liveDraftBridge.latestPack,
-                        prominence: .accent
-                    )
-                }
-                if !liveDraftBridge.latestPhase.isEmpty {
-                    draftStatusChip(
-                        liveDraftBridge.latestPhase.replacingOccurrences(of: "_", with: " "),
-                        prominence: .muted
-                    )
-                }
-                if let syncedVoiceChipTitle = syncedVoiceTurnChipTitle {
-                    draftStatusChip(
-                        syncedVoiceChipTitle,
-                        prominence: syncedVoiceTurnChipProminence
-                    )
-                }
-                if includeSyncState {
-                    draftStatusChip(
-                        vm.hasUnsavedDraftChanges ? "Unsaved" : "Synced",
-                        prominence: vm.hasUnsavedDraftChanges ? .warning : .success
-                    )
-                }
-                if includeAutosaveStatus {
-                    draftStatusChip(vm.autosaveStatusText, prominence: .muted)
-                }
-                if liveDraftBridge.lastUpdatedAt > .distantPast {
-                    draftStatusChip(
-                        "Voice \(relativeTimestamp(liveDraftBridge.lastUpdatedAt))",
-                        prominence: .muted
-                    )
-                }
-                if includeLatestHandoff && !liveDraftBridge.latestVoiceTurn.isEmpty {
-                    draftStatusChip("Latest handoff ready", prominence: .muted)
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-
-    private enum DraftStatusChipProminence {
-        case accent
-        case success
-        case warning
-        case danger
-        case muted
-    }
-
-    private func draftStatusChip(_ title: String, prominence: DraftStatusChipProminence) -> some View {
-        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fill: Color
-        let stroke: Color
-        let text: Color
-
-        switch prominence {
-        case .accent:
-            fill = Color.herStudioActiveFill
-            stroke = Color.herStudioActiveStroke
-            text = Color.herText.opacity(0.92)
-        case .success:
-            fill = Color.green.opacity(0.14)
-            stroke = Color.green.opacity(0.34)
-            text = Color.green.opacity(0.86)
-        case .warning:
-            fill = Color.orange.opacity(0.16)
-            stroke = Color.orange.opacity(0.34)
-            text = Color.orange.opacity(0.90)
-        case .danger:
-            fill = Color.red.opacity(0.14)
-            stroke = Color.red.opacity(0.32)
-            text = Color.red.opacity(0.88)
-        case .muted:
-            fill = Color.herShellPanelSoft.opacity(0.94)
-            stroke = Color.herShellStroke.opacity(0.22)
-            text = Color.herText.opacity(0.74)
-        }
-
-        return Text(clean)
-            .font(.system(size: 12, weight: .semibold, design: .default))
-            .foregroundStyle(text)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(fill)
-            )
-            .overlay(
-                Capsule()
-                    .stroke(stroke, lineWidth: 1)
-            )
-    }
-
-    private var syncedVoiceTurnChipTitle: String? {
-        let state = liveDraftBridge.syncedVoiceTurnState
-        switch state.phase {
-        case .idle:
-            return nil
-        case .loading:
-            return "Voice loading"
-        case .buffering:
-            return "Voice buffering"
-        case .playback:
-            return "Voice playback"
-        case .syncedInsertion:
-            return state.hasPlaybackDrift ? "Voice resyncing" : "Voice syncing"
-        case .completed:
-            return state.fallbackCommitted ? "Voice recovered" : "Voice complete"
-        case .interrupted:
-            return "Voice interrupted"
-        case .failed:
-            return "Voice failed"
-        }
-    }
-
-    private var syncedVoiceTurnChipProminence: DraftStatusChipProminence {
-        let state = liveDraftBridge.syncedVoiceTurnState
-        switch state.phase {
-        case .completed:
-            return state.fallbackCommitted ? .warning : .success
-        case .interrupted:
-            return .warning
-        case .failed:
-            return .danger
-        case .loading, .buffering, .playback, .syncedInsertion:
-            return state.hasPlaybackDrift ? .warning : .accent
-        case .idle:
-            return .muted
-        }
-    }
-
-    private var syncedVoiceTurnStatusTitle: String {
-        let state = liveDraftBridge.syncedVoiceTurnState
-        switch state.phase {
-        case .idle:
-            return ""
-        case .loading:
-            return "Preparing synced page write"
-        case .buffering:
-            return "Buffering authoritative page text"
-        case .playback:
-            return "Playback has started"
-        case .syncedInsertion:
-            return state.hasPlaybackDrift ? "Recovering sync drift" : "Writing in sync with speech"
-        case .completed:
-            return state.fallbackCommitted ? "Synced page write recovered" : "Synced page write finished"
-        case .interrupted:
-            return "Synced page write interrupted"
-        case .failed:
-            return "Synced page write failed"
-        }
-    }
-
-    private var syncedVoiceTurnStatusDetail: String {
-        let state = liveDraftBridge.syncedVoiceTurnState
-        switch state.phase {
-        case .idle:
-            return ""
-        case .loading:
-            return "Waiting for io.them's authoritative page response."
-        case .buffering:
-            if state.hasAuthoritativeText {
-                return "Authoritative screenplay text is ready. Playback will start the page write."
-            }
-            if !state.previewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return "Preview text is staged while the final screenplay payload arrives."
-            }
-            return "Collecting the response before the page write begins."
-        case .playback:
-            return "Audio is already speaking. The page write will lock to playback timing."
-        case .syncedInsertion:
-            if state.cueCount > 0 {
-                let appliedCueCount = min(state.appliedCueCount, state.cueCount)
-                if state.hasPlaybackDrift {
-                    return "Applied \(appliedCueCount) of \(state.cueCount) timed cues. Drift is \(state.playbackDriftMs)ms while sync catches up."
-                }
-                return "Applied \(appliedCueCount) of \(state.cueCount) timed cues as the line is spoken."
-            }
-            if state.hasPlaybackDrift {
-                return "Playback drift reached \(state.playbackDriftMs)ms while the final screenplay text stays aligned."
-            }
-            return "Applying the final screenplay text in lockstep with speech."
-        case .completed:
-            if state.fallbackCommitted {
-                return syncedVoiceFallbackDetail(for: state)
-            }
-            let timingSource = state.timingSource.trimmingCharacters(in: .whitespacesAndNewlines)
-            return timingSource.isEmpty
-                ? "The authoritative screenplay text finished writing to the page."
-                : "The page write completed using \(timingSource.replacingOccurrences(of: "_", with: " ")) timing."
-        case .interrupted:
-            switch state.interruptionReason {
-            case .manualTyping:
-                return "Manual typing took over the draft before the synced write completed."
-            case .bargeIn:
-                return "A new voice turn interrupted the current synced page write."
-            case .cancel:
-                return "The synced page write was cancelled before completion."
-            case .other, .none:
-                return "The synced page write stopped before it could finish."
-            }
-        case .failed:
-            let reason = (state.failureReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return reason.isEmpty ? "The final screenplay payload could not be synchronized." : reason
-        }
-    }
-
-    private func syncedVoiceFallbackDetail(
-        for state: ScreenplaySyncedVoiceTurnState
-    ) -> String {
-        let appliedCueCount = min(state.appliedCueCount, state.cueCount)
-        let cueProgressSuffix: String = {
-            guard state.cueCount > 0 else { return "" }
-            return " after \(appliedCueCount) of \(state.cueCount) cues"
-        }()
-        switch state.fallbackReason.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "playback_desynced":
-            return "Playback drift exceeded the sync window\(cueProgressSuffix), so the authoritative screenplay text finished immediately."
-        case "playback_timeout":
-            return "Playback stopped advancing\(cueProgressSuffix), so the authoritative screenplay text finished immediately."
-        case "preplayback_fallback":
-            return "Timed insertion never began, so the authoritative screenplay text was committed immediately."
-        default:
-            return "The authoritative screenplay text was committed immediately to keep the page consistent with playback."
-        }
-    }
-
-    private func syncedVoiceTurnBannerStyle(
-        for prominence: DraftStatusChipProminence
-    ) -> (fill: Color, stroke: Color, title: Color, detail: Color) {
-        switch prominence {
-        case .accent:
-            return (
-                fill: Color.herStudioActiveFill.opacity(0.88),
-                stroke: Color.herStudioActiveStroke.opacity(0.85),
-                title: Color.herText.opacity(0.94),
-                detail: Color.herText.opacity(0.74)
-            )
-        case .success:
-            return (
-                fill: Color.green.opacity(0.12),
-                stroke: Color.green.opacity(0.28),
-                title: Color.green.opacity(0.88),
-                detail: Color.herText.opacity(0.72)
-            )
-        case .warning:
-            return (
-                fill: Color.orange.opacity(0.12),
-                stroke: Color.orange.opacity(0.28),
-                title: Color.orange.opacity(0.92),
-                detail: Color.herText.opacity(0.72)
-            )
-        case .danger:
-            return (
-                fill: Color.red.opacity(0.12),
-                stroke: Color.red.opacity(0.26),
-                title: Color.red.opacity(0.90),
-                detail: Color.herText.opacity(0.72)
-            )
-        case .muted:
-            return (
-                fill: Color.herShellPanelSoft.opacity(0.9),
-                stroke: Color.herShellStroke.opacity(0.22),
-                title: Color.herText.opacity(0.88),
-                detail: Color.herText.opacity(0.72)
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var syncedVoiceTurnStatusBanner: some View {
-        let state = liveDraftBridge.syncedVoiceTurnState
-        if state.phase != .idle && (state.phase != .completed || state.fallbackCommitted) {
-            let style = syncedVoiceTurnBannerStyle(for: syncedVoiceTurnChipProminence)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(syncedVoiceTurnStatusTitle)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(style.title)
-                Text(syncedVoiceTurnStatusDetail)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(style.detail)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(style.fill)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(style.stroke, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    private var projectInspectorCard: some View {
-        sectionCard(title: "Project Inspector") {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Production tools live here so the page can stay focused on writing.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-
-                inspectorSectionTabs
-
-                projectInspectorContent
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.herShellPanel.opacity(0.76))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
-                    )
-
-                Divider().overlay(Color.herShellStroke.opacity(0.24))
-
-                HStack(spacing: 10) {
-                    Button("Push Outline Snapshot") {
-                        Task { await vm.pushOutlineSnapshot() }
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("Reload Project") {
-                        Task {
-                            guard let project = vm.selectedProject else { return }
-                            await vm.selectProject(project.id)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(vm.selectedProject == nil)
-                }
-            }
-        }
-        .focusable(true)
-        .focused($studioInspectorFocused)
-    }
-
-    private var inspectorSectionTabs: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 120, maximum: 180), spacing: 8)],
-            alignment: .leading,
-            spacing: 8
-        ) {
-            ForEach(InspectorSection.allCases) { section in
-                inspectorSectionButton(section)
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func inspectorSectionButton(_ section: InspectorSection) -> some View {
-        let isActive = selectedInspectorSection == section
-        return Button {
-            selectedInspectorSection = section
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: section.iconName)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                Text(section.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.70))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill : Color.herShellPanelSoft.opacity(0.92))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isActive ? Color.herStudioActiveStroke : Color.herShellStroke.opacity(0.26),
-                        lineWidth: isActive ? 1.3 : 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private var projectInspectorContent: some View {
-        switch selectedInspectorSection {
-        case .comments:
-            commentsInspectorContent
-        case .collaborators:
-            collaboratorsInspectorContent
-        case .scenes:
-            scenesInspectorContent
-        case .beats:
-            beatsInspectorContent
-        }
-    }
-
-    private var commentsInspectorContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            inspectorSubsectionLabel("Script Comments")
-
-            HStack(spacing: 8) {
-                TextField("Author email", text: $vm.commentAuthorEmail)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Actor email (for edit/delete)", text: $vm.commentActorEmail)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Author name", text: $vm.commentAuthorName)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Anchor line", text: $vm.commentAnchorLine)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-            }
-
-            HStack(spacing: 8) {
-                Picker("Type", selection: $vm.commentType) {
-                    Text("Text").tag("text")
-                    Text("Voice").tag("voice")
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 220)
-
-                TextField("Voice URL (optional)", text: $vm.commentVoiceURL)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Pick Voice File") {
-                    pickVoiceFileForComment()
-                }
-                .buttonStyle(.bordered)
-
-                TextField("Duration ms", text: $vm.commentVoiceDurationMs)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
-            }
-
-            TextField("Comment text", text: $vm.commentText, axis: .vertical)
-                .lineLimit(2...5)
-                .textFieldStyle(.roundedBorder)
-
-            TextField("Voice transcript (optional)", text: $vm.commentVoiceTranscript, axis: .vertical)
-                .lineLimit(2...4)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 10) {
-                if !vm.commentReplyToID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Reply → \(vm.commentReplyToID)")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                }
-                if !vm.commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Edit → \(vm.commentEditID)")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                }
-                Button("Use Latest Voice Turn") {
-                    vm.preloadVoiceComment(from: liveDraftBridge.latestVoiceTurn)
-                }
-                .buttonStyle(.bordered)
-                .disabled(liveDraftBridge.latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Add Comment") {
-                    Task { await vm.addComment() }
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Reload Comments") {
-                    Task { await vm.refreshCollaborationData() }
-                }
-                .buttonStyle(.bordered)
-
-                Button("Clear Composer") {
-                    vm.clearCommentComposer()
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-                Toggle(isOn: $vm.showResolvedComments) {
-                    Text("Show Resolved")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.74))
-                }
-                .toggleStyle(.switch)
-                .frame(width: 140)
-                Text("Comments \(vm.comments.count)")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-            }
-
-            if vm.comments.isEmpty {
-                Text("No comments yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(threadedComments, id: \.self) { comment in
-                        commentRow(comment)
-                    }
-                }
-            }
-        }
-    }
-
-    private var collaboratorsInspectorContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            inspectorSubsectionLabel("Collaborators")
-
-            HStack(spacing: 8) {
-                TextField("Collaborator email", text: $vm.collaboratorEmail)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Invited by (optional)", text: $vm.collaboratorInvitedBy)
-                    .textFieldStyle(.roundedBorder)
-            }
-            TextField("Note (optional)", text: $vm.collaboratorNote)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 10) {
-                Button("Approve Email") {
-                    Task { await vm.approveCollaborator() }
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Reload") {
-                    Task { await vm.refreshCollaborationData() }
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-                Text("Approved \(vm.approvedEmails.count)")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-            }
-
-            if vm.collaborators.isEmpty {
-                Text("No collaborators yet.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(vm.collaborators, id: \.self) { collaborator in
-                        collaboratorRow(collaborator)
-                    }
-                }
-            }
-        }
-    }
-
-    private var scenesInspectorContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            inspectorSubsectionLabel("Scenes")
-
-            if let selectedScene = currentSceneInspectorSelection {
-                HStack(spacing: 8) {
-                    Button {
-                        vm.beginEditingScene(selectedScene)
-                        highlightedSceneInspectorKey = normalizedSceneNavigatorKey(sceneInspectorKey(for: selectedScene))
-                    } label: {
-                        Label("Edit Selected", systemImage: "pencil")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .keyboardShortcut("e", modifiers: [.command])
-
-                    Text("Use arrow keys to move between scenes.")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.56))
-                }
-            }
-
-            if vm.outline.scenes.isEmpty {
-                Text("No scenes yet.")
-                    .font(.system(size: 13, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(vm.outline.scenes, id: \.id) { scene in
-                        let isActive = isSceneInspectorRowActive(scene)
-                        let jumpTarget = draftSceneNavigatorItem(for: scene)
-                        let isEditing = vm.editingSceneID == scene.id
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(alignment: .top, spacing: 10) {
-                                Group {
-                                    if let jumpTarget {
-                                        Button {
-                                            highlightedSceneInspectorKey = normalizedSceneNavigatorKey(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                                            liveDraftBridge.jumpToLine(jumpTarget.line)
-                                            vm.infoText = "Jumped to \(jumpTarget.shortLabel)."
-                                        } label: {
-                                            sceneInspectorRowBody(
-                                                scene: scene,
-                                                isActive: isActive,
-                                                jumpTarget: jumpTarget
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    } else {
-                                        sceneInspectorRowBody(
-                                            scene: scene,
-                                            isActive: isActive,
-                                            jumpTarget: nil
-                                        )
-                                    }
-                                }
-
-                                Button(isEditing ? "Editing" : "Edit Details") {
-                                    vm.beginEditingScene(scene)
-                                    highlightedSceneInspectorKey = normalizedSceneNavigatorKey(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(vm.isSaving && !isEditing)
-                            }
-
-                            if isEditing {
-                                sceneInspectorInlineEditor(scene)
-                            }
-                        }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill((isActive || isEditing) ? Color.herStudioActiveFill : Color.white.opacity(0.14))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(
-                                    (isActive || isEditing) ? Color.herStudioActiveStroke : Color.herShellStroke.opacity(0.10),
-                                    lineWidth: (isActive || isEditing) ? 1.2 : 1
-                                )
-                        )
-                    }
-                }
-            }
-
-            Divider().overlay(Color.herShellStroke.opacity(0.24))
-
-            inspectorSubsectionLabel("Add Scene")
-
-            VStack(spacing: 8) {
-                TextField("Slugline (e.g. INT. KITCHEN - NIGHT)", text: $vm.newSceneSlugline)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Title (optional)", text: $vm.newSceneTitle)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Objective", text: $vm.newSceneObjective)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Summary", text: $vm.newSceneSummary, axis: .vertical)
-                    .lineLimit(2...4)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Act ID (optional)", text: $vm.newSceneActID)
-                    .textFieldStyle(.roundedBorder)
-                HStack {
-                    Spacer()
-                    Button("Save Scene") {
-                        Task { await vm.addScene() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-        .studioMoveCommand { direction in
-            handleSceneInspectorMove(direction)
-        }
-        .studioExitCommand {
-            if !vm.editingSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                vm.cancelEditingScene()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func sceneInspectorRowBody(
-        scene: BackendScreenplayScene,
-        isActive: Bool,
-        jumpTarget: DraftSceneNavigatorItem?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.92))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let jumpTarget {
-                    Text("L\(jumpTarget.line)")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(isActive ? 0.72 : 0.56))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((isActive ? Color.herStudioActiveFill : Color.herShellPanel).opacity(0.92))
-                        .clipShape(Capsule())
-                }
-            }
-            if !scene.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               (scene.slugline ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare(scene.title.trimmingCharacters(in: .whitespacesAndNewlines)) != .orderedSame {
-                Text(scene.title)
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.72))
-            }
-            if let summary = scene.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.72))
-                    .lineLimit(2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private func sceneInspectorInlineEditor(_ scene: BackendScreenplayScene) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Scene Details")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.60))
-
-            TextField("Scene title", text: $vm.editingSceneTitle)
-                .textFieldStyle(.roundedBorder)
-                .focused($sceneInspectorTitleFocused)
-            TextField("Objective", text: $vm.editingSceneObjective)
-                .textFieldStyle(.roundedBorder)
-            TextField("Summary", text: $vm.editingSceneSummary, axis: .vertical)
-                .lineLimit(2...4)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 8) {
-                Text(scene.slugline?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? scene.slugline! : "No slugline")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-
-                Button("Cancel") {
-                    vm.cancelEditingScene()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .keyboardShortcut(.escape, modifiers: [])
-
-                Button("Save Details") {
-                    Task { await vm.saveEditingScene() }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(vm.isSaving)
-            }
-        }
-        .padding(.top, 2)
-    }
 
     private var beatsInspectorContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Shape the story in bigger moves.")
-                    .font(.system(size: 13, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.78))
-                Text("Keep the next turn of the script visible. Beats can stay loose while you ideate, or link directly to scenes and acts as the outline locks in.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 8) {
-                directionOneMiniStat("Beats", value: "\(vm.outline.beats.count)")
-                directionOneMiniStat("Scenes linked", value: "\(linkedBeatSceneCount)")
-                directionOneMiniStat("Acts linked", value: "\(linkedBeatActCount)")
-            }
-
-            inspectorSubsectionLabel("Beat map")
-
-            if vm.outline.beats.isEmpty {
-                beatsEmptyStateCard
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(sortedOutlineBeats.enumerated()), id: \.element.id) { index, beat in
-                        beatInspectorCard(beat, index: index + 1)
-                    }
-                    if draggedBeatID != nil {
-                        inspectorReorderDropZone(
-                            title: "Drop here to move this beat to the end",
-                            isTargeted: $isBeatListDropTargeted
-                        ) { _ in
+        ScreenplayStudioBeatsInspectorLayout(
+            beatCount: vm.outline.beats.count,
+            linkedSceneCount: linkedBeatSceneCount,
+            linkedActCount: linkedBeatActCount,
+            hasBeats: !vm.outline.beats.isEmpty,
+            beatMap: {
+                ScreenplayStudioBeatMapList(
+                    cards: beatInspectorCardPresentations,
+                    isBeatDragActive: draggedBeatID != nil,
+                    dropTargetID: $beatDropTargetID,
+                    isEndDropTargeted: $isBeatListDropTargeted,
+                    actions: ScreenplayStudioBeatCardActions(
+                        onSelect: { beat in
+                            selectBeatInInspector(beat)
+                        },
+                        onBeginDrag: { beat in
+                            draggedBeatID = beat.id
+                            selectedBeatInspectorID = beat.id
+                        },
+                        onDropBefore: { beat in
+                            handleBeatDrop(before: beat)
+                        },
+                        onMove: { beat, direction in
+                            Task { await vm.moveBeat(beat, direction: direction) }
+                        },
+                        onEdit: { beat in
+                            beginEditingBeatFromInspector(beat)
+                        },
+                        onDelete: { beat in
+                            selectedBeatInspectorID = beat.id
+                            Task { await vm.deleteBeat(beat) }
+                        },
+                        onLinkScene: { beat in
+                            handleBeatLinkAction(beat)
+                        },
+                        onPromoteToSceneGoal: { beat in
+                            handlePromoteBeatToSceneGoal(beat)
+                        },
+                        onRefreshFromSelection: { beat in
+                            handleBeatRefreshFromSelection(beat)
+                        },
+                        onRefreshFromScene: { beat in
+                            handleBeatRefreshFromCurrentScene(beat)
+                        },
+                        onDropAtEnd: {
                             guard let draggedBeatID else { return false }
                             settleInspectorDrop(at: inspectorScrollAnchorID(forBeatID: draggedBeatID))
                             Task { await vm.moveBeat(id: draggedBeatID, before: nil) }
@@ -11690,16 +5235,13 @@ private var projectsSidebarContent: some View {
                             beatDropTargetID = ""
                             return true
                         }
-                    }
-                }
+                    )
+                )
+            },
+            composer: {
+                beatsComposerCard
             }
-
-            Divider().overlay(Color.herShellStroke.opacity(0.24))
-
-            inspectorSubsectionLabel("Add beat")
-
-            beatsComposerCard
-        }
+        )
     }
 
     private var linkedBeatSceneCount: Int {
@@ -11720,832 +5262,86 @@ private var projectsSidebarContent: some View {
         ).count
     }
 
-    private var beatsEmptyStateCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "flag.slash")
-                    .font(.system(size: 16, weight: .semibold, design: .default))
-                    .foregroundStyle(directionOneChromeText.opacity(0.86))
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.82))
-                    )
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No beats yet")
-                        .font(.system(size: 16, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.92))
-                    Text("Start with a turning point, reveal, reversal, or emotional shift. You can connect it to a scene now or let it stay free until the draft settles.")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.68))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Good first beats")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.46))
-                    .textCase(.uppercase)
-                Text("Inciting incident")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                Text("False victory")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                Text("The choice that changes everything")
-                    .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.42))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private func beatInspectorCard(_ beat: BackendScreenplayBeat, index: Int) -> some View {
-        let linkedScene = linkedScene(for: beat)
-        let provenance = beatProvenance(for: beat)
-        let provenanceHistory = beatProvenanceHistory(for: beat)
-        let isSelected = selectedBeatInspectorID == beat.id || vm.editingBeatID == beat.id
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forBeatID: beat.id)
-        let sceneLabel = linkedScene.map { compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
-        return VStack(alignment: .leading, spacing: 6) {
-            inspectorInsertionMarker(isVisible: beatDropTargetID == beat.id)
-                .padding(.horizontal, 6)
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Text(String(format: "%02d", index))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(directionOneChromeText.opacity(0.84))
-                        .frame(width: 34, height: 34)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.88))
-                        )
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(beat.label)
-                            .font(.system(size: 15, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.92))
-                        if let summary = beat.summary, !summary.isEmpty {
-                            Text(summary)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.70))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    reorderHandleMenu(
-                        title: "Reorder beat",
-                        moveUpDisabled: !canMoveBeat(beat, direction: .up),
-                        moveDownDisabled: !canMoveBeat(beat, direction: .down),
-                        moveUp: { Task { await vm.moveBeat(beat, direction: .up) } },
-                        moveDown: { Task { await vm.moveBeat(beat, direction: .down) } }
-                    )
-                }
-
-                HStack(spacing: 8) {
-                    beatProvenanceChip(provenance)
-                    if let sceneLabel, !sceneLabel.isEmpty {
-                        beatInspectorMetaChip(title: "Scene", value: sceneLabel)
-                    } else if let sceneID = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneID.isEmpty {
-                        beatInspectorMetaChip(title: "Scene", value: sceneID)
-                    }
-                    if let actID = beat.actId?.trimmingCharacters(in: .whitespacesAndNewlines), !actID.isEmpty {
-                        beatInspectorMetaChip(title: "Act", value: actID)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                if let provenanceHistory {
-                    beatProvenanceHistoryView(provenanceHistory)
-                }
-
-                HStack(spacing: 8) {
-                    beatActionButton("Edit", systemImage: "pencil") {
-                        beginEditingBeatFromInspector(beat)
-                    }
-
-                    beatActionButton("Delete", systemImage: "trash", role: .destructive) {
-                        selectedBeatInspectorID = beat.id
-                        Task { await vm.deleteBeat(beat) }
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    beatActionButton(
-                        linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
-                        systemImage: "link"
-                    ) {
-                        handleBeatLinkAction(beat)
-                    }
-
-                    beatActionButton("Scene Goal", systemImage: "target") {
-                        handlePromoteBeatToSceneGoal(beat)
-                    }
-                }
-
-                if selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil {
-                    HStack(spacing: 8) {
-                        if selectionQuickCaptureSeed != nil {
-                            beatActionButton("Refresh from Selection", systemImage: "text.badge.arrow.up") {
-                                handleBeatRefreshFromSelection(beat)
-                            }
-                        }
-                        if currentSceneQuickCaptureSeed != nil {
-                            beatActionButton("Refresh from Scene", systemImage: "arrow.clockwise.circle") {
-                                handleBeatRefreshFromCurrentScene(beat)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.52) : Color.white.opacity(0.34))
+    private var beatInspectorCardPresentations: [ScreenplayStudioBeatCardPresentation] {
+        let beats = sortedOutlineBeats
+        return beats.enumerated().map { index, beat in
+            let linkedScene = linkedScene(for: beat)
+            let availability = ScreenplayStudioInspectorMoveAvailability.position(index, count: beats.count)
+            return ScreenplayStudioBeatCardPresentation(
+                beat: beat,
+                index: index + 1,
+                sceneLabel: linkedScene.map {
+                    compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title)
+                },
+                provenance: beatProvenance(for: beat),
+                provenanceHistory: beatProvenanceHistory(for: beat).map(beatProvenanceHistoryPresentation(_:)),
+                isSelected: selectedBeatInspectorID == beat.id || vm.editingBeatID == beat.id,
+                isSettled: inspectorSettledAnchorID == inspectorScrollAnchorID(forBeatID: beat.id),
+                canMoveUp: availability.canMoveUp,
+                canMoveDown: availability.canMoveDown,
+                linkButtonTitle: linkedScene == nil && currentSceneInspectorSelection == nil ? "Pick Scene" : "Link Scene",
+                canRefreshFromSelection: selectionQuickCaptureSeed != nil,
+                canRefreshFromScene: currentSceneQuickCaptureSeed != nil
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isSettled
-                            ? Color.herStudioActiveStroke.opacity(0.80)
-                            : beatDropTargetID == beat.id
-                            ? Color.herStudioActiveStroke.opacity(0.76)
-                            : (isSelected ? Color.herStudioActiveStroke.opacity(0.36) : Color.herShellStroke.opacity(0.18)),
-                        lineWidth: isSettled ? 1.6 : (beatDropTargetID == beat.id ? 1.4 : 1)
-                    )
-            )
-            .shadow(
-                color: isSettled ? Color.herStudioActiveStroke.opacity(0.20) : .clear,
-                radius: isSettled ? 12 : 0,
-                y: isSettled ? 6 : 0
-            )
-            .scaleEffect(isSettled ? 1.01 : 1.0)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .id(inspectorScrollAnchorID(forBeatID: beat.id))
-            .onTapGesture {
-                selectBeatInInspector(beat)
-            }
-            .onDrag {
-                draggedBeatID = beat.id
-                selectedBeatInspectorID = beat.id
-                return NSItemProvider(object: NSString(string: beat.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: beat.id, target: $beatDropTargetID)) { _ in
-                handleBeatDrop(before: beat)
-            }
         }
     }
 
-    private func beatInspectorMetaChip(title: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.48))
-                .textCase(.uppercase)
-            Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.82))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.72))
-        )
-    }
-
-    private func beatProvenanceChip(_ source: BeatProvenanceSource) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(source.tint)
-                .frame(width: 6, height: 6)
-            Text(source.compactTitle)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(source.tint)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(source.tint.opacity(0.10))
-        )
-        .overlay(
-            Capsule()
-                .stroke(source.tint.opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private func beatProvenanceHistoryView(_ history: BeatProvenanceHistoryEntry) -> some View {
+    private func beatProvenanceHistoryPresentation(
+        _ history: BeatProvenanceHistoryEntry
+    ) -> ScreenplayStudioBeatProvenanceHistoryPresentation {
         let createdDate = dateFromTimestamp(history.createdAt) ?? Date(timeIntervalSince1970: history.createdAt)
         let refreshedDate = dateFromTimestamp(history.lastRefreshedAt) ?? Date(timeIntervalSince1970: history.lastRefreshedAt)
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("Created from \(history.createdFrom.title) · \(relativeTimestamp(createdDate))")
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.52))
-            Text("Last refreshed from \(history.lastRefreshedFrom.title) · \(relativeTimestamp(refreshedDate))")
-                .font(.system(size: 10, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.52))
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Created from \(history.createdFrom.title), last refreshed from \(history.lastRefreshedFrom.title)")
+        return ScreenplayStudioBeatProvenanceHistoryPresentation(
+            createdText: "Created from \(history.createdFrom.title) · \(relativeTimestamp(createdDate))",
+            refreshedText: "Last refreshed from \(history.lastRefreshedFrom.title) · \(relativeTimestamp(refreshedDate))",
+            accessibilityLabel: "Created from \(history.createdFrom.title), last refreshed from \(history.lastRefreshedFrom.title)"
+        )
     }
 
     private var beatsComposerCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .center, spacing: 10) {
-                    Text(vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Capture the next move" : "Refine the beat")
-                        .font(.system(size: 16, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.92))
-
-                    Spacer(minLength: 0)
-
-                    if !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button("Cancel") {
-                            vm.cancelEditingBeat()
-                            beatComposerProvenance = .manual
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-                if !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("You’re editing an existing beat. Save will update it in place.")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.88))
-                }
-                Text(vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Name the beat, describe the turn, then link it to a scene or act if you already know where it belongs." : "Adjust the label, sharpen the summary, or reconnect the beat to a different scene or act.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-                    .fixedSize(horizontal: false, vertical: true)
+        let isEditing = !vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return ScreenplayStudioBeatComposer(
+            label: $vm.newBeatLabel,
+            summary: $vm.newBeatSummary,
+            isEditing: isEditing,
+            isSaving: vm.isSaving,
+            showsSelectionCapture: selectionQuickCaptureSeed != nil,
+            showsSceneCapture: currentSceneQuickCaptureSeed != nil,
+            showsSelectedBeatUpdate: selectionQuickCaptureSeed != nil && selectedBeatForQuickUpdate != nil,
+            createsImmediately: canQuickCreateBeatImmediately,
+            updatesSelectedBeatImmediately: canQuickUpdateSelectedBeatImmediately,
+            selectedBeatUpdateSubtitle: selectedBeatQuickUpdateSubtitle,
+            quickLinkTargets: beatQuickLinkTargets,
+            selectedScene: selectedBeatScene,
+            currentScene: currentSceneInspectorSelection,
+            availableScenes: availableBeatSceneOptions,
+            selectedAct: selectedBeatAct,
+            acts: sortedOutlineActs,
+            onCaptureSelection: handleSelectionQuickBeatCapture,
+            onCaptureScene: handleCurrentSceneQuickBeatCapture,
+            onUpdateSelectedBeat: handleSelectedBeatQuickUpdate,
+            onSelectQuickLink: applyBeatQuickLinkTarget,
+            onSelectScene: selectBeatScene,
+            onSelectAct: selectBeatAct,
+            onCancel: {
+                vm.cancelEditingBeat()
+                beatComposerProvenance = .manual
+            },
+            onSave: {
+                Task { await handleBeatSaveAction() }
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                beatInspectorFieldLabel("Beat label", detail: "A short, memorable story turn.")
-                beatInspectorTextField("Ex: The lie gets exposed", text: $vm.newBeatLabel)
-            }
-
-            if selectionQuickCaptureSeed != nil || currentSceneQuickCaptureSeed != nil {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel(
-                        "Quick capture",
-                        detail: canQuickCreateBeatImmediately
-                            ? "Make a beat in one tap from what is already active."
-                            : "Use page context to load the composer without losing your draft."
-                    )
-                    HStack(spacing: 8) {
-                        if selectionQuickCaptureSeed != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickCreateBeatImmediately ? "Make from Selection" : "Use Selection",
-                                subtitle: "Pull the current highlighted block into a beat.",
-                                systemImage: "text.badge.plus",
-                                shortcutHint: "⌥⌘B"
-                            ) {
-                                handleSelectionQuickBeatCapture()
-                            }
-                        }
-                        if currentSceneQuickCaptureSeed != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickCreateBeatImmediately ? "Make from Scene" : "Use Scene",
-                                subtitle: "Turn the active page scene into the next beat shell.",
-                                systemImage: "sparkles.rectangle.stack"
-                            ) {
-                                handleCurrentSceneQuickBeatCapture()
-                            }
-                        }
-                        if selectionQuickCaptureSeed != nil,
-                           selectedBeatForQuickUpdate != nil {
-                            beatQuickCaptureButton(
-                                title: canQuickUpdateSelectedBeatImmediately ? "Update Selected Beat" : "Use for Selected Beat",
-                                subtitle: selectedBeatQuickUpdateSubtitle,
-                                systemImage: "arrow.triangle.merge",
-                                shortcutHint: "⌥⌘U"
-                            ) {
-                                handleSelectedBeatQuickUpdate()
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !beatQuickLinkTargets.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Quick links", detail: "Use the page or outline context already in front of you.")
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(beatQuickLinkTargets) { target in
-                                beatQuickLinkButton(target)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                beatInspectorFieldLabel("Beat summary", detail: "What changes here, and why does it matter?")
-                beatInspectorMultilineField("Summarize the shift, reveal, or conflict.", text: $vm.newBeatSummary)
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Scene link", detail: "Optional")
-                    beatScenePickerField
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    beatInspectorFieldLabel("Act link", detail: "Optional")
-                    beatActPickerField
-                }
-            }
-
-            HStack(alignment: .center, spacing: 12) {
-                Text("You can save this loose now and connect it more precisely later.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.56))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    Task { await handleBeatSaveAction() }
-                } label: {
-                    Label(
-                        vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Save Beat" : "Update Beat",
-                        systemImage: vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "plus.circle.fill" : "checkmark.circle.fill"
-                    )
-                        .font(.system(size: 14, weight: .semibold, design: .default))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(
-                    (
-                        vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                        vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) || vm.isSaving
-                )
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.50))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
         )
     }
-
-    private func beatInspectorFieldLabel(_ title: String, detail: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.74))
-                .textCase(.uppercase)
-            Text(detail)
-                .font(.system(size: 11, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-        }
-    }
-
-    private func beatInspectorTextField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .medium, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.92))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
-    }
-
-    private func beatInspectorMultilineField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(4...7)
-            .font(.system(size: 15, weight: .regular, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.92))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 108, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.94))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
-    }
-
-    private func inspectorPanelLead(title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 15, weight: .medium, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.84))
-            Text(detail)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.64))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func inspectorMessageCard(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.86))
-                .frame(width: 38, height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.82))
-                )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.92))
-                Text(detail)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.42))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-    }
-
-    private func intelligenceCollectionCard<Content: View>(
-        title: String,
-        icon: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.56))
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.82))
-            }
-
-            content()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.36))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func outlineActInspectorCard(_ act: BackendScreenplayAct, scenes: [BackendScreenplayScene]) -> some View {
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forActID: act.id)
-        return VStack(alignment: .leading, spacing: 6) {
-            inspectorInsertionMarker(isVisible: actDropTargetID == act.id)
-                .padding(.horizontal, 6)
-
-            intelligenceCollectionCard(title: act.title, icon: "square.split.2x1") {
-                HStack(spacing: 8) {
-                    beatInspectorMetaChip(title: "Order", value: "\((act.order ?? 0) + 1)")
-                    Spacer(minLength: 0)
-                    reorderHandleMenu(
-                        title: "Reorder act",
-                        moveUpDisabled: !canMoveAct(act, direction: .up),
-                        moveDownDisabled: !canMoveAct(act, direction: .down),
-                        moveUp: { Task { await vm.moveAct(act, direction: .up) } },
-                        moveDown: { Task { await vm.moveAct(act, direction: .down) } }
-                    )
-                }
-
-                if scenes.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No scenes grouped into this act yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                        if draggedSceneID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this scene into \(act.title)",
-                                isTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID)
-                            ) { _ in
-                                guard let draggedSceneID else { return false }
-                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
-                                self.draggedSceneID = nil
-                                sceneDropTargetID = ""
-                                sceneGroupDropTargetID = ""
-                                return true
-                            }
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            beatInspectorMetaChip(title: "Scenes", value: "\(scenes.count)")
-                            if let summary = act.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(summary)
-                                    .font(.system(size: 11, weight: .regular, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.52))
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        ForEach(scenes, id: \.id) { scene in
-                            outlineSceneInspectorRow(scene)
-                        }
-
-                        if draggedSceneID != nil {
-                            inspectorReorderDropZone(
-                                title: "Drop here to move this scene to the end of \(act.title)",
-                                isTargeted: dropTargetBinding(for: act.id, target: $sceneGroupDropTargetID)
-                            ) { _ in
-                                guard let draggedSceneID else { return false }
-                                settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                                Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: act.id) }
-                                self.draggedSceneID = nil
-                                sceneDropTargetID = ""
-                                sceneGroupDropTargetID = ""
-                                return true
-                            }
-                        }
-                    }
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isSettled
-                            ? Color.herStudioActiveStroke.opacity(0.82)
-                            : actDropTargetID == act.id
-                            ? Color.herStudioActiveStroke.opacity(0.72)
-                            : Color.clear,
-                        lineWidth: isSettled ? 1.6 : 1.4
-                    )
-            )
-            .shadow(
-                color: isSettled ? Color.herStudioActiveStroke.opacity(0.18) : .clear,
-                radius: isSettled ? 12 : 0,
-                y: isSettled ? 6 : 0
-            )
-            .scaleEffect(isSettled ? 1.008 : 1.0)
-            .id(inspectorScrollAnchorID(forActID: act.id))
-            .onDrag {
-                draggedActID = act.id
-                return NSItemProvider(object: NSString(string: act.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: act.id, target: $actDropTargetID)) { _ in
-                handleActDrop(before: act)
-            }
-        }
-    }
-
-    private func outlineLooseScenesCard(_ scenes: [BackendScreenplayScene]) -> some View {
-        intelligenceCollectionCard(title: "Loose scenes", icon: "rectangle.stack.badge.plus") {
-            Text("These scenes are on the board, but they still need an act home.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.58))
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(scenes, id: \.id) { scene in
-                    outlineSceneInspectorRow(scene)
-                }
-                if draggedSceneID != nil {
-                    inspectorReorderDropZone(
-                        title: "Drop here to keep this scene loose at the end",
-                        isTargeted: dropTargetBinding(for: "loose-scenes", target: $sceneGroupDropTargetID)
-                    ) { _ in
-                        guard let draggedSceneID else { return false }
-                        settleInspectorDrop(at: inspectorScrollAnchorID(forSceneID: draggedSceneID))
-                        Task { await vm.moveScene(id: draggedSceneID, before: nil, targetActID: nil) }
-                        self.draggedSceneID = nil
-                        sceneDropTargetID = ""
-                        sceneGroupDropTargetID = ""
-                        return true
-                    }
-                }
-            }
-        }
-    }
-
     private func outlineFocusedSceneCard(_ scene: BackendScreenplayScene) -> some View {
-        intelligenceCollectionCard(title: scene.slugline?.isEmpty == false ? scene.slugline! : scene.title, icon: "scope") {
-            if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Objective")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.46))
-                        .textCase(.uppercase)
-                    Text(objective)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.76))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if let summary = scene.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(summary)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                beatInspectorMetaChip(title: "Act", value: (scene.actId ?? "Loose"))
-                beatInspectorMetaChip(title: "Beats", value: "\((scene.beatIds ?? []).count)")
-            }
-        }
-    }
-
-    private func outlineSceneInspectorRow(_ scene: BackendScreenplayScene) -> some View {
-        let isActive = isSceneInspectorRowActive(scene)
-        let isSettled = inspectorSettledAnchorID == inspectorScrollAnchorID(forSceneID: scene.id)
-        return VStack(alignment: .leading, spacing: 4) {
-            inspectorInsertionMarker(isVisible: sceneDropTargetID == scene.id)
-                .padding(.horizontal, 4)
-
-            Button {
-                revealSceneInInspector(scene)
-            } label: {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .lineLimit(1)
-                        if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(objective)
-                                .font(.system(size: 11, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.54))
-                                .lineLimit(2)
-                        }
-                    }
-
-                    Spacer(minLength: 10)
-
-                    HStack(spacing: 8) {
-                        reorderHandleMenu(
-                            title: "Reorder scene",
-                            moveUpDisabled: !canMoveScene(scene, direction: .up),
-                            moveDownDisabled: !canMoveScene(scene, direction: .down),
-                            moveUp: { Task { await vm.moveScene(scene, direction: .up) } },
-                            moveDown: { Task { await vm.moveScene(scene, direction: .down) } }
-                        )
-
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.38))
-                    }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(isActive ? Color.herStudioActiveFill.opacity(0.80) : Color.white.opacity(0.70))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            isSettled
-                                ? Color.herStudioActiveStroke.opacity(0.82)
-                                : sceneDropTargetID == scene.id
-                                ? Color.herStudioActiveStroke.opacity(0.72)
-                                : (isActive ? Color.herStudioActiveStroke.opacity(0.34) : Color.clear),
-                            lineWidth: isSettled ? 1.6 : (sceneDropTargetID == scene.id ? 1.4 : 1.0)
-                        )
-                )
-                .shadow(
-                    color: isSettled ? Color.herStudioActiveStroke.opacity(0.16) : .clear,
-                    radius: isSettled ? 10 : 0,
-                    y: isSettled ? 4 : 0
-                )
-                .scaleEffect(isSettled ? 1.008 : 1.0)
-            }
-            .buttonStyle(.plain)
-            .id(inspectorScrollAnchorID(forSceneID: scene.id))
-            .onDrag {
-                draggedSceneID = scene.id
-                return NSItemProvider(object: NSString(string: scene.id))
-            }
-            .onDrop(of: [UTType.plainText.identifier], isTargeted: dropTargetBinding(for: scene.id, target: $sceneDropTargetID)) { _ in
-                handleSceneDrop(before: scene)
-            }
-        }
-    }
-
-    private var companionModePickerCard: some View {
-        Picker(
-            "Companion Mode",
-            selection: Binding(
-                get: { liveDraftBridge.companionMode },
-                set: { liveDraftBridge.setCompanionMode($0) }
-            )
-        ) {
-            ForEach(StudioCompanionMode.allCases) { mode in
-                Text(mode.title)
-                    .tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accessibilityIdentifier("studio.them.modePicker")
-    }
-
-    private func companionThreadInspectorCard(_ exchange: StudioAskNoteExchange) -> some View {
-        intelligenceCollectionCard(title: exchange.prompt, icon: "bubble.left.and.bubble.right") {
-            Text(exchange.noteBody)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.68))
-                .lineLimit(4)
-            studioRouteMetaStrip(for: exchange)
-        }
-    }
-
-    private var directionOneCompactEmptyThreadSummary: some View {
-        HStack(alignment: .center, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.herStudioActiveFill.opacity(0.08))
-                    .frame(width: 26, height: 26)
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.58))
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No recent companion thread yet")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.74))
-                Text("Coach, co-writer, and comfort turns will stack here once you start talking.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.48))
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 12)
-
-            Text("0 turns")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.42))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.30))
-                .clipShape(Capsule())
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.26))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
-        )
+        ScreenplayStudioOutlineFocusedSceneCard(scene: scene)
     }
 
     private var sortedOutlineActs: [BackendScreenplayAct] {
-        vm.outline.acts.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.title < $1.title }
-            return lhsOrder < rhsOrder
-        }
+        InspectorOrderSupport.sortedActs(vm.outline.acts)
     }
 
     private var sortedOutlineBeats: [BackendScreenplayBeat] {
-        vm.outline.beats.sorted {
-            let lhsOrder = $0.order ?? Int.max
-            let rhsOrder = $1.order ?? Int.max
-            if lhsOrder == rhsOrder { return $0.label < $1.label }
-            return lhsOrder < rhsOrder
-        }
+        InspectorOrderSupport.sortedBeats(vm.outline.beats)
     }
 
     private var selectedBeatScene: BackendScreenplayScene? {
@@ -12564,73 +5360,7 @@ private var projectsSidebarContent: some View {
             guard !filteredActID.isEmpty else { return true }
             return (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == filteredActID
         }
-        return scenes.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-    }
-
-    private var beatScenePickerField: some View {
-        Menu {
-            Button("No scene link") {
-                selectBeatScene(nil)
-            }
-            if let currentScene = currentSceneInspectorSelection {
-                Divider()
-                Button("Current scene: \(currentScene.slugline?.isEmpty == false ? currentScene.slugline! : currentScene.title)") {
-                    selectBeatScene(currentScene)
-                }
-            }
-            if !availableBeatSceneOptions.isEmpty {
-                Divider()
-                ForEach(availableBeatSceneOptions, id: \.id) { scene in
-                    Button {
-                        selectBeatScene(scene)
-                    } label: {
-                        HStack {
-                            Text(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-                            if selectedBeatScene?.id == scene.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            inspectorPickerButton(
-                title: selectedBeatScene?.slugline?.isEmpty == false ? selectedBeatScene!.slugline! : (selectedBeatScene?.title ?? "Choose scene"),
-                subtitle: selectedBeatScene == nil ? "Keep it loose or connect it to the current scene." : "Linked to this scene."
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var beatActPickerField: some View {
-        Menu {
-            Button("No act link") {
-                selectBeatAct(nil)
-            }
-            if !sortedOutlineActs.isEmpty {
-                Divider()
-                ForEach(sortedOutlineActs, id: \.id) { act in
-                    Button {
-                        selectBeatAct(act)
-                    } label: {
-                        HStack {
-                            Text(act.title)
-                            if selectedBeatAct?.id == act.id {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            inspectorPickerButton(
-                title: selectedBeatAct?.title ?? "Choose act",
-                subtitle: selectedBeatAct == nil ? "Optional story-placement cue." : "Acts help sort beats before the page settles."
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize(horizontal: false, vertical: true)
+        return InspectorOrderSupport.sortedScenes(scenes)
     }
 
     private var activePageOutlineSceneSelection: BackendScreenplayScene? {
@@ -12653,110 +5383,12 @@ private var projectsSidebarContent: some View {
         return nil
     }
 
-    private func actForScene(_ scene: BackendScreenplayScene?) -> BackendScreenplayAct? {
-        guard let scene else { return nil }
-        let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !actID.isEmpty else { return nil }
-        return sortedOutlineActs.first(where: { $0.id == actID })
-    }
-
     private var beatQuickLinkTargets: [BeatQuickLinkTarget] {
-        var targets: [BeatQuickLinkTarget] = [
-            BeatQuickLinkTarget(
-                id: "loose",
-                title: "Keep Loose",
-                subtitle: "Clear scene and act links",
-                sceneID: "",
-                actID: ""
-            )
-        ]
-        var seenIDs = Set(targets.map(\.id))
-
-        let pageScene = activePageOutlineSceneSelection
-        if let scene = pageScene {
-            let label = compactSceneNavigatorLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-            let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let sceneTarget = BeatQuickLinkTarget(
-                id: "scene:\(scene.id)",
-                title: "Current Page",
-                subtitle: label,
-                sceneID: scene.id,
-                actID: actID
-            )
-            if seenIDs.insert(sceneTarget.id).inserted {
-                targets.append(sceneTarget)
-            }
-            if let act = actForScene(scene) {
-                let actTarget = BeatQuickLinkTarget(
-                    id: "act:\(act.id)",
-                    title: "Current Act",
-                    subtitle: act.title,
-                    sceneID: "",
-                    actID: act.id
-                )
-                if seenIDs.insert(actTarget.id).inserted {
-                    targets.append(actTarget)
-                }
-            }
-        }
-
-        if let focusedScene = explicitFocusedOutlineSceneSelection {
-            let label = compactSceneNavigatorLabel(focusedScene.slugline?.isEmpty == false ? focusedScene.slugline! : focusedScene.title)
-            let actID = (focusedScene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let sceneTarget = BeatQuickLinkTarget(
-                id: "scene:\(focusedScene.id)",
-                title: "Focused Scene",
-                subtitle: label,
-                sceneID: focusedScene.id,
-                actID: actID
-            )
-            if seenIDs.insert(sceneTarget.id).inserted {
-                targets.append(sceneTarget)
-            }
-            if let act = actForScene(focusedScene) {
-                let actTarget = BeatQuickLinkTarget(
-                    id: "act:\(act.id)",
-                    title: "Focused Act",
-                    subtitle: act.title,
-                    sceneID: "",
-                    actID: act.id
-                )
-                if seenIDs.insert(actTarget.id).inserted {
-                    targets.append(actTarget)
-                }
-            }
-        }
-
-        return targets
-    }
-
-    private func beatQuickLinkButton(_ target: BeatQuickLinkTarget) -> some View {
-        let isActive = selectedBeatScene?.id == target.sceneID && selectedBeatAct?.id == target.actID
-            || (target.sceneID.isEmpty && target.actID.isEmpty && selectedBeatScene == nil && selectedBeatAct == nil)
-        return Button {
-            applyBeatQuickLinkTarget(target)
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(target.title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.78))
-                Text(target.subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.64 : 0.50))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.90) : Color.white.opacity(0.76))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isActive ? Color.herStudioActiveStroke.opacity(0.70) : Color.herShellStroke.opacity(0.18), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+        BeatQuickLinkTargetPlanner.makeTargets(
+            pageScene: activePageOutlineSceneSelection,
+            focusedScene: explicitFocusedOutlineSceneSelection,
+            acts: sortedOutlineActs
+        )
     }
 
     private func applyBeatQuickLinkTarget(_ target: BeatQuickLinkTarget) {
@@ -12772,27 +5404,15 @@ private var projectsSidebarContent: some View {
     }
 
     private var selectedBeatForQuickUpdate: BackendScreenplayBeat? {
-        let selectedID = selectedBeatInspectorID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !selectedID.isEmpty,
-           let selected = sortedOutlineBeats.first(where: { $0.id == selectedID }) {
-            return selected
-        }
-        let editingID = vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !editingID.isEmpty,
-           let editing = sortedOutlineBeats.first(where: { $0.id == editingID }) {
-            return editing
-        }
-        return nil
+        BeatQuickCaptureActionPlanner.selectedBeat(
+            selectedBeatID: selectedBeatInspectorID,
+            editingBeatID: vm.editingBeatID,
+            beats: sortedOutlineBeats
+        )
     }
 
     private var selectedBeatQuickUpdateSubtitle: String {
-        guard let beat = selectedBeatForQuickUpdate else {
-            return "Refresh the selected beat from the active page block."
-        }
-        let label = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        return label.isEmpty
-            ? "Refresh the selected beat from the active page block."
-            : "Refresh \(label) from the active page block."
+        BeatQuickCaptureActionPlanner.updateSubtitle(for: selectedBeatForQuickUpdate)
     }
 
     private var canTriggerMakeBeatFromSelectionShortcut: Bool {
@@ -12817,11 +5437,7 @@ private var projectsSidebarContent: some View {
     }
 
     private var canQuickCreateBeatImmediately: Bool {
-        vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        vm.newBeatActID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        BeatQuickCaptureActionPlanner.canCreateImmediately(draft: beatQuickCaptureDraftState)
     }
 
     private var canQuickUpdateSelectedBeatImmediately: Bool {
@@ -12831,113 +5447,33 @@ private var projectsSidebarContent: some View {
     }
 
     private func canQuickUpdateBeatImmediately(for beat: BackendScreenplayBeat) -> Bool {
-        let editingID = vm.editingBeatID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if editingID == beat.id { return true }
-        return editingID.isEmpty &&
-            vm.newBeatLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            vm.newBeatActID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        BeatQuickCaptureActionPlanner.canUpdateImmediately(
+            beatID: beat.id,
+            draft: beatQuickCaptureDraftState
+        )
+    }
+
+    private var beatQuickCaptureDraftState: BeatQuickCaptureDraftState {
+        BeatQuickCaptureDraftState(
+            editingBeatID: vm.editingBeatID,
+            label: vm.newBeatLabel,
+            summary: vm.newBeatSummary,
+            sceneID: vm.newBeatSceneID,
+            actID: vm.newBeatActID
+        )
     }
 
     private var selectionQuickCaptureSeed: BeatQuickCaptureSeed? {
-        guard let selection = liveDraftBridge.selectedEditorSnapshot(), selection.hasSelection else {
-            return nil
-        }
-        let summary = selection.trimmedText
-        guard !summary.isEmpty else { return nil }
-        let linkedScene = outlineScene(for: selection)
-        let sceneLabel = selection.sceneLabel
-            ?? linkedScene.map { compactSceneNavigatorLabel($0.slugline?.isEmpty == false ? $0.slugline! : $0.title) }
-        let label = beatLabel(from: summary, sceneLabel: sceneLabel)
-        let actID = linkedScene.map {
-            ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        .flatMap { $0.isEmpty ? nil : $0 } ?? ""
-        return BeatQuickCaptureSeed(
-            label: label,
-            summary: String(summary.prefix(280)),
-            sceneID: linkedScene?.id ?? "",
-            actID: actID,
-            infoText: "Created a beat from the selected block.",
-            provenance: .selection
+        guard let selection = liveDraftBridge.selectedEditorSnapshot() else { return nil }
+        return BeatQuickCaptureSeedPlanner.makeSelectionSeed(
+            selection: selection,
+            linkedScene: outlineScene(for: selection)
         )
     }
 
     private var currentSceneQuickCaptureSeed: BeatQuickCaptureSeed? {
         guard let scene = currentSceneInspectorSelection else { return nil }
-        let sceneLabel = compactSceneNavigatorLabel(scene.slugline?.isEmpty == false ? scene.slugline! : scene.title)
-        let summarySource = [
-            scene.objective?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.slugline?.trimmingCharacters(in: .whitespacesAndNewlines),
-            scene.title.trimmingCharacters(in: .whitespacesAndNewlines),
-        ]
-            .compactMap { $0 }
-            .first(where: { !$0.isEmpty }) ?? "The next turn inside \(sceneLabel)."
-        let actID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return BeatQuickCaptureSeed(
-            label: beatLabel(from: summarySource, sceneLabel: sceneLabel),
-            summary: String(summarySource.prefix(280)),
-            sceneID: scene.id,
-            actID: actID,
-            infoText: "Created a beat from \(sceneLabel).",
-            provenance: .currentScene
-        )
-    }
-
-    private func beatQuickCaptureButton(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        shortcutHint: String? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.white.opacity(0.84))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(.system(size: 12, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.88))
-                        if let shortcutHint, !shortcutHint.isEmpty {
-                            Text(shortcutHint)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.herText.opacity(0.46))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(Color.white.opacity(0.74)))
-                        }
-                    }
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.58))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.80))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+        return BeatQuickCaptureSeedPlanner.makeCurrentSceneSeed(scene: scene)
     }
 
     private func handleSelectionQuickBeatCapture() {
@@ -13113,62 +5649,7 @@ private var projectsSidebarContent: some View {
             return
         }
 
-        let mergedSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedBeats = sortedOutlineBeats.map { existingBeat in
-            guard existingBeat.id == beat.id else { return existingBeat }
-            return BackendScreenplayBeat(
-                id: existingBeat.id,
-                label: label,
-                summary: seed.summary,
-                sceneId: mergedSceneID.isEmpty ? existingBeat.sceneId : mergedSceneID,
-                actId: mergedActID.isEmpty ? existingBeat.actId : mergedActID,
-                order: existingBeat.order,
-                status: existingBeat.status,
-                createdAt: existingBeat.createdAt,
-                updatedAt: Date().timeIntervalSince1970 * 1000
-            )
-        }
-        let updatedBeat = updatedBeats.first(where: { $0.id == beat.id }) ?? beat
-        let updatedSceneID = (updatedBeat.sceneId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if !updatedSceneID.isEmpty, scene.id == updatedSceneID {
-                if !beatIDs.contains(updatedBeat.id) {
-                    beatIDs.append(updatedBeat.id)
-                }
-            } else {
-                beatIDs.removeAll { $0 == updatedBeat.id }
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
-        selectBeatInInspector(updatedBeat)
-        vm.cancelEditingBeat()
-        beatComposerProvenance = beatProvenance(for: beat)
-        markBeatProvenanceRefresh(seed.provenance, for: beat.id)
-        vm.refreshLiveDraftBridgeContext()
-        vm.infoText = infoText
+        applyLocalBeatQuickCaptureUpdate(beat, seed: seed, infoText: infoText)
     }
 
     private func updateBeatFromCurrentSceneSeed(
@@ -13196,57 +5677,22 @@ private var projectsSidebarContent: some View {
             return
         }
 
-        let mergedSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedBeats = sortedOutlineBeats.map { existingBeat in
-            guard existingBeat.id == beat.id else { return existingBeat }
-            return BackendScreenplayBeat(
-                id: existingBeat.id,
-                label: label,
-                summary: seed.summary,
-                sceneId: mergedSceneID.isEmpty ? existingBeat.sceneId : mergedSceneID,
-                actId: mergedActID.isEmpty ? existingBeat.actId : mergedActID,
-                order: existingBeat.order,
-                status: existingBeat.status,
-                createdAt: existingBeat.createdAt,
-                updatedAt: Date().timeIntervalSince1970 * 1000
-            )
-        }
-        let updatedBeat = updatedBeats.first(where: { $0.id == beat.id }) ?? beat
-        let updatedSceneID = (updatedBeat.sceneId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if !updatedSceneID.isEmpty, scene.id == updatedSceneID {
-                if !beatIDs.contains(updatedBeat.id) {
-                    beatIDs.append(updatedBeat.id)
-                }
-            } else {
-                beatIDs.removeAll { $0 == updatedBeat.id }
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
-        selectBeatInInspector(updatedBeat)
+        applyLocalBeatQuickCaptureUpdate(beat, seed: seed, infoText: infoText)
+    }
+
+    private func applyLocalBeatQuickCaptureUpdate(
+        _ beat: BackendScreenplayBeat,
+        seed: BeatQuickCaptureSeed,
+        infoText: String
+    ) {
+        guard let mutation = BeatQuickCaptureMutationPlanner.updating(
+            beatID: beat.id,
+            from: seed,
+            in: vm.outline,
+            timestamp: Date().timeIntervalSince1970 * 1000
+        ) else { return }
+        vm.outline = mutation.outline
+        selectBeatInInspector(mutation.beat)
         vm.cancelEditingBeat()
         beatComposerProvenance = beatProvenance(for: beat)
         markBeatProvenanceRefresh(seed.provenance, for: beat.id)
@@ -13270,50 +5716,15 @@ private var projectsSidebarContent: some View {
 
     private func appendLocalQuickCaptureBeat(_ seed: BeatQuickCaptureSeed) -> BackendScreenplayBeat {
         let now = Date().timeIntervalSince1970 * 1000
-        let cleanSceneID = seed.sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanActID = seed.actID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let beat = BackendScreenplayBeat(
-            id: "beat-local-\(UUID().uuidString.lowercased())",
-            label: seed.label,
-            summary: seed.summary,
-            sceneId: cleanSceneID.isEmpty ? nil : cleanSceneID,
-            actId: cleanActID.isEmpty ? nil : cleanActID,
-            order: sortedOutlineBeats.count,
-            status: "open",
-            createdAt: now,
-            updatedAt: now
+        let mutation = BeatQuickCaptureMutationPlanner.appending(
+            seed: seed,
+            to: vm.outline,
+            beatID: "beat-local-\(UUID().uuidString.lowercased())",
+            timestamp: now
         )
-        let updatedBeats = sortedOutlineBeats + [beat]
-        let updatedScenes = vm.outline.scenes.map { scene in
-            var beatIDs = scene.beatIds ?? []
-            if scene.id == cleanSceneID {
-                beatIDs.append(beat.id)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: beatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: now,
-            actCount: vm.outline.acts.count,
-            sceneCount: updatedScenes.count,
-            beatCount: updatedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: updatedBeats
-        )
+        vm.outline = mutation.outline
         vm.refreshLiveDraftBridgeContext()
-        return beat
+        return mutation.beat
     }
 
     private func outlineScene(for selection: ScreenplayEditorSelectionSnapshot) -> BackendScreenplayScene? {
@@ -13326,35 +5737,6 @@ private var projectsSidebarContent: some View {
             }
         }
         return currentSceneInspectorSelection
-    }
-
-    private func inspectorPickerButton(title: String, subtitle: String) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.90))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.50))
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.16), lineWidth: 1)
-            )
     }
 
     private func beginEditingBeatFromInspector(_ beat: BackendScreenplayBeat) {
@@ -13373,37 +5755,16 @@ private var projectsSidebarContent: some View {
         draggedBeatID != nil || draggedActID != nil || draggedSceneID != nil
     }
 
-    private func inspectorInsertionMarker(isVisible: Bool) -> some View {
-        HStack(spacing: 8) {
-            Capsule()
-                .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.92 : 0.0))
-                .frame(width: 28, height: isVisible ? 5 : 2)
-            Rectangle()
-                .fill(Color.herStudioActiveStroke.opacity(isVisible ? 0.68 : 0.0))
-                .frame(height: isVisible ? 2 : 1)
-                .frame(maxWidth: .infinity)
-            if isVisible {
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 10, weight: .bold, design: .default))
-                    .foregroundStyle(Color.herStudioActiveStroke.opacity(0.82))
-                    .transition(.opacity.combined(with: .scale))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .animation(.spring(response: 0.18, dampingFraction: 0.88), value: isVisible)
-        .accessibilityHidden(true)
-    }
-
     private func inspectorScrollAnchorID(forBeatID beatID: String) -> String {
-        "inspector-beat-\(beatID)"
+        ScreenplayStudioInspectorAnchor.beat(beatID)
     }
 
     private func inspectorScrollAnchorID(forActID actID: String) -> String {
-        "inspector-act-\(actID)"
+        ScreenplayStudioInspectorAnchor.act(actID)
     }
 
     private func inspectorScrollAnchorID(forSceneID sceneID: String) -> String {
-        "inspector-scene-\(sceneID)"
+        ScreenplayStudioInspectorAnchor.scene(sceneID)
     }
 
     private func syncInspectorDropTargetScroll(proxy: ScrollViewProxy) {
@@ -13517,9 +5878,7 @@ private var projectsSidebarContent: some View {
             }
         }
         if draggedSceneID != nil {
-            let sceneIDs = vm.outline.scenes
-                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                .map(\.id)
+            let sceneIDs = InspectorOrderSupport.sortedScenes(vm.outline.scenes).map(\.id)
             if sceneGroupDropTargetID == "loose-scenes", let lastSceneID = sceneIDs.last {
                 return InspectorAutoScrollRequest(
                     anchorID: inspectorScrollAnchorID(forSceneID: lastSceneID),
@@ -13530,10 +5889,11 @@ private var projectsSidebarContent: some View {
             let targetGroupID = sceneGroupDropTargetID.trimmingCharacters(in: .whitespacesAndNewlines)
             if !targetGroupID.isEmpty,
                targetGroupID != "loose-scenes" {
-                let groupedSceneIDs = vm.outline.scenes
-                    .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == targetGroupID }
-                    .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-                    .map(\.id)
+                let groupedSceneIDs = InspectorOrderSupport.sortedScenes(
+                    vm.outline.scenes.filter {
+                        InspectorOrderSupport.normalizedID($0.actId) == targetGroupID
+                    }
+                ).map(\.id)
                 if let lastGroupedSceneID = groupedSceneIDs.last {
                     return InspectorAutoScrollRequest(
                         anchorID: inspectorScrollAnchorID(forSceneID: lastGroupedSceneID),
@@ -13591,179 +5951,42 @@ private var projectsSidebarContent: some View {
         return nil
     }
 
-    private func adjacentInspectorItemID(
-        currentID: String,
-        orderedIDs: [String],
-        direction: InspectorAutoScrollDirection
-    ) -> String? {
-        guard !orderedIDs.isEmpty else { return nil }
-        guard let currentIndex = orderedIDs.firstIndex(of: currentID) else {
-            return direction == .up ? orderedIDs.first : orderedIDs.last
-        }
-        switch direction {
-        case .up:
-            return orderedIDs[max(0, currentIndex - 1)]
-        case .down:
-            return orderedIDs[min(orderedIDs.count - 1, currentIndex + 1)]
-        }
-    }
 
     private func moveSelectedBeatLocally(toEnd: Bool) -> Bool {
         let currentID = selectedBeatInspectorID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !currentID.isEmpty else { return false }
-        let orderedBeats = sortedOutlineBeats
-        guard let sourceIndex = orderedBeats.firstIndex(where: { $0.id == currentID }) else { return false }
-        var reorderedBeats = orderedBeats
-        let movingBeat = reorderedBeats.remove(at: sourceIndex)
-        reorderedBeats.insert(movingBeat, at: toEnd ? reorderedBeats.count : 0)
-        let reindexedBeats = reorderedBeats.enumerated().map { index, item in
-            BackendScreenplayBeat(
-                id: item.id,
-                label: item.label,
-                summary: item.summary,
-                sceneId: item.sceneId,
-                actId: item.actId,
-                order: index,
-                status: item.status,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt
-            )
-        }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reindexedBeats.map { ($0.id, $0.order ?? Int.max) })
-        let updatedScenes = vm.outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
-        vm.outline = BackendScreenplayOutline(
-            updatedAt: Date().timeIntervalSince1970 * 1000,
-            actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: reindexedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: reindexedBeats
-        )
+        guard let mutation = BeatOrderMutationPlanner.moving(
+            beatID: currentID,
+            to: toEnd ? .end : .beginning,
+            in: vm.outline
+        ) else { return false }
+        applyLocalBeatOrderMutation(mutation)
         draggedBeatID = nil
         beatDropTargetID = ""
         isBeatListDropTargeted = false
-        vm.refreshLiveDraftBridgeContext()
         persistInspectorWorkspaceState()
         return true
     }
 
     private func restoreBeatOrderIfNeeded(from orderedIDs: [String]) {
-        let cleanedIDs = orderedIDs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        guard !cleanedIDs.isEmpty else { return }
-        let currentBeats = vm.outline.beats
-        let currentIDs = currentBeats.map(\.id)
-        guard Set(currentIDs) == Set(cleanedIDs), currentIDs.count == cleanedIDs.count else { return }
-        guard currentIDs != cleanedIDs else { return }
+        guard let mutation = BeatOrderMutationPlanner.restoring(
+            orderedIDs: orderedIDs,
+            in: vm.outline
+        ) else { return }
+        applyLocalBeatOrderMutation(mutation)
+    }
 
-        let beatsByID = Dictionary(uniqueKeysWithValues: currentBeats.map { ($0.id, $0) })
-        let reorderedBeats = cleanedIDs.enumerated().compactMap { index, beatID -> BackendScreenplayBeat? in
-            guard let beat = beatsByID[beatID] else { return nil }
-            return BackendScreenplayBeat(
-                id: beat.id,
-                label: beat.label,
-                summary: beat.summary,
-                sceneId: beat.sceneId,
-                actId: beat.actId,
-                order: index,
-                status: beat.status,
-                createdAt: beat.createdAt,
-                updatedAt: beat.updatedAt
-            )
-        }
-        guard reorderedBeats.count == currentBeats.count else { return }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reorderedBeats.map { ($0.id, $0.order ?? Int.max) })
-        let updatedScenes = vm.outline.scenes.map { scene in
-            let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
-                (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
-            }
-            return BackendScreenplayScene(
-                id: scene.id,
-                slugline: scene.slugline,
-                title: scene.title,
-                objective: scene.objective,
-                summary: scene.summary,
-                actId: scene.actId,
-                order: scene.order,
-                status: scene.status,
-                beatIds: sortedBeatIDs,
-                createdAt: scene.createdAt,
-                updatedAt: scene.updatedAt
-            )
-        }
+    private func applyLocalBeatOrderMutation(_ mutation: BeatOrderMutation) {
         vm.outline = BackendScreenplayOutline(
             updatedAt: Date().timeIntervalSince1970 * 1000,
             actCount: vm.outline.actCount,
-            sceneCount: updatedScenes.count,
-            beatCount: reorderedBeats.count,
-            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: updatedScenes),
-            scenes: updatedScenes,
-            beats: reorderedBeats
+            sceneCount: mutation.scenes.count,
+            beatCount: mutation.beats.count,
+            acts: rebuiltOutlineActs(from: vm.outline.acts, scenes: mutation.scenes),
+            scenes: mutation.scenes,
+            beats: mutation.beats
         )
         vm.refreshLiveDraftBridgeContext()
-    }
-
-    private func dropTargetBinding(for id: String, target: Binding<String>) -> Binding<Bool> {
-        Binding(
-            get: { target.wrappedValue == id },
-            set: { isTargeted in
-                if isTargeted {
-                    target.wrappedValue = id
-                } else if target.wrappedValue == id {
-                    target.wrappedValue = ""
-                }
-            }
-        )
-    }
-
-    private func inspectorReorderDropZone(
-        title: String,
-        isTargeted: Binding<Bool>,
-        performDrop: @escaping ([NSItemProvider]) -> Bool
-    ) -> some View {
-        HStack(spacing: 10) {
-            Capsule()
-                .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
-                .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.down.to.line.compact")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herText).opacity(isTargeted.wrappedValue ? 0.88 : 0.56))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                Capsule()
-                    .fill(isTargeted.wrappedValue ? Color.herStudioActiveFill.opacity(0.28) : Color.white.opacity(0.52))
-            )
-            Capsule()
-                .fill((isTargeted.wrappedValue ? Color.herStudioActiveStroke : Color.herShellStroke).opacity(isTargeted.wrappedValue ? 0.82 : 0.22))
-                .frame(height: isTargeted.wrappedValue ? 3 : 1.5)
-        }
-        .frame(height: 36)
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.16), value: isTargeted.wrappedValue)
-        .onDrop(of: [UTType.plainText.identifier], isTargeted: isTargeted, perform: performDrop)
     }
 
     private func handleBeatDrop(before beat: BackendScreenplayBeat) -> Bool {
@@ -13801,26 +6024,6 @@ private var projectsSidebarContent: some View {
         return true
     }
 
-    private func beatActionButton(
-        _ title: String,
-        systemImage: String,
-        role: ButtonRole? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(role: role, action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.72))
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
     private func linkedScene(for beat: BackendScreenplayBeat) -> BackendScreenplayScene? {
         guard let sceneID = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneID.isEmpty else {
             return nil
@@ -13846,60 +6049,6 @@ private var projectsSidebarContent: some View {
 
     private func preferredSceneForBeatAction(_ beat: BackendScreenplayBeat) -> BackendScreenplayScene? {
         currentSceneInspectorSelection ?? linkedScene(for: beat)
-    }
-
-    private func canMoveBeat(_ beat: BackendScreenplayBeat, direction: InspectorReorderDirection) -> Bool {
-        guard let index = sortedOutlineBeats.firstIndex(where: { $0.id == beat.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < sortedOutlineBeats.count - 1
-        }
-    }
-
-    private func canMoveAct(_ act: BackendScreenplayAct, direction: InspectorReorderDirection) -> Bool {
-        guard let index = sortedOutlineActs.firstIndex(where: { $0.id == act.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < sortedOutlineActs.count - 1
-        }
-    }
-
-    private func canMoveScene(_ scene: BackendScreenplayScene, direction: InspectorReorderDirection) -> Bool {
-        let normalizedActID = (scene.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupedScenes = vm.outline.scenes
-            .filter { ($0.actId ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedActID }
-            .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-        guard let index = groupedScenes.firstIndex(where: { $0.id == scene.id }) else { return false }
-        switch direction {
-        case .up: return index > 0
-        case .down: return index < groupedScenes.count - 1
-        }
-    }
-
-    private func reorderHandleMenu(
-        title: String,
-        moveUpDisabled: Bool,
-        moveDownDisabled: Bool,
-        moveUp: @escaping () -> Void,
-        moveDown: @escaping () -> Void
-    ) -> some View {
-        Menu {
-            Button("Move Up", action: moveUp)
-                .disabled(moveUpDisabled)
-            Button("Move Down", action: moveDown)
-                .disabled(moveDownDisabled)
-        } label: {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.42))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.74))
-                )
-        }
-        .help(title)
-        .menuStyle(.borderlessButton)
     }
 
     private func handleBeatLinkAction(_ beat: BackendScreenplayBeat) {
@@ -13931,124 +6080,8 @@ private var projectsSidebarContent: some View {
         }
     }
 
-    private func inspectorSubsectionLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 12, weight: .semibold, design: .default))
-            .foregroundStyle(Color.herText.opacity(0.74))
-            .textCase(.uppercase)
-    }
 
-    private var studioCollaboratorRail: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("io.them")
-                            .font(.system(size: 17, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.92))
-                        Text(studioCollaboratorSubtitle)
-                            .font(.system(size: 12, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.72))
-                    }
 
-                    voicePinCard
-                    studioPromptComposerCard
-
-                    leadReferenceDisclosure
-
-                    if !vm.infoText.isEmpty || !vm.errorText.isEmpty {
-                        studioRailStatusStrip
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-            }
-            .onChange(of: highlightedStudioExchangeID) { _, newValue in
-                guard let newValue else { return }
-                withAnimation(.easeInOut(duration: 0.24)) {
-                    proxy.scrollTo(newValue, anchor: .center)
-                }
-            }
-        }
-    }
-
-    private var studioPromptComposerCard: some View {
-        sectionCard(title: "Tell io.them") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Intent")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.52))
-                        studioPromptIntentControl
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Destination")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.52))
-                        promptRoutingControl
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                HStack(alignment: .center, spacing: 10) {
-                    TextField(
-                        studioPromptPlaceholder,
-                        text: $studioPromptSeed,
-                        axis: .vertical
-                    )
-                    .textFieldStyle(.plain)
-                    .focused($studioPromptFocused)
-                    .lineLimit(1...3)
-                    .accessibilityIdentifier("studio.prompt.field")
-
-                    Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
-                        submitStudioPromptSeed()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("studio.prompt.send")
-                    .disabled(
-                        isSubmittingStudioPrompt ||
-                        isSubmittingPrompt ||
-                        studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.herShellPanel.opacity(0.92))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-                )
-
-                HStack(alignment: .center, spacing: 10) {
-                    Text(studioPromptHelperText)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.68))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(studioPromptHelperText)
-                    Text("Cmd-Return sends.")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.46))
-                    Spacer(minLength: 0)
-                    Toggle(isOn: $typedReplyAudioEnabled) {
-                        Text("Speak Replies")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.84))
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                }
-            }
-        }
-    }
 
     @ViewBuilder
     private var lastCommittedWriteInlineActions: some View {
@@ -14497,810 +6530,17 @@ private var projectsSidebarContent: some View {
         }
     }
 
-    private struct VoicePinHistoryGroup: Identifiable {
-        let category: String
-        let items: [ScreenplayAssistantPinState]
 
-        var id: String { category }
-    }
 
-    private struct VoicePinSuggestion: Identifiable {
-        let category: String
-        let text: String
 
-        var id: String { "\(category)|\(text)" }
-    }
 
-    private struct VoicePinTurn: Identifiable, Equatable {
-        enum Source {
-            case voice
-            case typed
-        }
 
-        let id: UUID
-        let exchangeID: UUID
-        let userAskLabel: String
-        let fountainOutput: String
-        let source: Source
-        let packLabel: String
-        let phase: String
-        let timestamp: Date
-        let lineRef: Int?
 
-        var outputExcerpt: String {
-            fountainOutput
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .prefix(2)
-                .joined(separator: " · ")
-        }
 
-        var timeAgo: String {
-            let elapsed = max(0, Int(Date().timeIntervalSince(timestamp)))
-            if elapsed < 60 {
-                return "\(elapsed)s ago"
-            }
-            if elapsed < 3600 {
-                return "\(elapsed / 60)m ago"
-            }
-            return "\(elapsed / 3600)h ago"
-        }
-    }
 
-    private struct StudioAskNoteExchange: Identifiable, Codable, Equatable {
-        let id: UUID
-        let backendThreadID: String?
-        let backendTurn: Int?
-        let requestID: String?
-        let prompt: String
-        let target: StudioTarget
-        let source: StudioPromptSource
-        let noteTitle: String
-        let noteBody: String
-        let developmentText: String?
-        let writeID: String?
-        let replacedWriteID: String?
-        let anchorLine: Int?
-        let anchorEndLine: Int?
-        let anchorSceneLabel: String?
-        let anchorExcerpt: String?
-        let insertedText: String?
-        let replacementApplied: Bool?
-        let revisedBlockText: String?
-        let resolvedAnchorExcerpt: String?
-        let packLabel: String?
-        let phase: String?
-        let sluglineAnchorLine: Int?
-        let memoryDomainRaw: String?
-        let companionModeRaw: String?
-        let timestamp: Date
 
-        init(
-            id: UUID,
-            backendThreadID: String?,
-            backendTurn: Int?,
-            requestID: String?,
-            prompt: String,
-            target: StudioTarget,
-            source: StudioPromptSource,
-            noteTitle: String,
-            noteBody: String,
-            developmentText: String? = nil,
-            writeID: String?,
-            replacedWriteID: String?,
-            anchorLine: Int?,
-            anchorEndLine: Int?,
-            anchorSceneLabel: String?,
-            anchorExcerpt: String?,
-            insertedText: String?,
-            replacementApplied: Bool? = nil,
-            revisedBlockText: String? = nil,
-            resolvedAnchorExcerpt: String? = nil,
-            packLabel: String? = nil,
-            phase: String? = nil,
-            sluglineAnchorLine: Int? = nil,
-            memoryDomainRaw: String? = nil,
-            companionModeRaw: String? = nil,
-            timestamp: Date
-        ) {
-            self.id = id
-            self.backendThreadID = backendThreadID
-            self.backendTurn = backendTurn
-            self.requestID = requestID
-            self.prompt = prompt
-            self.target = target
-            self.source = source
-            self.noteTitle = noteTitle
-            self.noteBody = noteBody
-            let cleanDevelopmentText = developmentText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            self.developmentText = cleanDevelopmentText.isEmpty ? nil : cleanDevelopmentText
-            self.writeID = writeID
-            self.replacedWriteID = replacedWriteID
-            self.anchorLine = anchorLine
-            self.anchorEndLine = anchorEndLine
-            self.anchorSceneLabel = anchorSceneLabel
-            self.anchorExcerpt = anchorExcerpt
-            self.insertedText = insertedText
-            self.replacementApplied = replacementApplied
-            self.revisedBlockText = revisedBlockText
-            self.resolvedAnchorExcerpt = resolvedAnchorExcerpt
-            self.packLabel = packLabel
-            self.phase = phase
-            self.sluglineAnchorLine = sluglineAnchorLine
-            self.memoryDomainRaw = memoryDomainRaw
-            self.companionModeRaw = companionModeRaw
-            self.timestamp = timestamp
-        }
-    }
 
-    private struct StudioWriteAnchorRecord: Codable, Equatable {
-        let writeID: String
-        let anchorLine: Int
-        let anchorEndLine: Int
-        let anchorSceneLabel: String?
-        let anchorExcerpt: String?
-        let insertedText: String?
-        let versionID: String?
-        let updatedAt: Date
-    }
 
-    private struct StudioDebugDiffState: Codable, Equatable {
-        let debugSessionID: String
-        let projectKey: String
-        let selectedProjectID: String
-        let latestVersionID: String
-        let studioSurfaceActive: Bool
-        let selectedProjectPresent: Bool
-        let loadedDraftProjectID: String
-        let loadProjectToken: Int
-        let loadProjectAckToken: Int
-        let loadProjectRequestedProjectID: String
-        let loadProjectRequestedVersionID: String
-        let loadProjectStage: String
-        let loadProjectReady: Bool
-        let loadProjectError: String
-        let editorFocusPending: Bool
-        let preparedPromptToken: Int
-        let preparedPromptText: String
-        let preparedPromptRouting: String
-        let composerFocused: Bool
-        let composerExpanded: Bool
-        let submitInFlight: Bool
-        let submitCommandReceivedToken: Int
-        let submitAckToken: Int
-        let submitAckText: String
-        let submitAckRouting: String
-        let submitAckReplacementMode: String
-        let submitAckRequestID: String
-        let commandBarToken: Int
-        let commandBarAckToken: Int
-        let hasPendingReplacementTarget: Bool
-        let pendingReplacementWriteID: String
-        let pendingReplacementStartLine: Int?
-        let pendingReplacementEndLine: Int?
-        let pendingReplacementPreview: String
-        let hasSubmittedReplacementTarget: Bool
-        let submittedReplacementWriteID: String
-        let submittedReplacementStartLine: Int?
-        let submittedReplacementEndLine: Int?
-        let submittedReplacementPreview: String
-        let revisedDiffCount: Int
-        let reopenedDiffCount: Int
-        let acknowledgedDiffCount: Int
-        let latestRevisedKey: String
-        let latestRevisedLineageKey: String
-        let latestRevisedWriteID: String
-        let focusedDiffLineageKey: String
-        let focusedDiffWriteID: String
-        let activeRevisedKey: String
-        let activeRevisedLineageKey: String
-        let activeRevisedWriteID: String
-        let activeLineageRevisedKeys: [String]
-        let activeLineageRevisedWriteIDs: [String]
-        let latestReopenedKey: String
-        let latestReopenedLineageKey: String
-        let latestReopenedWriteID: String
-        let restoredStateSource: String
-        let restoredFocusedDiffSource: String
-        let restoredReopenedSource: String
-        let restoredFocusedDiffKey: String
-        let restoredReopenedLineageKeys: [String]
-        let restoredLatestReopenedWriteID: String
-        let latestAcknowledgedLineageKey: String
-        let latestAcknowledgedWriteID: String
-        let latestAcknowledgedFingerprint: String
-        let backendSelectedProjectID: String
-        let backendSelectedFocusedDiffKey: String
-        let backendSelectedReopenedLineageKeys: [String]
-        let backendSelectedLatestReopenedWriteID: String
-        let backendSelectedAcknowledgedKeysCount: Int
-        let backendSelectedAcknowledgedEntriesCount: Int
-        let backendListedFocusedDiffKey: String
-        let backendListedReopenedLineageKeys: [String]
-        let backendListedLatestReopenedWriteID: String
-        let backendListedAcknowledgedKeysCount: Int
-        let backendListedAcknowledgedEntriesCount: Int
-        let isManualDraftEditing: Bool
-        let hasUnsavedDraftChanges: Bool
-        let autosaveEnabled: Bool
-        let autosaveStatusText: String
-        let leftSidebarVisible: Bool
-        let sidebarSection: String
-        let draftInspectorPresented: Bool
-        let draftInspectorSection: String
-        let draftPaginationPageCount: Int
-        let draftIntegrityIssueCount: Int
-        let draftIntegrityCanMoveToPin: Bool
-        let draftIntegrityCanMoveAllToPin: Bool
-        let draftIntegrityPrimaryPreview: String
-        let infoText: String
-        let draftPreview: String
-        let draftTailPreview: String
-        let focusedDiffKey: String
-        let latestThreadRequestID: String
-        let latestThreadWriteID: String
-        let latestThreadReplacedWriteID: String
-        let latestThreadReplacementApplied: Bool
-        let latestThreadPrompt: String
-        let latestThreadInsertedPreview: String
-        let latestThreadMemoryLabel: String
-        let latestThreadMemoryValue: String
-        let latestThreadOutputLabel: String
-        let latestThreadOutputValue: String
-        let footerMemoryLabel: String
-        let footerMemoryValue: String
-        let footerOutputLabel: String
-        let footerOutputValue: String
-        let transientStatusVisible: Bool
-        let pageWriteToastVisible: Bool
-        let pageWriteToastCollapsed: Bool
-        let pageWriteToastSource: String
-        let pageWriteToastPreview: String
-        let voicePinTurnCount: Int
-        let voicePinEmpty: Bool
-        let collaboratorInspectorCompact: Bool
-        let themCompanionMode: String
-        let themUnifiedSurface: Bool
-        let themModeControlStyle: String
-        let themRecentThreadInlineSummaryVisible: Bool
-        let intelligenceQueueCount: Int
-        let intelligenceQueueSafeCount: Int
-        let intelligenceQueueTitles: [String]
-        let intelligenceLastBatchID: String
-        let intelligenceLastBatchAppliedCount: Int
-        let rightRailExpanded: Bool
-        let rightPanelTab: String
-        let selectedBeatID: String
-        let selectedBeatLabel: String
-        let selectedBeatSummary: String
-        let selectedBeatSceneID: String
-        let selectedBeatActID: String
-        let selectedBeatProvenance: String
-        let beatDraftLabel: String
-        let beatDraftSummary: String
-        let beatOrderIDs: [String]
-        let beatOrderLabels: [String]
-        let beatDragInFlight: Bool
-        let draggedBeatID: String
-        let beatDropTargetID: String
-        let beatInsertionMarkerVisible: Bool
-        let beatEndDropVisible: Bool
-        let beatEndDropTargeted: Bool
-        let inspectorAutoScrollAnchorID: String
-        let inspectorAutoScrollDirection: String
-        let highlightedSceneInspectorKey: String
-        let selectionStartLine: Int
-        let selectionEndLine: Int
-    }
-
-    private struct StudioDebugProjectLoadBreadcrumb: Codable, Equatable {
-        let token: Int
-        let event: String
-        let detail: String
-        let requestedProjectID: String
-        let requestedVersionID: String
-        let selectedProjectID: String
-        let latestVersionID: String
-        let loadedDraftProjectID: String
-        let isLoading: Bool
-        let hasSelectedProject: Bool
-        let editorFocusPending: Bool
-        let timestampISO8601: String
-    }
-
-    private struct StudioDebugSubmitResultPayload: Codable, Equatable {
-        let status: String
-        let transport: String
-        let requestID: String
-        let prompt: String
-        let routingMode: String
-        let target: String
-        let memoryDomain: String
-        let companionMode: String
-        let noteTitle: String
-        let noteBody: String
-        let developmentText: String
-        let insertedText: String
-        let error: String
-    }
-
-    private enum StudioActionPreviewDiffKind {
-        case unchanged
-        case added
-        case removed
-        case changed
-    }
-
-    private struct StudioActionPreviewDiffSummary {
-        let unchangedCount: Int
-        let addedCount: Int
-        let removedCount: Int
-        let changedCount: Int
-        let isDestructive: Bool
-
-        var impactedCount: Int {
-            addedCount + removedCount + changedCount
-        }
-    }
-
-    private struct StudioActionPreviewDiffRow: Identifiable {
-        let id = UUID()
-        let kind: StudioActionPreviewDiffKind
-        let beforeLineNumber: Int?
-        let afterLineNumber: Int?
-        let beforeText: String
-        let afterText: String
-    }
-
-    private struct DraftSceneNavigatorItem: Identifiable, Equatable {
-        let id: String
-        let line: Int
-        let label: String
-        let shortLabel: String
-    }
-
-    private struct FullThreadSceneOption: Identifiable, Hashable {
-        let key: String
-        let label: String
-        let count: Int
-        let isCurrent: Bool
-
-        var id: String { key }
-    }
-
-    private struct FullThreadSection: Identifiable {
-        let key: String
-        let title: String
-        let entries: [StudioAskNoteExchange]
-
-        var id: String { key }
-    }
-
-    private enum FullThreadDraftComparisonState {
-        case matchesCurrentDraft
-        case revisedInDraft
-        case removedFromDraft
-    }
-
-    private struct FullThreadDraftComparison {
-        let state: FullThreadDraftComparisonState
-        let currentText: String
-        let sceneLabel: String?
-    }
-
-    private var voicePinCard: some View {
-        voicePinPanel
-    }
-
-    private var voicePinPanel: some View {
-        VStack(spacing: 0) {
-            voicePinHeader
-
-            if voicePinTurns.isEmpty && !isVoicePinPerceivedResponseActive {
-                voicePinEmptyState
-            } else {
-                Divider()
-                    .overlay(Color.herShellStroke.opacity(0.14))
-
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            voicePinThreadHeader
-
-                            if isVoicePinPerceivedResponseActive {
-                                studioPerceivedVoicePinPendingCard
-                                    .padding(.bottom, 8)
-                            }
-
-                            ForEach(visibleVoicePinTurns) { turn in
-                                voicePinTurnCard(turn)
-                            }
-
-                            if let latest = voicePinTurns.last {
-                                latestVoicePinNote(latest)
-                            }
-
-                            Color.clear
-                                .frame(height: 18)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                    }
-                    .onAppear {
-                        scrollVoicePinToLatest(using: proxy, animated: false)
-                    }
-                    .onChange(of: voicePinTurns.last?.id) { _, _ in
-                        scrollVoicePinToLatest(using: proxy, animated: true)
-                    }
-                }
-            }
-        }
-        .background(Color.herShellPanel.opacity(0.70))
-    }
-
-    private var voicePinHeader: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.herStudioActiveFill.opacity(talkIsActive ? 0.18 : 0.05))
-                    .frame(width: 28, height: 28)
-                Circle()
-                    .fill(Color.herStudioActiveFill.opacity(talkIsActive ? 0.88 : 0.34))
-                    .frame(width: 8, height: 8)
-                    .scaleEffect(talkIsActive ? 1.15 : 1.0)
-                    .animation(
-                        talkIsActive
-                        ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.18),
-                        value: talkIsActive
-                    )
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("io.them Voice Pin")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.90))
-                Text(talkStatusText)
-                    .font(.system(size: 9, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(talkIsActive ? 0.60 : 0.34))
-            }
-
-            Spacer(minLength: 0)
-
-            if !voicePinTurns.isEmpty {
-                Text("\(voicePinTurns.count)")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.85))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.herStudioActiveFill.opacity(0.12))
-                    .clipShape(Capsule())
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, voicePinTurns.isEmpty ? 11 : 10)
-        .background(Color.black.opacity(0.10))
-    }
-
-    private var voicePinEmptyState: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color.herStudioActiveFill.opacity(0.08))
-                    .frame(width: 34, height: 34)
-                Image(systemName: "waveform")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.54))
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No active Voice Pin")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-                Text("Dictate or send a note to keep it here.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.40))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            Button("Tell io.them") {
-                studioPromptFocused = true
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 11, weight: .medium, design: .default))
-            .foregroundStyle(Color.accentColor.opacity(0.84))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-    }
-
-    private var voicePinThreadHeader: some View {
-        HStack(spacing: 8) {
-            Text("Working Thread")
-                .font(.system(size: 9, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.34))
-                .kerning(0.5)
-
-            Spacer(minLength: 0)
-
-            if voicePinTurns.count > 3 {
-                Button(showFullVoicePinThread ? "Recent 3" : "All \(voicePinTurns.count)") {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        showFullVoicePinThread.toggle()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 9, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herStudioActiveFill.opacity(0.75))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-    }
-
-    private func voicePinTurnCard(_ turn: VoicePinTurn) -> some View {
-        let isExpanded = expandedVoicePinTurnID == turn.id || (expandedVoicePinTurnID == nil && voicePinTurns.last?.id == turn.id)
-        let hasMetadata = !turn.packLabel.isEmpty || !turn.phase.isEmpty || turn.lineRef != nil
-
-        return VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 6) {
-                    voicePinBadge(
-                        icon: turn.source == .voice ? "waveform" : "keyboard",
-                        label: turn.source == .voice ? "Voice" : "Typed",
-                        accent: Color.white.opacity(0.56),
-                        fill: Color.white.opacity(0.08)
-                    )
-                    voicePinBadge(
-                        icon: "doc.text",
-                        label: "Page",
-                        accent: Color.herStudioActiveFill.opacity(0.88),
-                        fill: Color.herStudioActiveFill.opacity(0.12)
-                    )
-                    Spacer(minLength: 0)
-                    Text(turn.timeAgo)
-                        .font(.system(size: 8, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Color.herText.opacity(0.28))
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 9)
-                .padding(.bottom, 4)
-
-                Text(turn.userAskLabel)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.82))
-                    .lineLimit(isExpanded ? nil : 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, hasMetadata ? 6 : (isExpanded ? 7 : 10))
-
-                if hasMetadata {
-                    HStack(spacing: 6) {
-                        if !turn.packLabel.isEmpty {
-                            voicePinMetaBadge(
-                                turn.packLabel,
-                                accent: Color.herStudioActiveFill.opacity(0.86),
-                                fill: Color.herStudioActiveFill.opacity(0.12)
-                            )
-                        }
-                        if !turn.phase.isEmpty {
-                            voicePinMetaBadge(
-                                voicePinPhaseCompactLabel(turn.phase),
-                                accent: Color.herText.opacity(0.60),
-                                fill: Color.white.opacity(0.07)
-                            )
-                        }
-                        if let line = turn.lineRef {
-                            voicePinMetaBadge(
-                                "Line \(line)",
-                                accent: Color.herText.opacity(0.54),
-                                fill: Color.white.opacity(0.05)
-                            )
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, isExpanded ? 8 : 10)
-                }
-
-                if isExpanded {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 5) {
-                            Rectangle()
-                                .fill(Color.herStudioActiveFill.opacity(0.42))
-                                .frame(width: 2, height: 12)
-                                .clipShape(Capsule())
-                            Text("Wrote to page")
-                                .font(.system(size: 9, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.40))
-                        }
-
-                        Text(turn.outputExcerpt)
-                            .font(.system(size: 10, weight: .regular, design: .monospaced))
-                            .foregroundStyle(Color.herText.opacity(0.70))
-                            .lineLimit(3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 7)
-                            .background(Color.black.opacity(0.26))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-
-                    HStack(spacing: 6) {
-                        voicePinActionPill(icon: "arrow.clockwise", label: "Reload ask") {
-                            reloadVoicePinTurn(turn)
-                        }
-
-                        if let line = turn.lineRef {
-                            voicePinActionPill(icon: "arrow.right.to.line", label: "Jump to line") {
-                                liveDraftBridge.jumpToLine(line)
-                            }
-                        }
-
-                        voicePinActionPill(icon: "plus.square", label: "Re-insert") {
-                            liveDraftBridge.pendingInsertion = ScreenplayInsertionRequest(text: turn.fountainOutput)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    expandedVoicePinTurnID = expandedVoicePinTurnID == turn.id ? nil : turn.id
-                }
-            }
-
-            Divider()
-                .overlay(Color.herShellStroke.opacity(0.10))
-                .padding(.horizontal, isExpanded ? 0 : 12)
-        }
-        .background(isExpanded ? Color.white.opacity(0.04) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: isExpanded ? 12 : 0, style: .continuous))
-        .padding(.horizontal, isExpanded ? 4 : 0)
-        .padding(.vertical, isExpanded ? 1 : 0)
-    }
-
-    private func latestVoicePinNote(_ turn: VoicePinTurn) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(Color.herStudioActiveFill.opacity(talkIsActive ? 0.22 : 0.08))
-                        .frame(width: 16, height: 16)
-                    Circle()
-                        .fill(Color.herStudioActiveFill.opacity(talkIsActive ? 0.96 : 0.48))
-                        .frame(width: 6, height: 6)
-                        .scaleEffect(talkIsActive ? 1.12 : 1.0)
-                        .animation(
-                            talkIsActive
-                            ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                            : .easeOut(duration: 0.18),
-                            value: talkIsActive
-                        )
-                }
-
-                Text("Latest Note")
-                    .font(.system(size: 9, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.36))
-                    .kerning(0.4)
-
-                Spacer(minLength: 0)
-
-                if !turn.packLabel.isEmpty {
-                    voicePinMetaBadge(
-                        turn.packLabel,
-                        accent: Color.herStudioActiveFill.opacity(0.80),
-                        fill: Color.herStudioActiveFill.opacity(0.10)
-                    )
-                }
-            }
-                .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
-
-            HStack(spacing: 6) {
-                Text(voicePinPhaseDescription(turn.phase))
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.52))
-                    .fixedSize(horizontal: false, vertical: true)
-                if let line = turn.lineRef {
-                    Text("•")
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.28))
-                    Text("Line \(line)")
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.42))
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 10)
-
-            ScrollView(.vertical, showsIndicators: false) {
-                Text(String(turn.fountainOutput.prefix(400)))
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
-            }
-            .frame(maxHeight: 120)
-            .background(Color.black.opacity(0.24))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.herStudioActiveFill.opacity(0.14), lineWidth: 0.5)
-                )
-        )
-        .padding(.horizontal, 8)
-        .padding(.top, 12)
-        .id("latest-note")
-    }
-
-    private func voicePinBadge(icon: String, label: String, accent: Color, fill: Color) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 7, weight: .medium))
-            Text(label)
-                .font(.system(size: 8, weight: .medium, design: .default))
-        }
-        .foregroundStyle(accent)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(fill)
-        .clipShape(Capsule())
-    }
-
-    private func voicePinMetaBadge(_ label: String, accent: Color, fill: Color) -> some View {
-        Text(label)
-            .font(.system(size: 8, weight: .semibold, design: .default))
-            .foregroundStyle(accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(fill)
-            .clipShape(Capsule())
-    }
-
-    private func voicePinPhaseCompactLabel(_ phase: String) -> String {
-        phase
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "_", with: " ")
-            .capitalized
-    }
-
-    private func voicePinActionPill(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .regular, design: .default))
-                Text(label)
-                    .font(.system(size: 9, weight: .medium, design: .default))
-            }
-            .foregroundStyle(Color.herText.opacity(0.52))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Color.white.opacity(0.08))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
 
     private var voicePinTurns: [VoicePinTurn] {
         studioAskNoteHistory
@@ -15318,12 +6558,6 @@ private var projectsSidebarContent: some View {
             .sorted { $0.timestamp > $1.timestamp }
     }
 
-    private var visibleVoicePinTurns: [VoicePinTurn] {
-        if showFullVoicePinThread || voicePinTurns.count <= 3 {
-            return voicePinTurns
-        }
-        return Array(voicePinTurns.suffix(3))
-    }
 
     private func voicePinTurn(from exchange: StudioAskNoteExchange) -> VoicePinTurn? {
         guard exchange.target == .voicePin else { return nil }
@@ -15343,19 +6577,13 @@ private var projectsSidebarContent: some View {
     }
 
     private func resolvedVoicePinOutput(for exchange: StudioAskNoteExchange) -> String {
-        let candidates = [
-            exchange.insertedText,
-            exchange.revisedBlockText,
-            exchange.resolvedAnchorExcerpt,
-            exchange.noteBody
-        ]
-        for candidate in candidates {
-            let normalized = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !normalized.isEmpty {
-                return normalized
-            }
-        }
-        return ""
+        ScreenplayStudioCreativePartnerPresentationPlanner.resolvedVoicePinOutput(
+            insertedText: exchange.insertedText,
+            revisedBlockText: exchange.revisedBlockText,
+            resolvedAnchorExcerpt: exchange.resolvedAnchorExcerpt,
+            developmentText: exchange.developmentText,
+            noteBody: exchange.noteBody
+        )
     }
 
     private func studioAskNoteExchange(for turn: VoicePinTurn) -> StudioAskNoteExchange? {
@@ -15405,271 +6633,10 @@ private var projectsSidebarContent: some View {
         }
     }
 
-    private func reloadVoicePinTurn(_ turn: VoicePinTurn) {
-        guard let exchange = studioAskNoteExchange(for: turn) else { return }
-        reloadStudioAskNoteExchange(exchange)
-        if turn.source == .voice {
-            onArmTalk()
-        }
-    }
 
-    private func voicePinPhaseDescription(_ phase: String) -> String {
-        let normalized = phase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch normalized {
-        case "scene_draft":
-            return "Scene draft mode. io.them is writing approved beats straight onto the page."
-        case "outline":
-            return "Outline mode. io.them is shaping structure before the next page move."
-        case "beat_sheet":
-            return "Beat sheet mode. io.them is converting intent into playable page material."
-        case "revision":
-            return "Revision mode. io.them is tightening lines and replacing page blocks in place."
-        case "":
-            return "Page mode. io.them is keeping the freshest writing visible here."
-        default:
-            let label = normalized.replacingOccurrences(of: "_", with: " ").capitalized
-            return "\(label). io.them is keeping the freshest page output visible here."
-        }
-    }
 
-    private func scrollVoicePinToLatest(using proxy: ScrollViewProxy, animated: Bool) {
-        guard !voicePinTurns.isEmpty else { return }
-        let action = {
-            proxy.scrollTo("latest-note", anchor: .bottom)
-        }
-        if animated {
-            withAnimation(.easeInOut(duration: 0.2), action)
-        } else {
-            action()
-        }
-    }
 
-    private var latestPromptInRailCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("You asked")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.70))
-                studioPromptSourceBadge(lastCommittedStudioPromptSource)
-            }
 
-            Text(lastCommittedStudioPrompt)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.84))
-                .fixedSize(horizontal: false, vertical: true)
-
-            studioRouteMetaStrip(
-                memory: latestRoutedStudioMemoryDomain,
-                output: latestRoutedStudioTarget,
-                mode: latestRoutedStudioCompanionMode
-            )
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.84))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private var latestAskNoteThreadCard: some View {
-        let visibleExchanges = Array(studioAskNoteHistory.prefix(3))
-        let selectedExchange = currentSelectedStudioThreadExchange(in: visibleExchanges)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Working Thread")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.72))
-                Spacer(minLength: 0)
-                if studioAskNoteHistory.count > visibleExchanges.count {
-                    Button("See Full Thread") {
-                        showingFullStudioThread = true
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-                    .accessibilityIdentifier("studio.thread.open-full")
-                }
-                Text(studioAskNoteHistory.count > visibleExchanges.count ? "Recent \(visibleExchanges.count) of \(studioAskNoteHistory.count)" : "Last \(visibleExchanges.count)")
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.58))
-            }
-
-            if let selectedExchange {
-                HStack(spacing: 10) {
-                    Text("Up/Down moves thread")
-                        .font(.system(size: 10, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.54))
-                    if studioThreadListFocused {
-                        Text("R reloads  J jumps  P pins")
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.50))
-                    }
-                    Spacer(minLength: 0)
-                    Button("Reload") {
-                        reloadStudioAskNoteExchange(selectedExchange)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-                    .keyboardShortcut("r", modifiers: [])
-                    .disabled(!studioThreadListFocused)
-
-                    Button("Pin") {
-                        pinStudioAskNoteExchange(selectedExchange)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.68))
-                    .keyboardShortcut("p", modifiers: [])
-                    .disabled(!studioThreadListFocused)
-
-                    if canApplyExchangeToOutline(selectedExchange) {
-                        Button("Apply to Outline") {
-                            applyExchangeToOutline(selectedExchange)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.68))
-                    }
-
-                    if selectedExchange.target == .page, selectedExchange.anchorLine != nil {
-                        Button("Jump") {
-                            jumpToStudioExchangeAnchor(selectedExchange)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.68))
-                        .keyboardShortcut("j", modifiers: [])
-                        .disabled(!studioThreadListFocused)
-                    }
-                }
-            }
-
-            ForEach(visibleExchanges) { exchange in
-                let isHighlighted = exchange.id == highlightedStudioExchangeID
-                Button {
-                    reloadStudioAskNoteExchange(exchange)
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Text("You")
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.58))
-                            studioPromptSourceBadge(exchange.source, compact: true)
-                            Spacer(minLength: 0)
-                            if isHighlighted {
-                                Text("Current")
-                                    .font(.system(size: 10, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.62))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(Color.herStudioActiveFill.opacity(0.92))
-                                    .clipShape(Capsule())
-                            }
-                            Text(relativeTimestamp(exchange.timestamp))
-                                .font(.system(size: 10, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.54))
-                        }
-
-                        Text(exchange.prompt)
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.82))
-                            .lineLimit(2)
-
-                        studioRouteMetaStrip(for: exchange)
-
-                        if !exchange.noteTitle.isEmpty || !exchange.noteBody.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(exchange.noteTitle.isEmpty ? "io.them" : exchange.noteTitle)
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.72))
-                                if !exchange.noteBody.isEmpty {
-                                    Text(exchange.noteBody)
-                                        .font(.system(size: 11, weight: .regular, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.68))
-                                        .lineLimit(2)
-                                }
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.herShellPanel.opacity(0.68))
-                            )
-                        }
-
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                            Text("Reload ask")
-                                .font(.system(size: 11, weight: .semibold, design: .default))
-                            Spacer(minLength: 0)
-                            Text(exchange.target == .page ? "Restores page mode" : "Restores Voice Pin mode")
-                                .font(.system(size: 10, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.54))
-                        }
-                        .foregroundStyle(Color.herText.opacity(0.64))
-
-                        if exchange.target == .page, let anchorLine = exchange.anchorLine {
-                            HStack(spacing: 8) {
-                                Button {
-                                    jumpToStudioExchangeAnchor(exchange)
-                                } label: {
-                                    Label(
-                                        exchange.anchorSceneLabel?.isEmpty == false
-                                            ? "Jump to \(exchange.anchorSceneLabel!)"
-                                            : "Jump to line \(anchorLine)",
-                                        systemImage: "location"
-                                    )
-                                    .font(.system(size: 11, weight: .semibold, design: .default))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Color.herText.opacity(0.70))
-
-                                Spacer(minLength: 0)
-
-                                if let anchorEndLine = exchange.anchorEndLine, anchorEndLine > anchorLine {
-                                    Text("L\(anchorLine)-\(anchorEndLine)")
-                                        .font(.system(size: 10, weight: .medium, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.52))
-                                } else {
-                                    Text("L\(anchorLine)")
-                                        .font(.system(size: 10, weight: .medium, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.52))
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill((isHighlighted ? Color.herStudioActiveFill : Color.herShellPanelSoft).opacity(0.82))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(
-                                isHighlighted ? Color.herStudioActiveStroke : Color.herShellStroke.opacity(0.18),
-                                lineWidth: isHighlighted ? 1.2 : 1
-                            )
-                    )
-                }
-                .buttonStyle(.plain)
-                .id(exchange.id)
-            }
-        }
-        .focusable(true)
-        .focused($studioThreadListFocused)
-        .studioMoveCommand { direction in
-            handleStudioThreadMove(direction, exchanges: visibleExchanges)
-        }
-    }
 
     private var filteredFullStudioThreadEntries: [StudioAskNoteExchange] {
         let query = fullStudioThreadSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -16506,15 +7473,6 @@ Current draft version:
         }
     }
 
-    private struct FullThreadRevisionTimelineItem: Identifiable {
-        let id: String
-        let exchange: StudioAskNoteExchange
-        let title: String
-        let subtitle: String
-        let tint: Color
-        let canOpenDiff: Bool
-    }
-
     private func fullThreadRevisionTimelineItems(_ section: FullThreadSection) -> [FullThreadRevisionTimelineItem] {
         section.entries
             .filter { $0.target == .page }
@@ -17125,114 +8083,8 @@ Current draft version:
         )
     }
 
-    private var recentVoicePinHistory: [ScreenplayAssistantPinState] {
-        let history = liveDraftBridge.assistantPinHistory
-        guard let first = history.first else { return [] }
-        if liveDraftBridge.assistantPin.mode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "copilot",
-           first.dedupeKey == liveDraftBridge.assistantPin.dedupeKey {
-            return Array(history.dropFirst())
-        }
-        return history
-    }
 
-    private var recentVoicePinHistoryGroups: [VoicePinHistoryGroup] {
-        let order = ["Story", "Scene", "Dialogue", "Task"]
-        let grouped = Dictionary(grouping: recentVoicePinHistory) { item in
-            normalizedVoicePinCategory(item.category)
-        }
 
-        var groups = order.compactMap { category -> VoicePinHistoryGroup? in
-            guard let items = grouped[category], !items.isEmpty else { return nil }
-            return VoicePinHistoryGroup(category: category, items: items)
-        }
-
-        let extras = grouped.keys
-            .filter { !order.contains($0) }
-            .sorted()
-            .compactMap { category -> VoicePinHistoryGroup? in
-                guard let items = grouped[category], !items.isEmpty else { return nil }
-                return VoicePinHistoryGroup(category: category, items: items)
-            }
-        groups.append(contentsOf: extras)
-        return groups
-    }
-
-    @ViewBuilder
-    private var draftSceneNavigatorStrip: some View {
-        let items = draftSceneNavigatorItems
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Scene Navigator")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.74))
-                Spacer(minLength: 0)
-                Button {
-                    beginSceneInsertFromNavigator()
-                } label: {
-                    Label("Scene", systemImage: "plus")
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                if let active = activeDraftSceneNavigatorItem {
-                    Text("Cursor in \(active.shortLabel)")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                } else {
-                    Text("Insert your next slugline here.")
-                        .font(.system(size: 11, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                }
-            }
-
-            if isSceneQuickInsertVisible {
-                HStack(spacing: 8) {
-                    TextField("INT. MOTEL ROOM - NIGHT", text: $sceneQuickInsertSlugline)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                        .focused($sceneQuickInsertFocused)
-                        .onSubmit {
-                            commitSceneInsertFromNavigator()
-                        }
-
-                    Button("Insert") {
-                        commitSceneInsertFromNavigator()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(sceneQuickInsertSlugline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    Button("Cancel") {
-                        cancelSceneInsertFromNavigator()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            if items.isEmpty {
-                Text("No scene headings yet. Add the first slugline and io.them will draft from there.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(items) { item in
-                            draftSceneNavigatorButton(item, isActive: item.id == activeDraftSceneNavigatorItem?.id)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.60))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
 
     private var draftSceneNavigatorItems: [DraftSceneNavigatorItem] {
         if !liveDraftBridge.structuredDraft.scenes.isEmpty {
@@ -17273,38 +8125,6 @@ Current draft version:
         return items.last(where: { $0.line <= cursorLine }) ?? items.first
     }
 
-    private func draftSceneNavigatorButton(_ item: DraftSceneNavigatorItem, isActive: Bool) -> some View {
-        Button {
-            liveDraftBridge.jumpToLine(item.line)
-            vm.infoText = "Jumped to \(item.shortLabel)."
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("L\(item.line)")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.70 : 0.50))
-                Text(item.shortLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.76))
-                    .lineLimit(1)
-            }
-            .frame(minWidth: 140, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isActive ? Color.herStudioActiveFill : Color.herShellPanelSoft.opacity(0.80))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isActive ? Color.herStudioActiveStroke : Color.herShellStroke.opacity(0.20),
-                        lineWidth: isActive ? 1.2 : 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Jump to \(item.label)")
-    }
 
     private func draftSceneNavigatorItem(for scene: BackendScreenplayScene) -> DraftSceneNavigatorItem? {
         let candidates = [
@@ -17400,16 +8220,6 @@ Current draft version:
         shouldRoutePromptToPage(studioPromptSeed, studioPromptRoutingMode) ? .page : .voicePin
     }
 
-    private var currentStudioPromptWorkflowLabel: String {
-        currentStudioPromptTarget == .page ? "Page Write" : "Advice"
-    }
-
-    private var currentStudioPromptWorkflowTint: Color {
-        currentStudioPromptTarget == .page
-            ? Color.herStudioActiveFill.opacity(0.92)
-            : Color.blue.opacity(0.88)
-    }
-
     private var studioPromptRoutingMode: PromptRoutingMode {
         get { PromptRoutingMode(rawValue: studioPromptRoutingModeRaw) ?? .automatic }
         nonmutating set { studioPromptRoutingModeRaw = newValue.rawValue }
@@ -17439,48 +8249,75 @@ Current draft version:
         }
     }
 
-    private var studioPromptWorkflowBadge: some View {
-        Text(currentStudioPromptWorkflowLabel)
-            .font(.system(size: 10, weight: .semibold, design: .default))
-            .foregroundStyle(currentStudioPromptWorkflowTint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(currentStudioPromptWorkflowTint.opacity(0.10))
-            .overlay(
-                Capsule()
-                    .stroke(currentStudioPromptWorkflowTint.opacity(0.18), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-    }
-
     private var promptRoutingControl: some View {
         VStack(alignment: .leading, spacing: 6) {
             Picker(
                 "Destination",
                 selection: Binding(
                     get: { studioPromptRoutingMode },
-                    set: { studioPromptRoutingMode = $0 }
+                    set: selectStudioPromptRoutingMode
                 )
             ) {
                 ForEach(PromptRoutingMode.allCases) { mode in
                     Text(compactRoutingLabel(for: mode))
                         .tag(mode)
+                        .accessibilityIdentifier("studio.prompt.routing.\(mode.rawValue)")
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accessibilityIdentifier("studio.prompt.routing")
         }
     }
 
     private var studioPromptIntentControl: some View {
-        Picker("Intent", selection: $studioPromptIntent) {
+        Picker(
+            "Intent",
+            selection: Binding(
+                get: { studioPromptIntent },
+                set: selectStudioPromptIntent
+            )
+        ) {
             ForEach(StudioPromptIntent.allCases) { intent in
                 Text(intent.title)
                     .tag(intent)
+                    .accessibilityIdentifier("studio.prompt.intent.\(intent.rawValue)")
             }
         }
-        .pickerStyle(.segmented)
+        .pickerStyle(.menu)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .labelsHidden()
+        .accessibilityLabel("Response intent")
+        .accessibilityHint("Changes how io.them responds to the next request.")
+        .accessibilityIdentifier("studio.prompt.intent")
+    }
+
+    private func selectStudioPromptRoutingMode(_ mode: PromptRoutingMode) {
+        studioPromptRoutingMode = mode
+        switch mode {
+        case .automatic:
+            studioPromptIntent = .advice
+        case .page:
+            studioPromptIntent = .rewrite
+        case .voicePin:
+            if studioPromptIntent == .rewrite {
+                studioPromptIntent = .voicePin
+            }
+        }
+    }
+
+    private func selectStudioPromptIntent(_ intent: StudioPromptIntent) {
+        studioPromptIntent = intent
+        switch intent {
+        case .advice:
+            if studioPromptRoutingMode == .page {
+                studioPromptRoutingMode = .voicePin
+            }
+        case .rewrite:
+            studioPromptRoutingMode = .page
+        case .voicePin:
+            studioPromptRoutingMode = .voicePin
+        }
     }
 
     private func compactRoutingLabel(for mode: PromptRoutingMode) -> String {
@@ -17494,57 +8331,7 @@ Current draft version:
         }
     }
 
-    private func promptRoutingModeButton(_ mode: PromptRoutingMode) -> some View {
-        let isActive = studioPromptRoutingMode == mode
-        let target = previewTarget(for: mode)
 
-        return Button {
-            studioPromptRoutingMode = mode
-        } label: {
-            HStack(spacing: 7) {
-                if mode == .automatic {
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                } else {
-                    Image(systemName: target.systemImage)
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                }
-                Text(mode.title)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.72))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isActive ? target.fill : Color.herShellPanelSoft.opacity(0.88))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isActive ? target.tint.opacity(0.34) : Color.herShellStroke.opacity(0.24),
-                        lineWidth: 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("studio.prompt.routing.\(mode.rawValue)")
-        .accessibilityLabel(mode.title)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-
-    private func previewTarget(for mode: PromptRoutingMode) -> StudioTarget {
-        switch mode {
-        case .automatic:
-            return shouldRoutePromptToPage(studioPromptSeed, .automatic) ? .page : .voicePin
-        case .page:
-            return .page
-        case .voicePin:
-            return .voicePin
-        }
-    }
 
     private func studioTargetBadge(_ target: StudioTarget, prefix: String? = nil, compact: Bool = false) -> some View {
         let label = prefix.map { "\($0): \(target.label)" } ?? target.label
@@ -17598,81 +8385,7 @@ Current draft version:
         )
     }
 
-    private func projectOverviewStrip(project: BackendScreenplayProjectSummary) -> some View {
-        let items = [
-            ("\(vm.outline.actCount ?? vm.outline.acts.count)", "acts"),
-            ("\(vm.outline.sceneCount ?? vm.outline.scenes.count)", "scenes"),
-            ("\(vm.outline.beatCount ?? vm.outline.beats.count)", "beats"),
-            ("\(project.versionCount ?? 0)", "versions")
-        ]
 
-        return HStack(spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(spacing: 3) {
-                    Text(item.0)
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                    Text(item.1)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                }
-                .foregroundStyle(Color.herText.opacity(0.74))
-
-                if index < items.count - 1 {
-                    Circle()
-                        .fill(Color.herText.opacity(0.22))
-                        .frame(width: 3, height: 3)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.58))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func studioModeStrip(projectLabel: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                studioModeChip(
-                    label: "Project",
-                    value: projectLabel,
-                    tint: Color.herText.opacity(0.80)
-                )
-                studioModeChip(
-                    label: "Target",
-                    value: currentStudioPromptTarget.label,
-                    tint: currentStudioPromptTarget.tint.opacity(0.90)
-                )
-                studioModeChip(
-                    label: "Draft",
-                    value: studioDraftStateText,
-                    tint: studioDraftStateColor
-                )
-                studioModeChip(
-                    label: "Rail",
-                    value: selectedSidebarSection.title,
-                    tint: Color.herText.opacity(0.76)
-                )
-                studioModeChip(
-                    label: "Focus",
-                    value: "⌥⌘1 Page  ⌥⌘2 Rail  ⌥⌘3 Tools",
-                    tint: Color.herText.opacity(0.62)
-                )
-                studioModeChip(
-                    label: "Format",
-                    value: "⌘/Ctrl 1-6 • Tab cycle",
-                    tint: Color.herText.opacity(0.62)
-                )
-            }
-            .padding(.vertical, 2)
-        }
-    }
 
     private var studioFocusShortcutLayer: some View {
         HStack(spacing: 0) {
@@ -17747,62 +8460,8 @@ Current draft version:
         .accessibilityHidden(true)
     }
 
-    private var studioDraftStateText: String {
-        if liveDraftBridge.isStreamingDraftPreviewActive {
-            return "Drafting"
-        }
-        if vm.isSaving {
-            return "Saving"
-        }
-        if vm.hasUnsavedDraftChanges {
-            return "Unsaved"
-        }
-        if vm.selectedProject != nil {
-            return "Synced"
-        }
-        if !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Live"
-        }
-        return "Ready"
-    }
 
-    private var studioDraftStateColor: Color {
-        switch studioDraftStateText {
-        case "Drafting":
-            return Color.green.opacity(0.88)
-        case "Saving":
-            return Color.orange.opacity(0.88)
-        case "Unsaved":
-            return Color.orange.opacity(0.88)
-        case "Synced":
-            return Color.green.opacity(0.82)
-        default:
-            return Color.herText.opacity(0.78)
-        }
-    }
 
-    private func studioModeChip(label: String, value: String, tint: Color) -> some View {
-        HStack(spacing: 5) {
-            Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold, design: .default))
-                .tracking(0.5)
-                .foregroundStyle(Color.herText.opacity(0.48))
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-                .foregroundStyle(tint)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color.herShellPanelSoft.opacity(0.70))
-        )
-        .overlay(
-            Capsule()
-                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
-        )
-    }
 
 #if DEBUG || os(macOS)
     private var studioDebugVoiceRenderSnapshot: StudioDebugVoiceRenderStatusSnapshot? {
@@ -17912,37 +8571,6 @@ Current draft version:
     }
 #endif
 
-    // Deprecated compatibility shim. New page chrome constants live in IOThemSpacing.ScreenplayPageChrome.
-    private enum ScreenplayPageChrome {
-        static let cornerRadius = IOThemSpacing.ScreenplayPageChrome.cornerRadius
-        static let headerContentMinHeight = IOThemSpacing.ScreenplayPageChrome.headerContentMinHeight
-        static let headerTopPadding = IOThemSpacing.ScreenplayPageChrome.headerTopPadding
-        static let headerBottomPadding = IOThemSpacing.ScreenplayPageChrome.headerBottomPadding
-        static let headerHeight = IOThemSpacing.ScreenplayPageChrome.headerHeight
-        static let contentTopPadding = IOThemSpacing.ScreenplayPageChrome.contentTopPadding
-        static let contentBottomPadding = IOThemSpacing.ScreenplayPageChrome.contentBottomPadding
-    }
-
-    private enum ScreenplayPageMetaTone {
-        case muted
-        case accent
-        case warning
-        case success
-
-        var color: Color {
-            switch self {
-            case .muted:
-                return Color.herText.opacity(0.68)
-            case .accent:
-                return Color.accentColor.opacity(0.82)
-            case .warning:
-                return Color.orange.opacity(0.86)
-            case .success:
-                return Color.green.opacity(0.78)
-            }
-        }
-    }
-
     private func screenplayPageSurface<Content: View>(
         minHeight: CGFloat,
         maxHeight: CGFloat,
@@ -17965,18 +8593,18 @@ Current draft version:
                     )
                     .frame(
                         maxWidth: .infinity,
-                        minHeight: ScreenplayPageChrome.headerContentMinHeight,
+                        minHeight: IOThemSpacing.ScreenplayPageChrome.headerContentMinHeight,
                         alignment: .topLeading
                     )
                     .padding(.horizontal, 22)
-                    .padding(.top, ScreenplayPageChrome.headerTopPadding)
-                    .padding(.bottom, ScreenplayPageChrome.headerBottomPadding)
+                    .padding(.top, IOThemSpacing.ScreenplayPageChrome.headerTopPadding)
+                    .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.headerBottomPadding)
 
                     content()
                         .frame(minHeight: minHeight, maxHeight: maxHeight)
-                        .padding(.top, ScreenplayPageChrome.contentTopPadding)
+                        .padding(.top, IOThemSpacing.ScreenplayPageChrome.contentTopPadding)
                         .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
-                        .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
+                        .padding(.bottom, IOThemSpacing.ScreenplayPageChrome.contentBottomPadding)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             triggerDirectionOnePageFocusTransition()
@@ -17992,11 +8620,13 @@ Current draft version:
                 )
                 .overlay(alignment: .topLeading) {
                     if showEmptyPlaceholder {
-                        screenplayPageEmptyPlaceholderOverlay
+                        ScreenplayStudioPageEmptyPlaceholder(
+                            hasSelectedProject: vm.selectedProject != nil
+                        )
                     }
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                         .stroke(
                             Color.accentColor.opacity(isDirectionOnePageFocusTransitionVisible ? 0.20 : 0),
                             lineWidth: 1.5
@@ -18006,7 +8636,16 @@ Current draft version:
                 .scaleEffect(isDirectionOnePageFocusTransitionVisible ? 1.003 : 1.0)
                 .shadow(color: Color.herPaperShadow.opacity(0.26), radius: 28, y: 18)
 
-                screenplayElementModeBar
+                ScreenplayStudioElementModeBar(
+                    activeElement: liveDraftBridge.activeScreenplayElement,
+                    panelColor: directionOneChromePanel,
+                    strokeColor: directionOneChromeStroke,
+                    textColor: directionOneChromeText,
+                    secondaryTextColor: directionOneChromeSecondaryText
+                ) { element in
+                    liveDraftBridge.setActiveScreenplayElement(element)
+                    liveDraftBridge.requestEditorFocus()
+                }
                     .offset(y: -16)
 
 #if DEBUG || os(macOS)
@@ -18021,6 +8660,20 @@ Current draft version:
         .animation(.easeInOut(duration: 0.20), value: isDraftingPreviewActive)
         .animation(.easeInOut(duration: 0.20), value: isCommitNoticeVisible)
         .animation(.easeOut(duration: 0.22), value: isDirectionOnePageFocusTransitionVisible)
+        .overlay(alignment: .bottomLeading) {
+            #if DEBUG
+            if IOThemRuntime.isRunningUITests {
+                Text(vm.fountainDraft.isEmpty ? "EMPTY_DRAFT" : String(vm.fountainDraft.prefix(1_000)))
+                    .font(.system(size: 1))
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityIdentifier("studio.draft.snapshot")
+            }
+            #endif
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.draft.surface")
+        .accessibilityValue(String(vm.fountainDraft.prefix(1_000)))
     }
 
     private var screenplayCurrentElementLabel: some View {
@@ -18128,25 +8781,25 @@ Current draft version:
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    screenplayPageMetadataItem(
-                        "Last saved",
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Last saved",
                         value: screenplayPageSavedMetadataText,
-                        tone: screenplayPageSavedMetadataTone
+                        color: screenplayPageSavedMetadataTone.color
                     )
-                    screenplayPageMetadataDivider
-                    screenplayPageMetadataItem(
-                        "Pages",
+                    ScreenplayStudioPageMetadataDivider()
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Pages",
                         value: screenplayPagePageCountText,
-                        tone: .muted
+                        color: ScreenplayPageMetaTone.muted.color
                     )
-                    screenplayPageMetadataDivider
-                    screenplayPageMetadataItem(
-                        "Revision",
+                    ScreenplayStudioPageMetadataDivider()
+                    ScreenplayStudioPageMetadataItem(
+                        title: "Revision",
                         value: screenplayPageRevisionStateText,
-                        tone: screenplayPageRevisionTone
+                        color: screenplayPageRevisionTone.color
                     )
                     if showEditingHint {
-                        screenplayPageMetadataDivider
+                        ScreenplayStudioPageMetadataDivider()
                         Text("Start with a scene heading, or click to place the first line.")
                             .font(.system(size: 10.5, weight: .medium, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.48))
@@ -18254,300 +8907,6 @@ Current draft version:
         return summary.revised + summary.added + summary.moved + summary.removed
     }
 
-    private func screenplayPageMetadataItem(
-        _ title: String,
-        value: String,
-        tone: ScreenplayPageMetaTone
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                .tracking(0.7)
-                .foregroundStyle(Color.herText.opacity(0.40))
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(tone.color)
-                .lineLimit(1)
-        }
-    }
-
-    private var screenplayPageMetadataDivider: some View {
-        Rectangle()
-            .fill(Color.herPaperLine.opacity(0.34))
-            .frame(width: 1, height: 20)
-            .padding(.top, 7)
-    }
-
-    private var screenplayPageEmptyPlaceholderOverlay: some View {
-        GeometryReader { proxy in
-            let metricsContainerWidth = max(
-                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2),
-                420
-            )
-            let metrics = ScreenplayStackMetrics.editor(containerWidth: metricsContainerWidth)
-            let editableWidth = max(
-                proxy.size.width - ((ScreenplayStackMetrics.pageSurfaceHorizontalPadding + ScreenplayStackMetrics.editorTextInsetHorizontal) * 2),
-                220
-            )
-            let dialogueWidth = max(editableWidth - metrics.dialogueLeading - metrics.dialogueTrailing, 120)
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.44))
-                        .frame(width: 2, height: 18)
-                    Text(
-                        vm.selectedProject == nil
-                        ? "Start typing, then anchor the draft once it has a title."
-                        : "Start with a scene heading or the first visual beat."
-                    )
-                        .font(.custom("Courier", size: 12))
-                        .foregroundStyle(Color.black.opacity(0.24))
-                        .lineLimit(2)
-                }
-                .padding(.bottom, 22)
-
-                Text("INT. LOCATION - DAY")
-                    .font(.custom("Courier", size: 12))
-                    .foregroundStyle(Color.black.opacity(0.15))
-                    .padding(.bottom, metrics.sceneHeadingSpacingAfter + 8)
-
-                screenplayPlaceholderActionLine(width: max(84, editableWidth * 0.72))
-                screenplayPlaceholderActionLine(width: max(110, editableWidth * 0.90))
-                screenplayPlaceholderActionLine(width: max(72, editableWidth * 0.58))
-                    .padding(.bottom, metrics.actionCueSpacingAfter + 16)
-
-                Text("CHARACTER")
-                    .font(.custom("Courier", size: 12))
-                    .foregroundStyle(Color.black.opacity(0.12))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, metrics.characterLeading)
-                    .padding(.trailing, metrics.characterTrailing)
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 7)
-
-                screenplayPlaceholderIndentedLine(
-                    width: max(92, dialogueWidth * 0.82),
-                    leading: metrics.dialogueLeading,
-                    trailing: metrics.dialogueTrailing
-                )
-                .padding(.bottom, 6)
-
-                screenplayPlaceholderIndentedLine(
-                    width: max(78, dialogueWidth * 0.66),
-                    leading: metrics.dialogueLeading,
-                    trailing: metrics.dialogueTrailing
-                )
-
-                Spacer(minLength: 0)
-            }
-            .padding(
-                .top,
-                ScreenplayPageChrome.headerHeight
-                + ScreenplayPageChrome.contentTopPadding
-                + ScreenplayStackMetrics.editorTextInsetVertical
-            )
-            .padding(
-                .leading,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + ScreenplayStackMetrics.editorTextInsetHorizontal
-            )
-            .padding(
-                .trailing,
-                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + ScreenplayStackMetrics.editorTextInsetHorizontal
-            )
-            .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .allowsHitTesting(false)
-        }
-    }
-
-    private func screenplayPlaceholderActionLine(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Color.black.opacity(0.08))
-            .frame(width: width, height: 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 9)
-    }
-
-    private func screenplayPlaceholderIndentedLine(
-        width: CGFloat,
-        leading: CGFloat,
-        trailing: CGFloat
-    ) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .fill(Color.black.opacity(0.08))
-            .frame(width: width, height: 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, leading)
-            .padding(.trailing, trailing)
-    }
-
-    private var screenplayElementModeBar: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
-                    ForEach(ScreenplayEditorElement.allCases) { element in
-                        screenplayElementModeButton(element)
-                    }
-                }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 4)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(directionOneChromePanel.opacity(0.92))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(directionOneChromeStroke.opacity(0.20), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 6, y: 2)
-    }
-
-    private func screenplayElementModeButton(_ element: ScreenplayEditorElement) -> some View {
-        let isActive = liveDraftBridge.activeScreenplayElement == element
-        let isHovered = hoveredScreenplayElement == element
-        let label = screenplayElementModeButtonLabel(element)
-        let textColor = isActive
-            ? directionOneChromeText.opacity(0.94)
-            : directionOneChromeSecondaryText.opacity(isHovered ? 0.88 : 0.76)
-        let fillColor = isActive
-            ? Color.white.opacity(0.84)
-            : (isHovered ? Color.black.opacity(0.028) : Color.clear)
-        let strokeColor = isActive
-            ? directionOneChromeStroke.opacity(0.18)
-            : Color.clear
-        let shadowColor = isActive
-            ? Color.black.opacity(0.03)
-            : Color.clear
-
-        return Button {
-            liveDraftBridge.setActiveScreenplayElement(element)
-            liveDraftBridge.requestEditorFocus()
-        } label: {
-            Text(label)
-                .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(fillColor)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(strokeColor, lineWidth: 1)
-                )
-                .shadow(
-                    color: shadowColor,
-                    radius: 2,
-                    y: 1
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            hoveredScreenplayElement = hovering ? element : (hoveredScreenplayElement == element ? nil : hoveredScreenplayElement)
-        }
-        .help(element.hint)
-        .animation(.easeOut(duration: 0.14), value: isActive)
-    }
-
-    private func screenplayElementModeButtonLabel(_ element: ScreenplayEditorElement) -> String {
-        switch element {
-        case .sceneHeading:
-            return "Scene"
-        case .action:
-            return "Action"
-        case .character:
-            return "Character"
-        case .dialogue:
-            return "Dialogue"
-        case .parenthetical:
-            return "( )"
-        case .transition:
-            return "→"
-        }
-    }
-
-    private var screenplayShortcutsSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Screenplay Shortcuts")
-                    .font(.system(size: 18, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.94))
-                Text("Hollywood-standard element shortcuts for the draft page.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.64))
-            }
-
-            VStack(spacing: 8) {
-                ForEach(ScreenplayEditorElement.allCases) { element in
-                    screenplayShortcutRow(
-                        keyLabel: "Cmd/Ctrl + \(element.shortcutKey)",
-                        title: element.title,
-                        detail: element.hint
-                    )
-                }
-                screenplayShortcutRow(
-                    keyLabel: "Tab",
-                    title: "Cycle Forward",
-                    detail: "Move to the next screenplay element."
-                )
-                screenplayShortcutRow(
-                    keyLabel: "Shift + Tab",
-                    title: "Cycle Backward",
-                    detail: "Move to the previous screenplay element."
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Smart behavior")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.82))
-                Text("INT./EXT. lines auto-switch to Scene Heading. After Character, Enter defaults to Dialogue. A second Enter on a blank dialogue line returns to Action.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18)
-        .frame(width: 420)
-        .background(Color.herShellPanel.opacity(0.98))
-    }
-
-    private func screenplayShortcutRow(keyLabel: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(keyLabel)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.84))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.herShellPanelSoft.opacity(0.90))
-                .overlay(
-                    Capsule()
-                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-                )
-                .clipShape(Capsule())
-                .frame(width: 102, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.92))
-                Text(detail)
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.60))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
 
     @ViewBuilder
     private func screenplayPageBackground(
@@ -18557,7 +8916,7 @@ Current draft version:
     ) -> some View {
         GeometryReader { proxy in
             let guidePositions = ScreenplayStackMetrics.paperGuidePositions(in: proxy.size.width)
-            let headerBottom = ScreenplayPageChrome.headerHeight
+            let headerBottom = IOThemSpacing.ScreenplayPageChrome.headerHeight
             let guideTop = headerBottom + 18
             let leftMarkerInset = max(guidePositions.left - 20, 12)
             let markerColor = isDraftingPreviewActive
@@ -18565,7 +8924,7 @@ Current draft version:
                 : Color.accentColor.opacity(0.54)
 
             ZStack {
-                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .fill(Color.herPaper)
 
                 LinearGradient(
@@ -18578,9 +8937,9 @@ Current draft version:
                 )
                 .frame(height: headerBottom + 24)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .clipShape(RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous))
 
-                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: IOThemSpacing.ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .stroke(
                         isDropTargeted ? Color.herStudioActiveStroke : Color.black.opacity(0.08),
                         lineWidth: isDropTargeted ? 1.5 : 0.8
@@ -18745,27 +9104,46 @@ Current draft version:
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier(systemImage.hasPrefix("exclamationmark") ? "studio.error.text" : "studio.info.text")
     }
 
     private func draftRecoveryBanner(
         _ recovery: ScreenplayStudioViewModel.LocalDraftRecoveryCandidate
     ) -> some View {
-        draftAlertBanner(
-            title: "Unsaved local draft found",
-            message: "Saved \(relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)). Recover it or keep the server draft.",
-            hint: "Press 1 to recover local or 2 to keep the server draft.",
+        let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recoveryDraft = recovery.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recoveryAlreadyOnPage = vm.hasUnsavedDraftChanges &&
+            !currentDraft.isEmpty &&
+            currentDraft == recoveryDraft
+        let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+
+        return draftAlertBanner(
+            title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
+            message: recoveryAlreadyOnPage
+                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
+                : "Saved \(savedText). Recover it or keep the server draft.",
+            hint: recoveryAlreadyOnPage
+                ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
+                : "Press 1 to recover local or 2 to keep the server draft.",
             tint: Color.orange.opacity(0.88),
             excerpt: nil
         ) {
             NumberedChoiceActionButton(
                 number: "1",
-                title: "Recover Local",
+                title: recoveryAlreadyOnPage ? "Keep Local" : "Recover Local",
                 prominence: .prominent
             ) {
                 vm.restoreDraftFromRecovery()
             }
-            NumberedChoiceActionButton(number: "2", title: "Keep Server") {
-                vm.keepServerDraft()
+            NumberedChoiceActionButton(
+                number: "2",
+                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server"
+            ) {
+                if recoveryAlreadyOnPage {
+                    vm.discardLocalRecoveryCopy()
+                } else {
+                    vm.keepServerDraft()
+                }
             }
         }
     }
@@ -18787,16 +9165,25 @@ Current draft version:
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
         ) {
-            NumberedChoiceActionButton(number: "1", title: "Load Server") {
+            Button {
                 vm.applyServerVersionFromConflict()
+            } label: {
+                Text("1 Load Server")
             }
-            NumberedChoiceActionButton(
-                number: "2",
-                title: "Keep Mine",
-                prominence: .prominent
-            ) {
+            .buttonStyle(.bordered)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("1", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.load-server")
+
+            Button {
                 Task { await vm.keepLocalDraftAfterConflict() }
+            } label: {
+                Text("2 Keep Mine")
             }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("2", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.keep-mine")
         }
     }
 
@@ -18948,39 +9335,6 @@ Current draft version:
         liveDraftBridge.clearLastCommittedWrite()
     }
 
-    private enum InlineWriteRevisionPreset {
-        case sharper
-        case moreVisual
-        case shorter
-
-        var title: String {
-            switch self {
-            case .sharper: return "sharper"
-            case .moreVisual: return "more visual"
-            case .shorter: return "shorter"
-            }
-        }
-
-        var displayPrompt: String {
-            switch self {
-            case .sharper: return "Make the last write sharper."
-            case .moreVisual: return "Make the last write more visual."
-            case .shorter: return "Make the last write shorter."
-            }
-        }
-
-        var instruction: String {
-            switch self {
-            case .sharper:
-                return "Make it sharper. Tighten the beats, conflict, and line choices without changing the story intent."
-            case .moreVisual:
-                return "Make it more visual. Favor playable action, physical behavior, and screenable images over explanation."
-            case .shorter:
-                return "Make it shorter. Keep the same story intent, but compress the writing and remove anything expendable."
-            }
-        }
-    }
-
     private func reviseLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite, preset: InlineWriteRevisionPreset) {
         prepareReplacementTarget(for: committedWrite)
         let seed = """
@@ -19118,45 +9472,8 @@ Return revised screenplay lines only.
         liveDraftBridge.clearLastCommittedWrite()
     }
 
-    private func beginSceneInsertFromNavigator() {
-        sceneQuickInsertSlugline = suggestedSceneNavigatorSlugline()
-        isSceneQuickInsertVisible = true
-        Task { @MainActor in
-            sceneQuickInsertFocused = true
-        }
-        vm.infoText = "Type a slugline and insert it where the cursor is."
-    }
 
-    private func cancelSceneInsertFromNavigator() {
-        isSceneQuickInsertVisible = false
-        sceneQuickInsertSlugline = ""
-    }
 
-    private func commitSceneInsertFromNavigator() {
-        let slugline = normalizedSceneInsertSlugline(sceneQuickInsertSlugline)
-        guard !slugline.isEmpty else {
-            vm.infoText = "Add a slugline first."
-            return
-        }
-        selectedInspectorSection = .scenes
-        highlightedSceneInspectorKey = normalizedSceneNavigatorKey(slugline)
-        liveDraftBridge.pendingInsertion = ScreenplayInsertionRequest(text: slugline, mode: .insert)
-        cancelSceneInsertFromNavigator()
-        if vm.selectedProject != nil {
-            Task {
-                let error = await vm.addSceneFromNavigator(slugline: slugline)
-                await MainActor.run {
-                    if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        vm.infoText = "Inserted \(compactSceneNavigatorLabel(slugline)) on the page, but couldn’t sync the outline: \(error)"
-                    } else {
-                        vm.infoText = "Inserted \(compactSceneNavigatorLabel(slugline)), added it to the outline, and opened its details."
-                    }
-                }
-            }
-        } else {
-            vm.infoText = "Inserted \(compactSceneNavigatorLabel(slugline))."
-        }
-    }
 
     private func suggestedSceneNavigatorSlugline() -> String {
         let defaultHeading = "INT. NEW LOCATION - DAY"
@@ -19533,41 +9850,6 @@ Return revised screenplay lines only.
         return vm.outline.scenes.first
     }
 
-    private func handleSceneInspectorMove(_ direction: StudioMoveDirection) {
-        guard selectedInspectorSection == .scenes else { return }
-        let scenes = vm.outline.scenes
-        guard !scenes.isEmpty else { return }
-        guard direction == .up || direction == .down else { return }
-
-        let currentIndex: Int
-        if let current = currentSceneInspectorSelection,
-           let found = scenes.firstIndex(where: { $0.id == current.id }) {
-            currentIndex = found
-        } else {
-            currentIndex = 0
-        }
-
-        let nextIndex: Int
-        switch direction {
-        case .up:
-            nextIndex = max(0, currentIndex - 1)
-        case .down:
-            nextIndex = min(scenes.count - 1, currentIndex + 1)
-        default:
-            return
-        }
-
-        let scene = scenes[nextIndex]
-        highlightedSceneInspectorKey = sceneInspectorKey(for: scene)
-        if let jumpTarget = draftSceneNavigatorItem(for: scene) {
-            liveDraftBridge.jumpToLine(jumpTarget.line)
-            liveDraftBridge.highlightLineRange(startLine: jumpTarget.line)
-        }
-        if !vm.editingSceneID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           vm.editingSceneID != scene.id {
-            vm.beginEditingScene(scene)
-        }
-    }
 
     private func matchingStudioExchange(for committedWrite: ScreenplayCommittedWrite) -> StudioAskNoteExchange? {
         if let exactByExcerpt = studioAskNoteHistory.first(where: {
@@ -19647,6 +9929,13 @@ Return revised screenplay lines only.
                 : (thread.screenplayNoteBody ?? "")
         )
         let insertedText = (thread.screenplayInsertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let voicePinDevelopmentText: String? = {
+            guard target == .voicePin else { return nil }
+            if !assistant.isEmpty { return assistant }
+            let metadataNote = (thread.screenplayNoteBody ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return metadataNote.isEmpty ? nil : metadataNote
+        }()
 
         return StudioAskNoteExchange(
             id: UUID(),
@@ -19658,11 +9947,7 @@ Return revised screenplay lines only.
             source: source,
             noteTitle: noteTitle,
             noteBody: noteBody,
-            developmentText: target == .voicePin
-                ? ((thread.screenplayNoteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? assistant
-                    : (thread.screenplayNoteBody ?? ""))
-                : nil,
+            developmentText: voicePinDevelopmentText,
             writeID: thread.screenplayWriteId,
             replacedWriteID: thread.screenplayReplacedWriteId,
             anchorLine: thread.screenplayAnchorLine,
@@ -19712,7 +9997,10 @@ Return revised screenplay lines only.
         noteBodyOverride: String? = nil,
         anchorLine: Int? = nil,
         anchorEndLine: Int? = nil,
-        anchorSceneLabel: String? = nil
+        anchorSceneLabel: String? = nil,
+        committedWriteOverride: ScreenplayCommittedWrite? = nil,
+        insertedTextOverride: String? = nil,
+        voicePinTextOverride: String? = nil
     ) {
         let pin = liveDraftBridge.assistantPin
         let noteTitle: String
@@ -19747,25 +10035,38 @@ Return revised screenplay lines only.
             resolvedDevelopmentText = target == .voicePin ? noteBodyOverride.trimmingCharacters(in: .whitespacesAndNewlines) : nil
             resolvedAnchorExcerpt = target == .page ? noteBodyForAnchor(noteBodyOverride) : nil
             resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
-        } else if target == .page, let committedWrite = liveDraftBridge.lastCommittedWrite {
+        } else if target == .page,
+                  let committedWrite = committedWriteOverride ?? liveDraftBridge.lastCommittedWrite,
+                  !committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             noteTitle = "Wrote to page"
             noteBody = noteBodyForExchange(committedWrite.insertedText)
             resolvedAnchorExcerpt = noteBodyForAnchor(committedWrite.insertedText)
             resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
+            resolvedInsertedText = committedWrite.insertedText
+            resolvedAnchorLine = anchorLine ?? committedWrite.startLine
+            resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
+            resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
             if committedWrite.isAuthoritativeWrite {
                 resolvedWriteID = committedWrite.writeID
                 resolvedReplacedWriteID = committedWrite.replacedWriteID
-                resolvedInsertedText = committedWrite.insertedText
                 replacementApplied = committedWrite.replacementApplied
                 revisedBlockText = committedWrite.replacementApplied ? committedWrite.insertedText : nil
-                resolvedAnchorLine = anchorLine ?? committedWrite.startLine
-                resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
-                resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
                 resolvedSluglineAnchorLine = sluglineLineReference(for: committedWrite)
             }
+        } else if target == .page {
+            let fallbackInsertedText = (insertedTextOverride ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            noteTitle = "Wrote to page"
+            noteBody = fallbackInsertedText.isEmpty
+                ? "The page write is still settling into the draft."
+                : noteBodyForExchange(fallbackInsertedText)
+            resolvedInsertedText = fallbackInsertedText.isEmpty ? nil : fallbackInsertedText
+            resolvedAnchorExcerpt = fallbackInsertedText.isEmpty ? nil : noteBodyForAnchor(fallbackInsertedText)
+            resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
         } else {
             noteTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let bodySource = [
+                (voicePinTextOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.fullBody.trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.body.trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19827,6 +10128,7 @@ Return revised screenplay lines only.
                 isDirectionOneRightRailExpanded = true
             }
         }
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
     }
 
     private func appendPendingVoicePageWriteIfNeeded() {
@@ -19848,21 +10150,44 @@ Return revised screenplay lines only.
     }
 
     private var activeStudioAskNoteHistoryKey: String {
-        let selected = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !selected.isEmpty {
-            return "project:\(selected)"
+        ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+            selectedProjectID: vm.selectedProjectID,
+            preferredProjectID: liveDraftBridge.preferredProjectID,
+            bindingProjectID: liveDraftBridge.projectBinding.projectID
+        )
+    }
+
+    @discardableResult
+    private func migrateLiveDraftHistoryToProjectIfNeeded(from oldKey: String, to newKey: String) -> Bool {
+        let store = loadStudioAskNoteHistoryMap()
+        let liveEntries = Array(
+            (store[oldKey] ?? studioAskNoteHistory)
+                .prefix(24)
+        )
+        guard ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: oldKey,
+            to: newKey,
+            liveDraftEntryCount: liveEntries.count
+        ) else {
+            return false
         }
-        let preferred = liveDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !preferred.isEmpty {
-            return "project:\(preferred)"
-        }
-        return "live-draft"
+
+        let existingProjectEntries = Array((store[newKey] ?? []).prefix(24))
+        let merged = mergedStudioThreadHistory(local: liveEntries, remote: existingProjectEntries)
+        persistStudioAskNoteHistory(merged, for: newKey)
+        persistStudioWriteAnchorSnapshot(from: merged, for: newKey, versionID: vm.latestVersionID)
+        persistSelectedStudioThreadID(highlightedStudioExchangeID, for: newKey)
+        persistStudioAskNoteHistory([], for: oldKey)
+        return true
     }
 
     private func reloadStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
-        studioPromptSeed = exchange.prompt
-        studioPromptRoutingMode = exchange.target == .page ? .page : .voicePin
-        studioPromptFocused = true
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: exchange.target == .page ? .page : .voicePin,
+            intent: restoredStudioPromptIntent(for: exchange),
+            focusComposer: false
+        )
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = exchange.target == .page
@@ -19870,9 +10195,20 @@ Return revised screenplay lines only.
             : "Loaded this Voice Pin ask back into io.them."
     }
 
+    private func restoredStudioPromptIntent(
+        for exchange: StudioAskNoteExchange
+    ) -> StudioPromptIntent {
+        guard exchange.target == .voicePin else { return .rewrite }
+        return resolvedMemoryDomain(for: exchange) == .companion ? .voicePin : .advice
+    }
+
     private func pinStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
-        studioPromptSeed = exchange.prompt
-        studioPromptFocused = true
+        openStudioCommandBar(
+            prefill: exchange.prompt,
+            routingMode: exchange.target == .page ? .page : .voicePin,
+            intent: restoredStudioPromptIntent(for: exchange),
+            focusComposer: false
+        )
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = "Pinned this ask back into the composer."
@@ -19990,10 +10326,19 @@ Return revised screenplay lines only.
     }
 
     private func loadStudioFullThreadBrowseStateMap() -> [String: StudioFullThreadBrowseState] {
-        let stored = studioFullThreadStateStorage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !stored.isEmpty,
-              let data = stored.data(using: .utf8) else { return [:] }
-        return (try? JSONDecoder().decode([String: StudioFullThreadBrowseState].self, from: data)) ?? [:]
+        func decoded(_ raw: String) -> [String: StudioFullThreadBrowseState] {
+            let stored = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !stored.isEmpty,
+                  let data = stored.data(using: .utf8) else { return [:] }
+            return (try? JSONDecoder().decode([String: StudioFullThreadBrowseState].self, from: data)) ?? [:]
+        }
+
+        var merged = decoded(studioFullThreadStateStorage)
+        let direct = decoded(UserDefaults.standard.string(forKey: "studio.full.thread.state.v1") ?? "")
+        for (key, value) in direct {
+            merged[key] = value
+        }
+        return merged
     }
 
     private func persistAcknowledgedStudioDiffs(_ records: [String: String], for key: String) {
@@ -20191,8 +10536,12 @@ Return revised screenplay lines only.
         let needsReopened = reopenedDiffExchangeKeys.isEmpty
             && (!record.reopenedLineageKeys.isEmpty || !record.latestReopenedWriteID.isEmpty)
         let hasNoRecordedRestore = restoredStudioDebugStateSourceRaw == StudioThreadViewStateSource.none.rawValue
+        let localRecord = loadStudioFullThreadBrowseStateMap()[key]
+        let hasUnappliedLocalFocusedDiff =
+            restoredStudioDebugFocusedDiffSourceRaw != StudioThreadViewStateSource.local.rawValue
+            && !(localRecord?.focusedDiffKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
-        return hasNoRecordedRestore || needsFocusedDiff || needsReopened
+        return hasNoRecordedRestore || needsFocusedDiff || needsReopened || hasUnappliedLocalFocusedDiff
     }
 
     private func backendStoredAcknowledgedStudioDiffRecords(for key: String) -> [String: String] {
@@ -20341,11 +10690,16 @@ Return revised screenplay lines only.
                 if let nextProject = result.payload.project {
                     await MainActor.run {
                         vm.applyProjectMetadataUpdate(nextProject)
+                        studioBackgroundSyncNoticeText = ""
+                    }
+                } else {
+                    await MainActor.run {
+                        studioBackgroundSyncNoticeText = ""
                     }
                 }
             } catch {
                 await MainActor.run {
-                    vm.errorText = error.localizedDescription
+                    studioBackgroundSyncNoticeText = "Saved on this device. Studio sync will retry when the connection returns."
                 }
             }
         }
@@ -20356,6 +10710,17 @@ Return revised screenplay lines only.
         guard !normalizedKey.isEmpty else { return }
         var store = loadStudioFullThreadBrowseStateMap()
         let record = currentFullThreadBrowseStateRecord()
+        if store[normalizedKey] != nil
+            && shouldDeferBackendThreadViewPersist(for: normalizedKey)
+            && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
+            return
+        }
+        if store[normalizedKey] != nil
+            && restoredStudioDebugStateSourceRaw == StudioThreadViewStateSource.backend.rawValue
+            && restoredStudioDebugFocusedDiffSourceRaw != StudioThreadViewStateSource.local.rawValue
+            && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
+            return
+        }
         if !hasMeaningfulFullThreadBrowseState(record)
             && isAwaitingInitialFullThreadRestore
             && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
@@ -20399,14 +10764,12 @@ Return revised screenplay lines only.
             focusedPageDiffExchangeID = nil
             reopenedDiffExchangeKeys = []
             isRestoringReopenedDiffState = false
-#if DEBUG || os(macOS)
             restoredStudioDebugStateSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugFocusedDiffSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugReopenedSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugFocusedDiffKey = ""
             restoredStudioDebugReopenedLineageKeys = []
             restoredStudioDebugLatestReopenedWriteID = ""
-#endif
             return
         }
         let restoreResult = restoredFullThreadBrowseState(for: normalizedKey)
@@ -20432,14 +10795,12 @@ Return revised screenplay lines only.
         focusedPageDiffExchangeID = studioAskNoteHistory.first(where: {
             studioExchangePersistentActionKey($0) == focusedPageDiffPersistentKey
         })?.id
-#if DEBUG || os(macOS)
         restoredStudioDebugStateSourceRaw = restoreResult.source.rawValue
         restoredStudioDebugFocusedDiffSourceRaw = restoreResult.focusedDiffSource.rawValue
         restoredStudioDebugReopenedSourceRaw = restoreResult.reopenedSource.rawValue
         restoredStudioDebugFocusedDiffKey = record?.focusedDiffKey ?? ""
         restoredStudioDebugReopenedLineageKeys = record?.reopenedLineageKeys ?? []
         restoredStudioDebugLatestReopenedWriteID = record?.latestReopenedWriteID ?? ""
-#endif
     }
 
     private func currentVersionStudioWriteAnchors() -> [BackendScreenplayWriteAnchor] {
@@ -20567,8 +10928,10 @@ Return revised screenplay lines only.
         exchange: StudioAskNoteExchange?,
         error: String
     ) {
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let resolvedExchange = exchange
         let payload = StudioDebugSubmitResultPayload(
+            token: token,
             status: status,
             transport: studioDebugSubmitTransportModeRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "live"
@@ -20589,9 +10952,11 @@ Return revised screenplay lines only.
            let encoded = String(data: data, encoding: .utf8) {
             studioDebugSubmitResultJSON = encoded
             mirrorStudioDebugString(encoded, forKey: "studio_debug_submit_result_json")
+            mirrorStudioDebugString(encoded, forKey: "studio_debug_submit_result_json_\(token)")
         } else {
             studioDebugSubmitResultJSON = ""
             mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
+            mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json_\(token)")
         }
         setStudioDebugSubmitResult(
             token: token,
@@ -20602,114 +10967,7 @@ Return revised screenplay lines only.
 #endif
 
     #if DEBUG || os(macOS)
-    private func studioRegressionTurnEvent(
-        turnID: String,
-        requestID: String?,
-        userMessage: String
-    ) -> BackendTurnCommittedEvent {
-        let cleanedRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let userInfo: [AnyHashable: Any] = [
-            BackendMemoryAPI.NotificationKey.source: "studio-requestid-smoke",
-            BackendMemoryAPI.NotificationKey.turnId: turnID,
-            BackendMemoryAPI.NotificationKey.requestId: cleanedRequestID,
-            BackendMemoryAPI.NotificationKey.sessionId: "studio-smoke",
-            BackendMemoryAPI.NotificationKey.stateVersion: turnID,
-            BackendMemoryAPI.NotificationKey.lastUpdatedAt: 1,
-            BackendMemoryAPI.NotificationKey.historyUpdatedAt: 1,
-            BackendMemoryAPI.NotificationKey.memoryUpdatedAt: 1,
-            BackendMemoryAPI.NotificationKey.userMessage: userMessage,
-            BackendMemoryAPI.NotificationKey.assistantMessage: "ok"
-        ]
-        guard let event = BackendTurnCommittedEvent(
-            notification: Notification(name: .themTurnCommitted, object: nil, userInfo: userInfo)
-        ) else {
-            preconditionFailure("Studio request-id smoke failed to build a turn event.")
-        }
-        return event
-    }
 
-    private func runStudioRequestIDRegressionSmoke() {
-        let prompt = "Rewrite this beat sharper."
-        let exchangeA = StudioAskNoteExchange(
-            id: UUID(),
-            backendThreadID: nil,
-            backendTurn: nil,
-            requestID: "studio-smoke-a",
-            prompt: prompt,
-            target: .page,
-            source: .typed,
-            noteTitle: "Wrote to page",
-            noteBody: "INT. MOTEL ROOM - NIGHT",
-            developmentText: nil,
-            writeID: nil,
-            replacedWriteID: nil,
-            anchorLine: nil,
-            anchorEndLine: nil,
-            anchorSceneLabel: nil,
-            anchorExcerpt: nil,
-            insertedText: nil,
-            replacementApplied: false,
-            revisedBlockText: nil,
-            resolvedAnchorExcerpt: nil,
-            timestamp: Date()
-        )
-        let exchangeB = StudioAskNoteExchange(
-            id: UUID(),
-            backendThreadID: nil,
-            backendTurn: nil,
-            requestID: "studio-smoke-b",
-            prompt: prompt,
-            target: .page,
-            source: .typed,
-            noteTitle: "Wrote to page",
-            noteBody: "INT. MOTEL ROOM - NIGHT",
-            developmentText: nil,
-            writeID: nil,
-            replacedWriteID: nil,
-            anchorLine: nil,
-            anchorEndLine: nil,
-            anchorSceneLabel: nil,
-            anchorExcerpt: nil,
-            insertedText: nil,
-            replacementApplied: false,
-            revisedBlockText: nil,
-            resolvedAnchorExcerpt: nil,
-            timestamp: Date()
-        )
-        let exchangeNoRequest = StudioAskNoteExchange(
-            id: UUID(),
-            backendThreadID: nil,
-            backendTurn: nil,
-            requestID: nil,
-            prompt: prompt,
-            target: .voicePin,
-            source: .typed,
-            noteTitle: "io.them",
-            noteBody: "Here are three options.",
-            developmentText: "Here are three options.",
-            writeID: nil,
-            replacedWriteID: nil,
-            anchorLine: nil,
-            anchorEndLine: nil,
-            anchorSceneLabel: nil,
-            anchorExcerpt: nil,
-            insertedText: nil,
-            replacementApplied: false,
-            revisedBlockText: nil,
-            resolvedAnchorExcerpt: nil,
-            timestamp: Date()
-        )
-
-        let eventA = studioRegressionTurnEvent(turnID: "turn-1", requestID: "studio-smoke-a", userMessage: prompt)
-        let eventB = studioRegressionTurnEvent(turnID: "turn-2", requestID: "studio-smoke-b", userMessage: prompt)
-        let eventNoRequest = studioRegressionTurnEvent(turnID: "turn-3", requestID: nil, userMessage: prompt)
-
-        assert(studioTurnEventMatchesExchange(eventA, exchange: exchangeA))
-        assert(!studioTurnEventMatchesExchange(eventA, exchange: exchangeB))
-        assert(studioTurnEventMatchesExchange(eventB, exchange: exchangeB))
-        assert(!studioTurnEventMatchesExchange(eventNoRequest, exchange: exchangeA))
-        assert(studioTurnEventMatchesExchange(eventNoRequest, exchange: exchangeNoRequest))
-    }
 
     private func runStudioThreadViewStateDecodeMergeRegressionSmoke() {
         let legacyPayload = """
@@ -20921,24 +11179,65 @@ Return revised screenplay lines only.
         _ event: BackendTurnCommittedEvent,
         to exchange: StudioAskNoteExchange
     ) -> StudioAskNoteExchange {
-        StudioAskNoteExchange(
+        let eventTargetRaw = (event.screenplayTarget ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mergedTarget: StudioTarget
+        switch eventTargetRaw {
+        case "page":
+            mergedTarget = .page
+        case "voice_pin", "voicepin":
+            mergedTarget = .voicePin
+        default:
+            mergedTarget = exchange.target
+        }
+
+        let eventSourceRaw = (event.screenplayPromptSource ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mergedSource = StudioPromptSource(rawValue: eventSourceRaw) ?? exchange.source
+        let eventInsertedText = (event.screenplayInsertedText ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventNoteBody = (event.screenplayNoteBody ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventNoteTitle = (event.screenplayNoteTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPageWrite = mergedTarget == .page
+        let mergedNoteBody: String
+        if isPageWrite, !eventNoteBody.isEmpty {
+            mergedNoteBody = noteBodyForExchange(eventNoteBody)
+        } else if isPageWrite, !eventInsertedText.isEmpty {
+            mergedNoteBody = noteBodyForExchange(eventInsertedText)
+        } else {
+            mergedNoteBody = exchange.noteBody
+        }
+        let mergedAnchorExcerpt: String?
+        if isPageWrite, !eventInsertedText.isEmpty {
+            mergedAnchorExcerpt = noteBodyForAnchor(eventInsertedText)
+        } else if isPageWrite, !eventNoteBody.isEmpty {
+            mergedAnchorExcerpt = noteBodyForAnchor(eventNoteBody)
+        } else {
+            mergedAnchorExcerpt = exchange.anchorExcerpt
+        }
+
+        return StudioAskNoteExchange(
             id: exchange.id,
             backendThreadID: normalizedBackendThreadID(event.turnId),
             backendTurn: backendTurnNumber(from: event.turnId) ?? exchange.backendTurn,
             requestID: normalizedStudioRequestID(exchange.requestID).isEmpty ? normalizedStudioRequestID(event.requestId) : exchange.requestID,
             prompt: exchange.prompt,
-            target: exchange.target,
-            source: exchange.source,
-            noteTitle: exchange.noteTitle,
-            noteBody: exchange.noteBody,
-            developmentText: exchange.developmentText,
-            writeID: exchange.writeID,
+            target: mergedTarget,
+            source: mergedSource,
+            noteTitle: eventNoteTitle.isEmpty ? exchange.noteTitle : eventNoteTitle,
+            noteBody: mergedNoteBody,
+            developmentText: isPageWrite && !eventInsertedText.isEmpty ? nil : exchange.developmentText,
+            writeID: normalizedWriteID(exchange.writeID).isEmpty ? event.screenplayWriteId : exchange.writeID,
             replacedWriteID: normalizedWriteID(exchange.replacedWriteID).isEmpty ? event.screenplayReplacedWriteId : exchange.replacedWriteID,
-            anchorLine: exchange.anchorLine,
-            anchorEndLine: exchange.anchorEndLine,
-            anchorSceneLabel: exchange.anchorSceneLabel,
-            anchorExcerpt: exchange.anchorExcerpt,
-            insertedText: exchange.insertedText,
+            anchorLine: exchange.anchorLine ?? event.screenplayAnchorLine,
+            anchorEndLine: exchange.anchorEndLine ?? event.screenplayAnchorEndLine,
+            anchorSceneLabel: normalizedAnchorExcerpt(exchange.anchorSceneLabel).isEmpty ? event.screenplayAnchorSceneLabel : exchange.anchorSceneLabel,
+            anchorExcerpt: normalizedAnchorExcerpt(exchange.anchorExcerpt).isEmpty ? mergedAnchorExcerpt : exchange.anchorExcerpt,
+            insertedText: normalizedAnchorExcerpt(exchange.insertedText).isEmpty ? eventInsertedText : exchange.insertedText,
             replacementApplied: exchange.replacementApplied ?? event.screenplayReplacementApplied,
             revisedBlockText: normalizedAnchorExcerpt(exchange.revisedBlockText).isEmpty ? event.screenplayRevisedBlockText : exchange.revisedBlockText,
             resolvedAnchorExcerpt: normalizedAnchorExcerpt(exchange.resolvedAnchorExcerpt).isEmpty ? event.screenplayResolvedAnchorExcerpt : exchange.resolvedAnchorExcerpt,
@@ -20960,8 +11259,12 @@ Return revised screenplay lines only.
     }
 
     private func handleStudioTurnCommittedEvent(_ event: BackendTurnCommittedEvent) {
+        if vm.pendingScreenplayQuestion != nil {
+            Task { await vm.refreshPendingScreenplayQuestion() }
+        }
         if let index = studioAskNoteHistory.firstIndex(where: { studioTurnEventMatchesExchange(event, exchange: $0) }) {
             studioAskNoteHistory[index] = applyingBackendTurnEvent(event, to: studioAskNoteHistory[index])
+            persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
             return
         }
         let prompt = normalizedAnchorExcerpt(event.userMessage)
@@ -21228,9 +11531,13 @@ Return revised screenplay lines only.
         local: [StudioAskNoteExchange],
         remote: [StudioAskNoteExchange]
     ) -> [StudioAskNoteExchange] {
+        let clearedVoicePinBackendIDs = clearedBackendVoicePinIDs()
         var seenIndices: [String: Int] = [:]
         var merged: [StudioAskNoteExchange] = []
         for exchange in (local + remote).sorted(by: { $0.timestamp > $1.timestamp }) {
+            if isClearedBackendVoicePinExchange(exchange, clearedIDs: clearedVoicePinBackendIDs) {
+                continue
+            }
             let key = studioThreadDedupKey(exchange)
             if let existingIndex = seenIndices[key] {
                 merged[existingIndex] = mergeStudioThreadExchange(merged[existingIndex], with: exchange)
@@ -21242,9 +11549,241 @@ Return revised screenplay lines only.
         return Array(merged.prefix(24))
     }
 
+    private func studioBackendTimestampString(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private func parsedStudioExchangeTimestamp(_ raw: String?) -> Date {
+        let clean = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return .distantPast }
+
+        let plainFormatter = ISO8601DateFormatter()
+        if let date = plainFormatter.date(from: clean) {
+            return date
+        }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalFormatter.date(from: clean) ?? .distantPast
+    }
+
+    private func backendStudioAskNoteHistoryPayload(
+        from entries: [StudioAskNoteExchange]
+    ) -> [BackendScreenplayStudioExchange] {
+        Array(entries.prefix(24)).map { exchange in
+            BackendScreenplayStudioExchange(
+                id: exchange.id.uuidString,
+                backendThreadId: exchange.backendThreadID,
+                backendTurn: exchange.backendTurn,
+                requestId: exchange.requestID,
+                prompt: exchange.prompt,
+                target: exchange.target.rawValue,
+                source: exchange.source.rawValue,
+                noteTitle: exchange.noteTitle,
+                noteBody: exchange.noteBody,
+                developmentText: exchange.developmentText,
+                writeId: exchange.writeID,
+                replacedWriteId: exchange.replacedWriteID,
+                anchorLine: exchange.anchorLine,
+                anchorEndLine: exchange.anchorEndLine,
+                anchorSceneLabel: exchange.anchorSceneLabel,
+                anchorExcerpt: exchange.anchorExcerpt,
+                insertedText: exchange.insertedText,
+                replacementApplied: exchange.replacementApplied,
+                revisedBlockText: exchange.revisedBlockText,
+                resolvedAnchorExcerpt: exchange.resolvedAnchorExcerpt,
+                packLabel: exchange.packLabel,
+                phase: exchange.phase,
+                sluglineAnchorLine: exchange.sluglineAnchorLine,
+                memoryDomainRaw: exchange.memoryDomainRaw,
+                companionModeRaw: exchange.companionModeRaw,
+                timestamp: studioBackendTimestampString(exchange.timestamp)
+            )
+        }
+    }
+
+    private func studioAskNoteExchange(
+        from backend: BackendScreenplayStudioExchange
+    ) -> StudioAskNoteExchange? {
+        guard let id = UUID(uuidString: backend.id) else { return nil }
+        let target = StudioTarget(rawValue: (backend.target ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? .voicePin
+        let source = StudioPromptSource(rawValue: (backend.source ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? .typed
+        let prompt = (backend.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteTitle = (backend.noteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteBody = (backend.noteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = target == .page ? "Wrote to page" : "Clementine"
+        let hasUsefulContent =
+            !prompt.isEmpty
+            || !noteBody.isEmpty
+            || !(backend.insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(backend.developmentText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasUsefulContent else { return nil }
+
+        return StudioAskNoteExchange(
+            id: id,
+            backendThreadID: normalizedBackendThreadID(backend.backendThreadId).isEmpty
+                ? nil
+                : normalizedBackendThreadID(backend.backendThreadId),
+            backendTurn: backend.backendTurn,
+            requestID: normalizedStudioRequestID(backend.requestId).isEmpty
+                ? nil
+                : normalizedStudioRequestID(backend.requestId),
+            prompt: prompt,
+            target: target,
+            source: source,
+            noteTitle: noteTitle.isEmpty ? fallbackTitle : noteTitle,
+            noteBody: noteBody,
+            developmentText: backend.developmentText,
+            writeID: normalizedWriteID(backend.writeId).isEmpty ? nil : normalizedWriteID(backend.writeId),
+            replacedWriteID: normalizedWriteID(backend.replacedWriteId).isEmpty ? nil : normalizedWriteID(backend.replacedWriteId),
+            anchorLine: backend.anchorLine,
+            anchorEndLine: backend.anchorEndLine,
+            anchorSceneLabel: backend.anchorSceneLabel,
+            anchorExcerpt: backend.anchorExcerpt,
+            insertedText: backend.insertedText,
+            replacementApplied: backend.replacementApplied,
+            revisedBlockText: backend.revisedBlockText,
+            resolvedAnchorExcerpt: backend.resolvedAnchorExcerpt,
+            packLabel: backend.packLabel,
+            phase: backend.phase,
+            sluglineAnchorLine: backend.sluglineAnchorLine,
+            memoryDomainRaw: backend.memoryDomainRaw,
+            companionModeRaw: backend.companionModeRaw,
+            timestamp: parsedStudioExchangeTimestamp(backend.timestamp)
+        )
+    }
+
+    private func backendStudioAskNoteHistory(for key: String) -> [StudioAskNoteExchange] {
+        guard let projectId = screenplayProjectIdFromHistoryKey(key) else { return [] }
+        let project = (vm.selectedProject?.id == projectId)
+            ? vm.selectedProject
+            : vm.projects.first(where: { $0.id == projectId })
+        let history = project?.studioAskNoteHistory ?? []
+        return applyStoredWriteAnchors(
+            to: Array(history.compactMap(studioAskNoteExchange(from:)).prefix(24)),
+            for: key
+        )
+    }
+
+    private func backendAskNoteHistorySignature(for key: String) -> String {
+        let history = backendStudioAskNoteHistory(for: key)
+        guard !history.isEmpty else { return "" }
+        return history.map { exchange in
+            [
+                exchange.id.uuidString.lowercased(),
+                normalizedStudioRequestID(exchange.requestID),
+                normalizedWriteID(exchange.writeID),
+                normalizedWriteID(exchange.replacedWriteID),
+                studioBackendTimestampString(exchange.timestamp)
+            ].joined(separator: ":")
+        }.joined(separator: "|")
+    }
+
+    private func schedulePersistStudioAskNoteHistoryToBackend(
+        _ entries: [StudioAskNoteExchange],
+        for key: String
+    ) {
+        guard let projectId = screenplayProjectIdFromHistoryKey(key),
+              let project = (vm.selectedProject?.id == projectId
+                             ? vm.selectedProject
+                             : vm.projects.first(where: { $0.id == projectId })) else {
+            return
+        }
+
+        let historyPayload = backendStudioAskNoteHistoryPayload(from: entries)
+        backendAskNoteHistoryPersistTask?.cancel()
+        backendAskNoteHistoryPersistTask = Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+                    projectId: project.id,
+                    title: project.title,
+                    phase: project.lastPhase ?? "scene_draft",
+                    tags: project.tags ?? [],
+                    characters: project.characters ?? [],
+                    setting: project.setting ?? "",
+                    tone: project.tone ?? "",
+                    studioAskNoteHistory: historyPayload
+                )
+                if let nextProject = result.payload.project {
+                    await MainActor.run {
+                        vm.applyProjectMetadataUpdate(nextProject)
+                        studioBackgroundSyncNoticeText = ""
+                    }
+                } else {
+                    await MainActor.run {
+                        studioBackgroundSyncNoticeText = ""
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    studioBackgroundSyncNoticeText = "Saved on this device. Studio sync will retry when the connection returns."
+                }
+            }
+        }
+    }
+
+    private func retryStudioBackgroundPersistence() {
+        studioBackgroundSyncNoticeText = ""
+        let key = activeStudioAskNoteHistoryKey
+        persistFullThreadBrowseState(for: key)
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: key)
+    }
+
+    private func clearedBackendVoicePinIDs() -> Set<String> {
+        let clean = studioClearedBackendVoicePinIDsStorage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty,
+              let data = clean.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(
+            decoded
+                .map { normalizedBackendThreadID($0) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    private func persistClearedBackendVoicePinIDs(_ ids: Set<String>) {
+        let normalizedIDs = Array(
+            Set(ids.map { normalizedBackendThreadID($0) }.filter { !$0.isEmpty })
+        )
+            .sorted()
+        guard !normalizedIDs.isEmpty else {
+            studioClearedBackendVoicePinIDsStorage = ""
+            return
+        }
+        guard let data = try? JSONEncoder().encode(normalizedIDs),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        studioClearedBackendVoicePinIDsStorage = encoded
+    }
+
+    private func addClearedBackendVoicePinIDs(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        var cleared = clearedBackendVoicePinIDs()
+        cleared.formUnion(ids)
+        persistClearedBackendVoicePinIDs(cleared)
+    }
+
+    private func isClearedBackendVoicePinExchange(
+        _ exchange: StudioAskNoteExchange,
+        clearedIDs: Set<String>
+    ) -> Bool {
+        guard exchange.target == .voicePin else { return false }
+        let backendID = normalizedBackendThreadID(exchange.backendThreadID)
+        return !backendID.isEmpty && clearedIDs.contains(backendID)
+    }
+
     private func persistStudioAskNoteHistory(_ entries: [StudioAskNoteExchange], for key: String) {
         var store = loadStudioAskNoteHistoryMap()
         let limited = Array(entries.prefix(24))
+        if !shouldDeferBackendThreadViewPersist(for: key) {
+            schedulePersistStudioAskNoteHistoryToBackend(limited, for: key)
+        }
         if limited.isEmpty {
             store.removeValue(forKey: key)
         } else {
@@ -21252,6 +11791,7 @@ Return revised screenplay lines only.
         }
         guard !store.isEmpty else {
             studioAskNoteHistoryStorage = ""
+            mirrorStudioDebugString("", forKey: "studio.ask.note.history.v2")
             return
         }
         let encoder = JSONEncoder()
@@ -21259,18 +11799,23 @@ Return revised screenplay lines only.
         guard let data = try? encoder.encode(store),
               let encoded = String(data: data, encoding: .utf8) else { return }
         studioAskNoteHistoryStorage = encoded
+        mirrorStudioDebugString(encoded, forKey: "studio.ask.note.history.v2")
     }
 
     private func restoreStudioAskNoteHistory(for key: String) async {
+        guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
         let store = loadStudioAskNoteHistoryMap()
         let decoded = applyStoredWriteAnchors(to: Array((store[key] ?? []).prefix(24)), for: key)
+        let backendEntries = backendStudioAskNoteHistory(for: key)
+        let localAndBackend = mergedStudioThreadHistory(local: decoded, remote: backendEntries)
         if IOThemRuntime.isRunningTests {
-            studioAskNoteHistory = decoded
-            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
+            studioAskNoteHistory = localAndBackend
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
             return
         }
-        let shouldBackfill = decoded.count < 8
+        let shouldBackfill = localAndBackend.count < 8
 
         do {
             let remoteEntries: [StudioAskNoteExchange]
@@ -21293,16 +11838,24 @@ Return revised screenplay lines only.
             } else {
                 remoteEntries = []
             }
-            let merged = mergedStudioThreadHistory(local: decoded, remote: remoteEntries)
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
+            let merged = mergedStudioThreadHistory(local: localAndBackend, remote: remoteEntries)
             studioAskNoteHistory = merged
             highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: merged)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
             persistStudioAskNoteHistory(merged, for: key)
         } catch {
-            studioAskNoteHistory = decoded
-            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            guard isCurrentStudioAskNoteHistoryRestore(key: key) else { return }
+            studioAskNoteHistory = localAndBackend
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
         }
+    }
+
+    private func isCurrentStudioAskNoteHistoryRestore(key: String) -> Bool {
+        guard activeStudioAskNoteHistoryKey == key else { return false }
+        guard let projectID = screenplayProjectIdFromHistoryKey(key) else { return true }
+        return vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == projectID
     }
 
     private func syncLatestCommittedPrompt(from exchange: StudioAskNoteExchange?) {
@@ -21317,30 +11870,7 @@ Return revised screenplay lines only.
         lastCommittedStudioPromptSource = exchange.source
     }
 
-    private func currentSelectedStudioThreadExchange(in exchanges: [StudioAskNoteExchange]) -> StudioAskNoteExchange? {
-        if let highlightedStudioExchangeID,
-           let highlighted = exchanges.first(where: { $0.id == highlightedStudioExchangeID }) {
-            return highlighted
-        }
-        return exchanges.first
-    }
 
-    private func handleStudioThreadMove(_ direction: StudioMoveDirection, exchanges: [StudioAskNoteExchange]) {
-        guard !exchanges.isEmpty else { return }
-        guard direction == .up || direction == .down else { return }
-        let currentIndex: Int
-        if let selected = currentSelectedStudioThreadExchange(in: exchanges),
-           let found = exchanges.firstIndex(where: { $0.id == selected.id }) {
-            currentIndex = found
-        } else {
-            currentIndex = 0
-        }
-        let nextIndex = direction == .up
-            ? max(0, currentIndex - 1)
-            : min(exchanges.count - 1, currentIndex + 1)
-        highlightedStudioExchangeID = exchanges[nextIndex].id
-        studioThreadListFocused = true
-    }
 
     private func normalizedAnchorExcerpt(_ text: String?) -> String {
         (text ?? "")
@@ -21359,12 +11889,6 @@ Return revised screenplay lines only.
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return "" }
         return String(clean.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private struct ResolvedStudioExchangeAnchor {
-        let startLine: Int
-        let endLine: Int
-        let sceneLabel: String?
     }
 
     private func fallbackAnchorSnapshot(for exchange: StudioAskNoteExchange) -> ResolvedStudioExchangeAnchor? {
@@ -21517,154 +12041,13 @@ Return revised screenplay lines only.
         }
     }
 
-    private func normalizedVoicePinCategory(_ category: String) -> String {
-        let clean = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch clean {
-        case "scene":
-            return "Scene"
-        case "dialogue":
-            return "Dialogue"
-        case "task":
-            return "Task"
-        default:
-            return "Story"
-        }
-    }
 
-    private func voicePinCategoryColor(for category: String) -> Color {
-        switch normalizedVoicePinCategory(category) {
-        case "Scene":
-            return Color.blue
-        case "Dialogue":
-            return Color.orange
-        case "Task":
-            return Color.green
-        default:
-            return Color.pink
-        }
-    }
 
-    private func voicePinCategoryIcon(for category: String) -> String {
-        switch normalizedVoicePinCategory(category) {
-        case "Scene":
-            return "film.stack"
-        case "Dialogue":
-            return "quote.bubble"
-        case "Task":
-            return "checklist"
-        default:
-            return "sparkles"
-        }
-    }
 
-    private func voicePinCategorySubtitle(for category: String) -> String {
-        switch normalizedVoicePinCategory(category) {
-        case "Scene":
-            return "Beat work, blocking, reversals, and scene construction."
-        case "Dialogue":
-            return "Line work, subtext, character voice, and spoken rhythm."
-        case "Task":
-            return "Action items, follow-ups, and screenplay workflow steps."
-        default:
-            return "Premise, arc, stakes, theme, and overall story direction."
-        }
-    }
 
-    private var voicePinSuggestions: [VoicePinSuggestion] {
-        var suggestions = [
-            VoicePinSuggestion(category: "Story", text: "Ask: where do the stakes still feel soft?"),
-            VoicePinSuggestion(category: "Story", text: "Ask: give me three stronger turns for this sequence"),
-            VoicePinSuggestion(category: "Scene", text: "Ask: what's weak in this scene?"),
-            VoicePinSuggestion(category: "Scene", text: "Say: give me the next beat"),
-            VoicePinSuggestion(category: "Dialogue", text: "Say: rewrite this with more subtext"),
-            VoicePinSuggestion(category: "Dialogue", text: "Ask: give me three sharper line options"),
-            VoicePinSuggestion(category: "Task", text: "Say: make a task to fix act two"),
-            VoicePinSuggestion(category: "Task", text: "Ask: what still needs solving before draft review"),
-        ]
 
-        if let proactive = liveDraftBridge.companionSignalState.proactiveSuggestion,
-           proactive.hasSignal {
-            let dynamic = VoicePinSuggestion(
-                category: proactive.category,
-                text: proactive.prompt
-            )
-            if !suggestions.contains(where: { $0.id == dynamic.id }) {
-                suggestions.insert(dynamic, at: 0)
-            }
-        }
 
-        return suggestions
-    }
 
-    @ViewBuilder
-    private func voicePinCategoryChip(_ category: String) -> some View {
-        let label = normalizedVoicePinCategory(category)
-        let accent = voicePinCategoryColor(for: label)
-        let icon = voicePinCategoryIcon(for: label)
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 9, weight: .semibold, design: .default))
-            Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .default))
-        }
-        .foregroundStyle(accent.opacity(0.95))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(accent.opacity(0.14))
-            .overlay(
-                Capsule()
-                    .stroke(accent.opacity(0.22), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-    }
-
-    private func voicePinSuggestionChip(_ suggestion: VoicePinSuggestion) -> some View {
-        let accent = voicePinCategoryColor(for: suggestion.category)
-        let isSending = sendingVoicePinSuggestionID == suggestion.id && (isSubmittingStudioPrompt || isSubmittingPrompt)
-        return Button {
-            applyVoicePinSuggestion(suggestion)
-        } label: {
-            HStack(spacing: 8) {
-                voicePinCategoryChip(suggestion.category)
-                if isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(accent.opacity(0.92))
-                    Text("Sending…")
-                        .font(.system(size: 12, weight: .semibold, design: .default))
-                        .foregroundStyle(accent.opacity(0.92))
-                        .lineLimit(1)
-                } else {
-                    Text(suggestion.text)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.84))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(accent.opacity(isSending ? 0.16 : 0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(accent.opacity(isSending ? 0.30 : 0.16), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
-        .contextMenu {
-            Button("Edit Before Sending") {
-                stageVoicePinSuggestion(suggestion)
-            }
-        }
-    }
-
-    private func restoreVoicePin(_ item: ScreenplayAssistantPinState) {
-        liveDraftBridge.restoreAssistantPin(item)
-        vm.infoText = "Restored copilot answer."
-    }
 
     private func focusStudioPage() {
         studioPromptFocused = false
@@ -21717,7 +12100,8 @@ Return revised screenplay lines only.
     private func openStudioCommandBar(
         prefill text: String? = nil,
         routingMode: PromptRoutingMode? = nil,
-        intent: StudioPromptIntent? = nil
+        intent: StudioPromptIntent? = nil,
+        focusComposer: Bool = true
     ) {
         if let text {
             studioPromptSeed = text
@@ -21734,7 +12118,219 @@ Return revised screenplay lines only.
         }
         studioThreadListFocused = false
         studioInspectorFocused = false
-        studioPromptFocused = true
+        studioPromptFocused = focusComposer
+    }
+
+    @ViewBuilder
+    private var pendingScreenplayQuestionPrompt: some View {
+        if let pending = vm.pendingScreenplayQuestion {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.accentColor.opacity(0.86))
+                    Text("Clementine wants to know")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.64))
+                    Spacer(minLength: 0)
+                    if !pending.targetLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(pending.targetLabel)
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.46))
+                            .lineLimit(1)
+                    }
+                }
+
+                Text(pending.question)
+                    .font(.system(size: 13, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.pending-question.text")
+
+                if let options = pending.provisionalOptions, !options.isEmpty {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(options) { option in
+                            Button {
+                                choosePendingScreenplayOption(option, for: pending)
+                            } label: {
+                                HStack(alignment: .top, spacing: 9) {
+                                    Text("\(option.rank)")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Color.accentColor)
+                                        .frame(width: 18, height: 18)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        if option.recommended {
+                                            Text("Clementine’s pick")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundStyle(Color.accentColor.opacity(0.86))
+                                        }
+                                        Text(option.value)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(Color.herText.opacity(0.88))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "checkmark.circle")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(Color.herText.opacity(0.42))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(Color.herText.opacity(0.055))
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Choose option \(option.rank)")
+                            .accessibilityIdentifier("studio.pending-question.option-\(option.rank)")
+                            .disabled(
+                                isSubmittingStudioPrompt ||
+                                    isSubmittingPrompt ||
+                                    isResolvingPendingScreenplayQuestion
+                            )
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("studio.pending-question.options")
+                }
+
+                HStack(spacing: 10) {
+                    Button(
+                        pending.provisionalOptions?.isEmpty == false
+                            ? "Answer differently"
+                            : "Answer"
+                    ) {
+                        answerPendingScreenplayQuestion(pending)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("studio.pending-question.answer")
+                    .disabled(
+                        isSubmittingStudioPrompt ||
+                            isSubmittingPrompt ||
+                            isResolvingPendingScreenplayQuestion
+                    )
+
+                    Button {
+                        skipPendingScreenplayQuestion(pending)
+                    } label: {
+                        Text("Skip")
+                            .frame(minWidth: 44, minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                    .accessibilityIdentifier("studio.pending-question.skip")
+                    .disabled(
+                        isSubmittingStudioPrompt ||
+                            isResolvingPendingScreenplayQuestion
+                    )
+                }
+            }
+            .padding(.leading, 12)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.42))
+                    .frame(width: 2)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("studio.pending-question")
+            .id("studio.pending-question.anchor")
+        }
+    }
+
+    private func answerPendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        studioPromptSeed = ""
+        #if os(iOS)
+        let shouldFocusComposer = false
+        #else
+        let shouldFocusComposer = true
+        #endif
+        openStudioCommandBar(
+            routingMode: .voicePin,
+            intent: .advice,
+            focusComposer: shouldFocusComposer
+        )
+        vm.infoText = "Answer Clementine in your own words. She will remember it with this project."
+    }
+
+    private func skipPendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        guard !isSubmittingStudioPrompt, !isResolvingPendingScreenplayQuestion else { return }
+        dismissPendingScreenplayQuestion(id: pending.id)
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests, pending.id == "ui-pending-theme-question" {
+            vm.infoText = "Question skipped."
+            return
+        }
+        #endif
+        isResolvingPendingScreenplayQuestion = true
+        Task { @MainActor in
+            defer { isResolvingPendingScreenplayQuestion = false }
+            do {
+                _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                    pending,
+                    responseStatus: "declined"
+                )
+                vm.infoText = "Question skipped."
+            } catch is BackendTalkQueuedError {
+                vm.infoText = "Question skipped. Saving when you're online."
+            } catch {
+                restorePendingScreenplayQuestion(pending)
+                vm.infoText = "Couldn’t save that choice. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func choosePendingScreenplayOption(
+        _ option: BackendPendingScreenplayOption,
+        for pending: BackendPendingScreenplayQuestion
+    ) {
+        guard !isSubmittingStudioPrompt, !isResolvingPendingScreenplayQuestion else { return }
+        dismissPendingScreenplayQuestion(id: pending.id)
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests, pending.id == "ui-pending-theme-question" {
+            vm.infoText = "Option \(option.rank) saved to this project."
+            return
+        }
+        #endif
+        isResolvingPendingScreenplayQuestion = true
+        Task { @MainActor in
+            defer { isResolvingPendingScreenplayQuestion = false }
+            do {
+                _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                    pending,
+                    responseStatus: "answered",
+                    answer: "Option \(option.rank)"
+                )
+                vm.infoText = "Option \(option.rank) saved to this project."
+            } catch is BackendTalkQueuedError {
+                vm.infoText = "Choice queued. Clementine will remember it when you’re online."
+            } catch {
+                restorePendingScreenplayQuestion(pending)
+                vm.infoText = "Couldn’t save that choice. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func dismissPendingScreenplayQuestion(id: String) {
+        vm.dismissPendingScreenplayQuestion(id: id)
+        #if DEBUG
+        if id == "ui-pending-theme-question" {
+            didResolveUITestPendingQuestionFixture = true
+        }
+        #endif
+    }
+
+    private func restorePendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        vm.pendingScreenplayQuestion = pending
+        #if DEBUG
+        if pending.id == "ui-pending-theme-question" {
+            didResolveUITestPendingQuestionFixture = false
+        }
+        #endif
     }
 
     private func collapseStudioCommandBar() {
@@ -21746,11 +12342,41 @@ Return revised screenplay lines only.
 
     private func toggleDirectionOneSidebarVisibility() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-            isDirectionOneSidebarVisible.toggle()
+            let nextIsVisible = !isDirectionOneSidebarVisible
+            isDirectionOneSidebarVisible = nextIsVisible
+            if isDirectionOneCompactLayout, nextIsVisible {
+                isDirectionOneRightRailExpanded = false
+            }
         }
         vm.infoText = isDirectionOneSidebarVisible
             ? "Sidebar shown."
             : "Sidebar hidden."
+    }
+
+    private func toggleDirectionOneRightRailVisibility() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            let nextIsVisible = !isDirectionOneRightRailExpanded
+            isDirectionOneRightRailExpanded = nextIsVisible
+            if isDirectionOneCompactLayout, nextIsVisible {
+                isDirectionOneSidebarVisible = false
+            }
+        }
+    }
+
+    private func closeDirectionOneCompactDrawers() {
+        guard isDirectionOneCompactLayout else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            isDirectionOneSidebarVisible = false
+            isDirectionOneRightRailExpanded = false
+        }
+    }
+
+    private func configureDirectionOneResponsiveLayout(usesDrawers: Bool) {
+        let enteredCompactLayout = usesDrawers && !isDirectionOneCompactLayout
+        isDirectionOneCompactLayout = usesDrawers
+        guard enteredCompactLayout else { return }
+        isDirectionOneSidebarVisible = false
+        isDirectionOneRightRailExpanded = false
     }
 
     private func revealStudioSavedTab() {
@@ -21773,25 +12399,7 @@ Return revised screenplay lines only.
         }
     }
 
-    private func applyVoicePinSuggestion(_ suggestion: VoicePinSuggestion) {
-        let text = suggestion.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        studioPromptSeed = text
-        submitStudioPromptText(
-            text,
-            displayText: text,
-            source: .typed,
-            routingMode: studioPromptRoutingMode,
-            successMessage: "Suggestion sent to io.them.",
-            clearSeedOnSuccess: false,
-            sendingSuggestionID: suggestion.id
-        )
-    }
 
-    private func stageVoicePinSuggestion(_ suggestion: VoicePinSuggestion) {
-        openStudioCommandBar(prefill: suggestion.text)
-        vm.infoText = "Prompt loaded. Edit it, send it, or use it with voice dictation."
-    }
 
     private func submitStudioPromptSeed() {
         let text = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21800,6 +12408,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
+            intent: studioPromptIntent,
             successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil
@@ -21808,9 +12417,9 @@ Return revised screenplay lines only.
 
     private func submitStudioPromptSeedFromKeyboardShortcut() {
         let text = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG || os(macOS)
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(nil)
         var preparedTokenForSubmit: Int? = nil
+        #if DEBUG || os(macOS)
         if let preparedToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
             routingMode: studioPromptRoutingMode,
@@ -21830,6 +12439,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
+            intent: studioPromptIntent,
             successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
@@ -21869,6 +12479,7 @@ Return revised screenplay lines only.
         self.studioCommandReturnKeyMonitor = nil
     }
 
+    #if DEBUG
     @discardableResult
     private func synchronizeMirroredStudioDebugPrepareState() -> Bool {
         var didChange = false
@@ -21893,6 +12504,10 @@ Return revised screenplay lines only.
             "studio_debug_prepare_ack_replacement_mode",
             fallback: "none"
         )
+        let loadProjectToken = readMirroredStudioDebugPreferenceInt("studio_debug_load_project_token")
+        let loadProjectID = readMirroredStudioDebugPreferenceString("studio_debug_load_project_id")
+        let loadProjectVersionID = readMirroredStudioDebugPreferenceString("studio_debug_load_project_version_id")
+        let loadProjectAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_load_project_ack_token")
 
         if prepareToken != studioDebugPrepareToken {
             studioDebugPrepareToken = prepareToken
@@ -21926,16 +12541,291 @@ Return revised screenplay lines only.
             studioDebugPrepareAckReplacementMode = prepareAckReplacementMode
             didChange = true
         }
+        if loadProjectToken != studioDebugLoadProjectToken {
+            studioDebugLoadProjectToken = loadProjectToken
+            didChange = true
+        }
+        if loadProjectID != studioDebugLoadProjectID {
+            studioDebugLoadProjectID = loadProjectID
+            didChange = true
+        }
+        if loadProjectVersionID != studioDebugLoadProjectVersionID {
+            studioDebugLoadProjectVersionID = loadProjectVersionID
+            didChange = true
+        }
+        if loadProjectAckToken != studioDebugLoadProjectAckToken {
+            studioDebugLoadProjectAckToken = loadProjectAckToken
+            didChange = true
+        }
 
         return didChange
+    }
+
+    @discardableResult
+    private func synchronizeMirroredStudioDebugInteractionState() -> Bool {
+        var didChange = false
+
+        let focusToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_token")
+        let focusAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_ack_token")
+        let submitToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_token")
+        let submitText = readMirroredStudioDebugPreferenceString("studio_debug_submit_text")
+        let submitRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let submitReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_replacement_mode",
+            fallback: "none"
+        )
+        let submitAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_ack_token")
+        let submitAckText = readMirroredStudioDebugPreferenceString("studio_debug_submit_ack_text")
+        let submitAckRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_ack_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let submitAckReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_ack_replacement_mode",
+            fallback: "none"
+        )
+        let submitAckRequestID = readMirroredStudioDebugPreferenceString("studio_debug_submit_ack_request_id")
+        let submitResultToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_result_token")
+        let submitResultStatus = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_status")
+        let submitResultError = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_error")
+        let submitResultJSON = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_json")
+        let manualEditToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_token")
+        let manualEditText = readMirroredStudioDebugPreferenceString("studio_debug_manual_edit_text")
+        let manualEditAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_ack_token")
+        let autosaveToggleToken = readMirroredStudioDebugPreferenceInt("studio_debug_autosave_toggle_token")
+        let autosaveEnabled = readMirroredStudioDebugPreferenceBool(
+            "studio_debug_autosave_enabled",
+            fallback: studioDebugAutosaveEnabled
+        )
+        let autosaveToggleAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_autosave_toggle_ack_token")
+        let forceHydrateToken = readMirroredStudioDebugPreferenceInt("studio_debug_force_hydrate_token")
+        let forceHydrateAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_force_hydrate_ack_token")
+        let saveToken = readMirroredStudioDebugPreferenceInt("studio_debug_save_token")
+        let saveAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_save_ack_token")
+
+        if focusToken != studioDebugFocusPageToken {
+            studioDebugFocusPageToken = focusToken
+            didChange = true
+        }
+        if focusAckToken != studioDebugFocusPageAckToken {
+            studioDebugFocusPageAckToken = focusAckToken
+            didChange = true
+        }
+        if submitToken != studioDebugSubmitToken {
+            studioDebugSubmitToken = submitToken
+            didChange = true
+        }
+        if submitText != studioDebugSubmitText {
+            studioDebugSubmitText = submitText
+            didChange = true
+        }
+        if submitRouting != studioDebugSubmitRoutingRaw {
+            studioDebugSubmitRoutingRaw = submitRouting
+            didChange = true
+        }
+        if submitReplacementMode != studioDebugSubmitReplacementMode {
+            studioDebugSubmitReplacementMode = submitReplacementMode
+            didChange = true
+        }
+        if submitAckToken != studioDebugSubmitAckToken {
+            studioDebugSubmitAckToken = submitAckToken
+            didChange = true
+        }
+        if submitAckText != studioDebugSubmitAckText {
+            studioDebugSubmitAckText = submitAckText
+            didChange = true
+        }
+        if submitAckRouting != studioDebugSubmitAckRoutingRaw {
+            studioDebugSubmitAckRoutingRaw = submitAckRouting
+            didChange = true
+        }
+        if submitAckReplacementMode != studioDebugSubmitAckReplacementMode {
+            studioDebugSubmitAckReplacementMode = submitAckReplacementMode
+            didChange = true
+        }
+        if submitAckRequestID != studioDebugSubmitAckRequestID {
+            studioDebugSubmitAckRequestID = submitAckRequestID
+            didChange = true
+        }
+        if submitResultToken != studioDebugSubmitResultToken {
+            studioDebugSubmitResultToken = submitResultToken
+            didChange = true
+        }
+        if submitResultStatus != studioDebugSubmitResultStatus {
+            studioDebugSubmitResultStatus = submitResultStatus
+            didChange = true
+        }
+        if submitResultError != studioDebugSubmitResultError {
+            studioDebugSubmitResultError = submitResultError
+            didChange = true
+        }
+        if submitResultJSON != studioDebugSubmitResultJSON {
+            studioDebugSubmitResultJSON = submitResultJSON
+            didChange = true
+        }
+        if manualEditToken != studioDebugManualEditToken {
+            studioDebugManualEditToken = manualEditToken
+            didChange = true
+        }
+        if manualEditText != studioDebugManualEditText {
+            studioDebugManualEditText = manualEditText
+            didChange = true
+        }
+        if manualEditAckToken != studioDebugManualEditAckToken {
+            studioDebugManualEditAckToken = manualEditAckToken
+            didChange = true
+        }
+        if autosaveToggleToken != studioDebugAutosaveToggleToken {
+            studioDebugAutosaveToggleToken = autosaveToggleToken
+            didChange = true
+        }
+        if autosaveEnabled != studioDebugAutosaveEnabled {
+            studioDebugAutosaveEnabled = autosaveEnabled
+            didChange = true
+        }
+        if autosaveToggleAckToken != studioDebugAutosaveToggleAckToken {
+            studioDebugAutosaveToggleAckToken = autosaveToggleAckToken
+            didChange = true
+        }
+        if forceHydrateToken != studioDebugForceHydrateToken {
+            studioDebugForceHydrateToken = forceHydrateToken
+            didChange = true
+        }
+        if forceHydrateAckToken != studioDebugForceHydrateAckToken {
+            studioDebugForceHydrateAckToken = forceHydrateAckToken
+            didChange = true
+        }
+        if saveToken != studioDebugSaveToken {
+            studioDebugSaveToken = saveToken
+            didChange = true
+        }
+        if saveAckToken != studioDebugSaveAckToken {
+            studioDebugSaveAckToken = saveAckToken
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func handleStudioDebugManualEditRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioScreenDebugManualEditRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugManualEditRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioScreenDebugManualEditRequestURL)
+            return
+        }
+        guard request.token != studioDebugManualEditAckToken,
+              request.token != lastAppliedStudioDebugManualEditToken else {
+            try? FileManager.default.removeItem(at: studioScreenDebugManualEditRequestURL)
+            return
+        }
+        studioDebugManualEditText = request.text
+        studioDebugManualEditToken = request.token
+        writeMirroredStudioDebugPreferenceString(request.text, forKey: "studio_debug_manual_edit_text")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_manual_edit_token")
+        try? FileManager.default.removeItem(at: studioScreenDebugManualEditRequestURL)
+    }
+
+    private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
+        guard let match = studioScreenDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioScreenDebugLoadProjectRequest, URL)? in
+            guard let data = try? Data(contentsOf: url),
+                  let request = try? JSONDecoder().decode(StudioScreenDebugLoadProjectRequest.self, from: data) else {
+                return nil
+            }
+            return (request, url)
+        }).first else {
+            return
+        }
+        let request = match.0
+        guard request.token > 0 else {
+            for url in studioScreenDebugLoadProjectRequestURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+            return
+        }
+        guard request.token != studioDebugLoadProjectAckToken,
+              request.token != lastAppliedStudioDebugLoadProjectToken else {
+            for url in studioScreenDebugLoadProjectRequestURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+            return
+        }
+        studioDebugLoadProjectID = request.projectID
+        studioDebugLoadProjectVersionID = request.versionID
+        studioDebugLoadProjectToken = request.token
+        writeMirroredStudioDebugPreferenceString(request.projectID, forKey: "studio_debug_load_project_id")
+        writeMirroredStudioDebugPreferenceString(request.versionID, forKey: "studio_debug_load_project_version_id")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_load_project_token")
+        for url in studioScreenDebugLoadProjectRequestURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func handleStudioDebugAutosaveToggleRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioScreenDebugAutosaveToggleRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugAutosaveToggleRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioScreenDebugAutosaveToggleRequestURL)
+            return
+        }
+        guard request.token != studioDebugAutosaveToggleAckToken,
+              request.token != lastAppliedStudioDebugAutosaveToggleToken else {
+            try? FileManager.default.removeItem(at: studioScreenDebugAutosaveToggleRequestURL)
+            return
+        }
+        studioDebugAutosaveEnabled = request.enabled
+        studioDebugAutosaveToggleToken = request.token
+        writeMirroredStudioDebugPreferenceInt(request.enabled ? 1 : 0, forKey: "studio_debug_autosave_enabled")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_autosave_toggle_token")
+        try? FileManager.default.removeItem(at: studioScreenDebugAutosaveToggleRequestURL)
+    }
+
+    private func handleStudioDebugSaveRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioScreenDebugSaveRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugSaveRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioScreenDebugSaveRequestURL)
+            return
+        }
+        guard request.token != studioDebugSaveAckToken,
+              request.token != lastAppliedStudioDebugSaveToken else {
+            try? FileManager.default.removeItem(at: studioScreenDebugSaveRequestURL)
+            return
+        }
+        studioDebugSaveToken = request.token
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_save_token")
+        try? FileManager.default.removeItem(at: studioScreenDebugSaveRequestURL)
     }
 
     private func startStudioDebugPreparePollingIfNeeded() {
         guard studioDebugPreparePollTask == nil else { return }
         studioDebugPreparePollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 250_000_000)
             while !Task.isCancelled {
+                handleStudioDebugLoadProjectRequestFileIfNeeded()
+                handleStudioDebugManualEditRequestFileIfNeeded()
+                handleStudioDebugAutosaveToggleRequestFileIfNeeded()
+                handleStudioDebugSaveRequestFileIfNeeded()
                 _ = synchronizeMirroredStudioDebugPrepareState()
+                _ = synchronizeMirroredStudioDebugInteractionState()
+                applyDebugLoadProjectIfNeeded()
                 applyDebugPreparedStudioPromptIfNeeded()
+                applyDebugSubmittedStudioPromptIfNeeded()
+                applyDebugFocusPageIfNeeded()
+                applyDebugManualDraftEditIfNeeded()
+                applyDebugAutosaveToggleIfNeeded()
+                applyDebugForceHydrateIfNeeded()
+                applyDebugManualSaveIfNeeded()
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
         }
@@ -21945,6 +12835,7 @@ Return revised screenplay lines only.
         studioDebugPreparePollTask?.cancel()
         studioDebugPreparePollTask = nil
     }
+    #endif
     #endif
 
     private func resolvedStudioDebugReplacementModeForSubmission(_ explicitMode: String?) -> String {
@@ -21964,7 +12855,8 @@ Return revised screenplay lines only.
         routingMode: PromptRoutingMode,
         replacementMode: String
     ) -> Int? {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return nil }
         let preparedToken = studioDebugPrepareAckToken
         guard preparedToken > 0 else { return nil }
         let preparedText = studioDebugPrepareAckText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22013,17 +12905,38 @@ Return revised screenplay lines only.
         perceivedSpeedState = completedState
     }
 
+    @MainActor
+    private func waitForCommittedStudioPageWrite(
+        submittedAt: Date,
+        timeoutMs: UInt64 = 8_000
+    ) async -> ScreenplayCommittedWrite? {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutMs) / 1_000)
+        while Date() < deadline {
+            if let committedWrite = liveDraftBridge.lastCommittedWrite {
+                let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !insertedText.isEmpty,
+                   committedWrite.committedAt >= submittedAt.addingTimeInterval(-0.5) {
+                    return committedWrite
+                }
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return nil
+    }
+
     private func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
         source: StudioPromptSource = .typed,
         routingMode: PromptRoutingMode,
+        intent: StudioPromptIntent? = nil,
         successMessage: String,
         clearSeedOnSuccess: Bool,
         sendingSuggestionID: String?,
         requestIDOverride: String? = nil,
         debugSubmitToken: Int? = nil,
-        debugSubmitReplacementMode: String? = nil
+        debugSubmitReplacementMode: String? = nil,
+        completion: ((String?) -> Void)? = nil
     ) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
@@ -22032,7 +12945,33 @@ Return revised screenplay lines only.
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
+        let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
+        let restoredStudioContextForSubmission = routesToPage ? restoredStudioPromptContinuityContext : []
+        let featureContinuationPrompt = featureSnapshotForSubmission.flatMap { snapshot in
+            ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+                for: text,
+                snapshot: snapshot,
+                recentStudioContext: restoredStudioContextForSubmission
+            )
+        }
+        let baseSubmittedText = featureContinuationPrompt ?? text
+        let compatibleIntent = intent?.compatible(routesToPage: routesToPage)
+        let submittedText = compatibleIntent?.preparing(baseSubmittedText) ?? baseSubmittedText
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let pendingQuestionAtSubmission = vm.pendingScreenplayQuestion
+        let pendingQuestionIDAtSubmission = pendingQuestionAtSubmission?.id
+        if let featureSnapshotForSubmission {
+            liveDraftBridge.recordFeatureWorkflowContext(
+                ScreenplayFeatureWorkflowSessionContext(
+                    requestID: requestID,
+                    projectID: liveDraftBridge.committedWriteProjectIDSnapshot(),
+                    versionID: liveDraftBridge.committedWriteVersionIDSnapshot(),
+                    submittedPrompt: submittedText,
+                    snapshot: featureSnapshotForSubmission,
+                    featureSpine: liveDraftBridge.featureSpine
+                )
+            )
+        }
         let perceivedTarget: StudioPerceivedSpeedState.Target = routesToPage ? .page : .voicePin
 
         beginPerceivedSpeedResponse(
@@ -22051,13 +12990,26 @@ Return revised screenplay lines only.
             liveDraftBridge.clearPendingPageWriteReplacement()
         }
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(debugSubmitReplacementMode)
-        let effectiveDebugSubmitToken = debugSubmitToken ?? matchingPreparedStudioDebugSubmitToken(
+        let preparedDebugSubmitToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
             routingMode: routingMode,
             replacementMode: debugReplacementMode
         )
-#if DEBUG || os(macOS)
-        if let effectiveDebugSubmitToken {
+        #if DEBUG
+        let shouldForceLocalStubSubmit = IOThemRuntime.isStudioAutomationSession && (
+            shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
+                (IOThemRuntime.isRunningUITests && !shouldUseBackendStudioPromptTransportForDebugSubmit)
+        )
+        let generatedDebugStubSubmitToken = shouldForceLocalStubSubmit
+            ? Int(Date().timeIntervalSince1970 * 1_000)
+            : nil
+        let effectiveDebugSubmitToken = debugSubmitToken ?? preparedDebugSubmitToken ?? generatedDebugStubSubmitToken
+        #else
+        let effectiveDebugSubmitToken = debugSubmitToken ?? preparedDebugSubmitToken
+        #endif
+#if DEBUG
+        if IOThemRuntime.isStudioAutomationSession,
+           let effectiveDebugSubmitToken {
             setStudioDebugSubmitAck(
                 token: effectiveDebugSubmitToken,
                 text: text,
@@ -22066,77 +13018,506 @@ Return revised screenplay lines only.
                 requestID: requestID
             )
             resetStudioDebugSubmitResult()
+            setStudioDebugSubmitStage("local_submit_accepted", token: effectiveDebugSubmitToken)
+            if shouldForceLocalStubSubmit ||
+                (debugSubmitToken != nil && !shouldUseBackendStudioPromptTransportForDebugSubmit) {
+                setStudioDebugSubmitStage("stub_submit_started", token: effectiveDebugSubmitToken)
+                applyDebugStudioPromptStubSubmit(
+                    token: effectiveDebugSubmitToken,
+                    prompt: submittedText,
+                    displayText: displayText,
+                    source: source,
+                    requestID: requestID,
+                    routingMode: routingMode,
+                    routesToPage: routesToPage,
+                    successMessage: successMessage,
+                    clearSeedOnSuccess: clearSeedOnSuccess
+                )
+                if let pendingQuestionIDAtSubmission {
+                    dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
+                }
+                completion?(nil)
+                return
+            }
         }
 #endif
         publishDebugStudioDiffState()
-        Task {
-            let error = await onSubmitPrompt(text, routingMode, requestID)
-            await MainActor.run {
-#if DEBUG || os(macOS)
-                if let effectiveDebugSubmitToken {
-                    setStudioDebugSubmitResult(
-                        token: effectiveDebugSubmitToken,
-                        status: (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok",
-                        error: error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+#if DEBUG
+        if let effectiveDebugSubmitToken {
+            setStudioDebugSubmitStage("backend_task_enqueued", token: effectiveDebugSubmitToken)
+        }
+#endif
+        Task { @MainActor in
+#if DEBUG
+            if let effectiveDebugSubmitToken {
+                setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
+            }
+#endif
+            if let pendingQuestionAtSubmission {
+                isResolvingPendingScreenplayQuestion = true
+                do {
+                    _ = try await BackendMemoryAPI.shared.resolvePendingScreenplayQuestion(
+                        pendingQuestionAtSubmission,
+                        responseStatus: "answered",
+                        answer: text
                     )
-                }
-#endif
-                isSubmittingStudioPrompt = false
-                self.sendingVoicePinSuggestionID = nil
-                completePerceivedSpeedResponse(requestID: requestID)
-                if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-#if DEBUG || os(macOS)
-                    if let effectiveDebugSubmitToken {
-                        publishStudioDebugSubmitResultPayload(
-                            token: effectiveDebugSubmitToken,
-                            status: "error",
-                            prompt: text,
-                            requestID: requestID,
-                            routingMode: routingMode,
-                            target: routesToPage ? .page : .voicePin,
-                            exchange: nil,
-                            error: error
-                        )
+                    dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
+                    isResolvingPendingScreenplayQuestion = false
+                } catch is BackendTalkQueuedError {
+                    dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
+                    isResolvingPendingScreenplayQuestion = false
+                    isSubmittingStudioPrompt = false
+                    self.sendingVoicePinSuggestionID = nil
+                    liveDraftBridge.clearPendingPageWriteReplacement()
+                    completePerceivedSpeedResponse(requestID: requestID)
+                    if clearSeedOnSuccess {
+                        studioPromptSeed = ""
                     }
-#endif
-                    vm.infoText = error
+                    vm.infoText = "Answer saved. Clementine will use it when you're online."
+                    completion?(nil)
+                    return
+                } catch {
+                    restorePendingScreenplayQuestion(pendingQuestionAtSubmission)
+                    isResolvingPendingScreenplayQuestion = false
+                    isSubmittingStudioPrompt = false
+                    self.sendingVoicePinSuggestionID = nil
+                    liveDraftBridge.clearPendingPageWriteReplacement()
+                    completePerceivedSpeedResponse(requestID: requestID)
+                    let resolutionError = "Couldn’t save that answer. \(error.localizedDescription)"
+                    vm.infoText = resolutionError
+                    completion?(resolutionError)
                     return
                 }
-                if clearSeedOnSuccess {
-                    studioPromptSeed = ""
-                }
-                let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
-                let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
-                lastCommittedStudioPrompt = promptSummary
-                lastCommittedStudioPromptTarget = resolvedTarget
-                lastCommittedStudioPromptSource = source
-                appendStudioAskNoteHistory(
-                    prompt: promptSummary,
-                    target: resolvedTarget,
-                    source: source,
-                    requestID: requestID
-                )
+            }
+            let submittedAt = Date()
+            let error = await onSubmitPrompt(submittedText, routingMode, requestID)
+#if DEBUG || os(macOS)
+            if let effectiveDebugSubmitToken {
+                setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
+            }
+#endif
+            isSubmittingStudioPrompt = false
+            self.sendingVoicePinSuggestionID = nil
+            completePerceivedSpeedResponse(requestID: requestID)
+            if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
-                    let matchingExchange = studioAskNoteHistory.first(where: {
-                        normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
-                    }) ?? studioAskNoteHistory.first
                     publishStudioDebugSubmitResultPayload(
                         token: effectiveDebugSubmitToken,
-                        status: "ok",
-                        prompt: promptSummary,
+                        status: "error",
+                        prompt: text,
                         requestID: requestID,
                         routingMode: routingMode,
-                        target: resolvedTarget,
-                        exchange: matchingExchange,
-                        error: ""
+                        target: routesToPage ? .page : .voicePin,
+                        exchange: nil,
+                        error: error
                     )
                 }
 #endif
-                vm.infoText = successMessage
+                vm.infoText = error
+                completion?(error)
+                return
             }
+            if clearSeedOnSuccess {
+                studioPromptSeed = ""
+            }
+            if let pendingQuestionIDAtSubmission {
+                dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
+                await vm.refreshPendingScreenplayQuestion()
+            }
+            let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
+            let committedPageWrite: ScreenplayCommittedWrite?
+            if routesToPage {
+                committedPageWrite = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+            } else {
+                committedPageWrite = nil
+            }
+            let pageInsertedTextFallback: String? = {
+                guard routesToPage else { return nil }
+                if let committedPageWrite {
+                    return committedPageWrite.insertedText
+                }
+                guard liveDraftBridge.lastUpdatedAt >= submittedAt.addingTimeInterval(-0.5) else { return nil }
+                let latest = liveDraftBridge.latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines)
+                return latest.isEmpty ? nil : latest
+            }()
+            let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let voicePinTextFallback: String? = {
+                guard !routesToPage else { return nil }
+                let defaults = UserDefaults.standard
+                let storedUpdatedAtSeconds = defaults.double(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyUpdatedAtStorageKey)
+                let storedUpdatedAt = storedUpdatedAtSeconds > 0
+                    ? Date(timeIntervalSince1970: storedUpdatedAtSeconds)
+                    : Date.distantPast
+                let latestUpdatedAt = max(liveDraftBridge.latestVoicePinReplyUpdatedAt, storedUpdatedAt)
+                guard latestUpdatedAt >= submittedAt.addingTimeInterval(-5.0) else { return nil }
+                let latestPrompt = {
+                    let bridgePrompt = liveDraftBridge.latestVoicePinPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !bridgePrompt.isEmpty { return bridgePrompt }
+                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinPromptStorageKey)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }()
+                guard latestPrompt.isEmpty ||
+                        latestPrompt == text ||
+                        latestPrompt == promptSummary ||
+                        latestPrompt == submittedText else { return nil }
+                let latest = {
+                    let bridgeReply = liveDraftBridge.latestVoicePinReply.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !bridgeReply.isEmpty { return bridgeReply }
+                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyStorageKey)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }()
+                return latest.isEmpty ? nil : latest
+            }()
+            lastCommittedStudioPrompt = promptSummary
+            lastCommittedStudioPromptTarget = resolvedTarget
+            lastCommittedStudioPromptSource = source
+            appendStudioAskNoteHistory(
+                prompt: promptSummary,
+                target: resolvedTarget,
+                source: source,
+                requestID: requestID,
+                committedWriteOverride: committedPageWrite,
+                insertedTextOverride: pageInsertedTextFallback,
+                voicePinTextOverride: voicePinTextFallback
+            )
+#if DEBUG || os(macOS)
+            if let effectiveDebugSubmitToken {
+                let matchingExchange = studioAskNoteHistory.first(where: {
+                    normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
+                }) ?? studioAskNoteHistory.first
+                publishStudioDebugSubmitResultPayload(
+                    token: effectiveDebugSubmitToken,
+                    status: "ok",
+                    prompt: promptSummary,
+                    requestID: requestID,
+                    routingMode: routingMode,
+                    target: resolvedTarget,
+                    exchange: matchingExchange,
+                    error: ""
+                )
+            }
+#endif
+            vm.infoText = successMessage
+            completion?(nil)
         }
     }
+
+#if DEBUG || os(macOS)
+    private var debugStudioPromptSubmitTransportModeForLocalSubmit: String {
+#if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           let launchOverride = uiTestLaunchArgumentValue(
+               "-studio_debug_submit_transport_mode",
+               in: ProcessInfo.processInfo.arguments
+           ),
+           !launchOverride.isEmpty {
+            return launchOverride.lowercased()
+        }
+#endif
+        let mirrored = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_transport_mode",
+            fallback: studioDebugSubmitTransportModeRaw
+        )
+        let resolved = mirrored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? studioDebugSubmitTransportModeRaw
+            : mirrored
+        return resolved.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var shouldUseDebugStudioPromptStubTransportForLocalSubmit: Bool {
+        ["stub", "structural-quality-stub"].contains(
+            debugStudioPromptSubmitTransportModeForLocalSubmit
+        )
+    }
+
+    private var shouldUseBackendStudioPromptTransportForDebugSubmit: Bool {
+        [
+            "backend",
+            "live-backend",
+            "live-submit"
+        ].contains(debugStudioPromptSubmitTransportModeForLocalSubmit)
+    }
+
+    private func applyDebugStudioPromptStubSubmit(
+        token: Int,
+        prompt: String,
+        displayText: String?,
+        source: StudioPromptSource,
+        requestID: String,
+        routingMode: PromptRoutingMode,
+        routesToPage: Bool,
+        successMessage: String,
+        clearSeedOnSuccess: Bool
+    ) {
+        let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
+        let promptSummary = (displayText ?? prompt).trimmingCharacters(in: .whitespacesAndNewlines)
+        let memoryDomain = debugStudioPromptMemoryDomain(for: prompt, routesToPage: routesToPage)
+        var matchingExchange: StudioAskNoteExchange?
+        let noteTitle: String
+        let noteBody: String
+        let developmentText: String?
+
+        if routesToPage {
+            let insertedText = debugStudioPageStubText(for: prompt)
+            let previousDraft = vm.fountainDraft
+            let separator = previousDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
+            let committedDraft = previousDraft + separator + insertedText
+            vm.fountainDraft = committedDraft
+            liveDraftBridge.draftText = committedDraft
+            liveDraftBridge.lastCommittedWrite = liveDraftBridge.makeCommittedWrite(
+                id: UUID(),
+                writeID: normalizedStudioRequestID(requestID),
+                previousDraft: previousDraft,
+                committedDraft: committedDraft,
+                insertedText: insertedText,
+                replacementApplied: false,
+                replacedWriteID: nil,
+                startLine: max(1, previousDraft.components(separatedBy: .newlines).count + (separator.isEmpty ? 0 : 2)),
+                endLine: committedDraft.components(separatedBy: .newlines).count,
+                committedAt: Date()
+            )
+            liveDraftBridge.lastUpdatedAt = Date()
+            liveDraftBridge.clearPendingPageWriteReplacement()
+            liveDraftBridge.latestMemoryDomain = .project
+            noteTitle = "Wrote to page"
+            noteBody = insertedText
+            developmentText = nil
+        } else {
+            liveDraftBridge.clearPendingPageWriteReplacement()
+            liveDraftBridge.latestMemoryDomain = memoryDomain
+            let stub = debugStudioVoicePinStub(for: prompt, memoryDomain: memoryDomain)
+            noteTitle = stub.title
+            noteBody = stub.body
+            developmentText = stub.body
+            liveDraftBridge.updateAssistantPin(
+                mode: "copilot",
+                category: memoryDomain == .companion ? "Companion" : "Scene",
+                title: noteTitle,
+                body: noteBodyForExchange(noteBody),
+                fullBody: noteBody,
+                badge: memoryDomain.title,
+                actionSummary: ""
+            )
+        }
+
+        if clearSeedOnSuccess {
+            studioPromptSeed = ""
+        }
+        lastCommittedStudioPrompt = promptSummary
+        lastCommittedStudioPromptTarget = resolvedTarget
+        lastCommittedStudioPromptSource = source
+        if routesToPage {
+            let committedWrite = liveDraftBridge.lastCommittedWrite
+            let anchorSceneLabel = firstFountainSlugline(in: committedWrite?.insertedText ?? noteBody)
+            let entry = StudioAskNoteExchange(
+                id: UUID(),
+                backendThreadID: nil,
+                backendTurn: nil,
+                requestID: normalizedStudioRequestID(requestID),
+                prompt: promptSummary,
+                target: .page,
+                source: source,
+                noteTitle: noteTitle,
+                noteBody: noteBodyForExchange(noteBody),
+                developmentText: developmentText,
+                writeID: committedWrite?.writeID,
+                replacedWriteID: committedWrite?.replacedWriteID,
+                anchorLine: committedWrite?.startLine,
+                anchorEndLine: committedWrite?.endLine,
+                anchorSceneLabel: anchorSceneLabel,
+                anchorExcerpt: noteBodyForAnchor(committedWrite?.insertedText ?? noteBody),
+                insertedText: committedWrite?.insertedText ?? noteBody,
+                replacementApplied: committedWrite?.replacementApplied,
+                revisedBlockText: committedWrite?.replacementApplied == true ? committedWrite?.insertedText : nil,
+                resolvedAnchorExcerpt: noteBodyForAnchor(committedWrite?.insertedText ?? noteBody),
+                packLabel: liveDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Studio" : liveDraftBridge.latestPack,
+                phase: liveDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : liveDraftBridge.latestPhase,
+                sluglineAnchorLine: committedWrite?.startLine,
+                memoryDomainRaw: memoryDomain.rawValue,
+                companionModeRaw: liveDraftBridge.companionMode.rawValue,
+                timestamp: Date()
+            )
+            insertStudioAskNoteHistoryEntry(entry)
+        } else {
+            let entry = StudioAskNoteExchange(
+                id: UUID(),
+                backendThreadID: nil,
+                backendTurn: nil,
+                requestID: normalizedStudioRequestID(requestID),
+                prompt: promptSummary,
+                target: .voicePin,
+                source: source,
+                noteTitle: noteTitle,
+                noteBody: noteBodyForExchange(noteBody),
+                developmentText: developmentText,
+                writeID: nil,
+                replacedWriteID: nil,
+                anchorLine: nil,
+                anchorEndLine: nil,
+                anchorSceneLabel: nil,
+                anchorExcerpt: nil,
+                insertedText: nil,
+                replacementApplied: nil,
+                revisedBlockText: nil,
+                resolvedAnchorExcerpt: nil,
+                packLabel: liveDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Studio" : liveDraftBridge.latestPack,
+                phase: liveDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : liveDraftBridge.latestPhase,
+                sluglineAnchorLine: nil,
+                memoryDomainRaw: memoryDomain.rawValue,
+                companionModeRaw: liveDraftBridge.companionMode.rawValue,
+                timestamp: Date()
+            )
+            insertStudioAskNoteHistoryEntry(entry)
+        }
+        matchingExchange = studioAskNoteHistory.first(where: {
+            normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
+        }) ?? studioAskNoteHistory.first
+
+        isSubmittingStudioPrompt = false
+        sendingVoicePinSuggestionID = nil
+        completePerceivedSpeedResponse(requestID: requestID)
+        publishStudioDebugSubmitResultPayload(
+            token: token,
+            status: "ok",
+            prompt: promptSummary,
+            requestID: requestID,
+            routingMode: routingMode,
+            target: resolvedTarget,
+            exchange: matchingExchange,
+            error: ""
+        )
+        vm.infoText = successMessage
+        mirrorStudioDebugString(memoryDomain.rawValue, forKey: "studio_debug_last_memory_domain")
+        publishDebugStudioDiffState()
+    }
+
+    private func debugStudioPageStubText(for prompt: String) -> String {
+        let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedPrompt.contains("second batch") || normalizedPrompt.contains("ferry terminal") {
+            return """
+EXT. FERRY TERMINAL - DAWN
+
+MARA reaches the locked gate as the last ferry pulls away. Across the water, ELI raises the red flare.
+
+MARA
+You said we still had time.
+
+She grips the chain, then turns toward the maintenance skiff.
+"""
+        }
+        return """
+INT. KITCHEN - DAY
+
+LUCY reaches the threshold before FRANK can answer, taking the room's silence with her.
+
+FRANK
+Lucy--
+
+The door closes softly. That is worse than a slam.
+"""
+    }
+
+    private func debugStudioPromptMemoryDomain(for prompt: String, routesToPage: Bool) -> StudioMemoryDomain {
+        guard !routesToPage else { return .project }
+        let normalized = " \(prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) "
+        let companionCues = [
+            " i feel ",
+            " i am ",
+            " i'm ",
+            " im ",
+            " spiraling ",
+            " reassure ",
+            " talk me through ",
+            " stuck ",
+            " need you "
+        ]
+        let projectCues = [
+            " screenplay ",
+            " script ",
+            " scene ",
+            " midpoint ",
+            " story ",
+            " character ",
+            " beat ",
+            " act ",
+            " calls him ",
+            " parking lot "
+        ]
+        let hasCompanion = companionCues.contains(where: normalized.contains)
+        let hasProject = projectCues.contains(where: normalized.contains)
+        if hasCompanion && hasProject { return .mixed }
+        if hasCompanion { return .companion }
+        return .project
+    }
+
+    private func debugMentionedCharacterName(from prompt: String) -> String? {
+        let knownNames = ["mara", "lucy", "frank", "jess"]
+        let lowercasedPrompt = prompt.lowercased()
+        if let known = knownNames.first(where: { lowercasedPrompt.contains($0) }) {
+            return known.capitalized
+        }
+
+        let ignoredWords: Set<String> = [
+            "Remember",
+            "Scene",
+            "Story",
+            "Screenplay",
+            "Script",
+            "Give",
+            "Tell",
+            "Make",
+            "Write",
+            "Rewrite",
+            "Continue"
+        ]
+        let words = prompt.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words {
+            guard word.count >= 3, !ignoredWords.contains(word) else { continue }
+            if word.first?.isUppercase == true {
+                return word
+            }
+        }
+        return nil
+    }
+
+    private func debugStudioVoicePinStub(
+        for prompt: String,
+        memoryDomain: StudioMemoryDomain
+    ) -> (title: String, body: String) {
+        if debugStudioPromptSubmitTransportModeForLocalSubmit == "structural-quality-stub" {
+            let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedPrompt.contains("scene doctor") {
+                return (
+                    "Scene Doctor",
+                    "REPAIRED SCENE DOCTOR. Canon protected: Mara already burned the ferry ledger. The core problem is that the scene repeats information without changing leverage. Strongest move: let Eli reveal he memorized one page before the fire, forcing Mara to choose between trusting him and losing the only surviving lead. That turns plot, relationship, and Act II pressure in one playable beat."
+                )
+            }
+            return (
+                "Feature Architecture",
+                "REPAIRED FEATURE ARCHITECTURE. Canon protected: Mara already burned the ferry ledger. Act I makes the burned ledger her irreversible break from the safe investigation. Act II weaponizes Eli's memorized page at the midpoint, then makes their alliance cost Mara the case. Act III pays it off when Mara must trust Eli's memory in public, completing her move from private control to exposed faith."
+            )
+        }
+        let characterContext = debugMentionedCharacterName(from: prompt)
+        switch memoryDomain {
+        case .companion:
+            return (
+                "Companion Check-In",
+                "You are not behind. Take one breath, name the smallest next move, and let the scene become manageable again. I am here with you.\(characterContext.map { " For \($0), keep the emotional tell simple enough that the page can hold it." } ?? "")"
+            )
+        case .mixed:
+            return (
+                "Midpoint Direction",
+                "The midpoint needs one irreversible choice. Put the character under pressure, make the emotional cost visible, then let the next scene deal with the fallout instead of explaining it.\(characterContext.map { " For \($0), a joke can hide fear, but the scene should still let us feel the fear under it." } ?? "")"
+            )
+        case .project:
+            return (
+                "Story Development",
+                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the kitchen scene feel like escalation instead of setup.\(characterContext.map { " For \($0), keep the wit as armor instead of decoration." } ?? "")"
+            )
+        }
+    }
+#endif
 
     private func prepareReplacementTargetForPromptIfNeeded(
         _ text: String,
@@ -22196,7 +13577,8 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugPreparedStudioPromptIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugPrepareToken > 0 else { return }
         guard studioDebugPrepareToken != studioDebugPrepareAckToken else { return }
         let text = studioDebugPrepareText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22238,7 +13620,8 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugAcknowledgedDiffIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugAcknowledgeDiffToken > 0 else { return }
         guard studioDebugAcknowledgeDiffToken != studioDebugAcknowledgeDiffAckToken else { return }
         guard studioDebugAcknowledgeDiffToken != lastAppliedStudioDebugAcknowledgeToken else { return }
@@ -22260,7 +13643,8 @@ Return revised screenplay lines only.
     }
 
     private func currentStudioDebugProjectLoadBreadcrumbs() -> [StudioDebugProjectLoadBreadcrumb] {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return [] }
         guard let data = studioDebugProjectLoadTraceJSON.data(using: .utf8),
               let decoded = try? JSONDecoder().decode([StudioDebugProjectLoadBreadcrumb].self, from: data) else {
             return []
@@ -22272,7 +13656,7 @@ Return revised screenplay lines only.
     }
 
     private func persistStudioDebugProjectLoadBreadcrumbs(_ breadcrumbs: [StudioDebugProjectLoadBreadcrumb]) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         guard let data = try? JSONEncoder().encode(breadcrumbs),
               let encoded = String(data: data, encoding: .utf8) else { return }
         studioDebugProjectLoadTraceJSON = encoded
@@ -22283,7 +13667,8 @@ Return revised screenplay lines only.
     }
 
     private func mirrorStudioDebugInt(_ value: Int, forKey key: String) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         #if os(macOS)
         writeMirroredStudioDebugPreferenceInt(value, forKey: key)
         #endif
@@ -22291,7 +13676,8 @@ Return revised screenplay lines only.
     }
 
     private func mirrorStudioDebugString(_ value: String, forKey key: String) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         #if os(macOS)
         writeMirroredStudioDebugPreferenceString(value, forKey: key)
         #endif
@@ -22299,7 +13685,8 @@ Return revised screenplay lines only.
     }
 
     private func setStudioDebugLoadProjectAckToken(_ token: Int) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugLoadProjectAckToken = token
         mirrorStudioDebugInt(token, forKey: "studio_debug_load_project_ack_token")
         #endif
@@ -22311,7 +13698,8 @@ Return revised screenplay lines only.
         routing: String,
         replacementMode: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugPrepareAckToken = token
         studioDebugPrepareAckText = text
         studioDebugPrepareAckRoutingRaw = routing
@@ -22329,7 +13717,8 @@ Return revised screenplay lines only.
         routing: String,
         replacementMode: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugKeyboardSubmitAckToken = token
         studioDebugKeyboardSubmitAckText = text
         studioDebugKeyboardSubmitAckRoutingRaw = routing
@@ -22348,7 +13737,8 @@ Return revised screenplay lines only.
         replacementMode: String,
         requestID: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitAckToken = token
         studioDebugSubmitAckText = text
         studioDebugSubmitAckRoutingRaw = routing
@@ -22368,7 +13758,8 @@ Return revised screenplay lines only.
         error: String,
         payloadJSON: String? = nil
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitResultToken = token
         studioDebugSubmitResultStatus = status
         studioDebugSubmitResultError = error
@@ -22382,8 +13773,24 @@ Return revised screenplay lines only.
         #endif
     }
 
+    private func setStudioDebugSubmitStage(
+        _ stage: String,
+        token: Int,
+        error: String = ""
+    ) {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanStage.isEmpty else { return }
+        mirrorStudioDebugString(cleanStage, forKey: "studio_debug_submit_stage")
+        mirrorStudioDebugInt(token, forKey: "studio_debug_submit_stage_token")
+        mirrorStudioDebugString(error.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "studio_debug_submit_stage_error")
+        #endif
+    }
+
     private func resetStudioDebugSubmitResult() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         studioDebugSubmitResultToken = 0
         studioDebugSubmitResultStatus = ""
         studioDebugSubmitResultError = ""
@@ -22392,6 +13799,9 @@ Return revised screenplay lines only.
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_status")
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_error")
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_stage")
+        mirrorStudioDebugInt(0, forKey: "studio_debug_submit_stage_token")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_stage_error")
         #endif
     }
 
@@ -22403,7 +13813,7 @@ Return revised screenplay lines only.
         ready: Bool,
         error: String = ""
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         trackedStudioDebugProjectLoadToken = token
         trackedStudioDebugProjectLoadRequestedProjectID = requestedProjectID
         trackedStudioDebugProjectLoadRequestedVersionID = requestedVersionID
@@ -22420,7 +13830,7 @@ Return revised screenplay lines only.
         requestedProjectID: String,
         requestedVersionID: String
     ) {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         let breadcrumb = StudioDebugProjectLoadBreadcrumb(
             token: token,
             event: event,
@@ -22449,7 +13859,7 @@ Return revised screenplay lines only.
         versionID: String,
         requireEditorFocusConsumption: Bool = true
     ) -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty else { return false }
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22474,9 +13884,10 @@ Return revised screenplay lines only.
     private func waitForStudioDebugProjectLoadReady(
         projectID: String,
         versionID: String,
-        timeoutSeconds: TimeInterval = 12
+        timeoutSeconds: TimeInterval = 25
     ) async -> Bool {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while Date() < deadline {
             if isStudioDebugProjectLoadReady(
@@ -22489,8 +13900,59 @@ Return revised screenplay lines only.
         }
         return isStudioDebugProjectLoadReady(
             projectID: projectID,
-            versionID: versionID
+            versionID: versionID,
+            requireEditorFocusConsumption: false
         )
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func waitForStudioDebugSelectedProjectID(
+        projectID: String,
+        timeoutSeconds: TimeInterval = 10
+    ) async -> Bool {
+        #if DEBUG
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return false }
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            let selectedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if selectedProjectID == cleanProjectID {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
+        #else
+        return false
+        #endif
+    }
+
+    private func isCurrentStudioDebugProjectLoadRequest(
+        token: Int,
+        requestedProjectID: String,
+        requestedVersionID: String,
+        source: String
+    ) -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
+        let cleanProjectID = requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVersionID = requestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch source {
+        case "app_storage":
+            return studioDebugLoadProjectToken == token
+                && studioDebugLoadProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
+                && studioDebugLoadProjectVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanVersionID
+        case "bridge", "bridge_force":
+            return liveDraftBridge.debugProjectLoadToken == token
+                && liveDraftBridge.debugRequestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
+                && liveDraftBridge.debugRequestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanVersionID
+        default:
+            return false
+        }
         #else
         return false
         #endif
@@ -22502,10 +13964,17 @@ Return revised screenplay lines only.
         requestedProjectID: String,
         requestedVersionID: String,
         source: String
-    ) async {
-        #if DEBUG || os(macOS)
+    ) async -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
         let cleanProjectID = requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanVersionID = requestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
 
         guard !cleanProjectID.isEmpty else {
             updateTrackedStudioDebugProjectLoadState(
@@ -22525,10 +13994,13 @@ Return revised screenplay lines only.
             )
             setStudioDebugLoadProjectAckToken(token)
             publishDebugStudioDiffState()
-            return
+            return false
         }
 
-        if studioDebugProjectLoadInFlight && trackedStudioDebugProjectLoadToken == token {
+        if studioDebugProjectLoadInFlight,
+           trackedStudioDebugProjectLoadToken == token,
+           trackedStudioDebugProjectLoadRequestedProjectID == cleanProjectID,
+           trackedStudioDebugProjectLoadRequestedVersionID == cleanVersionID {
             appendStudioDebugProjectLoadBreadcrumb(
                 token: token,
                 event: "load_reused",
@@ -22537,13 +14009,18 @@ Return revised screenplay lines only.
                 requestedVersionID: cleanVersionID
             )
             publishDebugStudioDiffState()
-            return
+            return false
         }
 
+        let operationID = UUID()
+        activeStudioDebugProjectLoadOperationID = operationID
         studioDebugProjectLoadInFlight = true
         defer {
-            studioDebugProjectLoadInFlight = false
-            publishDebugStudioDiffState()
+            if activeStudioDebugProjectLoadOperationID == operationID {
+                activeStudioDebugProjectLoadOperationID = nil
+                studioDebugProjectLoadInFlight = false
+                publishDebugStudioDiffState()
+            }
         }
 
         updateTrackedStudioDebugProjectLoadState(
@@ -22583,13 +14060,47 @@ Return revised screenplay lines only.
         )
         publishDebugStudioDiffState()
 
-        await vm.selectProject(cleanProjectID)
+        let selectionTask = Task { @MainActor in
+            await vm.selectProject(cleanProjectID)
+        }
+        let selectionApplied = await waitForStudioDebugSelectedProjectID(projectID: cleanProjectID)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else {
+            selectionTask.cancel()
+            return false
+        }
+        if selectionApplied {
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "project_selection_ready",
+                detail: "Observed requested Studio project selection before full draft hydration completed.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+        }
+        await selectionTask.value
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
 
         let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLoadedProjectID = (vm.selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLoadedDraftProjectID = vm.debugLoadedDraftProjectID
         let resolvedVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedErrorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedDetail = cleanVersionID.isEmpty
             ? "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)."
             : "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID) with version \(resolvedVersionID.isEmpty ? "none" : resolvedVersionID)."
+        let resolvedDetailWithError = resolvedErrorText.isEmpty
+            ? resolvedDetail
+            : "\(resolvedDetail) Error: \(resolvedErrorText)"
         updateTrackedStudioDebugProjectLoadState(
             token: token,
             requestedProjectID: cleanProjectID,
@@ -22600,10 +14111,62 @@ Return revised screenplay lines only.
         appendStudioDebugProjectLoadBreadcrumb(
             token: token,
             event: "project_resolved",
-            detail: resolvedDetail,
+            detail: resolvedDetailWithError,
             requestedProjectID: cleanProjectID,
             requestedVersionID: cleanVersionID
         )
+
+        let resolvedRequestedProject = resolvedProjectID == cleanProjectID
+            && resolvedLoadedProjectID == cleanProjectID
+            && resolvedLoadedDraftProjectID == cleanProjectID
+        let resolvedRequestedVersion = cleanVersionID.isEmpty || resolvedVersionID == cleanVersionID
+        if !resolvedRequestedProject || !resolvedRequestedVersion {
+            let failureDetail = [
+                "Could not resolve requested debug project after selection.",
+                "selected=\(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)",
+                "loaded=\(resolvedLoadedProjectID.isEmpty ? "none" : resolvedLoadedProjectID)",
+                "draftProject=\(resolvedLoadedDraftProjectID.isEmpty ? "none" : resolvedLoadedDraftProjectID)",
+                "version=\(resolvedVersionID.isEmpty ? "none" : resolvedVersionID)",
+                resolvedErrorText.isEmpty ? "" : "error=\(resolvedErrorText)",
+            ]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            updateTrackedStudioDebugProjectLoadState(
+                token: token,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID,
+                stage: "project_resolve_failed",
+                ready: false,
+                error: failureDetail
+            )
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "project_resolve_failed",
+                detail: failureDetail,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            setStudioDebugLoadProjectAckToken(token)
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "acknowledged_failed_request",
+                detail: "Published project-load acknowledgment for a terminal failed debug request so later requests can proceed.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            publishDebugStudioDiffState()
+            return false
+        }
+        if !resolvedErrorText.isEmpty {
+            vm.errorText = ""
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "selection_warning_cleared",
+                detail: "Ignored stale selection error after the requested project and version resolved: \(resolvedErrorText)",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+        }
 
         liveDraftBridge.requestEditorFocus()
         updateTrackedStudioDebugProjectLoadState(
@@ -22626,6 +14189,12 @@ Return revised screenplay lines only.
             projectID: cleanProjectID,
             versionID: cleanVersionID
         )
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            source: source
+        ) else { return false }
         if ready {
             updateTrackedStudioDebugProjectLoadState(
                 token: token,
@@ -22667,71 +14236,100 @@ Return revised screenplay lines only.
                 requestedVersionID: cleanVersionID
             )
         }
+        return ready
+        #else
+        return false
         #endif
     }
 
     private func applyDebugLoadProjectIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard !IOThemRuntime.isRunningTests else { return }
-        guard studioDebugLoadProjectToken > 0 else { return }
-        guard studioDebugLoadProjectToken != studioDebugLoadProjectAckToken else { return }
-        guard studioDebugLoadProjectToken != lastAppliedStudioDebugLoadProjectToken else { return }
-        lastAppliedStudioDebugLoadProjectToken = studioDebugLoadProjectToken
+        let requestToken = studioDebugLoadProjectToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugLoadProjectAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugLoadProjectToken else { return }
+        lastAppliedStudioDebugLoadProjectToken = requestToken
         let requestedProjectID = studioDebugLoadProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedVersionID = studioDebugLoadProjectVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else {
-            setStudioDebugLoadProjectAckToken(studioDebugLoadProjectToken)
+            setStudioDebugLoadProjectAckToken(requestToken)
             publishDebugStudioDiffState()
             return
         }
         Task { @MainActor in
-            await performStudioDebugProjectLoad(
-                token: studioDebugLoadProjectToken,
+            guard studioDebugLoadProjectToken == requestToken else { return }
+            if await performStudioDebugProjectLoad(
+                token: requestToken,
                 requestedProjectID: requestedProjectID,
                 requestedVersionID: requestedVersionID,
                 source: "app_storage"
-            )
+            ) {
+                await restoreStudioWorkspaceAfterProjectHydration()
+            }
         }
         #endif
     }
 
     @MainActor
-    private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async {
-        #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+    @discardableResult
+    private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async -> Bool {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return false }
+        guard !IOThemRuntime.isRunningTests else { return false }
         let token = liveDraftBridge.debugProjectLoadToken
         let requestedProjectID = liveDraftBridge.debugRequestedProjectID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requestedProjectID.isEmpty else { return }
-        if token > 0 {
-            guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return }
-            lastAppliedBridgeDebugProjectLoadToken = token
-        } else if !force || vm.selectedProjectID == requestedProjectID {
-            return
+        guard !requestedProjectID.isEmpty else { return false }
+        if token > 0,
+           token == lastAppliedBridgeDebugProjectLoadToken,
+           isStudioDebugProjectLoadReady(
+               projectID: requestedProjectID,
+               versionID: requestedVersionID,
+               requireEditorFocusConsumption: false
+           ) {
+            return false
         }
         if token > 0 {
-            await performStudioDebugProjectLoad(
+            guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return false }
+            lastAppliedBridgeDebugProjectLoadToken = token
+        } else if !force || vm.selectedProjectID == requestedProjectID {
+            return false
+        }
+        if token > 0 {
+            let source = force ? "bridge_force" : "bridge"
+            return await performStudioDebugProjectLoad(
                 token: token,
                 requestedProjectID: requestedProjectID,
                 requestedVersionID: requestedVersionID,
-                source: force ? "bridge_force" : "bridge"
+                source: source
             )
-            return
         }
         liveDraftBridge.preferredProjectID = requestedProjectID
         liveDraftBridge.preferredVersionID = requestedVersionID
         await vm.selectProject(requestedProjectID)
+        guard isCurrentStudioDebugProjectLoadRequest(
+            token: token,
+            requestedProjectID: requestedProjectID,
+            requestedVersionID: requestedVersionID,
+            source: force ? "bridge_force" : "bridge"
+        ) else { return false }
         if !requestedVersionID.isEmpty {
             liveDraftBridge.preferredVersionID = requestedVersionID
         }
         publishDebugStudioDiffState()
+        return true
+        #else
+        return false
         #endif
     }
 
     private func applyDebugFocusPageIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugFocusPageToken > 0 else { return }
         guard studioDebugFocusPageToken != studioDebugFocusPageAckToken else { return }
         guard studioDebugFocusPageToken != lastAppliedStudioDebugFocusPageToken else { return }
@@ -22743,7 +14341,8 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugManualDraftEditIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugManualEditToken > 0 else { return }
         guard studioDebugManualEditToken != studioDebugManualEditAckToken else { return }
         guard studioDebugManualEditToken != lastAppliedStudioDebugManualEditToken else { return }
@@ -22751,60 +14350,93 @@ Return revised screenplay lines only.
         let text = studioDebugManualEditText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             studioDebugManualEditAckToken = studioDebugManualEditToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(studioDebugManualEditToken, forKey: "studio_debug_manual_edit_ack_token")
+            #endif
             publishDebugStudioDiffState()
             return
         }
         let separator = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
         liveDraftBridge.requestEditorFocus()
-        vm.noteManualDraftEdit()
         vm.fountainDraft += separator + text
+        vm.noteManualDraftEdit()
         studioDebugManualEditAckToken = studioDebugManualEditToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(studioDebugManualEditToken, forKey: "studio_debug_manual_edit_ack_token")
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
 
     private func applyDebugAutosaveToggleIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugAutosaveToggleToken > 0 else { return }
         guard studioDebugAutosaveToggleToken != studioDebugAutosaveToggleAckToken else { return }
         guard studioDebugAutosaveToggleToken != lastAppliedStudioDebugAutosaveToggleToken else { return }
         lastAppliedStudioDebugAutosaveToggleToken = studioDebugAutosaveToggleToken
         vm.autosaveEnabled = studioDebugAutosaveEnabled
         studioDebugAutosaveToggleAckToken = studioDebugAutosaveToggleToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(studioDebugAutosaveToggleToken, forKey: "studio_debug_autosave_toggle_ack_token")
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
 
     private func applyDebugForceHydrateIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugForceHydrateToken > 0 else { return }
-        guard studioDebugForceHydrateToken != studioDebugForceHydrateAckToken else { return }
-        guard studioDebugForceHydrateToken != lastAppliedStudioDebugForceHydrateToken else { return }
-        lastAppliedStudioDebugForceHydrateToken = studioDebugForceHydrateToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugForceHydrateToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugForceHydrateAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugForceHydrateToken else { return }
+        lastAppliedStudioDebugForceHydrateToken = requestToken
+        let requestedProjectID = liveDraftBridge.debugRequestedProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         Task { @MainActor in
-            await vm.refresh()
-            studioDebugForceHydrateAckToken = studioDebugForceHydrateToken
+            guard studioDebugForceHydrateToken == requestToken else { return }
+            if !requestedProjectID.isEmpty,
+               vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) != requestedProjectID {
+                await vm.selectProject(requestedProjectID)
+                guard studioDebugForceHydrateToken == requestToken else { return }
+            }
+            await vm.refreshSelectedProjectForDebug()
+            guard studioDebugForceHydrateToken == requestToken else { return }
+            vm.markManualEditHydrateProtectedForDebugIfNeeded()
+            studioDebugForceHydrateAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(requestToken, forKey: "studio_debug_force_hydrate_ack_token")
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugManualSaveIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugSaveToken > 0 else { return }
-        guard studioDebugSaveToken != studioDebugSaveAckToken else { return }
-        guard studioDebugSaveToken != lastAppliedStudioDebugSaveToken else { return }
-        lastAppliedStudioDebugSaveToken = studioDebugSaveToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugSaveToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugSaveAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugSaveToken else { return }
+        lastAppliedStudioDebugSaveToken = requestToken
         Task { @MainActor in
+            guard studioDebugSaveToken == requestToken else { return }
             await vm.manualSaveDraft()
-            studioDebugSaveAckToken = studioDebugSaveToken
+            guard studioDebugSaveToken == requestToken else { return }
+            studioDebugSaveAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(requestToken, forKey: "studio_debug_save_ack_token")
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugStructuralSeedIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSeedStructuralToken > 0 else { return }
         guard studioDebugSeedStructuralToken != studioDebugSeedStructuralAckToken else { return }
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
@@ -22835,6 +14467,15 @@ Look at the city.
             setting: "Test City",
             tone: "Grounded",
             promptSeed: nil,
+            logline: "A test crew maps broken scenes into a working draft.",
+            themeArgument: "Structure lets chaos become playable.",
+            centralQuestion: "Can the draft become coherent before the handoff?",
+            protagonistWant: "Lucy wants the missing scene order.",
+            protagonistNeed: "Lucy needs to trust the rewrite pass.",
+            antagonisticForce: "A fractured outline fighting the page.",
+            actPosition: "Act I",
+            endingImage: "The scenes line up in a clean final pass.",
+            unresolvedSetups: ["The duplicate kitchen beat remains unresolved."],
             createdAt: now,
             updatedAt: now,
             versionCount: 1,
@@ -22856,6 +14497,7 @@ Look at the city.
             lastCommentAt: nil,
             studioThreadViewState: nil,
             studioDiffAcknowledged: nil,
+            studioAskNoteHistory: nil,
             collaborators: nil,
             comments: nil,
             versions: nil,
@@ -22959,8 +14601,39 @@ Look at the city.
         isBeatListDropTargeted = false
         shouldRestoreInspectorWorkspaceOnNextOutlineChange = true
         vm.outline = outline
-        vm.latestVersionID = "debug-version"
-        vm.fountainDraft = sampleDraft
+        vm.applyStructuralUITestDraft(sampleDraft, versionID: "debug-version")
+        vm.characterTraits = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "ui-structural",
+            characters: [
+                BackendCharacterTraitRecord(name: "LUCY", traits: nil)
+            ],
+            error: nil
+        )
+        vm.characterArchetypes = nil
+        vm.isCharacterTraitsLoading = false
+        vm.characterTraitsErrorText = ""
+        vm.craftTwists = ScreenplayCraftTwistSuggestResponse(
+            schemaVersion: 1,
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            source: "ui-structural",
+            twists: [
+                ScreenplayCraftTwistSuggestion(
+                    id: "ui-twist-midpoint",
+                    label: "False Victory",
+                    hook: "The clean handoff exposes the missing scene.",
+                    severity: "medium",
+                    rationale: "Turns structural confidence into fresh pressure."
+                )
+            ]
+        )
+        vm.isCraftTwistLoading = false
+        vm.craftTwistErrorText = ""
+        vm.craftTwistBeatLabel = "Midpoint"
+        vm.acceptedCraftTwists = []
+        vm.isAcceptedCraftTwistMutating = false
+        vm.acceptedCraftTwistErrorText = ""
         liveDraftBridge.draftText = sampleDraft
         liveDraftBridge.preferredProjectID = project.id
         liveDraftBridge.preferredVersionID = "debug-version"
@@ -23005,39 +14678,252 @@ Look at the city.
         liveDraftBridge.latestMemoryDomain = .project
         vm.refreshLiveDraftBridgeContext()
         studioDebugSeedStructuralAckToken = studioDebugSeedStructuralToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(
+            studioDebugSeedStructuralToken,
+            forKey: "studio_debug_seed_structural_ack_token"
+        )
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
 
+    private func applyUITestLaunchActionsIfNeeded() {
+        #if DEBUG
+        guard IOThemRuntime.isRunningUITests else { return }
+        guard !didApplyUITestLaunchActions else { return }
+        didApplyUITestLaunchActions = true
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--ui-route-page") {
+            studioPromptRoutingMode = .page
+        } else if arguments.contains("--ui-route-voice-pin") {
+            studioPromptRoutingMode = .voicePin
+        }
+        if arguments.contains("--ui-open-export-tools") {
+            openDraftInspector()
+            selectedDraftToolsSection = .pages
+        }
+        if arguments.contains("--ui-open-commandbar") {
+            openStudioCommandBar()
+        }
+        applyUITestCompanionSignalFixtureIfNeeded(arguments)
+        applyUITestDraftConflictFixtureIfNeeded()
+        applyUITestPendingScreenplayQuestionFixtureIfNeeded()
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
+            studioPromptRoutingMode = .page
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .typed,
+                routingMode: .page,
+                successMessage: "Prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-voice-pin-prompt", in: arguments) {
+            studioPromptRoutingMode = .voicePin
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .typed,
+                routingMode: .voicePin,
+                successMessage: "Prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-voice-source-prompt", in: arguments) {
+            studioPromptRoutingMode = .voicePin
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .voice,
+                routingMode: .voicePin,
+                successMessage: "Voice prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private func applyUITestCompanionSignalFixtureIfNeeded(_ arguments: [String]) {
+        guard arguments.contains("--ui-seed-companion-signal") else { return }
+        let now = Date()
+        liveDraftBridge.latestMemoryDomain = .project
+        liveDraftBridge.applyCompanionSignalState(
+            CreativeCompanionSignalState(
+                intent: CreativeIntentSnapshot(
+                    kind: .storyDevelopment,
+                    label: "Story Development",
+                    summary: "Hold the creative thread and make the next story choice concrete.",
+                    nextMove: "Pressure-test the next three turns before drafting.",
+                    confidence: 0.96,
+                    sourceText: "Give me three stronger turns for this sequence.",
+                    updatedAt: now
+                ),
+                presence: CreativePresenceSnapshot(
+                    title: "Calm Coach",
+                    detail: "Holding the creative thread and keeping the next story choice concrete.",
+                    updatedAt: now
+                ),
+                proactiveSuggestion: CreativeProactiveSuggestion(
+                    category: "Story",
+                    prompt: "Ask: give me three stronger turns for this sequence",
+                    reason: "A concrete next ask should be reusable from the Companion rail.",
+                    updatedAt: now
+                )
+            ),
+            persist: false
+        )
+    }
+
+    private func applyUITestSaveNetworkFaultIfNeeded() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard IOThemRuntime.isRunningUITests,
+              arguments.contains("--ui-screenplay-save-network-fault"),
+              !didApplyUITestSaveNetworkFault,
+              let marker = uiTestLaunchArgumentValue(
+                "--ui-screenplay-save-network-fault-marker",
+                in: arguments
+              ) else {
+            return
+        }
+        didApplyUITestSaveNetworkFault = true
+        let offlineBaseURL = uiTestLaunchArgumentValue(
+            "--ui-screenplay-save-network-fault-url",
+            in: arguments
+        ) ?? "http://127.0.0.1:3999"
+        await vm.runQueuedSaveNetworkFaultUITest(
+            marker: marker,
+            offlineBaseURL: offlineBaseURL
+        )
+        publishDebugStudioDiffState()
+    }
+
+    private func uiTestLaunchArgumentValue(_ key: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: key) else { return nil }
+        let valueIndex = arguments.index(after: index)
+        guard arguments.indices.contains(valueIndex) else { return nil }
+        return arguments[valueIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applyUITestPendingScreenplayQuestionFixtureIfNeeded() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard IOThemRuntime.isRunningUITests,
+              arguments.contains("--ui-show-pending-screenplay-question"),
+              !didResolveUITestPendingQuestionFixture else {
+            return
+        }
+        let provisionalOptions = arguments.contains("--ui-show-provisional-screenplay-options")
+            ? [
+                BackendPendingScreenplayOption(
+                    id: "option-1",
+                    rank: 1,
+                    value: "Mara gives June the manifest and lets her choose the crossing.",
+                    recommended: true
+                ),
+                BackendPendingScreenplayOption(
+                    id: "option-2",
+                    rank: 2,
+                    value: "Mara exposes the ferry board before June can leave.",
+                    recommended: false
+                ),
+                BackendPendingScreenplayOption(
+                    id: "option-3",
+                    rank: 3,
+                    value: "Mara destroys the manifest and trusts June without proof.",
+                    recommended: false
+                ),
+            ]
+            : nil
+        vm.pendingScreenplayQuestion = BackendPendingScreenplayQuestion(
+            id: "ui-pending-theme-question",
+            projectId: vm.selectedProjectID.isEmpty ? "ui-project" : vm.selectedProjectID,
+            projectTitle: vm.selectedProject?.title ?? "The Last Crossing",
+            targetField: "project.theme_argument",
+            targetLabel: "Theme argument",
+            question: provisionalOptions == nil
+                ? "What does Mara learn about love when control can no longer keep June safe?"
+                : "Which path should become true: Option 1, 2, or 3?",
+            provisionalOptions: provisionalOptions,
+            askedAt: Date().timeIntervalSince1970 * 1_000
+        )
+        directionOneRightPanelTab = .them
+        isDirectionOneRightRailExpanded = true
+    }
+
+    private func applyUITestDraftConflictFixtureIfNeeded() {
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict"),
+              !didApplyUITestDraftConflictFixture,
+              vm.conflictState == nil else {
+            return
+        }
+        let selectedID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let project = vm.selectedProject ?? vm.projects.first(where: {
+            selectedID.isEmpty || $0.id == selectedID
+        }) else { return }
+        vm.selectedProject = project
+        vm.selectedProjectID = project.id
+        let serverDraft = """
+        EXT. FERRY TERMINAL - DAWN
+        MARA
+        The server copy survives.
+        """
+        vm.conflictState = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: project.id,
+            baseVersionId: vm.latestVersionID,
+            serverVersionId: "ui-server-version",
+            serverDraft: serverDraft,
+            serverDraftExcerpt: "EXT. FERRY TERMINAL - DAWN",
+            serverUpdatedAt: Date().timeIntervalSince1970 * 1_000
+        )
+        vm.hasUnsavedDraftChanges = true
+        vm.autosaveStatusText = "Conflict detected"
+        vm.infoText = "Another device updated this draft. Choose keep mine or load server."
+        didApplyUITestDraftConflictFixture = true
+    }
+    #endif
+
     private func applyDebugDraftInspectorIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugDraftInspectorToken > 0 else { return }
-        guard studioDebugDraftInspectorToken != studioDebugDraftInspectorAckToken else { return }
-        guard studioDebugDraftInspectorToken != lastAppliedStudioDebugDraftInspectorToken else { return }
-        lastAppliedStudioDebugDraftInspectorToken = studioDebugDraftInspectorToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugDraftInspectorToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugDraftInspectorAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugDraftInspectorToken else { return }
+        lastAppliedStudioDebugDraftInspectorToken = requestToken
         let requestedSection = DraftToolsSection(
             rawValue: studioDebugDraftInspectorSectionRaw
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
         ) ?? .pages
         Task { @MainActor in
+            guard studioDebugDraftInspectorToken == requestToken else { return }
             openDraftInspector()
             selectedDraftToolsSection = requestedSection
             if requestedSection == .pages {
                 await vm.refreshDraftInsights()
+                guard studioDebugDraftInspectorToken == requestToken else { return }
             }
-            studioDebugDraftInspectorAckToken = studioDebugDraftInspectorToken
+            studioDebugDraftInspectorAckToken = requestToken
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugShellVisibilityIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugShellVisibilityToken > 0 else { return }
-        guard studioDebugShellVisibilityToken != studioDebugShellVisibilityAckToken else { return }
-        guard studioDebugShellVisibilityToken != lastAppliedStudioDebugShellVisibilityToken else { return }
-        lastAppliedStudioDebugShellVisibilityToken = studioDebugShellVisibilityToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugShellVisibilityToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugShellVisibilityAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugShellVisibilityToken else { return }
+        lastAppliedStudioDebugShellVisibilityToken = requestToken
 
         let sidebarDirective = studioDebugShellVisibilitySidebarRaw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23047,6 +14933,7 @@ Look at the city.
             .lowercased()
 
         Task { @MainActor in
+            guard studioDebugShellVisibilityToken == requestToken else { return }
             withAnimation(.easeOut(duration: 0.20)) {
                 switch sidebarDirective {
                 case "show":
@@ -23071,18 +14958,26 @@ Look at the city.
                 directionOneRightPanelTab = .them
             }
 
-            studioDebugShellVisibilityAckToken = studioDebugShellVisibilityToken
+            studioDebugShellVisibilityAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_shell_visibility_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugRightPanelTabIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugRightPanelTabToken > 0 else { return }
-        guard studioDebugRightPanelTabToken != studioDebugRightPanelTabAckToken else { return }
-        guard studioDebugRightPanelTabToken != lastAppliedStudioDebugRightPanelTabToken else { return }
-        lastAppliedStudioDebugRightPanelTabToken = studioDebugRightPanelTabToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugRightPanelTabToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugRightPanelTabAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugRightPanelTabToken else { return }
+        lastAppliedStudioDebugRightPanelTabToken = requestToken
 
         let requestedTabRaw = studioDebugRightPanelTabRaw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23090,40 +14985,57 @@ Look at the city.
         let requestedTab = DirectionOneRightPanelTab.resolved(from: requestedTabRaw) ?? .beats
 
         Task { @MainActor in
+            guard studioDebugRightPanelTabToken == requestToken else { return }
             isDirectionOneRightRailExpanded = true
             directionOneRightPanelTab = requestedTab
             if requestedTabRaw == "intelligence" {
                 previewAllSuggestedIntelligenceFixes()
             }
-            studioDebugRightPanelTabAckToken = studioDebugRightPanelTabToken
+            studioDebugRightPanelTabAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_right_panel_tab_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugCommandBarIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugCommandBarToken > 0 else { return }
-        guard studioDebugCommandBarToken != studioDebugCommandBarAckToken else { return }
-        guard studioDebugCommandBarToken != lastAppliedStudioDebugCommandBarToken else { return }
-        lastAppliedStudioDebugCommandBarToken = studioDebugCommandBarToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugCommandBarToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugCommandBarAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugCommandBarToken else { return }
+        lastAppliedStudioDebugCommandBarToken = requestToken
 
         Task { @MainActor in
+            guard studioDebugCommandBarToken == requestToken else { return }
             openStudioCommandBar()
-            studioDebugCommandBarAckToken = studioDebugCommandBarToken
+            studioDebugCommandBarAckToken = requestToken
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugRouteMetadataSeedIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSeedRouteMetadataToken > 0 else { return }
         guard studioDebugSeedRouteMetadataToken != studioDebugSeedRouteMetadataAckToken else { return }
         guard studioDebugSeedRouteMetadataToken != lastAppliedStudioDebugSeedRouteMetadataToken else { return }
         lastAppliedStudioDebugSeedRouteMetadataToken = studioDebugSeedRouteMetadataToken
         guard vm.selectedProject != nil else {
             studioDebugSeedRouteMetadataAckToken = studioDebugSeedRouteMetadataToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                studioDebugSeedRouteMetadataToken,
+                forKey: "studio_debug_seed_route_metadata_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
             return
         }
@@ -23194,6 +15106,12 @@ Look at the city.
         liveDraftBridge.latestStudioRouteTarget = .voicePin
         liveDraftBridge.companionMode = .coach
         studioDebugSeedRouteMetadataAckToken = studioDebugSeedRouteMetadataToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(
+            studioDebugSeedRouteMetadataToken,
+            forKey: "studio_debug_seed_route_metadata_ack_token"
+        )
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
@@ -23228,56 +15146,73 @@ Look at the city.
     }
 
     private func applyDebugSelectedLinesIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugSelectLinesToken > 0 else { return }
-        guard studioDebugSelectLinesToken != studioDebugSelectLinesAckToken else { return }
-        guard studioDebugSelectLinesToken != lastAppliedStudioDebugSelectLinesToken else { return }
-        lastAppliedStudioDebugSelectLinesToken = studioDebugSelectLinesToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugSelectLinesToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugSelectLinesAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugSelectLinesToken else { return }
+        lastAppliedStudioDebugSelectLinesToken = requestToken
+        let requestedStartLine = studioDebugSelectLinesStartLine
+        let requestedEndLine = max(requestedStartLine, studioDebugSelectLinesEndLine)
         if let snapshot = debugSelectionSnapshot(
-            startLine: studioDebugSelectLinesStartLine,
-            endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+            startLine: requestedStartLine,
+            endLine: requestedEndLine
         ) {
             liveDraftBridge.jumpToLine(snapshot.startLine)
             liveDraftBridge.highlightLineRange(startLine: snapshot.startLine, endLine: snapshot.endLine)
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 120_000_000)
-                guard studioDebugSelectLinesAckToken == studioDebugSelectLinesToken else { return }
+                guard studioDebugSelectLinesToken == requestToken,
+                      studioDebugSelectLinesAckToken == requestToken else { return }
                 liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 publishDebugStudioDiffState()
             }
         } else {
             liveDraftBridge.updateEditorSelectionSnapshot(nil)
         }
-        studioDebugSelectLinesAckToken = studioDebugSelectLinesToken
+        studioDebugSelectLinesAckToken = requestToken
         publishDebugStudioDiffState()
         #endif
     }
 
     private func applyDebugLocalStudioCommandIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugLocalCommandToken > 0 else { return }
-        guard studioDebugLocalCommandToken != studioDebugLocalCommandAckToken else { return }
-        guard studioDebugLocalCommandToken != lastAppliedStudioDebugLocalCommandToken else { return }
-        lastAppliedStudioDebugLocalCommandToken = studioDebugLocalCommandToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugLocalCommandToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugLocalCommandAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugLocalCommandToken else { return }
+        lastAppliedStudioDebugLocalCommandToken = requestToken
         let text = studioDebugLocalCommandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            studioDebugLocalCommandAckToken = studioDebugLocalCommandToken
-            studioDebugLocalCommandResultToken = studioDebugLocalCommandToken
+            studioDebugLocalCommandAckToken = requestToken
+            studioDebugLocalCommandResultToken = requestToken
             studioDebugLocalCommandResultStatus = "error"
             studioDebugLocalCommandResultError = "local_command_empty"
-            studioDebugLocalCommandResultJSON = "{\"status\":\"error\",\"error\":\"local_command_empty\"}"
+            studioDebugLocalCommandResultJSON = studioDebugJSONString(from: [
+                "request_token": requestToken,
+                "status": "error",
+                "error": "local_command_empty",
+            ])
             publishDebugStudioDiffState()
             return
         }
         let source = StudioPromptSource(rawValue: studioDebugLocalCommandSourceRaw) ?? .voice
         let commandSource: ScreenplayStudioUserPrompt.Source = source == .typed ? .typed : .voice
+        let requestedSelectionSnapshot: ScreenplayEditorSelectionSnapshot?
+        if studioDebugSelectLinesAckToken == studioDebugSelectLinesToken,
+           studioDebugSelectLinesStartLine > 0 {
+            requestedSelectionSnapshot = debugSelectionSnapshot(
+                startLine: studioDebugSelectLinesStartLine,
+                endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+            )
+        } else {
+            requestedSelectionSnapshot = nil
+        }
         Task { @MainActor in
-            if studioDebugSelectLinesAckToken == studioDebugSelectLinesToken,
-               studioDebugSelectLinesStartLine > 0,
-               let snapshot = debugSelectionSnapshot(
-                    startLine: studioDebugSelectLinesStartLine,
-                    endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
-               ) {
+            guard studioDebugLocalCommandToken == requestToken else { return }
+            if let snapshot = requestedSelectionSnapshot {
                 liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
             }
             let feedback = liveDraftBridge.executeLocalStudioCommand(text, source: commandSource)
@@ -23288,6 +15223,7 @@ Look at the city.
             if expectsPreview && liveDraftBridge.pendingStudioActionPreview == nil {
                 for _ in 0..<8 {
                     try? await Task.sleep(nanoseconds: 25_000_000)
+                    guard studioDebugLocalCommandToken == requestToken else { return }
                     if liveDraftBridge.pendingStudioActionPreview != nil { break }
                 }
             }
@@ -23295,13 +15231,16 @@ Look at the city.
                 for _ in 0..<20 {
                     if liveDraftBridge.pendingStudioAction == nil { break }
                     try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard studioDebugLocalCommandToken == requestToken else { return }
                 }
             }
+            guard studioDebugLocalCommandToken == requestToken else { return }
             let preview = liveDraftBridge.pendingStudioActionPreview
             let previewDiffRows = preview.map(studioActionPreviewDiffRows(for:)) ?? []
             let previewDiffSummary = preview.map { studioActionPreviewDiffSummary(for: $0, diffRows: previewDiffRows) }
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": feedback == nil ? "unhandled" : (feedback?.isError == true ? "error" : "handled"),
                 "confirmation": feedback?.confirmation ?? "",
                 "is_error": feedback?.isError ?? true,
@@ -23340,25 +15279,26 @@ Look at the city.
                 "draft_preview": String(vm.fountainDraft.prefix(220)),
                 "draft_tail_preview": String(vm.fountainDraft.suffix(220)),
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            studioDebugLocalCommandAckToken = studioDebugLocalCommandToken
-            studioDebugLocalCommandResultToken = studioDebugLocalCommandToken
+            studioDebugLocalCommandAckToken = requestToken
+            studioDebugLocalCommandResultToken = requestToken
             studioDebugLocalCommandResultStatus = feedback == nil
                 ? "unhandled"
                 : (feedback?.isError == true ? "error" : "handled")
             studioDebugLocalCommandResultError = feedback?.isError == true ? (feedback?.confirmation ?? "local_command_failed") : ""
-            studioDebugLocalCommandResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugLocalCommandResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugCompanionModeIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugCompanionModeToken > 0 else { return }
-        guard studioDebugCompanionModeToken != studioDebugCompanionModeAckToken else { return }
-        guard studioDebugCompanionModeToken != lastAppliedStudioDebugCompanionModeToken else { return }
-        lastAppliedStudioDebugCompanionModeToken = studioDebugCompanionModeToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugCompanionModeToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugCompanionModeAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugCompanionModeToken else { return }
+        lastAppliedStudioDebugCompanionModeToken = requestToken
 
         let requestedMode = StudioCompanionMode(
             rawValue: studioDebugCompanionModeRaw
@@ -23367,21 +15307,30 @@ Look at the city.
         ) ?? .coach
 
         Task { @MainActor in
+            guard studioDebugCompanionModeToken == requestToken else { return }
             isDirectionOneRightRailExpanded = true
             directionOneRightPanelTab = .them
             liveDraftBridge.setCompanionMode(requestedMode)
-            studioDebugCompanionModeAckToken = studioDebugCompanionModeToken
+            studioDebugCompanionModeAckToken = requestToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_companion_mode_ack_token"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugIntelligenceQueueIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugIntelligenceQueueToken > 0 else { return }
-        guard studioDebugIntelligenceQueueToken != studioDebugIntelligenceQueueAckToken else { return }
-        guard studioDebugIntelligenceQueueToken != lastAppliedStudioDebugIntelligenceQueueToken else { return }
-        lastAppliedStudioDebugIntelligenceQueueToken = studioDebugIntelligenceQueueToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugIntelligenceQueueToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugIntelligenceQueueAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugIntelligenceQueueToken else { return }
+        lastAppliedStudioDebugIntelligenceQueueToken = requestToken
 
         let requestedAction = StudioDebugIntelligenceQueueAction(
             rawValue: studioDebugIntelligenceQueueActionRaw
@@ -23392,6 +15341,7 @@ Look at the city.
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task { @MainActor in
+            guard studioDebugIntelligenceQueueToken == requestToken else { return }
             directionOneRightPanelTab = .them
             isDirectionOneRightRailExpanded = true
 
@@ -23413,18 +15363,21 @@ Look at the city.
                     break
                 }
                 affectedFixCount = await applyQueuedIntelligenceFix(item) ? 1 : 0
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0, errorText.isEmpty {
                     status = "error"
                     errorText = "queue_apply_one_failed"
                 }
             case .applyAllSafe:
                 affectedFixCount = await applyAllSafeQueuedIntelligenceFixes()
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0, !queuedIntelligenceFixes.filter(\.isSafe).isEmpty {
                     status = "error"
                     errorText = "queue_apply_all_safe_failed"
                 }
             case .rollbackLastBatch:
                 affectedFixCount = await rollbackLastIntelligenceFixBatch()
+                guard studioDebugIntelligenceQueueToken == requestToken else { return }
                 if affectedFixCount == 0 {
                     status = "error"
                     errorText = "queue_rollback_failed"
@@ -23435,7 +15388,9 @@ Look at the city.
                 vm.infoText = "I couldn't resolve that queue action."
             }
 
+            guard studioDebugIntelligenceQueueToken == requestToken else { return }
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -23450,19 +15405,41 @@ Look at the city.
                 "last_batch_applied_fix_count": lastAppliedIntelligenceFixBatch?.appliedFixIDs.count ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            studioDebugIntelligenceQueueAckToken = studioDebugIntelligenceQueueToken
-            studioDebugIntelligenceQueueResultToken = studioDebugIntelligenceQueueToken
+            studioDebugIntelligenceQueueAckToken = requestToken
+            studioDebugIntelligenceQueueResultToken = requestToken
             studioDebugIntelligenceQueueResultStatus = status
             studioDebugIntelligenceQueueResultError = errorText
-            studioDebugIntelligenceQueueResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugIntelligenceQueueResultJSON = studioDebugJSONString(from: payload)
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_intelligence_queue_ack_token"
+            )
+            writeMirroredStudioDebugPreferenceInt(
+                requestToken,
+                forKey: "studio_debug_intelligence_queue_result_token"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                status,
+                forKey: "studio_debug_intelligence_queue_result_status"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                errorText,
+                forKey: "studio_debug_intelligence_queue_result_error"
+            )
+            writeMirroredStudioDebugPreferenceString(
+                studioDebugIntelligenceQueueResultJSON,
+                forKey: "studio_debug_intelligence_queue_result_json"
+            )
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugPageWriteToastIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugPageWriteToastToken > 0 else { return }
         guard studioDebugPageWriteToastToken != studioDebugPageWriteToastAckToken else { return }
         guard studioDebugPageWriteToastToken != lastAppliedStudioDebugPageWriteToastToken else { return }
@@ -23522,7 +15499,7 @@ Look at the city.
         lastCommittedStudioPromptSource = requestedSource
         lastCommittedStudioPromptTarget = .page
         lastCommittedStudioPrompt = sampleInsertedText
-        liveDraftBridge.lastCommittedWrite = ScreenplayCommittedWrite(
+        liveDraftBridge.lastCommittedWrite = liveDraftBridge.makeCommittedWrite(
             id: UUID(),
             writeID: "debug-page-write-toast-\(studioDebugPageWriteToastToken)",
             previousDraft: committedDraft,
@@ -23552,12 +15529,14 @@ Look at the city.
     }
 
     private func applyDebugPageWriteToastInteractionIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugPageWriteToastInteractionToken > 0 else { return }
-        guard studioDebugPageWriteToastInteractionToken != studioDebugPageWriteToastInteractionAckToken else { return }
-        guard studioDebugPageWriteToastInteractionToken != lastAppliedStudioDebugPageWriteToastInteractionToken else { return }
-        lastAppliedStudioDebugPageWriteToastInteractionToken = studioDebugPageWriteToastInteractionToken
-        studioDebugPageWriteToastInteractionAckToken = studioDebugPageWriteToastInteractionToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugPageWriteToastInteractionToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugPageWriteToastInteractionAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugPageWriteToastInteractionToken else { return }
+        lastAppliedStudioDebugPageWriteToastInteractionToken = requestToken
+        studioDebugPageWriteToastInteractionAckToken = requestToken
 
         let requestedAction = StudioDebugPageWriteToastInteractionAction(
             rawValue: studioDebugPageWriteToastInteractionActionRaw
@@ -23566,6 +15545,7 @@ Look at the city.
         )
 
         Task { @MainActor in
+            guard studioDebugPageWriteToastInteractionToken == requestToken else { return }
             var status = "handled"
             var errorText = ""
             var openedMore = false
@@ -23609,6 +15589,7 @@ Look at the city.
             }
 
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -23621,22 +15602,23 @@ Look at the city.
                 "current_cursor_line": liveDraftBridge.currentCursorLine,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            studioDebugPageWriteToastInteractionResultToken = studioDebugPageWriteToastInteractionToken
+            studioDebugPageWriteToastInteractionResultToken = requestToken
             studioDebugPageWriteToastInteractionResultStatus = status
             studioDebugPageWriteToastInteractionResultError = errorText
-            studioDebugPageWriteToastInteractionResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugPageWriteToastInteractionResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugShortcutIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugShortcutToken > 0 else { return }
-        guard studioDebugShortcutToken != studioDebugShortcutAckToken else { return }
-        guard studioDebugShortcutToken != lastAppliedStudioDebugShortcutToken else { return }
-        lastAppliedStudioDebugShortcutToken = studioDebugShortcutToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugShortcutToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugShortcutAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugShortcutToken else { return }
+        lastAppliedStudioDebugShortcutToken = requestToken
 
         let requestedAction = StudioDebugShortcutAction(
             rawValue: studioDebugShortcutActionRaw
@@ -23645,6 +15627,7 @@ Look at the city.
         )
 
         Task { @MainActor in
+            guard studioDebugShortcutToken == requestToken else { return }
             directionOneRightPanelTab = .beats
             isDirectionOneRightRailExpanded = true
 
@@ -23676,6 +15659,7 @@ Look at the city.
 
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -23695,24 +15679,26 @@ Look at the city.
                 "selection_end_line": liveDraftBridge.editorSelection?.endLine ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            studioDebugShortcutAckToken = studioDebugShortcutToken
-            studioDebugShortcutResultToken = studioDebugShortcutToken
+            studioDebugShortcutAckToken = requestToken
+            studioDebugShortcutResultToken = requestToken
             studioDebugShortcutResultStatus = status
             studioDebugShortcutResultError = errorText
-            studioDebugShortcutResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugShortcutResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugInspectorInteractionIfNeeded() {
-        #if DEBUG || os(macOS)
-        guard studioDebugInspectorInteractionToken > 0 else { return }
-        guard studioDebugInspectorInteractionToken != studioDebugInspectorInteractionAckToken else { return }
-        guard studioDebugInspectorInteractionToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
-        lastAppliedStudioDebugInspectorInteractionToken = studioDebugInspectorInteractionToken
-        studioDebugInspectorInteractionAckToken = studioDebugInspectorInteractionToken
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        let requestToken = studioDebugInspectorInteractionToken
+        guard requestToken > 0 else { return }
+        guard requestToken != studioDebugInspectorInteractionAckToken else { return }
+        guard requestToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
+        lastAppliedStudioDebugInspectorInteractionToken = requestToken
+        studioDebugInspectorInteractionAckToken = requestToken
+        mirrorStudioDebugInt(requestToken, forKey: "studio_debug_inspector_interaction_ack_token")
 
         let requestedAction = StudioDebugInspectorInteractionAction(
             rawValue: studioDebugInspectorInteractionActionRaw
@@ -23721,8 +15707,11 @@ Look at the city.
         )
         let primary = studioDebugInspectorInteractionPrimary.trimmingCharacters(in: .whitespacesAndNewlines)
         let secondary = studioDebugInspectorInteractionSecondary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedSelectionStartLine = studioDebugSelectLinesStartLine
+        let requestedSelectionEndLine = max(requestedSelectionStartLine, studioDebugSelectLinesEndLine)
 
         Task { @MainActor in
+            guard studioDebugInspectorInteractionToken == requestToken else { return }
             directionOneRightPanelTab = .beats
             isDirectionOneRightRailExpanded = true
 
@@ -23732,10 +15721,10 @@ Look at the city.
             switch requestedAction {
             case .makeBeatFromSelection:
                 if selectionQuickCaptureSeed == nil,
-                   studioDebugSelectLinesStartLine > 0,
+                   requestedSelectionStartLine > 0,
                    let snapshot = debugSelectionSnapshot(
-                        startLine: studioDebugSelectLinesStartLine,
-                        endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+                        startLine: requestedSelectionStartLine,
+                        endLine: requestedSelectionEndLine
                    ) {
                     liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 }
@@ -23746,6 +15735,7 @@ Look at the city.
                     break
                 }
                 await createBeatFromQuickCaptureSeed(seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .makeBeatFromCurrentScene:
                 guard let seed = currentSceneQuickCaptureSeed else {
                     status = "error"
@@ -23754,6 +15744,7 @@ Look at the city.
                     break
                 }
                 await createBeatFromQuickCaptureSeed(seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .updateSelectedBeatFromSelection:
                 let resolvedBeat = selectedBeatForQuickUpdate
                     ?? vm.outline.beats.first(where: {
@@ -23769,10 +15760,10 @@ Look at the city.
                     selectBeatInInspector(beat)
                 }
                 if selectionQuickCaptureSeed == nil,
-                   studioDebugSelectLinesStartLine > 0,
+                   requestedSelectionStartLine > 0,
                    let snapshot = debugSelectionSnapshot(
-                        startLine: studioDebugSelectLinesStartLine,
-                        endLine: max(studioDebugSelectLinesStartLine, studioDebugSelectLinesEndLine)
+                        startLine: requestedSelectionStartLine,
+                        endLine: requestedSelectionEndLine
                    ) {
                     liveDraftBridge.updateEditorSelectionSnapshot(snapshot)
                 }
@@ -23783,6 +15774,7 @@ Look at the city.
                     break
                 }
                 await updateBeatFromSelectionSeed(beat, seed: seed, persistToBackend: false)
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
             case .previewSelectedBeatDropBefore:
                 let sourceBeat = vm.outline.beats.first(where: {
                     $0.id == primary || $0.label.caseInsensitiveCompare(primary) == .orderedSame
@@ -23859,6 +15851,162 @@ Look at the city.
                 vm.newBeatLabel = primary
                 vm.newBeatSummary = secondary
                 vm.infoText = "Loaded a draft beat into the composer."
+            case .refreshCollaboration:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                await vm.refreshCollaborationData(source: "Manual retry")
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
+                if !vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            case .approveCollaborator:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .collaborators
+                let email = primary.lowercased()
+                guard !email.isEmpty else {
+                    status = "error"
+                    errorText = "collaborator_email_missing"
+                    vm.infoText = "Enter a collaborator email."
+                    break
+                }
+                vm.errorText = ""
+                vm.collaboratorEmail = email
+                vm.collaboratorNote = secondary
+                vm.collaboratorInvitedBy = "studio-debug"
+                await vm.approveCollaborator()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if !vm.approvedEmails.contains(email) {
+                    status = "error"
+                    errorText = "collaborator_not_approved"
+                }
+            case .addComment:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                let fallbackAuthor = vm.approvedEmails.first ?? ""
+                let authorEmail = primary.isEmpty ? fallbackAuthor : primary.lowercased()
+                let commentBody = secondary.isEmpty
+                    ? "Clementine should keep this emotional beat alive on the next pass."
+                    : secondary
+                guard !commentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    status = "error"
+                    errorText = "comment_text_missing"
+                    vm.infoText = "Add comment text or voice note details."
+                    break
+                }
+                vm.errorText = ""
+                vm.commentText = commentBody
+                vm.commentAuthorEmail = authorEmail
+                vm.commentActorEmail = authorEmail
+                vm.commentAuthorName = "Studio Debug"
+                vm.commentAnchorLine = "1"
+                vm.commentType = "text"
+                vm.commentVoiceURL = ""
+                vm.commentVoiceTranscript = ""
+                vm.commentVoiceDurationMs = ""
+                vm.commentReplyToID = ""
+                vm.commentEditID = ""
+                await vm.addComment()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
+                let normalizedCommentBody = commentBody.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if !vm.comments.contains(where: {
+                    ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedCommentBody
+                }) {
+                    status = "error"
+                    errorText = "comment_not_saved"
+                }
+            case .resolveFirstComment, .unresolveFirstComment, .deleteFirstComment:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                vm.errorText = ""
+                let requestedCommentID = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+                let targetComment = vm.comments.first(where: { comment in
+                    let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return !requestedCommentID.isEmpty && id == requestedCommentID
+                }) ?? vm.comments.first(where: { !($0.isDeleted ?? false) })
+                guard let targetComment else {
+                    status = "error"
+                    errorText = "comment_not_found"
+                    vm.infoText = "Select a comment first."
+                    break
+                }
+                switch requestedAction {
+                case .resolveFirstComment:
+                    await vm.setCommentResolved(targetComment, resolved: true)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.resolved != true {
+                        status = "error"
+                        errorText = "comment_not_resolved"
+                    }
+                case .unresolveFirstComment:
+                    await vm.setCommentResolved(targetComment, resolved: false)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.resolved == true {
+                        status = "error"
+                        errorText = "comment_not_reopened"
+                    }
+                case .deleteFirstComment:
+                    await vm.deleteComment(targetComment)
+                    guard studioDebugInspectorInteractionToken == requestToken else { return }
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.isDeleted != true {
+                        status = "error"
+                        errorText = "comment_not_deleted"
+                    }
+                default:
+                    break
+                }
+            case .keepLocalConflict:
+                directionOneRightPanelTab = .draft
+                selectedDraftToolsSection = .pages
+                guard vm.conflictState != nil else {
+                    status = "error"
+                    errorText = "conflict_not_present"
+                    vm.infoText = "No save conflict is active."
+                    break
+                }
+                vm.errorText = ""
+                await vm.keepLocalDraftAfterConflict()
+                guard studioDebugInspectorInteractionToken == requestToken else { return }
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if vm.conflictState != nil {
+                    status = "error"
+                    errorText = "conflict_not_cleared"
+                } else if vm.hasUnsavedDraftChanges {
+                    status = "error"
+                    errorText = "local_conflict_save_still_dirty"
+                }
+            case .loadServerConflict:
+                directionOneRightPanelTab = .draft
+                selectedDraftToolsSection = .pages
+                guard vm.conflictState != nil else {
+                    status = "error"
+                    errorText = "conflict_not_present"
+                    vm.infoText = "No save conflict is active."
+                    break
+                }
+                vm.errorText = ""
+                vm.applyServerVersionFromConflict()
+                if vm.conflictState != nil {
+                    status = "error"
+                    errorText = "conflict_not_cleared"
+                }
             case .restoreWorkspace:
                 isRestoringInspectorWorkspaceState = true
                 directionOneRightPanelTab = .draft
@@ -23876,9 +16024,11 @@ Look at the city.
                 vm.infoText = "I couldn't resolve that inspector interaction."
             }
 
+            guard studioDebugInspectorInteractionToken == requestToken else { return }
             let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
 
             let payload: [String: Any] = [
+                "request_token": requestToken,
                 "status": status,
                 "action": requestedAction?.rawValue ?? "",
                 "error": errorText,
@@ -23900,20 +16050,36 @@ Look at the city.
                 "beat_draft_label": vm.newBeatLabel,
                 "beat_draft_summary": vm.newBeatSummary,
                 "highlighted_scene_key": highlightedSceneInspectorKey,
+                "collaborator_count": vm.collaborators.count,
+                "approved_emails": vm.approvedEmails,
+                "comment_count": vm.comments.count,
+                "comment_ids": vm.comments.map(\.id),
+                "latest_comment_id": vm.comments.first?.id ?? "",
+                "latest_comment_text": vm.comments.first?.text ?? "",
+                "latest_comment_author": vm.comments.first?.authorEmail ?? "",
+                "latest_comment_resolved": vm.comments.first?.resolved ?? false,
+                "latest_comment_deleted": vm.comments.first?.isDeleted ?? false,
+                "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
+                "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
                 "latest_info_text": vm.infoText,
+                "vm_error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            studioDebugInspectorInteractionResultToken = studioDebugInspectorInteractionToken
+            studioDebugInspectorInteractionResultToken = requestToken
             studioDebugInspectorInteractionResultStatus = status
             studioDebugInspectorInteractionResultError = errorText
-            studioDebugInspectorInteractionResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugInspectorInteractionResultJSON = studioDebugJSONString(from: payload)
+            mirrorStudioDebugInt(requestToken, forKey: "studio_debug_inspector_interaction_result_token")
+            mirrorStudioDebugString(status, forKey: "studio_debug_inspector_interaction_result_status")
+            mirrorStudioDebugString(errorText, forKey: "studio_debug_inspector_interaction_result_error")
+            mirrorStudioDebugString(studioDebugInspectorInteractionResultJSON, forKey: "studio_debug_inspector_interaction_result_json")
             publishDebugStudioDiffState()
         }
         #endif
     }
 
     private func applyDebugSubmittedStudioPromptIfNeeded() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         guard studioDebugSubmitToken > 0 else { return }
         guard studioDebugSubmitToken != studioDebugSubmitAckToken else { return }
         guard studioDebugSubmitToken != lastAppliedStudioDebugSubmitToken else { return }
@@ -23933,6 +16099,7 @@ Look at the city.
         }
         studioPromptFocused = true
         studioDebugSubmitCommandReceivedToken = studioDebugSubmitToken
+        mirrorStudioDebugInt(studioDebugSubmitToken, forKey: "studio_debug_submit_command_received_token")
         publishDebugStudioDiffState()
         lastAppliedStudioDebugSubmitToken = studioDebugSubmitToken
         let requestID = "studio-\(UUID().uuidString.lowercased())"
@@ -23952,7 +16119,8 @@ Look at the city.
     }
 
     private func publishDebugStudioDiffState() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let pendingReplacement = liveDraftBridge.pendingReplacementTarget
         let submittedReplacement = liveDraftBridge.submittedReplacementTarget
         let currentDraft = vm.fountainDraft
@@ -23993,17 +16161,27 @@ Look at the city.
         let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
         let inspectorAutoScrollRequest = currentInspectorAutoScrollRequest
         let currentPageWritePreview = liveDraftBridge.lastCommittedWrite.map { committedWriteToastPreview($0.insertedText) } ?? ""
+        let featureSnapshot = featureWorkflowSnapshot
+        let acceptedPageWrites = acceptedStudioPageWriteExchanges
         let selectedBackendProject = (vm.selectedProject?.id == activeProjectID) ? vm.selectedProject : nil
         let listedBackendProject = activeProjectID.flatMap { projectID in
             vm.projects.first(where: { $0.id == projectID })
         }
+        let backendAskNoteEntries = backendStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+        let localThreadState = loadStudioFullThreadBrowseStateMap()[activeStudioAskNoteHistoryKey]
+        let conflict = vm.conflictState
+        let recovery = vm.recoveryCandidate
+        let recoveryDraft = recovery?.draft.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let state = StudioDebugDiffState(
             debugSessionID: studioDebugSessionID,
             projectKey: activeStudioAskNoteHistoryKey,
             selectedProjectID: vm.selectedProjectID,
             latestVersionID: vm.latestVersionID,
             studioSurfaceActive: true,
+            initialLoadSettled: studioDebugInitialLoadSettled,
             selectedProjectPresent: vm.selectedProject != nil,
+            errorText: vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
+            isSaving: vm.isSaving,
             loadedDraftProjectID: vm.debugLoadedDraftProjectID,
             loadProjectToken: trackedStudioDebugProjectLoadToken,
             loadProjectAckToken: studioDebugLoadProjectAckToken,
@@ -24040,6 +16218,10 @@ Look at the city.
             revisedDiffCount: revisedEntries.count,
             reopenedDiffCount: reopenedDiffExchangeKeys.count,
             acknowledgedDiffCount: acknowledgedDiffExchangeKeys.count,
+            askNoteHistoryCount: studioAskNoteHistory.count,
+            backendAskNoteHistoryCount: backendAskNoteEntries.count,
+            latestAskNotePrompt: studioAskNoteHistory.first?.prompt ?? "",
+            latestAskNoteInsertedText: studioAskNoteHistory.first?.insertedText ?? "",
             latestRevisedKey: latestRevisedKey,
             latestRevisedLineageKey: latestRevisedLineageKey,
             latestRevisedWriteID: latestRevisedWriteID,
@@ -24062,6 +16244,10 @@ Look at the city.
             restoredFocusedDiffKey: restoredStudioDebugFocusedDiffKey,
             restoredReopenedLineageKeys: restoredStudioDebugReopenedLineageKeys,
             restoredLatestReopenedWriteID: restoredStudioDebugLatestReopenedWriteID,
+            localThreadStateKeyPresent: localThreadState != nil,
+            localThreadStateFocusedDiffKey: localThreadState?.focusedDiffKey ?? "",
+            localThreadStateReopenedLineageKeys: localThreadState?.reopenedLineageKeys ?? [],
+            localThreadStateLatestReopenedWriteID: localThreadState?.latestReopenedWriteID ?? "",
             latestAcknowledgedLineageKey: latestAcknowledgedRecord?.lineageKey ?? "",
             latestAcknowledgedWriteID: latestAcknowledgedRecord?.acknowledgedWriteID ?? "",
             latestAcknowledgedFingerprint: latestAcknowledgedRecord?.acknowledgedFingerprint ?? "",
@@ -24080,6 +16266,17 @@ Look at the city.
             hasUnsavedDraftChanges: vm.hasUnsavedDraftChanges,
             autosaveEnabled: vm.autosaveEnabled,
             autosaveStatusText: vm.autosaveStatusText,
+            conflictPresent: conflict != nil,
+            conflictProjectID: conflict?.projectId ?? "",
+            conflictBaseVersionID: conflict?.baseVersionId ?? "",
+            conflictServerVersionID: conflict?.serverVersionId ?? "",
+            conflictServerDraftPreview: noteBodyForAnchor(conflict?.serverDraftExcerpt ?? conflict?.serverDraft ?? ""),
+            recoveryPresent: recovery != nil,
+            recoveryProjectID: recovery?.projectId ?? "",
+            recoveryBaseVersionID: recovery?.baseVersionId ?? "",
+            recoverySavedAt: recovery?.savedAt ?? 0,
+            recoveryDraftPreview: noteBodyForAnchor(recovery?.draft ?? ""),
+            recoveryMatchesCurrentDraft: !recoveryDraft.isEmpty && recoveryDraft == normalizedDraft,
             leftSidebarVisible: isDirectionOneSidebarVisible,
             sidebarSection: selectedSidebarSection.rawValue,
             draftInspectorPresented: draftInspectorIsPresented,
@@ -24092,6 +16289,8 @@ Look at the city.
             infoText: vm.infoText,
             draftPreview: draftPreview,
             draftTailPreview: draftTailPreview,
+            draftCharacterCount: normalizedDraft.count,
+            draftFingerprint: ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
             focusedDiffKey: focusedPageDiffPersistentKey,
             latestThreadRequestID: latestThreadEntry?.requestID ?? "",
             latestThreadWriteID: latestThreadEntry?.writeID ?? "",
@@ -24114,6 +16313,14 @@ Look at the city.
             pageWriteToastPreview: currentPageWritePreview,
             voicePinTurnCount: voicePinTurns.count,
             voicePinEmpty: voicePinTurns.isEmpty,
+            collaboratorCount: vm.collaborators.count,
+            approvedEmails: vm.approvedEmails,
+            commentCount: vm.comments.count,
+            latestCommentID: vm.comments.first?.id ?? "",
+            latestCommentText: vm.comments.first?.text ?? "",
+            latestCommentAuthor: vm.comments.first?.authorEmail ?? "",
+            latestCommentResolved: vm.comments.first?.resolved ?? false,
+            latestCommentDeleted: vm.comments.first?.isDeleted ?? false,
             collaboratorInspectorCompact: true,
             themCompanionMode: liveDraftBridge.companionMode.rawValue,
             themUnifiedSurface: true,
@@ -24124,6 +16331,12 @@ Look at the city.
             intelligenceQueueTitles: queuedIntelligenceFixes.map(\.title),
             intelligenceLastBatchID: lastAppliedIntelligenceFixBatch?.id ?? "",
             intelligenceLastBatchAppliedCount: lastAppliedIntelligenceFixBatch?.appliedFixIDs.count ?? 0,
+            featureCompassAct: featureSnapshot.currentActTitle,
+            featureCompassNextScene: featureSnapshot.nextSceneTitle,
+            featureCompassMoveTitles: featureSnapshot.nextMoves.map(\.title),
+            featureCompassAcceptedBatchCount: acceptedPageWrites.count,
+            featureCompassAcceptedBatchDetail: featureSnapshot.acceptedBatchDetail,
+            featureCompassHasAcceptedBatch: featureSnapshot.hasAcceptedBatch,
             rightRailExpanded: isDirectionOneRightRailExpanded,
             rightPanelTab: directionOneRightPanelTab.rawValue,
             selectedBeatID: selectedBeatInspectorID,
@@ -24160,34 +16373,7 @@ Look at the city.
         #endif
     }
 
-    private func copyStudioPromptSeed() {
-        let text = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = text
-        #endif
-        vm.infoText = "Prompt copied."
-    }
 
-    private func copyVoicePin(_ item: ScreenplayAssistantPinState) {
-        let pieces = [
-            item.title.trimmingCharacters(in: .whitespacesAndNewlines),
-            item.body.trimmingCharacters(in: .whitespacesAndNewlines),
-            item.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines),
-        ].filter { !$0.isEmpty }
-        let text = pieces.joined(separator: "\n\n")
-        guard !text.isEmpty else { return }
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #elseif os(iOS)
-        UIPasteboard.general.string = text
-        #endif
-        vm.infoText = "Copied copilot answer."
-    }
 
     private var filteredNavigatorEntries: [StudioFileEntry] {
         let query = navigatorFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -24748,56 +16934,11 @@ Look at the city.
         return candidate
     }
 
-    private var threadedComments: [BackendScreenplayComment] {
-        let filtered = vm.comments.filter { comment in
-            vm.showResolvedComments || !(comment.resolved ?? false)
-        }
-        let source = filtered.sorted { lhs, rhs in
-            (lhs.createdAt ?? lhs.updatedAt ?? 0) < (rhs.createdAt ?? rhs.updatedAt ?? 0)
-        }
-        var byId: [String: BackendScreenplayComment] = [:]
-        for item in source {
-            byId[item.id] = item
-        }
-        var children: [String: [BackendScreenplayComment]] = [:]
-        var roots: [BackendScreenplayComment] = []
-        for item in source {
-            let parent = (item.parentCommentId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if parent.isEmpty || byId[parent] == nil {
-                roots.append(item)
-            } else {
-                children[parent, default: []].append(item)
-            }
-        }
-        roots.sort { (lhs, rhs) in
-            (lhs.createdAt ?? lhs.updatedAt ?? 0) < (rhs.createdAt ?? rhs.updatedAt ?? 0)
-        }
-        for key in children.keys {
-            children[key]?.sort { (lhs, rhs) in
-                (lhs.createdAt ?? lhs.updatedAt ?? 0) < (rhs.createdAt ?? rhs.updatedAt ?? 0)
-            }
-        }
-        var ordered: [BackendScreenplayComment] = []
-        func appendDepthFirst(_ node: BackendScreenplayComment) {
-            ordered.append(node)
-            for child in children[node.id] ?? [] {
-                appendDepthFirst(child)
-            }
-        }
-        for root in roots {
-            appendDepthFirst(root)
-        }
-        return ordered.reversed()
-    }
 
     private var snapshotVersions: [BackendScreenplayVersion] {
-        let versions = vm.selectedProject?.versions ?? []
-        return versions
-            .sorted { lhs, rhs in
-                (lhs.updatedAt ?? lhs.createdAt ?? 0) > (rhs.updatedAt ?? rhs.createdAt ?? 0)
-            }
-            .prefix(10)
-            .map { $0 }
+        ScreenplayStudioDraftToolsPresentationPlanner.orderedSnapshotVersions(
+            vm.selectedProject?.versions ?? []
+        )
     }
 
     private var screenplayIntegrityIssues: [ScreenplayPageIntegrityIssue] {
@@ -24812,21 +16953,6 @@ Look at the city.
         screenplayIntegrityIssues.first
     }
 
-    private func commentDepth(_ comment: BackendScreenplayComment) -> Int {
-        var lookup: [String: BackendScreenplayComment] = [:]
-        for item in vm.comments {
-            lookup[item.id] = item
-        }
-        var depth = 0
-        var cursor = (comment.parentCommentId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        var guardCounter = 0
-        while !cursor.isEmpty, guardCounter < 8 {
-            guardCounter += 1
-            depth += 1
-            cursor = (lookup[cursor]?.parentCommentId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return min(depth, 6)
-    }
 
     private func toggleDraftInspector() {
         withAnimation(.spring(response: 0.30, dampingFraction: 0.85)) {
@@ -25039,341 +17165,9 @@ Look at the city.
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func paginationThumbnailLines(for page: BackendScreenplayPaginationPage, maxLines: Int = 12) -> [String] {
-        let previewLines = (page.preview ?? "")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if !previewLines.isEmpty {
-            let clippedPreview = previewLines.prefix(maxLines).map { String($0.prefix(36)) }
-            if clippedPreview.count >= maxLines {
-                return clippedPreview
-            }
-            return clippedPreview + Array(repeating: "", count: max(0, maxLines - clippedPreview.count))
-        }
-
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let allLines = normalized.components(separatedBy: "\n")
-        let startIndex = max(0, min(page.startLine - 1, allLines.count))
-        let endIndex = max(startIndex, min(page.endLine, allLines.count))
-        let pageLines = Array(allLines[startIndex..<endIndex])
-        let clipped = pageLines.prefix(maxLines).map { String($0.prefix(40)) }
-        if clipped.count >= maxLines {
-            return clipped
-        }
-        return clipped + Array(repeating: "", count: max(0, maxLines - clipped.count))
-    }
-
-    private func isPaginationPageActive(_ page: BackendScreenplayPaginationPage) -> Bool {
-        (page.startLine...page.endLine).contains(liveDraftBridge.currentCursorLine)
-    }
-
     private func jumpToPaginationPage(_ page: BackendScreenplayPaginationPage) {
         liveDraftBridge.jumpToLine(page.startLine)
         liveDraftBridge.highlightLineRange(startLine: page.startLine, endLine: page.endLine)
-    }
-
-    private var paginationStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if vm.paginationPages.isEmpty {
-                Text("Pagination updates after draft text is present.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(vm.paginationPages, id: \.page) { page in
-                        let isActive = isPaginationPageActive(page)
-                        Button {
-                            jumpToPaginationPage(page)
-                        } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                ZStack(alignment: .topLeading) {
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color.white.opacity(0.98))
-                                        .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        ForEach(Array(paginationThumbnailLines(for: page, maxLines: 8).enumerated()), id: \.offset) { _, line in
-                                            Text(line.isEmpty ? " " : line)
-                                                .font(.system(size: 7.2, weight: .regular, design: .monospaced))
-                                                .foregroundStyle(Color.black.opacity(line.isEmpty ? 0.08 : 0.72))
-                                                .lineLimit(1)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 10)
-                                }
-                                .frame(width: 112, height: 148)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(
-                                            isActive ? Color.herStudioActiveStroke.opacity(0.82) : Color.herShellStroke.opacity(0.20),
-                                            lineWidth: isActive ? 1.4 : 1
-                                        )
-                                )
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(spacing: 6) {
-                                        Text("Page \(page.page)")
-                                            .font(.system(size: 12, weight: .semibold, design: .default))
-                                            .foregroundStyle(Color.herText.opacity(0.90))
-                                        Spacer(minLength: 0)
-                                        if let estMinutes = page.estMinutes, estMinutes > 0 {
-                                            Text(String(format: "%.1fm", estMinutes))
-                                                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                                .foregroundStyle(Color.herText.opacity(0.48))
-                                        }
-                                    }
-
-                                    Text("Lines \(page.startLine)-\(page.endLine)")
-                                        .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                        .foregroundStyle(Color.herText.opacity(0.56))
-
-                                    Text(isActive ? "Current cursor page" : "Jump to this page")
-                                        .font(.system(size: 11, weight: .medium, design: .default))
-                                        .foregroundStyle(isActive ? Color.herStudioActiveStroke.opacity(0.90) : Color.herText.opacity(0.62))
-
-                                    Text("Thumbnail browser")
-                                        .font(.system(size: 10, weight: .medium, design: .default))
-                                        .foregroundStyle(Color.herText.opacity(0.44))
-                                        .textCase(.uppercase)
-                                        .tracking(0.5)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(11)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(isActive ? Color.herStudioActiveFill.opacity(0.14) : Color.black.opacity(0.18))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(
-                                        isActive ? Color.herStudioActiveStroke.opacity(0.34) : Color.herShellStroke.opacity(0.14),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var revisionSummaryView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let summary = vm.revisionSummary {
-                HStack(spacing: 8) {
-                    metricChip("Revised", value: "\(summary.revised)")
-                    metricChip("Added", value: "\(summary.added)")
-                    metricChip("Moved", value: "\(summary.moved)")
-                    metricChip("Removed", value: "\(summary.removed)")
-                }
-            }
-            if vm.revisionRanges.isEmpty {
-                Text("Revision ranges appear after a saved baseline exists.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(vm.revisionRanges.prefix(6).enumerated()), id: \.offset) { _, range in
-                        HStack(spacing: 8) {
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(revisionFillColor(range.color))
-                                .frame(width: 14, height: 8)
-                            Text("\(range.status.capitalized) lines \(range.startLine)-\(range.endLine)")
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func revisionFillColor(_ key: String) -> Color {
-        switch key.lowercased() {
-        case "blue":
-            return Color.blue.opacity(0.75)
-        case "pink":
-            return Color.pink.opacity(0.82)
-        case "yellow":
-            return Color.yellow.opacity(0.86)
-        case "green":
-            return Color.green.opacity(0.82)
-        case "goldenrod":
-            return Color.orange.opacity(0.84)
-        case "salmon":
-            return Color.red.opacity(0.75)
-        case "cherry":
-            return Color.red.opacity(0.90)
-        case "buff", "tan":
-            return Color.brown.opacity(0.72)
-        default:
-            return Color.white.opacity(0.40)
-        }
-    }
-
-    private func collaboratorRow(_ collaborator: BackendScreenplayCollaborator) -> some View {
-        let status = (collaborator.status ?? "pending").trimmingCharacters(in: .whitespacesAndNewlines)
-        let updated = dateFromTimestamp(collaborator.updatedAt ?? collaborator.approvedAt)
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(collaborator.email)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.90))
-                HStack(spacing: 6) {
-                    Text(status.capitalized)
-                        .font(.system(size: 11, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.82))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.16))
-                        .clipShape(Capsule())
-                    if let invitedBy = collaborator.invitedBy, !invitedBy.isEmpty {
-                        Text("by \(invitedBy)")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.62))
-                    }
-                    if let updated {
-                        Text(relativeTimestamp(updated))
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                    }
-                }
-                if let note = collaborator.note, !note.isEmpty {
-                    Text(note)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.70))
-                        .lineLimit(2)
-                }
-            }
-            Spacer()
-            Button("Remove") {
-                Task { await vm.revokeCollaborator(email: collaborator.email) }
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.13))
-        )
-    }
-
-    private func commentRow(_ comment: BackendScreenplayComment) -> some View {
-        let kind = (comment.type ?? "text").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let updated = dateFromTimestamp(comment.updatedAt ?? comment.createdAt)
-        let voiceURL = (comment.voiceUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let isDeleted = comment.isDeleted ?? false
-        let isResolved = comment.resolved ?? false
-        let depth = commentDepth(comment)
-        let canEdit = comment.canEdit ?? false
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(comment.authorName?.isEmpty == false ? comment.authorName! : (comment.authorEmail ?? "unknown"))
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.90))
-                Text(kind == "voice" ? "Voice" : "Text")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.80))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.15))
-                    .clipShape(Capsule())
-                Text(isResolved ? "Resolved" : "Open")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(isResolved ? 0.86 : 0.74))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background((isResolved ? Color.green : Color.white).opacity(isResolved ? 0.22 : 0.12))
-                    .clipShape(Capsule())
-                if let line = comment.anchorLine, line > 0 {
-                    Button("Jump L\(line)") {
-                        liveDraftBridge.jumpToLine(line)
-                        vm.infoText = "Jumped to line \(line)."
-                    }
-                    .buttonStyle(.bordered)
-                }
-                if let parent = comment.parentCommentId, !parent.isEmpty {
-                    Text("↳ \(parent)")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.60))
-                }
-                Spacer()
-                if let updated {
-                    Text(relativeTimestamp(updated))
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.60))
-                }
-            }
-            if isDeleted {
-                Text("Comment deleted")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            } else if let text = comment.text, !text.isEmpty {
-                Text(text)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.84))
-                    .lineLimit(4)
-            }
-            if let transcript = comment.voiceTranscript, !transcript.isEmpty {
-                Text(transcript)
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.74))
-                    .lineLimit(3)
-            }
-            if !voiceURL.isEmpty || (comment.voiceDurationMs ?? 0) > 0 {
-                HStack(spacing: 8) {
-                    if (comment.voiceDurationMs ?? 0) > 0 {
-                        Text("Voice \(comment.voiceDurationMs ?? 0)ms")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.62))
-                    }
-                    if !voiceURL.isEmpty, let url = URL(string: voiceURL) {
-                        Button("Open Voice File") {
-                            openURL(url)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-            }
-            HStack(spacing: 8) {
-                Button("Reply") {
-                    vm.startReply(to: comment)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isDeleted)
-                Button(isResolved ? "Reopen" : "Resolve") {
-                    Task { await vm.setCommentResolved(comment, resolved: !isResolved) }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isDeleted)
-                if canEdit {
-                    Button("Edit") {
-                        vm.startEdit(comment)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isDeleted)
-                    Button("Delete") {
-                        Task { await vm.deleteComment(comment) }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-        .padding(10)
-        .padding(.leading, CGFloat(depth) * 12.0)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.13))
-        )
     }
 
     @MainActor
@@ -25383,6 +17177,12 @@ Look at the city.
             let artifact: BackendScreenplayExportArtifact
             #if os(macOS)
             artifact = try localExportArtifact(format: format)
+            #elseif DEBUG
+            if IOThemRuntime.isRunningUITests {
+                artifact = try uiTestExportArtifact(format: format)
+            } else {
+                artifact = try await vm.exportArtifact(format: format)
+            }
             #else
             artifact = try await vm.exportArtifact(format: format)
             #endif
@@ -25399,6 +17199,44 @@ Look at the city.
             vm.errorText = ScreenplayExportFormatMenu.displayMessage(for: error, format: format)
         }
     }
+
+    #if DEBUG && !os(macOS)
+    private func uiTestExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {
+        let cleanDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "Draft is empty.")
+        }
+        let cleanTitle = (vm.selectedProject?.title ?? "UITest Screenplay")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = cleanTitle.isEmpty ? "UITest-Screenplay" : cleanTitle
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedFormat == "fdx" {
+            let xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Template="No" Version="1">
+  <Content>
+    <Paragraph Type="Scene Heading"><Text>\(cleanDraft.components(separatedBy: .newlines).first ?? "INT. ROOM - DAY")</Text></Paragraph>
+  </Content>
+</FinalDraft>
+"""
+            return BackendScreenplayExportArtifact(
+                format: "fdx",
+                filename: "\(safeTitle).fdx",
+                contentType: "application/xml",
+                data: Data(xml.utf8)
+            )
+        }
+        return BackendScreenplayExportArtifact(
+            format: normalizedFormat == "markdown" ? "md" : normalizedFormat,
+            filename: "\(safeTitle).md",
+            contentType: "text/markdown; charset=utf-8",
+            data: Data("# \(cleanTitle.isEmpty ? "UITest Screenplay" : cleanTitle)\n\n\(cleanDraft)\n".utf8)
+        )
+    }
+    #endif
 
     #if os(macOS)
     private func localExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {
@@ -25430,23 +17268,6 @@ Look at the city.
         }
     }
 
-    private func pickVoiceFileForComment() {
-        #if os(macOS)
-        let panel = NSOpenPanel()
-        panel.title = "Select Voice Note File"
-        panel.canChooseDirectories = false
-        panel.canCreateDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.audio]
-        if panel.runModal() == .OK, let url = panel.url {
-            vm.commentVoiceURL = url.absoluteString
-            if vm.commentType != "voice" {
-                vm.commentType = "voice"
-            }
-            vm.infoText = "Voice file attached."
-        }
-        #endif
-    }
 
     @MainActor
     private func saveExportArtifact(_ artifact: BackendScreenplayExportArtifact) throws -> URL? {
@@ -25482,265 +17303,74 @@ Look at the city.
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     }
 
-    private var leadReferenceDisclosure: some View {
-        DisclosureGroup(isExpanded: $showingLeadReferenceDetails) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Clean sluglines, lean action, concise dialogue, hard final beat.")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.72))
-                Text("Normalize with Cmd-Shift-F when pasted or imported text drifts away from the house format.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            }
-            .padding(.top, 4)
-        } label: {
-            HStack(spacing: 8) {
-                Text("Lead Reference")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.70))
-                    .textCase(.uppercase)
-                Text("A Cup of Coffee")
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.86))
-                Spacer(minLength: 0)
-            }
+
+    @MainActor
+    private func restoreStudioWorkspaceAfterProjectHydration() async {
+        let restoredProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let restoredHistoryKey = activeStudioAskNoteHistoryKey
+        guard ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: vm.selectedProjectID,
+            loadedProjectID: vm.selectedProject?.id,
+            loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+            isLoading: vm.isLoading
+        ) else {
+            return
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.72))
+        vm.replaceDraftFromVoiceBridgeIfNeeded(
+            liveDraftBridge.draftText,
+            draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
-        )
-    }
-
-    private var hollywoodFormatGuideStrip: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                hollywoodFormatBadge("STRICT HOLLYWOOD FORMAT")
-                hollywoodFormatBadge("Courier 12")
-                hollywoodFormatBadge("1 page ~ 1 minute")
-                Spacer(minLength: 0)
-                Text("Normalize: Cmd-Shift-F")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.60))
-            }
-
-            Text("From your PDF: use all-caps sluglines, keep action left-aligned and in present tense, center character names, place dialogue directly underneath, use parentheticals sparingly, and save transitions for moments like CUT TO: or FADE OUT.")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.78))
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 7) {
-                hollywoodFormatRuleRow(
-                    title: "Slugline",
-                    detail: "ALL CAPS. Use INT./EXT. + location + DAY or NIGHT."
-                )
-                hollywoodFormatRuleRow(
-                    title: "Action",
-                    detail: "Keep it on the left side of the page. Present tense. Tight visual lines."
-                )
-                hollywoodFormatRuleRow(
-                    title: "Character",
-                    detail: "Center the name and keep it in ALL CAPS."
-                )
-                hollywoodFormatRuleRow(
-                    title: "Dialogue",
-                    detail: "Place it directly under the character name, separated from action."
-                )
-                hollywoodFormatRuleRow(
-                    title: "Parenthetical",
-                    detail: "Use only when delivery would be unclear without it."
-                )
-                hollywoodFormatRuleRow(
-                    title: "Transition",
-                    detail: "Keep it in ALL CAPS on the right edge: CUT TO:, FADE OUT."
-                )
-                hollywoodFormatRuleRow(
-                    title: "First appearance",
-                    detail: "Introduce new characters in ALL CAPS inside action."
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                let metrics = ScreenplayStackMetrics.guideSample
-
-                HStack(spacing: 16) {
-                    Text("ACTION / SLUGLINE = LEFT")
-                    Spacer(minLength: 0)
-                    Text("CHARACTER = CENTER")
-                    Spacer(minLength: 0)
-                    Text("TRANSITION = RIGHT")
-                }
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.54))
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("INT. DINER - NIGHT")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, metrics.sceneHeadingSpacingAfter)
-                    Text("SARAH waits at the counter, keys biting into her palm.")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, metrics.actionCueSpacingAfter)
-                    Text("SARAH")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, metrics.characterLeading)
-                        .padding(.trailing, metrics.characterTrailing)
-                        .multilineTextAlignment(.center)
-                    Text("(quietly)")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, metrics.parentheticalLeading)
-                        .padding(.trailing, metrics.parentheticalTrailing)
-                    Text("I thought you said you were done waiting.")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, metrics.dialogueLeading)
-                        .padding(.trailing, metrics.dialogueTrailing)
-                    Text("CUT TO:")
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.trailing, metrics.transitionTrailing)
-                        .padding(.top, metrics.transitionSpacingBefore)
-                }
-                .font(.custom("Courier", size: 12))
-                .foregroundStyle(Color.black.opacity(0.84))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.herPaper)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.herPaperLine.opacity(0.74), lineWidth: 1)
-                )
-            }
-
-            HStack(spacing: 8) {
-                hollywoodStructureChip(title: "Act 1", pages: "pp. 1-25")
-                hollywoodStructureChip(title: "Act 2", pages: "pp. 25-90")
-                hollywoodStructureChip(title: "Act 3", pages: "pp. 90-110")
-                Spacer(minLength: 0)
-                Text("Write visually. Enter late. Leave early.")
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.62))
-            }
+        bootstrapNavigatorIfNeeded()
+        await restoreStudioAskNoteHistory(for: restoredHistoryKey)
+        guard vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == restoredProjectID,
+              activeStudioAskNoteHistoryKey == restoredHistoryKey,
+              ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+                  selectedProjectID: vm.selectedProjectID,
+                  loadedProjectID: vm.selectedProject?.id,
+                  loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+                  isLoading: vm.isLoading
+              ) else {
+            return
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.herShellPanel.opacity(0.74))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.26), lineWidth: 1)
-        )
-    }
-
-    private func hollywoodFormatBadge(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.herText.opacity(0.82))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.herShellPanelSoft.opacity(0.88))
-            .overlay(
-                Capsule()
-                    .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-    }
-
-    private func hollywoodFormatRuleRow(title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.herText.opacity(0.56))
-                .frame(width: 120, alignment: .leading)
-            Text(detail)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.80))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func hollywoodStructureChip(title: String, pages: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.84))
-            Text(pages)
-                .font(.system(size: 10, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.62))
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.herShellPanelSoft.opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func metricChip(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.70))
-            Text(value)
-                .font(.system(size: 14, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.95))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.16))
-        )
-    }
-
-    private func voicePinAccentColor(for mode: String) -> Color {
-        switch mode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "page":
-            return .green
-        case "task":
-            return .orange
-        case "copilot":
-            return .blue
-        default:
-            return .white
-        }
-    }
-
-    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.system(size: 22, weight: .semibold, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.90))
-            content()
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.herShellPanelSoft)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.68), lineWidth: 1)
-        )
-        .shadow(color: Color.herPaperShadow.opacity(0.10), radius: 12, y: 6)
+        restoreInspectorWorkspaceState()
+        vm.refreshLiveDraftBridgeContext()
+        restoreFeatureWorkflowContextAfterProjectHydration()
     }
 
     @MainActor
-    private func selectPreferredProjectIfNeeded(_ projectID: String) async {
-        guard !IOThemRuntime.isRunningTests else { return }
+    private func restoreFeatureWorkflowContextAfterProjectHydration() {
+        let projectID = liveDraftBridge.committedWriteProjectIDSnapshot()
+        let versionID = liveDraftBridge.committedWriteVersionIDSnapshot()
+        guard ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: liveDraftBridge.latestFeatureWorkflowContext,
+            projectID: projectID,
+            versionID: versionID
+        ) else {
+            return
+        }
+        liveDraftBridge.recordFeatureWorkflowContext(
+            ScreenplayFeatureWorkflowSessionContext(
+                requestID: "studio-restore-\(projectID)",
+                projectID: projectID,
+                versionID: versionID,
+                submittedPrompt: "Restored project continuity",
+                snapshot: featureWorkflowSnapshot,
+                featureSpine: liveDraftBridge.featureSpine,
+                pageCount: vm.estimatedFeaturePageCount,
+                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            )
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    private func selectPreferredProjectIfNeeded(_ projectID: String) async -> Bool {
+        guard !IOThemRuntime.isRunningTests else { return false }
         let clean = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        guard vm.selectedProjectID != clean else { return }
+        guard !clean.isEmpty else { return false }
+        guard vm.selectedProjectID != clean else { return false }
         await vm.selectProject(clean)
+        return true
     }
 
     private func relativeTimestamp(_ date: Date) -> String {

@@ -96,12 +96,24 @@ key.
 ## Error envelope
 
 ```json
-{ "stage": "talk_<stage>", "error": "<code>" }
+{
+  "stage": "talk_<stage>",
+  "provider_stage": "<stage>",
+  "error_class": "<support_safe_class>",
+  "request_id": "<safe correlation id>",
+  "error": "<support-safe message>"
+}
 ```
 
 Common stages: `talk_stt`, `talk_chat`, `talk_tts`,
 `talk_memory_write`, `talk_idempotency`, `talk_rate_limit`,
 `talk_session_serial`, `talk_concurrency`.
+
+Provider failures also set support-safe headers:
+`x-request-id`, `x-turn-error-stage`, `x-turn-provider-stage`,
+`x-turn-error-class`, `x-talk-error-class`, and
+`x-turn-error-message`. These values must not include transcript,
+screenplay text, private memory, prompts, provider bodies, or secrets.
 
 ## Compatibility rules
 
@@ -124,3 +136,6 @@ Common stages: `talk_stt`, `talk_chat`, `talk_tts`,
   over saved turns) but is NOT part of the per-turn `/talk`
   response. If these fields are added in a future Phase 7b
   extraction, update this doc in the same PR.
+- 2026-05-26 — Talk provider failure diagnostics now expose
+  `request_id`, `provider_stage`, and `error_class` in JSON/headers,
+  using support-safe messages instead of raw provider response bodies.

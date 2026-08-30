@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
 
 const SCREENSHOT_DIR = "/tmp/them-smoke/inspector-provenance";
@@ -21,7 +20,6 @@ function resolveScreenplayStudioSourcePath() {
 
 const SCREENPLAY_STUDIO_SOURCE_PATH = resolveScreenplayStudioSourcePath();
 
-const studioAppSessionHelperPath = fileURLToPath(new URL("./studio_app_session_helper.sh", import.meta.url));
 const studioDebugDefaultsDomains = Array.from(
   new Set([
     String(process.env.THEM_DEBUG_DEFAULTS_DOMAIN || "").trim(),
@@ -58,13 +56,8 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
-
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
 
 function readDefaultString(key) {
   for (const domain of studioDebugDefaultsDomains) {
@@ -149,78 +142,6 @@ function nextToken(...keys) {
   return debugContext.nextToken(...keys);
 }
 
-function parseBoolFlag(raw) {
-  const normalized = String(raw || "").trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function parsePidList(raw) {
-  return String(raw || "")
-    .split(",")
-    .map((value) => Number(value.trim()))
-    .filter((value) => Number.isInteger(value) && value > 0);
-}
-
-function parseStudioAppSessionHelperOutput(stdout = "") {
-  const telemetry = {
-    helperStatus: "error",
-    helperError: "",
-    stalePidSet: [],
-    relaunchedPidSet: [],
-    freshPid: 0,
-    lastTeardownStage: "unknown",
-    sessionMode: "",
-  };
-  for (const line of String(stdout || "").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const separator = trimmed.indexOf("=");
-    if (separator <= 0) continue;
-    const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim();
-    switch (key) {
-      case "OK":
-        telemetry.helperStatus = parseBoolFlag(value) ? "ok" : "error";
-        break;
-      case "STALE_PIDS":
-        telemetry.stalePidSet = parsePidList(value);
-        break;
-      case "RELAUNCHED_PIDS":
-        telemetry.relaunchedPidSet = parsePidList(value);
-        break;
-      case "FRESH_PID": {
-        const parsed = Number(value);
-        telemetry.freshPid = Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-        break;
-      }
-      case "LAST_TEARDOWN_STAGE":
-        telemetry.lastTeardownStage = value || telemetry.lastTeardownStage;
-        break;
-      case "SESSION_MODE":
-        telemetry.sessionMode = value;
-        break;
-      case "ERROR_MESSAGE":
-        telemetry.helperError = value;
-        break;
-      default:
-        break;
-    }
-  }
-  return telemetry;
-}
-
-function relaunchAppWithHelper(appPath) {
-  const result = runOptional("/bin/bash", [studioAppSessionHelperPath, "--app-path", appPath]);
-  const telemetry = parseStudioAppSessionHelperOutput(result.stdout);
-  if (result.status !== 0 || telemetry.helperStatus !== "ok") {
-    throw new Error(
-      `Studio app relaunch helper failed: ${telemetry.helperError || result.stderr || result.stdout || "unknown helper failure"}\n`
-      + JSON.stringify(telemetry, null, 2)
-    );
-  }
-  return telemetry;
-}
-
 function resetStudioOpenHandshakeDefaults() {
   writeDefaultInt("studio_debug_open_token", 0);
   writeDefaultInt("studio_debug_open_ack_token", 0);
@@ -270,35 +191,15 @@ function findDebugAppPath() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return studioApp.isRunning();
 }
 
-function activateApp(appPath = "") {
-  if (!appIsRunning() && appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  const appleScript = runOptional("osascript", ["-e", 'tell application "them" to activate']);
-  if (appleScript.status === 0) return;
-  const message = `${appleScript.stderr}\n${appleScript.stdout}`;
-  if (/timed out|connection invalid|can’t get application|can't get application/i.test(message)) return;
-  throw new Error(message.trim() || 'unable to activate "them"');
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
 }
 
 async function ensureStudioVisible() {
@@ -315,7 +216,7 @@ async function ensureStudioVisible() {
 
 async function seedStructuralDraft() {
   const appPath = findDebugAppPath();
-  runOptional("open", ["-na", appPath]);
+  activateApp(appPath);
   await sleep(700);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -437,6 +338,7 @@ async function runInspectorInteraction(action, primary = "", secondary = "") {
 }
 
 function readFrontWindowInfo() {
+  studioApp.assertOwned();
   const swiftSource = String.raw`
 import AppKit
 import CoreGraphics
@@ -444,10 +346,11 @@ import Foundation
 
 let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+let expectedOwnerPID = ${studioApp.pid}
 
 let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
+    let ownerPID = window[kCGWindowOwnerPID as String] as? Int ?? 0
+    guard ownerPID == expectedOwnerPID else { return nil }
     let layer = window[kCGWindowLayer as String] as? Int ?? 0
     guard layer == 0 else { return nil }
     guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
@@ -487,7 +390,9 @@ print(String(data: data, encoding: .utf8) ?? "{}")
 function captureWindow(targetPath) {
   const window = readFrontWindowInfo();
   assert(window.windowID > 0, "Missing THEM front window for capture");
+  studioApp.assertOwned();
   run("screencapture", ["-x", "-l", String(window.windowID), targetPath]);
+  studioApp.assertOwned();
   assert(existsSync(targetPath), `Expected screenshot at ${targetPath}`);
   const stats = statSync(targetPath);
   assert(stats.size > 0, `Expected screenshot ${targetPath} to be non-empty`);
@@ -495,22 +400,18 @@ function captureWindow(targetPath) {
 }
 
 function readRuntimeStaticTextBlob() {
-  const result = runOptional("osascript", [
-    "-e", "try",
-    "-e", 'tell application "System Events"',
-    "-e", 'tell process "them"',
-    "-e", 'if (count of windows) is 0 then return ""',
-    "-e", "set frontWindow to front window",
-    "-e", "set staticValues to value of every static text of entire contents of frontWindow",
-    "-e", "set AppleScript's text item delimiters to linefeed",
-    "-e", "return staticValues as text",
-    "-e", "end tell",
-    "-e", "end tell",
-    "-e", "on error",
-    "-e", 'return ""',
-    "-e", "end try",
+  const output = studioApp.runProcessAppleScript([
+    "try",
+    'if (count of windows) is 0 then return ""',
+    "set frontWindow to front window",
+    "set staticValues to value of every static text of entire contents of frontWindow",
+    "set AppleScript's text item delimiters to linefeed",
+    "return staticValues as text",
+    "on error",
+    'return ""',
+    "end try",
   ]);
-  return (result.status === 0 ? result.stdout : "").replace(/\r/g, "\n").trim();
+  return output.replace(/\r/g, "\n").trim();
 }
 
 function readSourceProvenanceA11yContract() {

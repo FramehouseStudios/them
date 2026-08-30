@@ -1,41 +1,41 @@
 {
-  "generatedAt": "2026-05-18T00:47:05.000Z",
-  "overallStatus": "failed",
+  "generatedAt": "2026-05-28T20:30:00.000Z",
+  "overallStatus": "not_started",
   "results": [
     {
-      "evidence": "2026-05-18 free/local backend smoke on http://127.0.0.1:3000 passed health, session, history, and memories. POST /talk reached STT and failed with OpenAI 401 invalid_api_key because the local key was a dummy value.",
+      "evidence": "2026-05-28 deterministic V1 voice-to-page smoke passed after extracted talk-handler live routing. Automated iOS V1 UI smoke passed via scripts/run_v1_ui_smoke.sh on iPhone 17 Pro, including the talk-to-screenplay stub flow. Full manual microphone record/reply/playback/save smoke has not been rerun in Launch Doctor.",
       "flow": "talk_pipeline",
-      "notes": "Blocked for real Talk proof until a real/free OPENAI_API_KEY is available or a repo-owned mock STT/TTS path exists. This is not assigned to Claude as a backend bug yet.",
-      "status": "failed",
-      "updatedAt": "2026-05-18T00:47:05.000Z"
+      "notes": "Backend /talk now routes through backend/lib/talk_handler.js and the full backend test suite passed after inline handler removal. Real microphone/audio proof still requires app/device or hosted credentials.",
+      "status": "not_started",
+      "updatedAt": "2026-05-28T20:30:00.000Z"
     },
     {
-      "evidence": "2026-05-18 deterministic V1 screenplay smoke passed via cd backend && npm run eval:v1-smokes; app create/save/export/reopen has not been run in Launch Doctor.",
+      "evidence": "2026-05-28 deterministic V1 screenplay smoke passed: Fountain export fixture preserved title, scenes, character cue, dialogue ordering, and byte determinism. Automated iOS V1 UI smoke passed via scripts/run_v1_ui_smoke.sh on iPhone 17 Pro, including Studio export. App create/save/export/reopen manual flow has not been rerun in Launch Doctor.",
       "flow": "screenplay_studio",
-      "notes": "Next free proof is an app-level Studio smoke against local config; signed/release Studio proof waits for deferred release inputs.",
+      "notes": "Next proof is the in-app Screenplay Studio manual smoke against the intended backend. No Launch Doctor pass is claimed yet.",
       "status": "not_started",
-      "updatedAt": "2026-05-18T00:47:05.000Z"
+      "updatedAt": "2026-05-28T20:30:00.000Z"
     },
     {
-      "evidence": "2026-05-18 deterministic V1 memory recall smoke passed via cd backend && npm run eval:v1-smokes; app mention/recall/Data Controls flow has not been run in Launch Doctor.",
+      "evidence": "2026-05-28 deterministic V1 memory recall smoke passed: character mention persisted, prompt-ready recall returned JUNE with voice/tags, reads stayed deterministic, and user isolation held. Automated iOS V1 UI smoke passed via scripts/run_v1_ui_smoke.sh on iPhone 17 Pro, including memory recall. App mention/recall/Data Controls manual flow has not been rerun in Launch Doctor.",
       "flow": "creative_memory",
-      "notes": "Next free proof is an app-level memory recall and diagnostics smoke.",
+      "notes": "Next proof is an app-level character continuity smoke with Data Controls visible to the human tester.",
       "status": "not_started",
-      "updatedAt": "2026-05-18T00:47:05.000Z"
+      "updatedAt": "2026-05-28T20:30:00.000Z"
     },
     {
-      "evidence": "2026-05-18 deterministic V1 realtime failover smoke passed via cd backend && npm run eval:v1-smokes; real app primary/stub fallback smoke has not been run in Launch Doctor.",
+      "evidence": "2026-05-28 deterministic V1 realtime failover smoke passed: primary success, primary-to-stub fallback, fallback failure, and pinned-provider failure paths all behaved as expected. Automated iOS V1 UI smoke passed via scripts/run_v1_ui_smoke.sh on iPhone 17 Pro, including realtime stub fallback. Real app primary/fallback manual flow has not been rerun in Launch Doctor.",
       "flow": "realtime",
-      "notes": "Next free proof should use the repo stub/failing realtime config and record exactly which path was stubbed.",
+      "notes": "Next proof is the in-app realtime manual smoke using primary provider plus forced-failure/degraded-mode configuration.",
       "status": "not_started",
-      "updatedAt": "2026-05-18T00:47:05.000Z"
+      "updatedAt": "2026-05-28T20:30:00.000Z"
     },
     {
-      "evidence": "2026-05-18 release config status still reports missing them/Release.local.env plus DEVELOPMENT_TEAM_ID, hosted BACKEND_URL, and production APP_TOKEN.",
+      "evidence": "2026-05-28 V1 status is 29/34. Deterministic V1 smokes passed and scripts/run_v1_ui_smoke.sh passed 5/5 on iPhone 17 Pro after replacing the stale iPhone 15 destination. Remaining blockers are the four manual app smokes plus final human release signoff/private release inputs.",
       "flow": "release_readiness",
-      "notes": "Paid/external release inputs are deferred to the end of the two-week free-first schedule unless they become free sooner.",
+      "notes": "Release signoff remains intentionally unpassed until Apple team/signing, production APP_TOKEN_RELEASE, exported Launch Doctor proof, and human approval are present.",
       "status": "not_started",
-      "updatedAt": "2026-05-18T00:47:05.000Z"
+      "updatedAt": "2026-05-28T20:30:00.000Z"
     }
   ],
   "schemaVersion": 1,
@@ -43,8 +43,8 @@
   "summary": {
     "total": 5,
     "passed": 0,
-    "failed": 1,
+    "failed": 0,
     "inProgress": 0,
-    "notStarted": 4
+    "notStarted": 5
   }
 }

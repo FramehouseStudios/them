@@ -67,6 +67,10 @@ function assertDialogueTimeline(
     expectedSceneId = "",
     expectedBeatId = "",
     expectedFirstScriptNodeId = "",
+    expectedInsertMode = "",
+    expectedInsertionAnchorLine = 0,
+    expectedInsertionAnchorEndLine = 0,
+    expectedFirstSegmentAnchorLine = 0,
   } = {}
 ) {
   assert.ok(timeline && typeof timeline === "object", "missing dialogue timeline payload");
@@ -95,6 +99,20 @@ function assertDialogueTimeline(
   }
   if (expectedFirstScriptNodeId) {
     assert.equal(String(firstSegment.page_anchor?.script_node_id || "").trim(), expectedFirstScriptNodeId);
+  }
+  if (expectedInsertMode) {
+    assert.equal(String(timeline.insertion_anchor?.insert_mode || "").trim(), expectedInsertMode);
+    assert.equal(String(firstSegment.page_anchor?.insert_mode || "").trim(), expectedInsertMode);
+  }
+  if (expectedInsertionAnchorLine > 0) {
+    assert.equal(Number(timeline.insertion_anchor?.anchor_line || 0), expectedInsertionAnchorLine);
+  }
+  if (expectedInsertionAnchorEndLine > 0) {
+    assert.equal(Number(timeline.insertion_anchor?.anchor_end_line || 0), expectedInsertionAnchorEndLine);
+  }
+  if (expectedFirstSegmentAnchorLine > 0) {
+    assert.equal(Number(firstSegment.page_anchor?.anchor_line || 0), expectedFirstSegmentAnchorLine);
+    assert.equal(Number(firstSegment.page_anchor?.anchor_end_line || 0), expectedFirstSegmentAnchorLine);
   }
   if (expectedText) {
     const joined = timeline.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean).join("\n");
@@ -240,6 +258,23 @@ async function getTurnMeta(turnId) {
   return { response, body, raw: text };
 }
 
+async function getState() {
+  const response = await fetch(`${baseUrl}/state`, {
+    headers: {
+      "X-APP-TOKEN": appToken,
+      "X-Client-Token": clientToken,
+    },
+  });
+  const text = await response.text();
+  let body = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch (_) {
+    body = {};
+  }
+  return { response, body, raw: text };
+}
+
 test(
   "talk returns audio with commit headers",
   { timeout: 120_000, skip: !TALK_TESTS_ENABLED || RECOVERY_ONLY_MODE },
@@ -276,9 +311,22 @@ test(
 );
 
 test(
-  "talk debug-offline page-write responses expose deterministic authoritative sync payload",
+  "talk debug-offline page-write responses expose authoritative sync payload without chat drift",
   { timeout: 120_000, skip: !SPAWN_BACKEND_FOR_TESTS || RECOVERY_ONLY_MODE },
   async () => {
+    const rawScreenplayTranscript = [
+      "Absolutely - here's the continuation.",
+      "",
+      "INT. DINER - NIGHT",
+      "",
+      "Rain needles the front window while neon bleeds across the counter.",
+      "",
+      "MARA",
+      "(low)",
+      "He came back.",
+      "",
+      "Want me to keep going?"
+    ].join("\n");
     const screenplayTranscript = [
       "INT. DINER - NIGHT",
       "",
@@ -292,7 +340,7 @@ test(
     const { res, headers } = await postTalk("", {
       fields: {
         client_transcript: "Write the prepared screenplay block to the page.",
-        screenplay_generation_transcript: screenplayTranscript,
+        screenplay_generation_transcript: rawScreenplayTranscript,
         screenplay_project_id: "integration-debug-sync-project",
         screenplay_document_revision_id: "integration-version-42",
         screenplay_target: "page",
@@ -335,6 +383,10 @@ test(
       expectedSceneId: "outline-scene-diner",
       expectedBeatId: "beat-diner",
       expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+      expectedInsertMode: "replace_selection",
+      expectedInsertionAnchorLine: 42,
+      expectedInsertionAnchorEndLine: 48,
+      expectedFirstSegmentAnchorLine: 42,
     });
 
     const turnId = String(headers["x-turn-id"] || "").trim();
@@ -354,6 +406,10 @@ test(
       expectedSceneId: "outline-scene-diner",
       expectedBeatId: "beat-diner",
       expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+      expectedInsertMode: "replace_selection",
+      expectedInsertionAnchorLine: 42,
+      expectedInsertionAnchorEndLine: 48,
+      expectedFirstSegmentAnchorLine: 42,
     });
     assert.equal(String(meta.body.render_contract?.reply_role || "").trim(), "preview");
     assert.equal(Boolean(meta.body.render_contract?.authoritative_page_text_available), true);
@@ -424,51 +480,31 @@ test(
 );
 
 test(
-  "local actions are confirmation-gated and support cancel",
+  "unrelated productivity requests stay in Clementine's companion lane",
   { timeout: 180_000, skip: !TALK_TESTS_ENABLED || RECOVERY_ONLY_MODE },
   async () => {
-    const firstActionPrompt =
-      "send email to qa@example.com subject Integration Check body This is a confirmation gate test";
+    for (const prompt of [
+      "send email to qa@example.com subject Integration Check body This should stay conversational",
+      "put a production meeting on my calendar tomorrow at three",
+    ]) {
+      const turn = await postTalk(prompt);
+      assert.equal(turn.res.status, 200);
+      assert.equal(turn.headers["x-email-status"], undefined);
+      assert.equal(turn.headers["x-email-compose-url"], undefined);
+      assert.equal(turn.headers["x-calendar-status"], undefined);
+      assert.equal(turn.headers["x-calendar-compose-url"], undefined);
+      assert.equal(String(turn.headers["x-action-lane"] || "chat"), "chat");
 
-    const pendingTurn = await postTalk(firstActionPrompt);
-    assert.equal(pendingTurn.res.status, 200);
-    const pendingTurnId = String(pendingTurn.headers["x-turn-id"] || "").trim();
-    assert.ok(pendingTurnId, "pending turn missing x-turn-id");
-    assert.equal(pendingTurn.headers["x-email-status"], undefined, "email executed before confirmation");
-
-    const pendingMeta = await getTurnMeta(pendingTurnId);
-    assert.equal(pendingMeta.response.status, 200);
-    const pendingReply = String(pendingMeta.body.reply || "").toLowerCase();
-    assert.equal(
-      pendingReply.includes("say \"confirm\" to run it"),
-      true,
-      `pending reply missing confirmation gate text: ${pendingMeta.raw}`
-    );
-
-    const cancelTurn = await postTalk("cancel action");
-    assert.equal(cancelTurn.res.status, 200);
-    assert.equal(cancelTurn.headers["x-email-status"], undefined, "cancel turn should not execute email action");
-    const cancelTurnId = String(cancelTurn.headers["x-turn-id"] || "").trim();
-    assert.ok(cancelTurnId, "cancel turn missing x-turn-id");
-
-    const postCancelConfirm = await postTalk("confirm");
-    assert.equal(postCancelConfirm.res.status, 200);
-    assert.equal(
-      postCancelConfirm.headers["x-email-status"],
-      undefined,
-      "confirm after cancel should not execute pending email action"
-    );
-
-    const rependingTurn = await postTalk(firstActionPrompt);
-    assert.equal(rependingTurn.res.status, 200);
-
-    const confirmTurn = await postTalk("confirm");
-    assert.equal(confirmTurn.res.status, 200);
-    const emailStatus = String(confirmTurn.headers["x-email-status"] || "").trim().toLowerCase();
-    assert.ok(
-      ["composed", "failed", "needs_recipient", "needs_content", "duplicate", "disabled"].includes(emailStatus),
-      `confirm did not execute email action. x-email-status=${emailStatus || "(missing)"}`
-    );
+      const turnId = String(turn.headers["x-turn-id"] || "").trim();
+      assert.ok(turnId, "turn missing x-turn-id");
+      const meta = await getTurnMeta(turnId);
+      assert.equal(meta.response.status, 200);
+      assert.equal(
+        String(meta.body.reply || "").toLowerCase().includes("say \"confirm\" to run it"),
+        false,
+        `abandoned productivity confirmation leaked into reply: ${meta.raw}`
+      );
+    }
   }
 );
 
@@ -476,16 +512,25 @@ test(
   "talk forced runtime failure returns recovered audio contract",
   { timeout: 120_000, skip: !FORCED_FAILURE_TEST_ENABLED },
   async () => {
+    const secretTranscript = "SECRET_TALK_DIAG_RUNTIME_TRANSCRIPT";
     const { res, audio, headers } = await postTalk(
-      "forced failure contract test",
+      secretTranscript,
       { headers: { "X-Debug-Force-Error": "server" } }
     );
     assert.equal(res.status, 200, `POST /talk forced-error status=${res.status}`);
     assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
     assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
     assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
-    assert.equal(String(headers["x-turn-error-stage"] || "").trim().toLowerCase(), "server");
-    assert.ok(String(headers["x-turn-error-message"] || "").trim().length > 0, "missing x-turn-error-message");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]).toLowerCase(), "server");
+    assert.equal(decodeHeaderValue(headers["x-turn-provider-stage"]).toLowerCase(), "server");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]).toLowerCase(), "talk_server_error");
+    assert.equal(decodeHeaderValue(headers["x-talk-error-class"]).toLowerCase(), "talk_server_error");
+    assert.ok(decodeHeaderValue(headers["x-request-id"]).length > 0, "missing x-request-id");
+    assert.ok(decodeHeaderValue(headers["x-turn-error-message"]).includes("Reference"), "missing support reference");
+    if (serverProc) {
+      const logs = `${serverProc.stdout.join("")}\n${serverProc.stderr.join("")}`;
+      assert.ok(!logs.includes(secretTranscript), "talk failure logs must not include transcript text");
+    }
   }
 );
 
@@ -493,15 +538,75 @@ test(
   "talk forced tts failure returns recovered audio contract",
   { timeout: 120_000, skip: !FORCED_FAILURE_TEST_ENABLED },
   async () => {
+    const secretTranscript = "SECRET_TALK_DIAG_TTS_TRANSCRIPT";
     const { res, audio, headers } = await postTalk(
-      "forced tts failure contract test",
+      secretTranscript,
       { headers: { "X-Debug-Force-Error": "tts" } }
     );
     assert.equal(res.status, 200, `POST /talk forced-tts-error status=${res.status}`);
     assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
     assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
     assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
-    assert.equal(String(headers["x-turn-error-stage"] || "").trim().toLowerCase(), "tts");
-    assert.ok(String(headers["x-turn-error-message"] || "").trim().length > 0, "missing x-turn-error-message");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]).toLowerCase(), "tts");
+    assert.equal(decodeHeaderValue(headers["x-turn-provider-stage"]).toLowerCase(), "tts");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]).toLowerCase(), "provider_unavailable");
+    assert.equal(decodeHeaderValue(headers["x-talk-error-class"]).toLowerCase(), "provider_unavailable");
+    assert.ok(decodeHeaderValue(headers["x-request-id"]).length > 0, "missing x-request-id");
+    assert.ok(decodeHeaderValue(headers["x-turn-error-message"]).includes("Reference"), "missing support reference");
+    if (serverProc) {
+      const logs = `${serverProc.stdout.join("")}\n${serverProc.stderr.join("")}`;
+      assert.ok(!logs.includes(secretTranscript), "talk failure logs must not include transcript text");
+    }
+  }
+);
+
+test(
+  "talk exhausted screenplay quality returns recovery without mutating the draft session",
+  { timeout: 120_000, skip: !SPAWN_BACKEND_FOR_TESTS || RECOVERY_ONLY_MODE },
+  async () => {
+    const before = await getState();
+    assert.equal(before.response.status, 200, `GET /state before failed: ${before.raw}`);
+
+    const { res, audio, headers } = await postTalk("", {
+      headers: { "X-Debug-Force-Error": "screenplay_quality" },
+      fields: {
+        client_transcript: "Continue the screenplay with the prepared page.",
+        screenplay_generation_transcript: [
+          "INT. FERRY TERMINAL - NIGHT",
+          "",
+          "Mara closes her hand around the final ticket.",
+          "",
+          "MARA",
+          "We go together.",
+        ].join("\n"),
+        screenplay_project_id: "integration-quality-recovery-project",
+        screenplay_target: "page",
+        screenplay_prompt_source: "voice",
+        screenplay_anchor_scene_label: "INT. FERRY TERMINAL - NIGHT",
+      },
+    });
+
+    assert.equal(res.status, 200, `POST /talk screenplay-quality status=${res.status}`);
+    assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
+    assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
+    assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]), "chat");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]), "screenplay_page_quality_failed");
+    assert.equal(String(headers["x-screenplay-output-available"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-authoritative"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-sync-ready"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-quality-ok"] || ""), "0");
+    assert.equal(String(headers["x-screenplay-repair-outcome"] || ""), "exhausted");
+    assert.equal(String(headers["x-turn-meta-available"] || ""), "0");
+    assert.equal(String(headers["x-turn-id"] || ""), "");
+    assert.match(decodeHeaderValue(headers["x-turn-error-message"]), /draft was left unchanged/i);
+
+    const after = await getState();
+    assert.equal(after.response.status, 200, `GET /state after failed: ${after.raw}`);
+    assert.deepEqual(
+      after.body.history_delta,
+      before.body.history_delta,
+      "an exhausted page-quality turn must not persist a user/assistant history pair"
+    );
   }
 );

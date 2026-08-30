@@ -30,9 +30,12 @@ function buildUserAuthStub() {
   };
 }
 
-async function withTestServer(userAuth, fn) {
+async function withTestServer(userAuth, fn, configureAfterMount = null) {
   const app = express();
   mountAuthRoutes(app, { userAuth });
+  if (typeof configureAfterMount === "function") {
+    configureAfterMount(app);
+  }
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
@@ -108,6 +111,27 @@ test("[auth-routes] POST /auth/signup invokes handleAuthSignup with parsed body"
     assert.deepEqual(r.body.body, { email: "a@b.com" });
     assert.equal(userAuth.calls.handleAuthSignup, 1);
   });
+});
+
+test("[auth-routes] rejected async handlers reach Express error middleware", async () => {
+  const userAuth = buildUserAuthStub();
+  userAuth.handleAuthSignup = async () => {
+    throw new Error("simulated async auth failure");
+  };
+  await withTestServer(
+    userAuth,
+    async (baseURL) => {
+      const r = await post(baseURL, "/auth/signup", { email: "a@b.com" });
+      assert.equal(r.status, 500);
+      assert.equal(r.body.error, "auth_route_failed");
+    },
+    (app) => {
+      app.use((error, _req, res, _next) => {
+        assert.match(error.message, /simulated async auth failure/);
+        res.status(500).json({ error: "auth_route_failed" });
+      });
+    },
+  );
 });
 
 test("[auth-routes] POST /auth/login + /auth/apple + /auth/refresh + /auth/logout each parses body", async () => {

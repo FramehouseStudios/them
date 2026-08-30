@@ -3,6 +3,190 @@ import ScreenplayStudio
 import os
 import Security
 
+nonisolated enum BackendClientCredentialStorePolicy {
+    static func shouldUseKeychainForClientTokens(isMacOS: Bool, isDebug: Bool) -> Bool {
+        !(isMacOS && isDebug)
+    }
+
+    static var currentShouldUseKeychainForClientTokens: Bool {
+        #if os(macOS) && DEBUG
+        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: true)
+        #else
+        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: false)
+        #endif
+    }
+}
+
+nonisolated enum BackendDefaultBaseURLPolicy {
+    static let productionBaseURLRawValue = "https://api.them.io"
+    static let localPrimaryDebugBaseURLRawValue = "http://127.0.0.1:3000"
+    static let localFallbackDebugBaseURLRawValue = "http://localhost:3001"
+
+    static func primaryBaseURL(isMacOS _: Bool, isDebug: Bool) -> URL {
+        if isDebug {
+            return URL(string: localPrimaryDebugBaseURLRawValue)!
+        }
+        return URL(string: productionBaseURLRawValue)!
+    }
+
+    static func fallbackBaseURL(isMacOS _: Bool, isDebug: Bool) -> URL {
+        if isDebug {
+            return URL(string: localFallbackDebugBaseURLRawValue)!
+        }
+        return URL(string: productionBaseURLRawValue)!
+    }
+
+    static var currentPrimaryBaseURL: URL {
+        #if os(macOS) && DEBUG
+        return primaryBaseURL(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return primaryBaseURL(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return primaryBaseURL(isMacOS: false, isDebug: true)
+        #else
+        return primaryBaseURL(isMacOS: false, isDebug: false)
+        #endif
+    }
+
+    static var currentFallbackBaseURL: URL {
+        #if os(macOS) && DEBUG
+        return fallbackBaseURL(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return fallbackBaseURL(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return fallbackBaseURL(isMacOS: false, isDebug: true)
+        #else
+        return fallbackBaseURL(isMacOS: false, isDebug: false)
+        #endif
+    }
+
+    static func uiTestOverrideBaseURL(
+        isDebug: Bool,
+        launchArguments: [String],
+        environment: [String: String],
+        storedBaseURL: String? = nil
+    ) -> URL? {
+        guard isDebug, launchArguments.contains("--ui-testing") else { return nil }
+        let useDynamicStoredURL = launchArguments.contains("--ui-screenplay-save-network-fault")
+        let normalizedRaw = (useDynamicStoredURL
+            ? storedBaseURL ?? ""
+            : environment["THEM_UITEST_BACKEND_BASE_URL"] ?? storedBaseURL ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isUsableConfigValue(normalizedRaw),
+              let url = URL(string: normalizedRaw),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return nil
+        }
+        guard isLoopbackBackendURL(url),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = "127.0.0.1"
+        return components.url ?? url
+    }
+
+    static var currentUITestOverrideBaseURL: URL? {
+        #if DEBUG
+        return uiTestOverrideBaseURL(
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            storedBaseURL: UserDefaults.standard.string(forKey: "backend_base_url")
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    static func shouldUseStoredBaseURL(
+        _ url: URL,
+        isMacOS _: Bool,
+        isDebug _: Bool,
+        launchArguments _: [String],
+        environment _: [String: String],
+        debugTokenValues _: [String],
+        now _: Date
+    ) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    static func currentShouldUseStoredBaseURL(_ url: URL, defaults _: UserDefaults = .standard) -> Bool {
+        #if os(macOS) && DEBUG
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: true,
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: [],
+            now: Date()
+        )
+        #elseif os(macOS)
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: true,
+            isDebug: false,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: [],
+            now: Date()
+        )
+        #elseif DEBUG
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: false,
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: [],
+            now: Date()
+        )
+        #else
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: false,
+            isDebug: false,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: [],
+            now: Date()
+        )
+        #endif
+    }
+
+    static func isLoopbackBackendURL(_ url: URL) -> Bool {
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
+    }
+
+    private static func isUsableConfigValue(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.hasPrefix("$("), value.hasSuffix(")") {
+            return false
+        }
+        return true
+    }
+}
+
 struct BackendTalkUIReflection {
     let cycleIndex: Int
     let orbSaturation: Double
@@ -242,6 +426,7 @@ struct BackendCharacterTraits: Codable, Equatable {
     let emotionalDefault: String
     let goals: [String]
     let relationships: [String: String]
+    let voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
 
     enum CodingKeys: String, CodingKey {
         case vocabulary
@@ -250,6 +435,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         case emotionalDefault = "emotional_default"
         case goals
         case relationships
+        case voiceFingerprint = "voice_fingerprint"
     }
 
     init(
@@ -258,7 +444,8 @@ struct BackendCharacterTraits: Codable, Equatable {
         speechStyle: BackendCharacterSpeechStyle = BackendCharacterSpeechStyle(),
         emotionalDefault: String = "",
         goals: [String] = [],
-        relationships: [String: String] = [:]
+        relationships: [String: String] = [:],
+        voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint = BackendScreenplayCharacterVoiceFingerprint()
     ) {
         self.vocabulary = vocabulary
         self.keywords = keywords
@@ -266,6 +453,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         self.emotionalDefault = emotionalDefault
         self.goals = goals
         self.relationships = relationships
+        self.voiceFingerprint = voiceFingerprint
     }
 
     init(from decoder: Decoder) throws {
@@ -276,6 +464,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         emotionalDefault = (try container.decodeIfPresent(String.self, forKey: .emotionalDefault)) ?? ""
         goals = (try container.decodeIfPresent([String].self, forKey: .goals)) ?? []
         relationships = (try container.decodeIfPresent([String: String].self, forKey: .relationships)) ?? [:]
+        voiceFingerprint = (try container.decodeIfPresent(BackendScreenplayCharacterVoiceFingerprint.self, forKey: .voiceFingerprint)) ?? BackendScreenplayCharacterVoiceFingerprint()
     }
 
     var hasContent: Bool {
@@ -285,13 +474,18 @@ struct BackendCharacterTraits: Codable, Equatable {
         !speechStyle.syntax.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !emotionalDefault.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !goals.isEmpty ||
-        !relationships.isEmpty
+        !relationships.isEmpty ||
+        voiceFingerprint.isMeaningful
     }
 }
 
 struct BackendCharacterTraitRecord: Codable, Equatable {
     let name: String
     let traits: BackendCharacterTraits?
+    var bible: BackendCharacterBibleMemory? = nil
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
+    var projectId: String? = nil
+    var projectTitle: String? = nil
 }
 
 struct BackendCharacterTraitsResponse: Codable, Equatable {
@@ -358,6 +552,15 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
     let archetypeSummary: String
     let archetypeScoreLabel: String
     let hasArchetype: Bool
+    let fieldProvenance: [BackendLearnedFieldProvenance]
+
+    var accessibilityKey: String {
+        let characters = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(characters).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
 
     static func make(
         response: BackendCharacterTraitsResponse?,
@@ -388,6 +591,14 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
             let vocabulary = (traits?.vocabulary ?? []).map { clean($0) }.filter { !$0.isEmpty }
             let keywords = (traits?.keywords ?? []).map { clean($0) }.filter { !$0.isEmpty }
             let relationships = traits?.relationships ?? [:]
+            let fieldProvenance = (record.fieldProvenance ?? record.bible?.fieldProvenance ?? [])
+                .filter {
+                    !$0.field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+                .sorted { left, right in
+                    (left.updatedAt ?? left.learnedAt ?? 0) > (right.updatedAt ?? right.learnedAt ?? 0)
+                }
             let summary: String
             if !emotionalDefault.isEmpty {
                 summary = "Default: \(emotionalDefault)"
@@ -415,7 +626,8 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
                 archetypeLabel: archetypeLabel,
                 archetypeSummary: clean(archetypeEntry?.summary ?? ""),
                 archetypeScoreLabel: scoreLabel,
-                hasArchetype: !archetypeLabel.isEmpty
+                hasArchetype: !archetypeLabel.isEmpty,
+                fieldProvenance: Array(fieldProvenance.prefix(6))
             )
         }
     }
@@ -577,6 +789,361 @@ struct BackendTalkKnowledgeTrace {
     )
 }
 
+struct BackendTalkCreativeMemoryCharacterTrace: Codable, Equatable {
+    let name: String
+    let hasBible: Bool
+    let hasCorrections: Bool
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case hasBible = "has_bible"
+        case hasCorrections = "has_corrections"
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+    }
+
+    init(
+        name: String,
+        hasBible: Bool = false,
+        hasCorrections: Bool = false,
+        correctedTerms: [String] = [],
+        correctionReplacements: [String] = []
+    ) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.hasBible = hasBible
+        self.hasCorrections = hasCorrections
+        self.correctedTerms = correctedTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correctionReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
+            hasBible: try container.decodeIfPresent(Bool.self, forKey: .hasBible) ?? false,
+            hasCorrections: try container.decodeIfPresent(Bool.self, forKey: .hasCorrections) ?? false,
+            correctedTerms: try container.decodeIfPresent([String].self, forKey: .correctedTerms) ?? [],
+            correctionReplacements: try container.decodeIfPresent([String].self, forKey: .correctionReplacements) ?? []
+        )
+    }
+}
+
+struct BackendTalkCreativeMemoryEpisodeTrace: Codable, Equatable {
+    let summary: String
+    let excerpt: String
+    let projectId: String?
+    let projectTitle: String?
+    let characters: [String]
+    let tags: [String]
+    let correction: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case excerpt
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case characters
+        case tags
+        case correction
+    }
+
+    init(
+        summary: String,
+        excerpt: String,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        characters: [String] = [],
+        tags: [String] = [],
+        correction: Bool = false
+    ) {
+        self.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.excerpt = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.characters = characters
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.tags = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correction = correction
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            summary: try container.decodeIfPresent(String.self, forKey: .summary) ?? "",
+            excerpt: try container.decodeIfPresent(String.self, forKey: .excerpt) ?? "",
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            characters: try container.decodeIfPresent([String].self, forKey: .characters) ?? [],
+            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? [],
+            correction: try container.decodeIfPresent(Bool.self, forKey: .correction) ?? false
+        )
+    }
+}
+
+struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
+    let applied: Bool
+    let projectId: String?
+    let projectTitle: String?
+    let queryChars: Int
+    let characterCount: Int
+    let characters: [BackendTalkCreativeMemoryCharacterTrace]
+    let episodicCount: Int
+    let episodic: [BackendTalkCreativeMemoryEpisodeTrace]
+    let correctionCount: Int
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+    let screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace?
+    let styleApplied: Bool
+    let toneApplied: Bool
+    let habitsApplied: Bool
+    let canonClarification: BackendCanonCorrectionAmbiguity?
+    let storyObligationChange: BackendStoryObligationChange?
+
+    enum CodingKeys: String, CodingKey {
+        case applied
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case queryChars = "query_chars"
+        case characterCount = "character_count"
+        case characters
+        case episodicCount = "episodic_count"
+        case episodic
+        case correctionCount = "correction_count"
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+        case screenplayProjectMemory = "screenplay_project_memory"
+        case styleApplied = "style_applied"
+        case toneApplied = "tone_applied"
+        case habitsApplied = "habits_applied"
+        case canonClarification = "canon_clarification"
+        case storyObligationChange = "story_obligation_change"
+    }
+
+    init(
+        applied: Bool,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        queryChars: Int = 0,
+        characterCount: Int = 0,
+        characters: [BackendTalkCreativeMemoryCharacterTrace] = [],
+        episodicCount: Int = 0,
+        episodic: [BackendTalkCreativeMemoryEpisodeTrace] = [],
+        correctionCount: Int = 0,
+        correctedTerms: [String] = [],
+        correctionReplacements: [String] = [],
+        screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace? = nil,
+        styleApplied: Bool = false,
+        toneApplied: Bool = false,
+        habitsApplied: Bool = false,
+        canonClarification: BackendCanonCorrectionAmbiguity? = nil,
+        storyObligationChange: BackendStoryObligationChange? = nil
+    ) {
+        self.applied = applied
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.queryChars = max(0, queryChars)
+        self.characters = characters.filter { !$0.name.isEmpty }
+        self.characterCount = max(max(0, characterCount), self.characters.count)
+        self.episodic = episodic.filter { !$0.summary.isEmpty || !$0.excerpt.isEmpty }
+        self.episodicCount = max(max(0, episodicCount), self.episodic.count)
+        self.correctionCount = max(0, correctionCount)
+        self.correctedTerms = correctedTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correctionReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.screenplayProjectMemory = screenplayProjectMemory?.hasContent == true ? screenplayProjectMemory : nil
+        self.styleApplied = styleApplied
+        self.toneApplied = toneApplied
+        self.habitsApplied = habitsApplied
+        self.canonClarification = canonClarification?.isPending == true && (canonClarification?.candidateFacts.count ?? 0) >= 2
+            ? canonClarification
+            : nil
+        self.storyObligationChange = storyObligationChange?.isMeaningful == true
+            ? storyObligationChange
+            : nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            applied: try container.decodeIfPresent(Bool.self, forKey: .applied) ?? false,
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            queryChars: try container.decodeIfPresent(Int.self, forKey: .queryChars) ?? 0,
+            characterCount: try container.decodeIfPresent(Int.self, forKey: .characterCount) ?? 0,
+            characters: try container.decodeIfPresent([BackendTalkCreativeMemoryCharacterTrace].self, forKey: .characters) ?? [],
+            episodicCount: try container.decodeIfPresent(Int.self, forKey: .episodicCount) ?? 0,
+            episodic: try container.decodeIfPresent([BackendTalkCreativeMemoryEpisodeTrace].self, forKey: .episodic) ?? [],
+            correctionCount: try container.decodeIfPresent(Int.self, forKey: .correctionCount) ?? 0,
+            correctedTerms: try container.decodeIfPresent([String].self, forKey: .correctedTerms) ?? [],
+            correctionReplacements: try container.decodeIfPresent([String].self, forKey: .correctionReplacements) ?? [],
+            screenplayProjectMemory: try container.decodeIfPresent(BackendTalkScreenplayProjectMemoryTrace.self, forKey: .screenplayProjectMemory),
+            styleApplied: try container.decodeIfPresent(Bool.self, forKey: .styleApplied) ?? false,
+            toneApplied: try container.decodeIfPresent(Bool.self, forKey: .toneApplied) ?? false,
+            habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false,
+            canonClarification: try container.decodeIfPresent(BackendCanonCorrectionAmbiguity.self, forKey: .canonClarification),
+            storyObligationChange: try container.decodeIfPresent(
+                BackendStoryObligationChange.self,
+                forKey: .storyObligationChange
+            )
+        )
+    }
+
+    func attachingCanonClarification(_ clarification: BackendCanonCorrectionAmbiguity?) -> Self {
+        Self(
+            applied: applied,
+            projectId: projectId,
+            projectTitle: projectTitle,
+            queryChars: queryChars,
+            characterCount: characterCount,
+            characters: characters,
+            episodicCount: episodicCount,
+            episodic: episodic,
+            correctionCount: correctionCount,
+            correctedTerms: correctedTerms,
+            correctionReplacements: correctionReplacements,
+            screenplayProjectMemory: screenplayProjectMemory,
+            styleApplied: styleApplied,
+            toneApplied: toneApplied,
+            habitsApplied: habitsApplied,
+            canonClarification: clarification,
+            storyObligationChange: storyObligationChange
+        )
+    }
+
+    static let empty = BackendTalkCreativeMemoryTrace(applied: false)
+}
+
+struct BackendTalkScreenplayProjectMemoryTrace: Codable, Equatable {
+    let applied: Bool
+    let projectId: String?
+    let projectTitle: String?
+    let act: String
+    let featureSequence: String
+    let currentBeat: String
+    let nextScenePlan: String
+    let nextThreeTurns: [String]
+    let actThreePayoffPath: [String]
+    let unresolvedSetups: [String]
+    let unresolvedStoryThreads: [String]
+    let characterArcTurns: [String]
+    let imageMotifs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case applied
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case act
+        case featureSequence = "feature_sequence"
+        case currentBeat = "current_beat"
+        case nextScenePlan = "next_scene_plan"
+        case nextThreeTurns = "next_three_turns"
+        case actThreePayoffPath = "act_three_payoff_path"
+        case unresolvedSetups = "unresolved_setups"
+        case unresolvedStoryThreads = "unresolved_story_threads"
+        case characterArcTurns = "character_arc_turns"
+        case imageMotifs = "image_motifs"
+    }
+
+    var hasContent: Bool {
+        applied ||
+            !(projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !act.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !featureSequence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !currentBeat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !nextThreeTurns.isEmpty ||
+            !actThreePayoffPath.isEmpty ||
+            !unresolvedSetups.isEmpty ||
+            !unresolvedStoryThreads.isEmpty ||
+            !characterArcTurns.isEmpty ||
+            !imageMotifs.isEmpty
+    }
+
+    init(
+        applied: Bool = false,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        act: String = "",
+        featureSequence: String = "",
+        currentBeat: String = "",
+        nextScenePlan: String = "",
+        nextThreeTurns: [String] = [],
+        actThreePayoffPath: [String] = [],
+        unresolvedSetups: [String] = [],
+        unresolvedStoryThreads: [String] = [],
+        characterArcTurns: [String] = [],
+        imageMotifs: [String] = []
+    ) {
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.applied = applied
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.act = act.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.featureSequence = featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentBeat = currentBeat.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.nextScenePlan = nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.nextThreeTurns = Self.cleanList(nextThreeTurns)
+        self.actThreePayoffPath = Self.cleanList(actThreePayoffPath)
+        self.unresolvedSetups = Self.cleanList(unresolvedSetups)
+        self.unresolvedStoryThreads = Self.cleanList(unresolvedStoryThreads)
+        self.characterArcTurns = Self.cleanList(characterArcTurns)
+        self.imageMotifs = Self.cleanList(imageMotifs)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            applied: try container.decodeIfPresent(Bool.self, forKey: .applied) ?? false,
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            act: try container.decodeIfPresent(String.self, forKey: .act) ?? "",
+            featureSequence: try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? "",
+            currentBeat: try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? "",
+            nextScenePlan: try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? "",
+            nextThreeTurns: try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? [],
+            actThreePayoffPath: try container.decodeIfPresent([String].self, forKey: .actThreePayoffPath) ?? [],
+            unresolvedSetups: try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? [],
+            unresolvedStoryThreads: try container.decodeIfPresent([String].self, forKey: .unresolvedStoryThreads) ?? [],
+            characterArcTurns: try container.decodeIfPresent([String].self, forKey: .characterArcTurns) ?? [],
+            imageMotifs: try container.decodeIfPresent([String].self, forKey: .imageMotifs) ?? []
+        )
+    }
+
+    private static func cleanList(_ values: [String], limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(String(clean.prefix(220)))
+            if result.count >= limit { break }
+        }
+        return result
+    }
+}
+
 struct BackendTalkScreenplayTrace {
     let modeEnabled: Bool
     let phase: String
@@ -584,6 +1151,39 @@ struct BackendTalkScreenplayTrace {
     let packLock: Bool
     let projectId: String?
     let versionId: String?
+    let repairAttempted: Bool
+    let repairOutcome: String
+    let repairMs: Int?
+    let repairReason: String?
+
+    init(
+        modeEnabled: Bool,
+        phase: String,
+        pack: String,
+        packLock: Bool,
+        projectId: String?,
+        versionId: String?,
+        repairAttempted: Bool = false,
+        repairOutcome: String = "none",
+        repairMs: Int? = nil,
+        repairReason: String? = nil
+    ) {
+        self.modeEnabled = modeEnabled
+        self.phase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.pack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.packLock = packLock
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanVersionId = versionId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.versionId = cleanVersionId.isEmpty ? nil : cleanVersionId
+        self.repairAttempted = repairAttempted
+        let cleanOutcome = repairOutcome.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.repairOutcome = cleanOutcome.isEmpty ? "none" : cleanOutcome
+        let cleanRepairMs = max(0, repairMs ?? 0)
+        self.repairMs = cleanRepairMs > 0 ? cleanRepairMs : nil
+        let cleanReason = repairReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.repairReason = cleanReason?.isEmpty == true ? nil : cleanReason
+    }
 
     var hasRenderableOutput: Bool {
         modeEnabled && (
@@ -608,10 +1208,88 @@ struct BackendTalkScreenplayOutputLine: Codable, Equatable {
     let element: String
 }
 
+struct BackendTalkScreenplayQuality: Codable, Equatable {
+    let ok: Bool
+    let reason: String
+    let source: String
+    let confidence: String
+    let featureAct: String?
+    let matchedTokens: [String]
+    let counts: [String: Int]
+    let minimumSpecificActions: Int?
+    let repairDirectives: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case reason
+        case source
+        case confidence
+        case featureAct = "feature_act"
+        case matchedTokens = "matched_tokens"
+        case counts
+        case minimumSpecificActions = "minimum_specific_actions"
+        case repairDirectives = "repair_directives"
+    }
+
+    init(
+        ok: Bool,
+        reason: String,
+        source: String,
+        confidence: String,
+        featureAct: String? = nil,
+        matchedTokens: [String] = [],
+        counts: [String: Int] = [:],
+        minimumSpecificActions: Int? = nil,
+        repairDirectives: [String] = []
+    ) {
+        self.ok = ok
+        self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.confidence = confidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFeatureAct = featureAct?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.featureAct = cleanFeatureAct?.isEmpty == true ? nil : cleanFeatureAct
+        self.matchedTokens = matchedTokens
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let cleanMinimum = max(0, minimumSpecificActions ?? 0)
+        self.minimumSpecificActions = cleanMinimum > 0 ? cleanMinimum : nil
+        var seenDirectives = Set<String>()
+        var cleanedDirectives: [String] = []
+        for directive in repairDirectives {
+            let clean = directive
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seenDirectives.insert(key).inserted else { continue }
+            cleanedDirectives.append(String(clean.prefix(220)))
+            if cleanedDirectives.count >= 5 { break }
+        }
+        self.repairDirectives = cleanedDirectives
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            ok: try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false,
+            reason: try container.decodeIfPresent(String.self, forKey: .reason) ?? "",
+            source: try container.decodeIfPresent(String.self, forKey: .source) ?? "",
+            confidence: try container.decodeIfPresent(String.self, forKey: .confidence) ?? "",
+            featureAct: try container.decodeIfPresent(String.self, forKey: .featureAct),
+            matchedTokens: try container.decodeIfPresent([String].self, forKey: .matchedTokens) ?? [],
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:],
+            minimumSpecificActions: try container.decodeIfPresent(Int.self, forKey: .minimumSpecificActions),
+            repairDirectives: try container.decodeIfPresent([String].self, forKey: .repairDirectives) ?? []
+        )
+    }
+}
+
 struct BackendTalkScreenplayOutput: Codable, Equatable {
     let target: String
     let format: String
     let source: String
+    let quality: BackendTalkScreenplayQuality?
     let text: String
     let lines: [BackendTalkScreenplayOutputLine]
 
@@ -644,6 +1322,9 @@ struct BackendTalkPageAnchor: Codable, Equatable {
     let pageIndex: Int?
     let rangeStart: Int
     let rangeEnd: Int
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let insertMode: String?
 
     enum CodingKeys: String, CodingKey {
         case projectId = "project_id"
@@ -653,6 +1334,9 @@ struct BackendTalkPageAnchor: Codable, Equatable {
         case pageIndex = "page_index"
         case rangeStart = "range_start"
         case rangeEnd = "range_end"
+        case anchorLine = "anchor_line"
+        case anchorEndLine = "anchor_end_line"
+        case insertMode = "insert_mode"
     }
 }
 
@@ -738,20 +1422,22 @@ struct BackendTalkResult {
     let transcript: String?
     let reply: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let assistantSelfName: String?
     let userName: String?
+    let voiceEmotionLane: String?
+    let ttsVoice: String?
     let uiReflection: BackendTalkUIReflection
     let knowledgeTrace: BackendTalkKnowledgeTrace
+    let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let turnStatus: String
     let turnContinueReason: String?
     let turnErrorStage: String?
     let turnErrorMessage: String?
     let noteAction: BackendNoteCaptureAction?
-    let emailAction: BackendEmailComposeAction?
-    let calendarAction: BackendCalendarComposeAction?
     let taskAction: BackendTaskAction?
     let speculativeTrace: BackendTalkSpeculativeTrace
     let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
@@ -793,8 +1479,11 @@ struct BackendTalkResponseMetadata {
     let renderContract: BackendTalkRenderContract
     let timingSource: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
+    let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
+    let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
 }
 
@@ -845,6 +1534,7 @@ struct BackendRealtimeSessionPayload: Decodable {
     let voice: String
     let instructions: String
     let outputModalities: [String]
+    let inputTranscriptionModel: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -852,6 +1542,7 @@ struct BackendRealtimeSessionPayload: Decodable {
         case voice
         case instructions
         case outputModalities = "output_modalities"
+        case inputTranscriptionModel = "input_transcription_model"
     }
 }
 
@@ -883,10 +1574,308 @@ struct BackendRealtimeBootstrapPayload: Decodable {
     }
 }
 
+struct BackendRealtimeProjectGroundingMetadataPayload: Decodable {
+    let projectId: String?
+    let projectTitle: String?
+    let memoryApplied: Bool
+    let pendingQuestionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case memoryApplied = "memory_applied"
+        case pendingQuestionId = "pending_question_id"
+    }
+}
+
+struct BackendRealtimeProjectGroundingPayload: Decodable {
+    let ok: Bool
+    let action: String
+    let instructions: String
+    let memoryGrounding: BackendRealtimeProjectGroundingMetadataPayload?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case instructions
+        case memoryGrounding = "memory_grounding"
+    }
+}
+
+struct BackendRealtimeProjectGrounding: Equatable {
+    let instructions: String
+    let projectId: String
+    let projectTitle: String
+    let memoryApplied: Bool
+    let pendingQuestionId: String
+}
+
+struct BackendRealtimeUnavailable: Equatable {
+    let statusCode: Int
+    let stage: String
+    let code: String
+    let realtimeProvider: String?
+    let fallback: Bool?
+    let degraded: Bool
+    let message: String
+
+    var userMessage: String {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedCode == "realtime_stub_disabled_in_production" {
+            return "Realtime preview is unavailable with the stub provider in production. Switch to Server Default or OpenAI, or use Standard voice."
+        }
+        if degraded {
+            return "Realtime preview is temporarily unavailable. Standard voice still works."
+        }
+        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanMessage.isEmpty {
+            return "Realtime preview is unavailable. Standard voice still works."
+        }
+        return "Realtime preview is unavailable: \(cleanMessage)"
+    }
+}
+
+private struct BackendRealtimeUnavailablePayload: Decodable {
+    let stage: String?
+    let code: String?
+    let realtimeProvider: String?
+    let fallback: Bool?
+    let degraded: Bool?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case code
+        case realtimeProvider = "realtime_provider"
+        case fallback
+        case degraded
+        case error
+    }
+}
+
 struct BackendRealtimeStudioRenderPayload: Decodable {
     let ok: Bool
     let action: String?
     let reply: String?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case reply
+        case memoryApplied = "memory_applied"
+        case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
+    }
+}
+
+private struct BackendRealtimeStudioRenderErrorPayload: Decodable {
+    let stage: String?
+    let error: String?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case error
+        case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
+    }
+}
+
+struct BackendRealtimeStudioStructuralQuality: Decodable, Equatable, Sendable {
+    let applicable: Bool
+    let passed: Bool
+    let repaired: Bool
+    let attemptedRepair: Bool
+    let outcome: String
+    let reason: String
+    let initialReason: String?
+    let initialScore: Double
+    let finalScore: Double
+    let passedDimensions: Int
+    let totalDimensions: Int
+    let dimensions: [String: Bool]
+    let repairMs: Int
+    let modelReason: String
+    let taskIntent: String
+
+    enum CodingKeys: String, CodingKey {
+        case applicable
+        case passed
+        case repaired
+        case attemptedRepair = "attempted_repair"
+        case outcome
+        case reason
+        case initialReason = "initial_reason"
+        case initialScore = "initial_score"
+        case finalScore = "final_score"
+        case passedDimensions = "passed_dimensions"
+        case totalDimensions = "total_dimensions"
+        case dimensions
+        case repairMs = "repair_ms"
+        case modelReason = "model_reason"
+        case taskIntent = "task_intent"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        applicable = try container.decodeIfPresent(Bool.self, forKey: .applicable) ?? false
+        passed = try container.decodeIfPresent(Bool.self, forKey: .passed) ?? false
+        repaired = try container.decodeIfPresent(Bool.self, forKey: .repaired) ?? false
+        attemptedRepair = try container.decodeIfPresent(Bool.self, forKey: .attemptedRepair) ?? false
+        outcome = try container.decodeIfPresent(String.self, forKey: .outcome) ?? ""
+        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? ""
+        initialReason = try container.decodeIfPresent(String.self, forKey: .initialReason)
+        initialScore = try container.decodeIfPresent(Double.self, forKey: .initialScore) ?? 0
+        finalScore = try container.decodeIfPresent(Double.self, forKey: .finalScore) ?? 0
+        passedDimensions = try container.decodeIfPresent(Int.self, forKey: .passedDimensions) ?? 0
+        totalDimensions = try container.decodeIfPresent(Int.self, forKey: .totalDimensions) ?? 0
+        dimensions = try container.decodeIfPresent([String: Bool].self, forKey: .dimensions) ?? [:]
+        repairMs = try container.decodeIfPresent(Int.self, forKey: .repairMs) ?? 0
+        modelReason = try container.decodeIfPresent(String.self, forKey: .modelReason) ?? ""
+        taskIntent = try container.decodeIfPresent(String.self, forKey: .taskIntent) ?? ""
+    }
+}
+
+struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
+    let ok: Bool
+    let reason: String
+    let source: String
+    let requestedPages: Int
+    let attemptedRepair: Bool
+    let repairOutcome: String
+    let initialReason: String?
+    let repairMs: Int
+    let counts: [String: Int]
+    let canonFactsChecked: Int
+    let canonViolationCount: Int
+    let canonViolationTypes: [String]
+    let canonCorrectionOverride: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case reason
+        case source
+        case requestedPages = "requested_pages"
+        case attemptedRepair = "attempted_repair"
+        case repairOutcome = "repair_outcome"
+        case initialReason = "initial_reason"
+        case repairMs = "repair_ms"
+        case counts
+        case canonFactsChecked = "canon_facts_checked"
+        case canonViolationCount = "canon_violation_count"
+        case canonViolationTypes = "canon_violation_types"
+        case canonCorrectionOverride = "canon_correction_override"
+    }
+
+    init(
+        ok: Bool,
+        reason: String,
+        source: String,
+        requestedPages: Int = 0,
+        attemptedRepair: Bool = false,
+        repairOutcome: String = "",
+        initialReason: String? = nil,
+        repairMs: Int = 0,
+        counts: [String: Int] = [:],
+        canonFactsChecked: Int = 0,
+        canonViolationCount: Int = 0,
+        canonViolationTypes: [String] = [],
+        canonCorrectionOverride: Bool = false
+    ) {
+        self.ok = ok
+        self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requestedPages = max(0, requestedPages)
+        self.attemptedRepair = attemptedRepair
+        self.repairOutcome = repairOutcome.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanInitialReason = initialReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialReason = cleanInitialReason?.isEmpty == true ? nil : cleanInitialReason
+        self.repairMs = max(0, repairMs)
+        self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        self.canonFactsChecked = max(0, canonFactsChecked)
+        self.canonViolationCount = max(0, canonViolationCount)
+        self.canonViolationTypes = canonViolationTypes
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        self.canonCorrectionOverride = canonCorrectionOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            ok: try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false,
+            reason: try container.decodeIfPresent(String.self, forKey: .reason) ?? "",
+            source: try container.decodeIfPresent(String.self, forKey: .source) ?? "",
+            requestedPages: try container.decodeIfPresent(Int.self, forKey: .requestedPages) ?? 0,
+            attemptedRepair: try container.decodeIfPresent(Bool.self, forKey: .attemptedRepair) ?? false,
+            repairOutcome: try container.decodeIfPresent(String.self, forKey: .repairOutcome) ?? "",
+            initialReason: try container.decodeIfPresent(String.self, forKey: .initialReason),
+            repairMs: try container.decodeIfPresent(Int.self, forKey: .repairMs) ?? 0,
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:],
+            canonFactsChecked: try container.decodeIfPresent(Int.self, forKey: .canonFactsChecked) ?? 0,
+            canonViolationCount: try container.decodeIfPresent(Int.self, forKey: .canonViolationCount) ?? 0,
+            canonViolationTypes: try container.decodeIfPresent([String].self, forKey: .canonViolationTypes) ?? [],
+            canonCorrectionOverride: try container.decodeIfPresent(Bool.self, forKey: .canonCorrectionOverride) ?? false
+        )
+    }
+
+    var talkQuality: BackendTalkScreenplayQuality {
+        BackendTalkScreenplayQuality(
+            ok: ok,
+            reason: reason,
+            source: source,
+            confidence: repairOutcome,
+            counts: counts
+        )
+    }
+
+    var permitsSingleFallbackRender: Bool {
+        repairOutcome == "supplier_failed" || repairOutcome == "unavailable"
+    }
+}
+
+struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Sendable {
+    let creativeMemory: Bool?
+    let characterBible: Bool?
+    let characterCorrections: Bool?
+    let correctionAppliedToPrompt: Bool?
+    let characters: [String]?
+    let correctedTerms: [String]?
+    let correctionReplacements: [String]?
+    let acceptedCausalFacts: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case creativeMemory = "creative_memory"
+        case characterBible = "character_bible"
+        case characterCorrections = "character_corrections"
+        case correctionAppliedToPrompt = "correction_applied_to_prompt"
+        case characters
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+        case acceptedCausalFacts = "accepted_causal_facts"
+    }
+
+    var hasSignal: Bool {
+        creativeMemory == true ||
+        characterBible == true ||
+        characterCorrections == true ||
+        correctionAppliedToPrompt == true ||
+        !(characters ?? []).isEmpty ||
+        !(correctedTerms ?? []).isEmpty ||
+        !(correctionReplacements ?? []).isEmpty ||
+        (acceptedCausalFacts ?? 0) > 0
+    }
+}
+
+struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
+    let reply: String
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -901,6 +1890,9 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
     let firstDeltaMs: Int?
     let totalMs: Int?
     let deltaChunks: Int?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 
     enum CodingKeys: String, CodingKey {
         case action
@@ -914,6 +1906,9 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
         case firstDeltaMs = "first_delta_ms"
         case totalMs = "total_ms"
         case deltaChunks = "delta_chunks"
+        case memoryApplied = "memory_applied"
+        case screenplayQuality = "screenplay_quality"
+        case structuralQuality = "structural_quality"
     }
 }
 
@@ -925,6 +1920,9 @@ struct BackendRealtimeStudioRenderStreamTrace: Sendable {
     let firstDeltaMs: Int?
     let totalMs: Int?
     let deltaChunks: Int?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+    let structuralQuality: BackendRealtimeStudioStructuralQuality?
 }
 
 struct BackendVisualContextEnvelope {
@@ -968,27 +1966,6 @@ struct BackendNoteCaptureAction {
     let error: String?
 }
 
-struct BackendEmailComposeAction {
-    let action: String
-    let status: String
-    let target: String
-    let to: String?
-    let subject: String?
-    let composeURL: URL?
-    let composed: Bool
-}
-
-struct BackendCalendarComposeAction {
-    let action: String
-    let status: String
-    let target: String
-    let title: String?
-    let startAt: TimeInterval?
-    let endAt: TimeInterval?
-    let composeURL: URL?
-    let composed: Bool
-}
-
 struct BackendTaskAction {
     let action: String
     let status: String
@@ -1002,15 +1979,67 @@ struct BackendTaskAction {
 enum BackendError: LocalizedError {
     case stage(String, String)
     case http(Int, String)
+    case realtimeUnavailable(BackendRealtimeUnavailable)
+    case studioRenderQuality(BackendRealtimeStudioScreenplayQuality, String)
     case continueListening
     case emptyAudio
     case invalidAudioType(String)
 
-    var errorDescription: String? {
+    var isProviderQuotaExhausted: Bool {
         switch self {
         case let .stage(stage, message):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                payload: "\(stage) \(message)"
+            )
+        case let .http(status, message):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                statusCode: status,
+                payload: message
+            )
+        case let .realtimeUnavailable(unavailable):
+            return BackendProviderFailurePolicy.isQuotaExhausted(
+                statusCode: unavailable.statusCode,
+                payload: "\(unavailable.code) \(unavailable.message)"
+            )
+        default:
+            return false
+        }
+    }
+
+    var requiresUserAuthentication: Bool {
+        switch self {
+        case let .stage(stage, message):
+            let normalizedStage = stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalizedStage == "auth_user" ||
+                normalizedMessage == "user_auth_required" ||
+                normalizedMessage == "expired_user_token" ||
+                normalizedMessage == "invalid_user_token" ||
+                normalizedMessage == "revoked_user_token"
+        case let .http(status, message):
+            return status == 401 && message.lowercased().contains("user_auth")
+        case .realtimeUnavailable:
+            return false
+        case .studioRenderQuality:
+            return false
+        default:
+            return false
+        }
+    }
+
+    var errorDescription: String? {
+        if isProviderQuotaExhausted {
+            return BackendProviderFailurePolicy.userMessage
+        }
+        switch self {
+        case let .stage(stage, message):
+            if requiresUserAuthentication {
+                return "Sign in to use live writing, voice, and visual context."
+            }
             let label: String
             switch stage.lowercased() {
+            case "auth_client":
+                label = "Session"
             case "stt":
                 label = "Voice capture"
             case "chat":
@@ -1021,18 +2050,175 @@ enum BackendError: LocalizedError {
                 label = "Upload"
             case "session":
                 label = "Session"
+            case "studio_render":
+                label = "Studio render"
+            case "visual_context":
+                label = "Visual context"
             default:
                 label = stage.uppercased()
             }
             return "\(label) error: \(message)"
         case let .http(status, message):
-            return "HTTP \(status): \(message)"
+            return "HTTP \(status): \(BackendErrorMessageSanitizer.displayMessage(message, status: status))"
+        case let .realtimeUnavailable(unavailable):
+            return unavailable.userMessage
+        case .studioRenderQuality:
+            return "Clementine held this page back because it did not pass the screenplay quality check. Your draft is unchanged."
         case .continueListening:
             return "Continue listening."
         case .emptyAudio:
             return "Backend returned empty audio."
         case let .invalidAudioType(type):
             return "Backend returned non-audio response (\(type))."
+        }
+    }
+}
+
+nonisolated enum BackendProviderFailurePolicy {
+    static let userMessage = "Clementine's writing service is temporarily unavailable. Your draft is safe. Please try again later."
+
+    static func isQuotaExhausted(
+        statusCode: Int? = nil,
+        data: Data
+    ) -> Bool {
+        isQuotaExhausted(
+            statusCode: statusCode,
+            payload: String(data: data, encoding: .utf8) ?? ""
+        )
+    }
+
+    static func isQuotaExhausted(
+        statusCode: Int? = nil,
+        payload: String
+    ) -> Bool {
+        let normalized = payload
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+
+        if normalized.contains("provider_quota") ||
+            normalized.contains("insufficient_quota") ||
+            normalized.contains("quota_exhausted") ||
+            normalized.contains("quota_exceeded") {
+            return true
+        }
+
+        guard statusCode == 429 || normalized.contains("quota") else {
+            return false
+        }
+        return normalized.contains("quota") && [
+            "insufficient",
+            "exhausted",
+            "exceeded",
+            "credit_balance",
+            "billing_balance",
+        ].contains { normalized.contains($0) }
+    }
+
+    static func shouldRetryHTTP(
+        statusCode: Int,
+        data: Data,
+        retryableStatusCodes: Set<Int>
+    ) -> Bool {
+        retryableStatusCodes.contains(statusCode) &&
+            !isQuotaExhausted(statusCode: statusCode, data: data)
+    }
+}
+
+nonisolated enum BackendErrorMessageSanitizer {
+    static func displayMessage(
+        from data: Data,
+        status: Int? = nil,
+        fallback: String = "Request failed."
+    ) -> String {
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        return displayMessage(raw, status: status, fallback: fallback)
+    }
+
+    static func displayMessage(
+        _ raw: String,
+        status: Int? = nil,
+        fallback: String = "Request failed."
+    ) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        if looksLikeHTML(trimmed) {
+            if let status, status >= 500 {
+                return "Backend service unavailable. Please try again."
+            }
+            return "Backend returned an HTML error page."
+        }
+        if trimmed.count > 500 {
+            return "\(trimmed.prefix(500))..."
+        }
+        return trimmed
+    }
+
+    private static func looksLikeHTML(_ raw: String) -> Bool {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.hasPrefix("<!doctype html")
+            || normalized.hasPrefix("<html")
+            || normalized.contains("<head>")
+            || normalized.contains("<body")
+    }
+}
+
+nonisolated enum BackendAPIResponseValidator {
+    static func hasMatchingOrigin(requestURL: URL?, responseURL: URL?) -> Bool {
+        guard let requestURL,
+              let responseURL,
+              let requestScheme = requestURL.scheme?.lowercased(),
+              let responseScheme = responseURL.scheme?.lowercased(),
+              let requestHost = requestURL.host?.lowercased(),
+              let responseHost = responseURL.host?.lowercased() else {
+            return false
+        }
+        return requestScheme == responseScheme
+            && requestHost == responseHost
+            && effectivePort(for: requestURL) == effectivePort(for: responseURL)
+    }
+
+    static func isJSONResponse(_ response: HTTPURLResponse, data: Data) -> Bool {
+        let mimeType = (response.mimeType ?? "").lowercased()
+        if mimeType == "application/json" || mimeType.hasSuffix("+json") {
+            return true
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) != nil
+    }
+
+    static func isHealthyResponse(
+        requestURL: URL?,
+        response: HTTPURLResponse,
+        data: Data
+    ) -> Bool {
+        guard hasMatchingOrigin(requestURL: requestURL, responseURL: response.url) else {
+            return false
+        }
+        guard response.statusCode == 304 || (200...299).contains(response.statusCode) else {
+            return false
+        }
+        if response.statusCode == 304 {
+            return true
+        }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["ok"] as? Bool == true {
+            return true
+        }
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return text == "ok"
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
         }
     }
 }
@@ -1057,6 +2243,7 @@ final class BackendClient {
     private let preferStreamedTalkAudio = true
     private let sessionRefreshSkew: TimeInterval = 30
     private let maxTalkAttempts = 2
+    private let maxTurnMetaAttempts = 3
     private let maxAudioValidationRetries = 1
     private let minPlayableSegmentBytes = 900
     private let streamChunkFlushBytes = 4096
@@ -1076,39 +2263,28 @@ final class BackendClient {
     private let keychainService = "io.them.client"
     private let keychainTokenAccount = "session_client_token"
     private let keychainExpiryAccount = "session_client_token_expiry"
-    private let keychainUserIDAccount = "stable_user_id"
     private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
-    private let sharedClientTokenDefaultsKey = "client_token"
-    private let sharedClientTokenExpiryDefaultsKey = "client_token_expiry"
-    private let sharedUserIDDefaultsKey = "user_id"
     private let personaFlowKey = "clementine"
 
     private var cachedClientToken: String?
     private var cachedClientTokenExpiry: Date?
     private var cachedUserID: String?
+    // Initialized lazily on first request. `BackendClient` is created from a
+    // SwiftUI `@State` initializer, so construction must never synchronously
+    // wait on the auth queue while the view graph is being rendered.
+    private var cachedAuthSessionEpoch = -1
 
     // Health check cache — avoids a full /health round-trip before every /talk
     private let healthCacheTTL: TimeInterval = 30
     private var cachedHealthyURL: URL?
     private var cachedHealthyAt: Date = .distantPast
 
-    private static let productionBaseURL = URL(string: "https://api.them.io")!
-
     private static var defaultPrimaryBaseURL: URL {
-#if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-#else
-        return productionBaseURL
-#endif
+        BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
 
     private static var defaultFallbackBaseURL: URL {
-#if DEBUG
-        return URL(string: "http://localhost:3001")!
-#else
-        // Never fall back to localhost in release/App Store builds.
-        return productionBaseURL
-#endif
+        BackendDefaultBaseURLPolicy.currentFallbackBaseURL
     }
 
     init(
@@ -1364,6 +2540,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -1406,6 +2583,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -1427,16 +2605,26 @@ final class BackendClient {
     }
 
 
-    func fetchMemoryCharacterTraits(characterName: String? = nil) async throws -> BackendCharacterTraitsResponse {
+    func fetchMemoryCharacterTraits(
+        characterName: String? = nil,
+        projectID: String? = nil,
+        projectTitle: String? = nil
+    ) async throws -> BackendCharacterTraitsResponse {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         url.appendPathComponent("memory")
         url.appendPathComponent("character-traits")
 
         let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !normalizedName.isEmpty {
+        let normalizedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedName.isEmpty || !normalizedProjectID.isEmpty || !normalizedProjectTitle.isEmpty {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = [URLQueryItem(name: "characterName", value: normalizedName)]
+            components?.queryItems = [
+                normalizedName.isEmpty ? nil : URLQueryItem(name: "characterName", value: normalizedName),
+                normalizedProjectID.isEmpty ? nil : URLQueryItem(name: "projectId", value: normalizedProjectID),
+                normalizedProjectTitle.isEmpty ? nil : URLQueryItem(name: "projectTitle", value: normalizedProjectTitle)
+            ].compactMap { $0 }
             if let componentURL = components?.url {
                 url = componentURL
             }
@@ -1457,6 +2645,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -1498,6 +2687,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -1534,6 +2724,24 @@ final class BackendClient {
         )
     }
 
+    func simulateCraftCoverage(
+        text: String,
+        pageCount: Int? = nil,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayCraftCoverageSimulationReport {
+        let request = ScreenplayCraftCoverageSimulationRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            pageCount: pageCount,
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "coverage", "simulate"],
+            body: request,
+            responseType: ScreenplayCraftCoverageSimulationReport.self
+        )
+    }
+
     func recordCraftTurnOverride(
         _ override: ScreenplayCraftTurnOverrideMutation
     ) async throws -> ScreenplayCraftTurnOverride {
@@ -1559,12 +2767,22 @@ final class BackendClient {
     func buildScreenplayModelPrompt(
         _ promptRequest: BackendScreenplayPromptBuildRequest
     ) async throws -> BackendScreenplayPromptBuildResponse {
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         let bodyData = try JSONEncoder().encode(promptRequest)
+        let promptClientToken: String? = {
+            let trimmed = (readSharedClientToken() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard let expiryRaw = readSharedClientTokenExpiry(),
+                  let expiry = ISO8601DateFormatter().date(from: expiryRaw) else {
+                return trimmed
+            }
+            return expiry.timeIntervalSince(Date()) > sessionRefreshSkew ? trimmed : nil
+        }()
 
         func performRequest(
-            clientToken: String,
+            clientToken: String?,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendScreenplayPromptBuildResponse {
             var request = URLRequest(
@@ -1574,18 +2792,21 @@ final class BackendClient {
                     .appendingPathComponent("build")
             )
             request.httpMethod = "POST"
-            request.timeoutInterval = min(15, requestTimeout)
+            request.timeoutInterval = min(6, requestTimeout)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            if let clientToken, !clientToken.isEmpty {
+                request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            }
             if !userID.isEmpty {
                 request.setValue(userID, forHTTPHeaderField: "X-User-Id")
             }
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = bodyData
 
             let (data, response) = try await urlSession.data(for: request)
@@ -1593,18 +2814,26 @@ final class BackendClient {
                 throw BackendError.http(-1, "Invalid screenplay prompt response.")
             }
             guard (200...299).contains(http.statusCode) else {
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
-                }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
                         return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                 }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
@@ -1618,8 +2847,7 @@ final class BackendClient {
             }
         }
 
-        let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
-        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: true)
+        return try await performRequest(clientToken: promptClientToken, allowClientTokenRefresh: true)
     }
 
     func talk(
@@ -1741,7 +2969,8 @@ final class BackendClient {
             throw BackendError.stage("stt", "Prompt text is empty.")
         }
 
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         let clientToken = try await resolveTalkClientTokenOrFallback(
             for: resolvedBaseURL,
@@ -1789,7 +3018,8 @@ final class BackendClient {
     }
 
     func prewarmTalkSession() async throws {
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         _ = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
     }
@@ -1831,6 +3061,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let uploadMeta = uploadMetadata(for: audioURL, data: audioSnapshot)
         var body = Data()
@@ -1904,6 +3135,9 @@ final class BackendClient {
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
         voice: String? = nil,
         model: String? = nil,
         realtimeProvider: String? = nil
@@ -1912,23 +3146,141 @@ final class BackendClient {
             "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "is_screenplay_mode": isScreenplayMode,
+            "emotion_lane": emotionLane?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
         ]
         let provider = realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let projectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let projectTitle = screenplayProjectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !projectId.isEmpty {
+            body["screenplay_project_id"] = projectId
+        }
+        if !projectTitle.isEmpty {
+            body["screenplay_project_title"] = projectTitle
+        }
         if !provider.isEmpty {
             body["realtime_provider"] = provider
         }
         return body
     }
 
+    static func realtimeProjectGroundingBody(
+        systemPrompt: String,
+        screenplayProjectId: String,
+        screenplayProjectTitle: String
+    ) -> [String: Any] {
+        [
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            "is_screenplay_mode": true,
+            "screenplay_project_id": screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines),
+            "screenplay_project_title": screenplayProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+    }
+
+    func fetchRealtimeProjectGrounding(
+        systemPrompt: String,
+        screenplayProjectId: String,
+        screenplayProjectTitle: String,
+        allowAuthTokenRefresh: Bool = true
+    ) async throws -> BackendRealtimeProjectGrounding {
+        let cleanProjectId = screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = screenplayProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectId.isEmpty || !cleanProjectTitle.isEmpty else {
+            throw BackendError.stage(
+                "realtime_project_grounding",
+                "A screenplay project is required."
+            )
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        var request = URLRequest(
+            url: resolvedBaseURL
+                .appendingPathComponent("realtime")
+                .appendingPathComponent("project_grounding")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        attachAuthorizationHeader(to: &request)
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: Self.realtimeProjectGroundingBody(
+                systemPrompt: systemPrompt,
+                screenplayProjectId: cleanProjectId,
+                screenplayProjectTitle: cleanProjectTitle
+            ),
+            options: []
+        )
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid realtime grounding response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await fetchRealtimeProjectGrounding(
+                        systemPrompt: systemPrompt,
+                        screenplayProjectId: cleanProjectId,
+                        screenplayProjectTitle: cleanProjectTitle,
+                        allowAuthTokenRefresh: false
+                    )
+                }
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        let payload: BackendRealtimeProjectGroundingPayload
+        do {
+            payload = try JSONDecoder().decode(BackendRealtimeProjectGroundingPayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(
+                502,
+                raw.isEmpty ? "Invalid realtime grounding payload." : raw
+            )
+        }
+        let instructions = payload.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard payload.ok, !instructions.isEmpty else {
+            throw BackendError.stage(
+                "realtime_project_grounding",
+                "Realtime project memory refresh returned no instructions."
+            )
+        }
+        return BackendRealtimeProjectGrounding(
+            instructions: instructions,
+            projectId: payload.memoryGrounding?.projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanProjectId,
+            projectTitle: payload.memoryGrounding?.projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? cleanProjectTitle,
+            memoryApplied: payload.memoryGrounding?.memoryApplied ?? false,
+            pendingQuestionId: payload.memoryGrounding?.pendingQuestionId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        )
+    }
+
     func fetchRealtimeClientSecret(
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
+        screenplayProjectId: String? = nil,
+        screenplayProjectTitle: String? = nil,
+        emotionLane: String? = nil,
         voice: String? = nil,
         model: String? = nil,
-        realtimeProvider: String? = nil
+        realtimeProvider: String? = nil,
+        allowAuthTokenRefresh: Bool = true
     ) async throws -> BackendRealtimeBootstrap {
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveUserID()
@@ -1946,11 +3298,15 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let body = Self.realtimeClientSecretBody(
             systemPrompt: systemPrompt,
             userName: userName,
             isScreenplayMode: isScreenplayMode,
+            screenplayProjectId: screenplayProjectId,
+            screenplayProjectTitle: screenplayProjectTitle,
+            emotionLane: emotionLane,
             voice: voice,
             model: model,
             realtimeProvider: realtimeProvider
@@ -1962,8 +3318,32 @@ final class BackendClient {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
         guard (200...299).contains(http.statusCode) else {
+            let realtimeUnavailable = parseRealtimeUnavailable(from: data, statusCode: http.statusCode)
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await fetchRealtimeClientSecret(
+                        systemPrompt: systemPrompt,
+                        userName: userName,
+                        isScreenplayMode: isScreenplayMode,
+                        screenplayProjectId: screenplayProjectId,
+                        screenplayProjectTitle: screenplayProjectTitle,
+                        emotionLane: emotionLane,
+                        voice: voice,
+                        model: model,
+                        realtimeProvider: realtimeProvider,
+                        allowAuthTokenRefresh: false
+                    )
+                }
+                if let realtimeUnavailable,
+                   stageError.stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "realtime_auth" {
+                    throw BackendError.realtimeUnavailable(realtimeUnavailable)
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            if let realtimeUnavailable {
+                throw BackendError.realtimeUnavailable(realtimeUnavailable)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(http.statusCode, raw)
@@ -1991,7 +3371,8 @@ final class BackendClient {
                 voice: payload.session.voice,
                 instructions: payload.session.instructions,
                 type: payload.session.type,
-                outputModalities: payload.session.outputModalities
+                outputModalities: payload.session.outputModalities,
+                inputTranscriptionModel: payload.session.inputTranscriptionModel
             ),
             clientSecret: BackendRealtimeClientSecret(
                 value: payload.clientSecret.value,
@@ -2004,25 +3385,67 @@ final class BackendClient {
 
     func renderRealtimeStudioText(
         transcript: String,
-        systemPrompt: String
+        systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
     ) async throws -> String {
+        let result = try await renderRealtimeStudioResult(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
+        return result.reply
+    }
+
+    private func realtimeStudioRequestBody(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String?,
+        studioMetadata: BackendStudioThreadCommitMetadata?
+    ) throws -> Data {
+        var body: [String: Any] = [
+            "transcript": transcript,
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let cleanScreenplayTarget = (screenplayTarget ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanScreenplayTarget.isEmpty {
+            body["screenplay_target"] = cleanScreenplayTarget
+        }
+        if let studioMetadata, studioMetadata.isMeaningful {
+            body.merge(BackendMemoryAPI.studioTurnPayload(studioMetadata)) { current, _ in current }
+        }
+        return try JSONSerialization.data(withJSONObject: body, options: [])
+    }
+
+    func renderRealtimeStudioResult(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+    ) async throws -> BackendRealtimeStudioRenderResult {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
         }
+        let requiresScreenplayQuality = screenplayTarget?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        let body: [String: Any] = [
-            "transcript": cleanTranscript,
-            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        ]
-        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let requestBody = try realtimeStudioRequestBody(
+            transcript: cleanTranscript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
 
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
-        ) async throws -> String {
+        ) async throws -> BackendRealtimeStudioRenderResult {
             var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render"))
             request.httpMethod = "POST"
             request.timeoutInterval = 20
@@ -2035,25 +3458,44 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
             guard (200...299).contains(http.statusCode) else {
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                if let errorPayload = try? JSONDecoder().decode(
+                    BackendRealtimeStudioRenderErrorPayload.self,
+                    from: data
+                ), let quality = errorPayload.screenplayQuality {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        (errorPayload.error ?? "Studio screenplay output did not pass the live quality gate.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
                 }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
                         return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                 }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
@@ -2071,7 +3513,24 @@ final class BackendClient {
             guard !reply.isEmpty else {
                 throw BackendError.stage("studio_render", "Studio render response was empty.")
             }
-            return reply
+            if let quality = payload.screenplayQuality, !quality.ok {
+                throw BackendError.studioRenderQuality(
+                    quality,
+                    "Studio screenplay output did not pass the live quality gate."
+                )
+            }
+            if requiresScreenplayQuality, payload.screenplayQuality == nil {
+                throw BackendError.stage(
+                    "studio_render",
+                    "Studio render response ended without screenplay quality confirmation."
+                )
+            }
+            return BackendRealtimeStudioRenderResult(
+                reply: reply,
+                memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
+                screenplayQuality: payload.screenplayQuality,
+                structuralQuality: payload.structuralQuality
+            )
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -2081,26 +3540,51 @@ final class BackendClient {
     func streamRealtimeStudioText(
         transcript: String,
         systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> String {
+        let result = try await streamRealtimeStudioResult(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata,
+            onPartial: onPartial,
+            onTrace: onTrace
+        )
+        return result.reply
+    }
+
+    func streamRealtimeStudioResult(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        onPartial: (@Sendable (String) async -> Void)? = nil,
+        onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
+    ) async throws -> BackendRealtimeStudioRenderResult {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
         }
+        let requiresAuthoritativeDone = screenplayTarget?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        let body: [String: Any] = [
-            "transcript": cleanTranscript,
-            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        ]
-        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let requestBody = try realtimeStudioRequestBody(
+            transcript: cleanTranscript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
 
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
-        ) async throws -> String {
+        ) async throws -> BackendRealtimeStudioRenderResult {
             var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render_stream"))
             request.httpMethod = "POST"
             request.timeoutInterval = 30
@@ -2114,20 +3598,32 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let (bytes, response) = try await urlSession.bytes(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render stream response.")
             }
             guard (200...299).contains(http.statusCode) else {
                 let data = try await collectAsyncBytes(bytes)
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                if let errorPayload = try? JSONDecoder().decode(
+                    BackendRealtimeStudioRenderErrorPayload.self,
+                    from: data
+                ), let quality = errorPayload.screenplayQuality {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        (errorPayload.error ?? "Studio screenplay output did not pass the live quality gate.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
                 }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
@@ -2135,15 +3631,56 @@ final class BackendClient {
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
                 }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
             }
 
-            var pending = ""
             var eventName = "message"
             var dataLines: [String] = []
             var accumulated = ""
             var finalReply = ""
+            var didReceiveDone = false
+            var lastPartialCallbackAt = Date.distantPast
+            var lastPartialCallbackCharacterCount = 0
+            var latestMemoryApplied: BackendRealtimeStudioMemoryApplied?
+            var latestScreenplayQuality: BackendRealtimeStudioScreenplayQuality?
+            var latestStructuralQuality: BackendRealtimeStudioStructuralQuality?
+
+            func validatedResult(
+                reply rawReply: String,
+                quality eventQuality: BackendRealtimeStudioScreenplayQuality?
+            ) throws -> BackendRealtimeStudioRenderResult {
+                let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !reply.isEmpty else {
+                    throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+                }
+                let quality = eventQuality ?? latestScreenplayQuality
+                if let quality, !quality.ok {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        "Studio screenplay output did not pass the live quality gate."
+                    )
+                }
+                if requiresAuthoritativeDone, quality == nil {
+                    throw BackendError.stage(
+                        "studio_render",
+                        "Studio render stream ended without screenplay quality confirmation."
+                    )
+                }
+                return BackendRealtimeStudioRenderResult(
+                    reply: reply,
+                    memoryApplied: latestMemoryApplied,
+                    screenplayQuality: quality,
+                    structuralQuality: latestStructuralQuality
+                )
+            }
 
             func trace(
                 from payload: BackendRealtimeStudioRenderStreamEvent?,
@@ -2158,6 +3695,16 @@ final class BackendClient {
                 let startedAtISO8601 = payload?.startedAtISO8601?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let normalizedStartedAt = startedAtISO8601?.isEmpty == true ? nil : startedAtISO8601
+                if let memoryApplied = payload?.memoryApplied,
+                   memoryApplied.hasSignal {
+                    latestMemoryApplied = memoryApplied
+                }
+                if let screenplayQuality = payload?.screenplayQuality {
+                    latestScreenplayQuality = screenplayQuality
+                }
+                if let structuralQuality = payload?.structuralQuality {
+                    latestStructuralQuality = structuralQuality
+                }
                 let hasSignal =
                     !action.isEmpty ||
                     !kind.isEmpty ||
@@ -2165,7 +3712,10 @@ final class BackendClient {
                     normalizedStartedAt != nil ||
                     payload?.firstDeltaMs != nil ||
                     payload?.totalMs != nil ||
-                    payload?.deltaChunks != nil
+                    payload?.deltaChunks != nil ||
+                    payload?.memoryApplied?.hasSignal == true ||
+                    payload?.screenplayQuality != nil ||
+                    payload?.structuralQuality != nil
                 guard hasSignal else { return nil }
                 return BackendRealtimeStudioRenderStreamTrace(
                     action: action.isEmpty ? "studio_render_stream" : action,
@@ -2174,7 +3724,10 @@ final class BackendClient {
                     startedAtISO8601: normalizedStartedAt,
                     firstDeltaMs: payload?.firstDeltaMs,
                     totalMs: payload?.totalMs,
-                    deltaChunks: payload?.deltaChunks
+                    deltaChunks: payload?.deltaChunks,
+                    memoryApplied: payload?.memoryApplied?.hasSignal == true ? payload?.memoryApplied : nil,
+                    screenplayQuality: payload?.screenplayQuality,
+                    structuralQuality: payload?.structuralQuality
                 )
             }
 
@@ -2191,76 +3744,134 @@ final class BackendClient {
 
                 switch eventName {
                 case "meta":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "meta") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "meta")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                 case "trace":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "trace") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "trace")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                 case "delta":
-                    let delta = (payload?.delta ?? "").trimmingCharacters(in: .newlines)
+                    let delta = payload?.delta ?? ""
                     guard !delta.isEmpty else { return }
-                    accumulated += delta
+                    accumulated = StudioResponseStreamingPolicy.appending(
+                        delta: delta,
+                        to: accumulated
+                    )
                     if let onPartial {
-                        await onPartial(accumulated)
+                        let now = Date()
+                        let characterDelta = accumulated.count - lastPartialCallbackCharacterCount
+                        if lastPartialCallbackCharacterCount == 0 ||
+                            characterDelta >= StudioResponseStreamingPolicy.partialCharacterDelta ||
+                            now.timeIntervalSince(lastPartialCallbackAt) >= StudioResponseStreamingPolicy.partialMaximumInterval {
+                            lastPartialCallbackAt = now
+                            lastPartialCallbackCharacterCount = accumulated.count
+                            await onPartial(accumulated)
+                        }
                     }
                 case "done":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "done") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "done")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                     let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !reply.isEmpty else { return }
                     finalReply = reply
+                    if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                        lastPartialCallbackAt = Date()
+                        lastPartialCallbackCharacterCount = reply.count
+                        await onPartial(reply)
+                    }
+                    didReceiveDone = true
                 case "error":
                     let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
                     let message = (payload?.error ?? "Studio render stream failed.")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let quality = payload?.screenplayQuality {
+                        throw BackendError.studioRenderQuality(
+                            quality,
+                            message.isEmpty ? "Studio screenplay output did not pass the live quality gate." : message
+                        )
+                    }
                     throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
                 default:
                     break
                 }
             }
 
-            for try await chunk in bytes.allChunks(ofSize: 1024) {
-                pending += String(decoding: chunk, as: UTF8.self)
-                while let newlineRange = pending.range(of: "\n") {
-                    let rawLine = String(pending[..<newlineRange.lowerBound])
-                    pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
-                    let line = rawLine.replacingOccurrences(of: "\r", with: "")
-                    if line.isEmpty {
-                        try await dispatchEvent()
-                        continue
+            for try await rawLine in bytes.lines {
+                let line = rawLine.replacingOccurrences(of: "\r", with: "")
+                if line.isEmpty {
+                    try await dispatchEvent()
+                    if didReceiveDone {
+                        let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+                        return try validatedResult(
+                            reply: resolvedReply,
+                            quality: latestScreenplayQuality
+                        )
                     }
-                    if line.hasPrefix(":") {
-                        continue
-                    }
-                    if line.hasPrefix("event:") {
-                        eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                        continue
-                    }
-                    if line.hasPrefix("data:") {
-                        dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
+                    continue
                 }
-            }
-
-            if !pending.isEmpty {
-                let line = pending.replacingOccurrences(of: "\r", with: "")
+                if line.hasPrefix(":") {
+                    continue
+                }
+                if line.hasPrefix("event:") {
+                    eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
                 if line.hasPrefix("data:") {
-                    dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
+                    let payloadText = line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if eventName == "done" {
+                        let payloadData = Data(payloadText.utf8)
+                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        let eventTrace = trace(from: payload, fallbackKind: "done")
+                        if let onTrace, let eventTrace {
+                            await onTrace(eventTrace)
+                        }
+                        let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                            lastPartialCallbackAt = Date()
+                            lastPartialCallbackCharacterCount = reply.count
+                            await onPartial(reply)
+                        }
+                        return try validatedResult(
+                            reply: reply,
+                            quality: payload?.screenplayQuality
+                        )
+                    }
+                    if eventName == "error" {
+                        let payloadData = Data(payloadText.utf8)
+                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let message = (payload?.error ?? "Studio render stream failed.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let quality = payload?.screenplayQuality {
+                            throw BackendError.studioRenderQuality(
+                                quality,
+                                message.isEmpty ? "Studio screenplay output did not pass the live quality gate." : message
+                            )
+                        }
+                        throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
+                    }
+                    dataLines.append(payloadText)
                 }
             }
             try await dispatchEvent()
 
-            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-            guard !resolvedReply.isEmpty else {
-                throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+            if requiresAuthoritativeDone, !didReceiveDone {
+                throw BackendError.stage(
+                    "studio_render",
+                    "Studio render stream ended before authoritative quality confirmation."
+                )
             }
-            return resolvedReply
+
+            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+            return try validatedResult(
+                reply: resolvedReply,
+                quality: latestScreenplayQuality
+            )
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -2304,7 +3915,8 @@ final class BackendClient {
         transcript: String,
         appName: String,
         windowTitle: String,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        allowAuthTokenRefresh: Bool = true
     ) async throws -> BackendVisualContextEnvelope {
         guard !imageData.isEmpty else {
             throw BackendError.stage("visual_context", "Visual context image was empty.")
@@ -2325,6 +3937,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let cleanMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "image/jpeg"
@@ -2345,6 +3958,19 @@ final class BackendClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await summarizeVisualContext(
+                        imageData: imageData,
+                        mimeType: mimeType,
+                        transcript: transcript,
+                        appName: appName,
+                        windowTitle: windowTitle,
+                        isScreenplayMode: isScreenplayMode,
+                        allowAuthTokenRefresh: false
+                    )
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -2461,6 +4087,7 @@ final class BackendClient {
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
         if let key = normalizedIdempotencyKey(idempotencyKey) {
             request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
         }
@@ -2596,6 +4223,58 @@ final class BackendClient {
             body.appendString("\r\n")
         }
         if let studioMetadata, studioMetadata.isMeaningful {
+            func appendStudioField(_ name: String, _ value: String, limit: Int) {
+                let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !clean.isEmpty else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(String(clean.prefix(limit)))
+                body.appendString("\r\n")
+            }
+
+            func appendStudioIntField(_ name: String, _ value: Int?) {
+                guard let value, value > 0 else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(String(max(1, min(200_000, value))))
+                body.appendString("\r\n")
+            }
+
+            func appendStudioListField(_ name: String, _ values: [String]) {
+                let cleanValues = values
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                guard !cleanValues.isEmpty,
+                      let data = try? JSONEncoder().encode(Array(cleanValues.prefix(12))),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
+            func appendStudioDictionaryField(_ name: String, _ value: [String: String]) {
+                guard !value.isEmpty,
+                      let data = try? JSONSerialization.data(withJSONObject: value, options: []),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
+            func appendStudioDictionariesField(_ name: String, _ values: [[String: Any]]) {
+                let cleanValues = Array(values.filter { !$0.isEmpty }.prefix(8))
+                guard !cleanValues.isEmpty,
+                      JSONSerialization.isValidJSONObject(cleanValues),
+                      let data = try? JSONSerialization.data(withJSONObject: cleanValues, options: []),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
             let projectId = studioMetadata.screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !projectId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -2725,6 +4404,45 @@ final class BackendClient {
                 body.appendString(String(resolvedAnchorExcerpt.prefix(280)))
                 body.appendString("\r\n")
             }
+            appendStudioField("screenplay_draft_excerpt", studioMetadata.screenplayDraftExcerpt, limit: 6000)
+            appendStudioField("screenplay_act", studioMetadata.screenplayAct, limit: 120)
+            appendStudioField("screenplay_scene_objective", studioMetadata.screenplaySceneObjective, limit: 280)
+            appendStudioField("screenplay_scene_summary", studioMetadata.screenplaySceneSummary, limit: 280)
+            appendStudioField("screenplay_current_beat", studioMetadata.screenplayCurrentBeat, limit: 220)
+            appendStudioField("screenplay_logline", studioMetadata.screenplayLogline, limit: 280)
+            appendStudioField("screenplay_theme_argument", studioMetadata.screenplayThemeArgument, limit: 280)
+            appendStudioField("screenplay_central_question", studioMetadata.screenplayCentralQuestion, limit: 280)
+            appendStudioField("screenplay_protagonist_want", studioMetadata.screenplayProtagonistWant, limit: 240)
+            appendStudioField("screenplay_protagonist_need", studioMetadata.screenplayProtagonistNeed, limit: 240)
+            appendStudioField("screenplay_antagonistic_force", studioMetadata.screenplayAntagonisticForce, limit: 260)
+            appendStudioField("screenplay_ending_image", studioMetadata.screenplayEndingImage, limit: 240)
+            appendStudioField("screenplay_feature_sequence", studioMetadata.screenplayFeatureSequence, limit: 220)
+            appendStudioField("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
+            appendStudioField("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
+            appendStudioField("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
+            appendStudioDictionaryField(
+                "screenplay_character_arc_memory",
+                studioMetadata.screenplayCharacterArcMemory?.payload ?? [:]
+            )
+            appendStudioDictionariesField(
+                "screenplay_character_voice_memories",
+                studioMetadata.screenplayCharacterVoiceMemories.map(\.payload)
+            )
+            appendStudioField("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
+            appendStudioField("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
+            appendStudioListField("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves)
+            appendStudioListField("screenplay_next_three_turns", studioMetadata.screenplayNextThreeTurns)
+            appendStudioListField("screenplay_act_three_payoff_path", studioMetadata.screenplayActThreePayoffPath)
+            appendStudioListField("screenplay_beat_sequence", studioMetadata.screenplayBeatSequence)
+            appendStudioListField("screenplay_character_focus", studioMetadata.screenplayCharacterFocus)
+            appendStudioListField("screenplay_unresolved_setups", studioMetadata.screenplayUnresolvedSetups)
+            appendStudioListField("screenplay_unresolved_story_threads", studioMetadata.screenplayUnresolvedStoryThreads)
+            appendStudioListField("screenplay_character_arc_turns", studioMetadata.screenplayCharacterArcTurns)
+            appendStudioListField("screenplay_image_motifs", studioMetadata.screenplayImageMotifs)
+            appendStudioListField("screenplay_continuity_notes", studioMetadata.screenplayContinuityNotes)
+            appendStudioField("screenplay_emotional_continuity", studioMetadata.screenplayEmotionalContinuity, limit: 280)
+            appendStudioIntField("screenplay_page_count", studioMetadata.screenplayPageCount)
+            appendStudioIntField("screenplay_target_pages", studioMetadata.screenplayTargetPages)
         }
         body.appendString("--\(boundary)\r\n")
         body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(uploadMeta.filename)\"\r\n")
@@ -2760,10 +4478,13 @@ final class BackendClient {
                     .lowercased() ?? ""
                 let shouldEmitHeaderText = screenplayTarget.isEmpty || screenplayTarget == "page"
                 let screenplayOutput = self.parseScreenplayOutput(from: http)
+                let screenplayQuality = screenplayOutput?.quality ?? self.parseScreenplayQuality(from: http)
                 let renderContract = self.parseRenderContract(
                     from: http,
                     screenplayOutput: screenplayOutput
                 )
+                let screenplayTrace = self.parseScreenplayTrace(from: http)
+                let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
@@ -2778,8 +4499,11 @@ final class BackendClient {
                     renderContract: renderContract,
                     timingSource: self.parseOptionalHeaderString(http, field: "x-screenplay-timing-source"),
                     screenplayOutput: screenplayOutput,
+                    screenplayQuality: screenplayQuality,
                     screenplayCues: self.parseScreenplayCues(from: http),
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
+                    creativeMemoryTrace: creativeMemoryTrace,
+                    screenplayTrace: screenplayTrace,
                     reply: self.parseOptionalHeaderString(http, field: "x-reply")
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
@@ -2840,6 +4564,9 @@ final class BackendClient {
                     errorDescription: error.localizedDescription
                 )
             )
+            if let queued = await enqueueOfflineTalkRequest(request, body: body, reason: error.localizedDescription) {
+                throw queued
+            }
             throw error
         }
         let http = response as? HTTPURLResponse
@@ -2893,7 +4620,51 @@ final class BackendClient {
         }
 
         guard statusCode == 200 else {
-            if statusCode == 401, allowClientTokenRefresh {
+            let parsedStageError = parseStageError(from: data)
+            if statusCode == 401,
+               allowClientTokenRefresh,
+               let stageError = parsedStageError,
+               isUserAuthStage(stageError.stage),
+               await refreshUserAuthForRetryIfPossible() {
+                print("POST /talk -> auth_user received, refreshed auth token and retrying once")
+                return try await performTalk(
+                    fileURL: fileURL,
+                    fileDataOverride: fileDataOverride,
+                    baseURL: baseURL,
+                    userID: userID,
+                    clientToken: clientToken,
+                    systemPrompt: systemPrompt,
+                    stage: stage,
+                    depthScore: depthScore,
+                    romanceTension: romanceTension,
+                    sessionCount: sessionCount,
+                    personaPreset: personaPreset,
+                    memoryCue: memoryCue,
+                    idempotencyKey: idempotencyKey,
+                    tailSilenceMs: tailSilenceMs,
+                    vadThreshold: vadThreshold,
+                    speechMs: speechMs,
+                    noiseFloorRms: noiseFloorRms,
+                    speechRms: speechRms,
+                    userName: userName,
+                    partialTranscriptHint: partialTranscriptHint,
+                    speculativeReuseKey: speculativeReuseKey,
+                    speculativePromptHash: speculativePromptHash,
+                    studioMetadata: studioMetadata,
+                    clientTranscriptOverride: clientTranscriptOverride,
+                    screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
+                    onResponseMetadataReady: onResponseMetadataReady,
+                    onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                    onTextReady: onTextReady,
+                    onDebugEvent: onDebugEvent,
+                    allowClientTokenRefresh: false,
+                    allowAudioValidationRetry: allowAudioValidationRetry,
+                    forceNoStreamAudio: forceNoStreamAudio
+                )
+            }
+            if statusCode == 401,
+               allowClientTokenRefresh,
+               !isUserAuthStage(parsedStageError?.stage ?? "") {
                 print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
                 clearSessionToken()
                 let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
@@ -2944,7 +4715,17 @@ final class BackendClient {
                     throw BackendError.continueListening
                 }
             }
-            if let stageError = parseStageError(from: data) {
+            if shouldQueueTalkStatus(statusCode, data: data) {
+                if let queued = await enqueueOfflineTalkRequest(
+                    request,
+                    body: body,
+                    reason: "HTTP \(statusCode)"
+                ) {
+                    throw queued
+                }
+            }
+
+            if let stageError = parsedStageError {
                 if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                     print("POST /talk -> auth_client received, refreshing session token and retrying once")
                     clearSessionToken()
@@ -3050,6 +4831,7 @@ final class BackendClient {
             .removingPercentEncoding?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var screenplayOutput = parseScreenplayOutput(from: http)
+        var screenplayQuality = screenplayOutput?.quality ?? parseScreenplayQuality(from: http)
         var screenplayCues = parseScreenplayCues(from: http)
         var dialogueTimeline = parseDialogueTimeline(from: http)
         var renderContract = parseRenderContract(
@@ -3118,6 +4900,9 @@ final class BackendClient {
                 if screenplayOutput == nil {
                     screenplayOutput = payload.screenplayOutput
                 }
+                if screenplayQuality == nil {
+                    screenplayQuality = screenplayOutput?.quality ?? payload.screenplayOutput?.quality
+                }
                 if screenplayCues.isEmpty {
                     screenplayCues = payload.screenplayCues ?? []
                 }
@@ -3165,30 +4950,9 @@ final class BackendClient {
             rawQuery: knowledgeRawQuery,
             rewrittenQuery: knowledgeRewrittenQuery
         )
-        let screenplayModeEnabled = parseHeaderBool(
-            http,
-            field: "x-screenplay-mode",
-            default: false
-        )
-        let screenplayPhase = parseOptionalHeaderString(http, field: "x-screenplay-phase") ?? ""
-        let screenplayPackRaw = parseOptionalHeaderString(http, field: "x-screenplay-pack") ?? ""
-        let screenplayPack = screenplayPackRaw.lowercased() == "none" ? "" : screenplayPackRaw
-        let screenplayPackLock = parseHeaderBool(
-            http,
-            field: "x-screenplay-pack-lock",
-            default: false
-        )
-        let screenplayTrace = BackendTalkScreenplayTrace(
-            modeEnabled: screenplayModeEnabled,
-            phase: screenplayPhase,
-            pack: screenplayPack,
-            packLock: screenplayPackLock,
-            projectId: parseOptionalHeaderString(http, field: "x-screenplay-project-id"),
-            versionId: parseOptionalHeaderString(http, field: "x-screenplay-version-id")
-        )
+        let creativeMemoryTrace = parseCreativeMemoryTrace(from: http)
+        let screenplayTrace = parseScreenplayTrace(from: http)
         let noteAction = parseNoteCaptureAction(from: http)
-        let emailAction = parseEmailComposeAction(from: http)
-        let calendarAction = parseCalendarComposeAction(from: http)
         let taskAction = parseTaskAction(from: http)
         let assistantSelfName = http?.value(forHTTPHeaderField: "x-assistant-self-name")?
             .removingPercentEncoding?
@@ -3196,6 +4960,8 @@ final class BackendClient {
         let userName = http?.value(forHTTPHeaderField: "x-user-name")?
             .removingPercentEncoding?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceEmotionLane = parseOptionalHeaderString(http, field: "x-voice-emotion-lane")
+        let ttsVoice = parseOptionalHeaderString(http, field: "x-tts-voice")
         let turnStatus = (http?.value(forHTTPHeaderField: "x-turn-status") ?? "responded")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -3316,20 +5082,22 @@ final class BackendClient {
             transcript: transcript,
             reply: reply,
             screenplayOutput: screenplayOutput,
+            screenplayQuality: screenplayQuality,
             screenplayCues: screenplayCues,
             dialogueTimeline: dialogueTimeline,
             assistantSelfName: assistantSelfName,
             userName: userName,
+            voiceEmotionLane: voiceEmotionLane,
+            ttsVoice: ttsVoice,
             uiReflection: uiReflection,
             knowledgeTrace: knowledgeTrace,
+            creativeMemoryTrace: creativeMemoryTrace,
             screenplayTrace: screenplayTrace,
             turnStatus: turnStatus,
             turnContinueReason: turnContinueReason,
             turnErrorStage: turnErrorStage,
             turnErrorMessage: turnErrorMessage,
             noteAction: noteAction,
-            emailAction: emailAction,
-            calendarAction: calendarAction,
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
             turnMetaRateLimitNotice: turnMetaRateLimitNotice,
@@ -3363,39 +5131,93 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendError.http(-1, "Invalid turn metadata response")
-        }
-        if let notice = BackendTalkTurnMetaRateLimitNotice(
-            turnId: normalizedTurnID,
-            statusCode: http.statusCode,
-            data: data,
-            retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-        ) {
-            throw BackendTalkTurnMetaRateLimitError(notice: notice)
-        }
-        guard http.statusCode == 200 else {
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            throw BackendError.http(http.statusCode, raw)
-        }
+        var attempt = 0
+        while true {
+            let result: (Data, URLResponse)
+            do {
+                result = try await urlSession.data(for: request)
+            } catch {
+                guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
+                    throw error
+                }
+                attempt += 1
+                let delayNs = UInt64(200 * attempt) * 1_000_000
+                print("GET /talk/turn/\(normalizedTurnID) -> transient network retry \(attempt + 1)/\(maxTurnMetaAttempts)")
+                try await Task.sleep(nanoseconds: delayNs)
+                continue
+            }
 
-        do {
-            return try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: data)
-        } catch {
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            throw BackendError.http(502, raw.isEmpty ? "Invalid turn metadata payload" : raw)
+            let (data, response) = result
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendError.http(-1, "Invalid turn metadata response")
+            }
+            if let notice = BackendTalkTurnMetaRateLimitNotice(
+                turnId: normalizedTurnID,
+                statusCode: http.statusCode,
+                data: data,
+                retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+            ) {
+                throw BackendTalkTurnMetaRateLimitError(notice: notice)
+            }
+            if retryableHTTPStatus.contains(http.statusCode), attempt + 1 < maxTurnMetaAttempts {
+                attempt += 1
+                let delayNs = UInt64(200 * attempt) * 1_000_000
+                print("GET /talk/turn/\(normalizedTurnID) -> transient status \(http.statusCode), retry \(attempt + 1)/\(maxTurnMetaAttempts)")
+                try await Task.sleep(nanoseconds: delayNs)
+                continue
+            }
+            guard http.statusCode == 200 else {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(http.statusCode, raw)
+            }
+
+            do {
+                return try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: data)
+            } catch {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(502, raw.isEmpty ? "Invalid turn metadata payload" : raw)
+            }
         }
     }
 
+#if DEBUG
+    func fetchScreenplayOutputForTesting(
+        baseURL: URL,
+        userID: String,
+        clientToken: String,
+        turnID: String
+    ) async throws -> BackendTalkScreenplayOutput? {
+        try await fetchTurnMeta(
+            baseURL: baseURL,
+            userID: userID,
+            clientToken: clientToken,
+            turnID: turnID
+        ).screenplayOutput
+    }
+#endif
+
+    @discardableResult
+    private func synchronizeCachedIdentityEpoch() -> Int {
+        let currentEpoch = BackendAuthClient.currentAuthSessionEpoch()
+        if cachedAuthSessionEpoch != currentEpoch {
+            cachedAuthSessionEpoch = currentEpoch
+            cachedClientToken = nil
+            cachedClientTokenExpiry = nil
+            cachedUserID = nil
+        }
+        return currentEpoch
+    }
+
     private func resolveClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let expectedSessionEpoch = synchronizeCachedIdentityEpoch()
         let now = Date()
         let formatter = ISO8601DateFormatter()
         let sharedToken = readSharedClientToken()
         let sharedExpiry: Date? = {
             guard
-                let raw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+                let raw = readSharedClientTokenExpiry(),
                 let parsed = formatter.date(from: raw)
             else { return nil }
             return parsed
@@ -3406,11 +5228,18 @@ final class BackendClient {
             let expiry = cachedClientTokenExpiry,
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
         if
+            BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens,
             let token = readKeychainString(account: keychainTokenAccount),
             let expiryRaw = readKeychainString(account: keychainExpiryAccount),
             let expiry = formatter.date(from: expiryRaw),
@@ -3418,7 +5247,13 @@ final class BackendClient {
         {
             cachedClientToken = token
             cachedClientTokenExpiry = expiry
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
@@ -3427,17 +5262,26 @@ final class BackendClient {
             if expiry.timeIntervalSince(now) > sessionRefreshSkew {
                 cachedClientToken = sharedToken
                 cachedClientTokenExpiry = expiry
-                writeKeychainString(sharedToken, account: keychainTokenAccount)
-                writeKeychainString(formatter.string(from: expiry), account: keychainExpiryAccount)
-                writeSharedClientToken(sharedToken, expiry: expiry)
+                guard writeSharedClientToken(
+                    sharedToken,
+                    expiry: expiry,
+                    expectedSessionEpoch: expectedSessionEpoch
+                ) else {
+                    throw BackendError.stage("session", "Session identity changed. Please retry.")
+                }
                 return sharedToken
             }
         }
 
-        return try await refreshClientToken(for: baseURL, userID: userID)
+        return try await refreshClientToken(
+            for: baseURL,
+            userID: userID,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func resolveStudioRenderClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let expectedSessionEpoch = synchronizeCachedIdentityEpoch()
         let now = Date()
         let formatter = ISO8601DateFormatter()
         if
@@ -3445,55 +5289,74 @@ final class BackendClient {
             let expiry = cachedClientTokenExpiry,
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
-            writeSharedClientToken(token, expiry: expiry)
+            guard writeSharedClientToken(
+                token,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return token
         }
 
         if
             let sharedToken = readSharedClientToken(),
-            let expiryRaw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+            let expiryRaw = readSharedClientTokenExpiry(),
             let expiry = formatter.date(from: expiryRaw),
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
             cachedClientToken = sharedToken
             cachedClientTokenExpiry = expiry
-            writeSharedClientToken(sharedToken, expiry: expiry)
+            guard writeSharedClientToken(
+                sharedToken,
+                expiry: expiry,
+                expectedSessionEpoch: expectedSessionEpoch
+            ) else {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
+            }
             return sharedToken
         }
 
-        return try await refreshClientToken(for: baseURL, userID: userID)
+        return try await refreshClientToken(
+            for: baseURL,
+            userID: userID,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func resolveStudioRenderUserID() -> String {
-        if let cached = cachedUserID, !cached.isEmpty {
-            writeSharedUserID(cached)
-            return cached
-        }
-        let fromDefaults = normalizeStoredUserID(readSharedUserID())
-        if !fromDefaults.isEmpty {
-            cachedUserID = fromDefaults
-            writeSharedUserID(fromDefaults)
-            return fromDefaults
-        }
-        let generated = generateStableUserID()
-        cachedUserID = generated
-        writeSharedUserID(generated)
-        return generated
+        resolveAtomicRequestUserID()
     }
 
-    private func refreshClientToken(for baseURL: URL, userID: String) async throws -> String {
+    private func refreshClientToken(
+        for baseURL: URL,
+        userID: String,
+        expectedSessionEpoch: Int? = nil,
+        allowAuthTokenRefresh: Bool = true
+    ) async throws -> String {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let requestSessionEpoch = expectedSessionEpoch ?? identity.sessionEpoch
+        guard identity.sessionEpoch == requestSessionEpoch else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
+        let requestUserID = identity.userID.isEmpty ? userID : identity.userID
+        cachedAuthSessionEpoch = identity.sessionEpoch
+        cachedUserID = identity.userID.isEmpty ? nil : identity.userID
         var request = URLRequest(url: baseURL.appendingPathComponent("session"))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        if !userID.isEmpty {
-            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        if !requestUserID.isEmpty {
+            request.setValue(requestUserID, forHTTPHeaderField: "X-User-Id")
         }
         let appToken = appToken()
         print("APP_TOKEN info:", redactedTokenInfo(appToken))
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = Data("{}".utf8)
 
@@ -3512,6 +5375,16 @@ final class BackendClient {
 
         guard (200...299).contains(status) else {
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await refreshClientToken(
+                        for: baseURL,
+                        userID: resolveUserID(),
+                        expectedSessionEpoch: synchronizeCachedIdentityEpoch(),
+                        allowAuthTokenRefresh: false
+                    )
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -3526,10 +5399,15 @@ final class BackendClient {
             throw BackendError.stage("session", "Invalid session response payload.")
         }
 
+        guard BackendAuthClient.currentAuthSessionEpoch() == requestSessionEpoch else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
+
         if let rawUserID = obj["user_id"] as? String {
             let normalized = normalizeStoredUserID(rawUserID)
-            if !normalized.isEmpty {
-                writeUserID(normalized)
+            if !normalized.isEmpty,
+               !writeUserID(normalized, expectedSessionEpoch: requestSessionEpoch) {
+                throw BackendError.stage("session", "Session identity changed. Please retry.")
             }
         }
 
@@ -3541,7 +5419,13 @@ final class BackendClient {
         }
 
         let expiry = Date().addingTimeInterval(expiresIn)
-        persistResolvedClientToken(token, expiry: expiry)
+        guard persistResolvedClientToken(
+            token,
+            expiry: expiry,
+            expectedSessionEpoch: requestSessionEpoch
+        ) else {
+            throw BackendError.stage("session", "Session identity changed. Please retry.")
+        }
 
         return token
     }
@@ -3551,19 +5435,35 @@ final class BackendClient {
         cachedClientTokenExpiry = nil
         cachedHealthyURL = nil      // force re-check on next turn after auth failure
         cachedHealthyAt = .distantPast
-        deleteKeychainString(account: keychainTokenAccount)
-        deleteKeychainString(account: keychainExpiryAccount)
+        if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
+            deleteKeychainString(account: keychainTokenAccount)
+            deleteKeychainString(account: keychainExpiryAccount)
+        }
         clearSharedClientToken()
     }
 
-    private func persistResolvedClientToken(_ token: String, expiry: Date) {
+    @discardableResult
+    private func persistResolvedClientToken(
+        _ token: String,
+        expiry: Date,
+        expectedSessionEpoch: Int = BackendAuthClient.currentAuthSessionEpoch()
+    ) -> Bool {
+        guard BackendAuthClient.currentAuthSessionEpoch() == expectedSessionEpoch else {
+            return false
+        }
         cachedClientToken = token
         cachedClientTokenExpiry = expiry
 
-        let expiryRaw = ISO8601DateFormatter().string(from: expiry)
-        writeKeychainString(token, account: keychainTokenAccount)
-        writeKeychainString(expiryRaw, account: keychainExpiryAccount)
-        writeSharedClientToken(token, expiry: expiry)
+        guard writeSharedClientToken(
+            token,
+            expiry: expiry,
+            expectedSessionEpoch: expectedSessionEpoch
+        ) else {
+            cachedClientToken = nil
+            cachedClientTokenExpiry = nil
+            return false
+        }
+        return true
     }
 
     private func performCraftRequest<T: Decodable>(
@@ -3744,6 +5644,31 @@ final class BackendClient {
         return (stage, "Unknown error")
     }
 
+    private func parseRealtimeUnavailable(from data: Data, statusCode: Int) -> BackendRealtimeUnavailable? {
+        guard let payload = try? JSONDecoder().decode(BackendRealtimeUnavailablePayload.self, from: data) else {
+            return nil
+        }
+        let stage = (payload.stage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = (payload.code ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = (payload.realtimeProvider ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let degraded = payload.degraded == true
+        let hasRealtimeSignal = stage.lowercased() == "realtime_auth" ||
+            degraded ||
+            !code.isEmpty ||
+            !provider.isEmpty
+        guard hasRealtimeSignal else { return nil }
+        let message = (payload.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return BackendRealtimeUnavailable(
+            statusCode: statusCode,
+            stage: stage.isEmpty ? "realtime_auth" : stage,
+            code: code.isEmpty ? "realtime_unavailable" : code,
+            realtimeProvider: provider.isEmpty ? nil : provider,
+            fallback: payload.fallback,
+            degraded: degraded,
+            message: message
+        )
+    }
+
     private func dataForTalkRequest(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
@@ -3763,7 +5688,11 @@ final class BackendClient {
                     result = try await URLSession.shared.data(for: request)
                 }
                 if let http = result.1 as? HTTPURLResponse,
-                   retryableHTTPStatus.contains(http.statusCode),
+                   BackendProviderFailurePolicy.shouldRetryHTTP(
+                       statusCode: http.statusCode,
+                       data: result.0,
+                       retryableStatusCodes: retryableHTTPStatus
+                   ),
                    attempt + 1 < maxTalkAttempts {
                     attempt += 1
                     let delayNs = UInt64(300 * attempt) * 1_000_000
@@ -3979,6 +5908,37 @@ final class BackendClient {
         return retryableURLErrors.contains(urlError.code)
     }
 
+    private func shouldQueueTalkStatus(_ statusCode: Int, data: Data) -> Bool {
+        statusCode == -1 || BackendProviderFailurePolicy.shouldRetryHTTP(
+            statusCode: statusCode,
+            data: data,
+            retryableStatusCodes: retryableHTTPStatus
+        )
+    }
+
+    private func enqueueOfflineTalkRequest(
+        _ request: URLRequest,
+        body: Data,
+        reason: String
+    ) async -> BackendTalkQueuedError? {
+        do {
+            let result = try await OfflineTalkOutbox.shared.enqueue(
+                request: request,
+                body: body,
+                reason: reason
+            )
+            print("POST /talk -> queued offline outbox entry \(result.entry.id)")
+            return BackendTalkQueuedError(
+                entryID: result.entry.id,
+                snapshot: result.snapshot,
+                reason: reason
+            )
+        } catch {
+            print("POST /talk -> offline outbox enqueue failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func shouldFallbackToPlainTalkTransport(for error: Error) -> Bool {
         let nsError = error as NSError
         return nsError.domain == NSPOSIXErrorDomain && nsError.code == 1
@@ -4034,26 +5994,12 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
             let (data, response) = try await urlSession.data(for: request)
-            let http = response as? HTTPURLResponse
-            let status = http?.statusCode ?? -1
-            guard status == 304 || (200...299).contains(status) else { return false }
-
-            if
-                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let ok = obj["ok"] as? Bool
-            {
-                return ok
-            }
-
-            if let text = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-               text == "ok"
-            {
-                return true
-            }
-
-            return true
+            guard let http = response as? HTTPURLResponse else { return false }
+            return BackendAPIResponseValidator.isHealthyResponse(
+                requestURL: healthURL,
+                response: http,
+                data: data
+            )
         } catch {
             return false
         }
@@ -4071,15 +6017,18 @@ final class BackendClient {
         let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
         let env = isUsableTokenValue(envRaw) ? envRaw : nil
 
-        if let defaults, let plist, defaults != plist {
-            print("APP_TOKEN mismatch defaults/plist -> using defaults value")
-        } else if let plist, let env, plist != env {
+        if let plist, let env, plist != env {
             print("APP_TOKEN mismatch env/plist -> using plist value")
         }
 
         if let defaults { return defaults }
         if let plist { return plist }
         if let env { return env }
+        if let fallback = devFallbackAppToken { return fallback }
+        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
+        if let keychain { return keychain }
         return devFallbackAppToken
     }
 
@@ -4090,6 +6039,26 @@ final class BackendClient {
         return true
     }
 
+    private func attachAuthorizationHeader(to request: inout URLRequest) {
+        guard let value = BackendAuthClient.authorizationHeaderValue(), !value.isEmpty else { return }
+        request.setValue(value, forHTTPHeaderField: "Authorization")
+    }
+
+    private func isUserAuthStage(_ stage: String) -> Bool {
+        stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auth_user"
+    }
+
+    private func refreshUserAuthForRetryIfPossible() async -> Bool {
+        let current = BackendAuthClient.currentAuthSessionState()
+        guard current.refreshTokenPresent else { return false }
+        do {
+            let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+            return refreshed.isAuthenticated
+        } catch {
+            return false
+        }
+    }
+
     private func redactedTokenInfo(_ token: String?) -> String {
         guard let token, !token.isEmpty else { return "nil" }
         let prefix = token.prefix(3)
@@ -4097,14 +6066,9 @@ final class BackendClient {
         return "\(prefix)...\(suffix) len=\(token.count)"
     }
     private static func resolveURL(fromEnv envName: String, infoPlistKey: String, fallback: URL) -> URL {
-        let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if isUsableConfigValue(defaultsValue),
-           let url = URL(string: defaultsValue),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
         }
-
         let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {
@@ -4118,6 +6082,19 @@ final class BackendClient {
             isUsableBackendURL(url)
         {
             return canonicalizeLoopbackURL(url)
+        }
+
+        let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUsableConfigValue(defaultsValue),
+           let url = URL(string: defaultsValue),
+           isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: sharedBackendBaseURLDefaultsKeyStatic)
+            UserDefaults.standard.synchronize()
         }
 
         return canonicalizeLoopbackURL(fallback)
@@ -4139,6 +6116,11 @@ final class BackendClient {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
             return false
         }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
         return true
     }
 
@@ -4146,7 +6128,7 @@ final class BackendClient {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -4154,6 +6136,14 @@ final class BackendClient {
         }
         components.host = "127.0.0.1"
         return components.url ?? url
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
     }
 
     private func looksLikeMP3(_ data: Data) -> Bool {
@@ -4349,6 +6339,88 @@ final class BackendClient {
         )
     }
 
+    private func parseScreenplayTrace(from response: HTTPURLResponse?) -> BackendTalkScreenplayTrace {
+        let screenplayModeEnabled = parseHeaderBool(
+            response,
+            field: "x-screenplay-mode",
+            default: false
+        )
+        let screenplayPhase = parseOptionalHeaderString(response, field: "x-screenplay-phase") ?? ""
+        let screenplayPackRaw = parseOptionalHeaderString(response, field: "x-screenplay-pack") ?? ""
+        let screenplayPack = screenplayPackRaw.lowercased() == "none" ? "" : screenplayPackRaw
+        let screenplayPackLock = parseHeaderBool(
+            response,
+            field: "x-screenplay-pack-lock",
+            default: false
+        )
+        let repairMs = parseHeaderInt(
+            response,
+            field: "x-screenplay-repair-ms",
+            default: 0,
+            min: 0,
+            max: 600_000
+        )
+        return BackendTalkScreenplayTrace(
+            modeEnabled: screenplayModeEnabled,
+            phase: screenplayPhase,
+            pack: screenplayPack,
+            packLock: screenplayPackLock,
+            projectId: parseOptionalHeaderString(response, field: "x-screenplay-project-id"),
+            versionId: parseOptionalHeaderString(response, field: "x-screenplay-version-id"),
+            repairAttempted: parseHeaderBool(response, field: "x-screenplay-repair-attempted", default: false),
+            repairOutcome: parseOptionalHeaderString(response, field: "x-screenplay-repair-outcome") ?? "none",
+            repairMs: repairMs > 0 ? repairMs : nil,
+            repairReason: parseOptionalHeaderString(response, field: "x-screenplay-repair-reason")
+        )
+    }
+
+    private func parseCreativeMemoryTrace(from response: HTTPURLResponse?) -> BackendTalkCreativeMemoryTrace {
+        let canonClarification = parseCanonClarification(from: response)
+        if let raw = parseOptionalHeaderString(response, field: "x-creative-memory-trace"),
+           let data = raw.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(BackendTalkCreativeMemoryTrace.self, from: data) {
+            return decoded.attachingCanonClarification(canonClarification)
+        }
+        let characterCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-character-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        let episodicCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-episodic-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        let correctionCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-correction-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        return BackendTalkCreativeMemoryTrace(
+            applied: parseHeaderBool(response, field: "x-creative-memory-applied", default: false),
+            characterCount: characterCount,
+            episodicCount: episodicCount,
+            correctionCount: correctionCount,
+            canonClarification: canonClarification
+        )
+    }
+
+    private func parseCanonClarification(from response: HTTPURLResponse?) -> BackendCanonCorrectionAmbiguity? {
+        guard let raw = parseOptionalHeaderString(response, field: "x-canon-clarification"),
+              let data = raw.data(using: .utf8) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
+    }
+
     private func parseScreenplayCues(from response: HTTPURLResponse?) -> [BackendTalkScreenplayCue] {
         guard
             let raw = response?.value(forHTTPHeaderField: "x-screenplay-cues")?
@@ -4373,6 +6445,38 @@ final class BackendClient {
             return nil
         }
         return try? JSONDecoder().decode(BackendTalkScreenplayOutput.self, from: data)
+    }
+
+    private func parseScreenplayQuality(from response: HTTPURLResponse?) -> BackendTalkScreenplayQuality? {
+        guard let response else { return nil }
+        let rawReason = parseOptionalHeaderString(response, field: "x-screenplay-quality-reason")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawConfidence = parseOptionalHeaderString(response, field: "x-screenplay-quality-confidence")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawFeatureAct = parseOptionalHeaderString(response, field: "x-screenplay-quality-feature-act")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let repairDirectives = parseDelimitedHeader(
+            response,
+            field: "x-screenplay-repair-directives",
+            separator: "|"
+        )
+        let hasQualityHeaders =
+            response.value(forHTTPHeaderField: "x-screenplay-quality-ok") != nil ||
+            !rawReason.isEmpty ||
+            !rawConfidence.isEmpty ||
+            !(rawFeatureAct ?? "").isEmpty ||
+            !repairDirectives.isEmpty
+        guard hasQualityHeaders else { return nil }
+        return BackendTalkScreenplayQuality(
+            ok: parseHeaderBool(response, field: "x-screenplay-quality-ok", default: false),
+            reason: rawReason,
+            source: "header",
+            confidence: rawConfidence,
+            featureAct: rawFeatureAct,
+            matchedTokens: [],
+            counts: [:],
+            repairDirectives: repairDirectives
+        )
     }
 
     private func parseDialogueTimeline(from response: HTTPURLResponse?) -> BackendTalkDialogueTimelineRevision? {
@@ -4441,53 +6545,6 @@ final class BackendClient {
         )
     }
 
-    private func parseEmailComposeAction(from response: HTTPURLResponse?) -> BackendEmailComposeAction? {
-        guard let response else { return nil }
-
-        let status = (response.value(forHTTPHeaderField: "x-email-status") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let action = (response.value(forHTTPHeaderField: "x-email-action") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let target = (response.value(forHTTPHeaderField: "x-email-target") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let composed = parseHeaderBool(response, field: "x-email-composed", default: false)
-            || status == "composed"
-            || action == "compose"
-
-        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
-
-        let to = response.value(forHTTPHeaderField: "x-email-to")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let subject = response.value(forHTTPHeaderField: "x-email-subject")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let composeURL: URL? = {
-            guard
-                let raw = response.value(forHTTPHeaderField: "x-email-compose-url")?
-                    .removingPercentEncoding?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !raw.isEmpty
-            else {
-                return nil
-            }
-            return URL(string: raw)
-        }()
-
-        return BackendEmailComposeAction(
-            action: action,
-            status: status,
-            target: target,
-            to: to,
-            subject: subject,
-            composeURL: composeURL,
-            composed: composed
-        )
-    }
-
     private func parseNoteCaptureAction(from response: HTTPURLResponse?) -> BackendNoteCaptureAction? {
         guard let response else { return nil }
         let captured = parseHeaderBool(response, field: "x-note-captured", default: false)
@@ -4527,59 +6584,6 @@ final class BackendClient {
             path: path,
             fallbackFrom: fallbackFrom,
             error: error
-        )
-    }
-
-    private func parseCalendarComposeAction(from response: HTTPURLResponse?) -> BackendCalendarComposeAction? {
-        guard let response else { return nil }
-
-        let status = (response.value(forHTTPHeaderField: "x-calendar-status") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let action = (response.value(forHTTPHeaderField: "x-calendar-action") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let target = (response.value(forHTTPHeaderField: "x-calendar-target") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let composed = parseHeaderBool(response, field: "x-calendar-composed", default: false)
-            || status == "composed"
-            || action == "compose"
-
-        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
-
-        let title = response.value(forHTTPHeaderField: "x-calendar-title")?
-            .removingPercentEncoding?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let startAt = Double(
-            (response.value(forHTTPHeaderField: "x-calendar-start-at") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        let endAt = Double(
-            (response.value(forHTTPHeaderField: "x-calendar-end-at") ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        let composeURL: URL? = {
-            guard
-                let raw = response.value(forHTTPHeaderField: "x-calendar-compose-url")?
-                    .removingPercentEncoding?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !raw.isEmpty
-            else {
-                return nil
-            }
-            return URL(string: raw)
-        }()
-
-        return BackendCalendarComposeAction(
-            action: action,
-            status: status,
-            target: target,
-            title: title,
-            startAt: startAt,
-            endAt: endAt,
-            composeURL: composeURL,
-            composed: composed
         )
     }
 
@@ -4624,8 +6628,9 @@ final class BackendClient {
         )
     }
 
-    private func writeKeychainString(_ value: String, account: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    private func writeKeychainString(_ value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -4637,8 +6642,8 @@ final class BackendClient {
 
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(item as CFDictionary, nil)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     private func readKeychainString(account: String) -> String? {
@@ -4666,36 +6671,32 @@ final class BackendClient {
     }
 
     private func resolveUserID() -> String {
-        if let cached = cachedUserID, !cached.isEmpty {
-            writeSharedUserID(cached)
-            return cached
-        }
-        let fromKeychain = normalizeStoredUserID(readKeychainString(account: keychainUserIDAccount))
-        if !fromKeychain.isEmpty {
-            cachedUserID = fromKeychain
-            writeSharedUserID(fromKeychain)
-            return fromKeychain
-        }
-        let fromDefaults = normalizeStoredUserID(readSharedUserID())
-        if !fromDefaults.isEmpty {
-            cachedUserID = fromDefaults
-            writeKeychainString(fromDefaults, account: keychainUserIDAccount)
-            writeSharedUserID(fromDefaults)
-            return fromDefaults
-        }
-        let generated = generateStableUserID()
-        cachedUserID = generated
-        writeKeychainString(generated, account: keychainUserIDAccount)
-        writeSharedUserID(generated)
-        return generated
+        resolveAtomicRequestUserID()
     }
 
-    private func writeUserID(_ userID: String) {
+    private func resolveAtomicRequestUserID() -> String {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        cachedAuthSessionEpoch = identity.sessionEpoch
+        cachedUserID = identity.userID.isEmpty ? nil : identity.userID
+        return identity.userID
+    }
+
+    @discardableResult
+    private func writeUserID(
+        _ userID: String,
+        expectedSessionEpoch: Int
+    ) -> Bool {
         let normalized = normalizeStoredUserID(userID)
-        guard !normalized.isEmpty else { return }
+        guard !normalized.isEmpty else { return false }
+        guard BackendAuthClient.persistSharedUserIDIfCurrent(
+            normalized,
+            expectedSessionEpoch: expectedSessionEpoch
+        ) else {
+            return false
+        }
+        cachedAuthSessionEpoch = expectedSessionEpoch
         cachedUserID = normalized
-        writeKeychainString(normalized, account: keychainUserIDAccount)
-        writeSharedUserID(normalized)
+        return true
     }
 
     private func generateStableUserID() -> String {
@@ -4715,44 +6716,55 @@ final class BackendClient {
     }
 
     private func readSharedClientToken() -> String? {
-        let raw = UserDefaults.standard.string(forKey: sharedClientTokenDefaultsKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? nil : raw
+        BackendAuthClient.sharedClientToken()
+    }
+
+    private func readSharedClientTokenExpiry() -> String? {
+        BackendAuthClient.sharedClientTokenExpiry()
     }
 
     private func readSharedUserID() -> String? {
-        let raw = UserDefaults.standard.string(forKey: sharedUserIDDefaultsKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? nil : raw
+        BackendAuthClient.sharedUserID()
     }
 
-    private func writeSharedClientToken(_ token: String, expiry: Date?) {
+    @discardableResult
+    private func writeSharedClientToken(
+        _ token: String,
+        expiry: Date?,
+        expectedSessionEpoch: Int = BackendAuthClient.currentAuthSessionEpoch()
+    ) -> Bool {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             clearSharedClientToken()
-            return
+            return false
         }
-        UserDefaults.standard.set(trimmed, forKey: sharedClientTokenDefaultsKey)
-        if let expiry {
-            let raw = ISO8601DateFormatter().string(from: expiry)
-            UserDefaults.standard.set(raw, forKey: sharedClientTokenExpiryDefaultsKey)
-        }
+        let raw = expiry.map { ISO8601DateFormatter().string(from: $0) }
+        return BackendAuthClient.persistSharedClientTokenIfCurrent(
+            trimmed,
+            expiryRaw: raw,
+            baseURLRaw: baseURL.absoluteString,
+            expectedSessionEpoch: expectedSessionEpoch
+        )
     }
 
     private func clearSharedClientToken() {
-        UserDefaults.standard.removeObject(forKey: sharedClientTokenDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: sharedClientTokenExpiryDefaultsKey)
+        BackendAuthClient.clearSharedClientToken()
     }
 
-    private func writeSharedUserID(_ userID: String) {
+    @discardableResult
+    private func writeSharedUserID(_ userID: String) -> Bool {
         let trimmed = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        UserDefaults.standard.set(trimmed, forKey: sharedUserIDDefaultsKey)
+        guard !trimmed.isEmpty else { return false }
+        return BackendAuthClient.persistSharedUserIDIfCurrent(
+            trimmed,
+            expectedSessionEpoch: cachedAuthSessionEpoch
+        )
     }
 
     private func persistSharedBackendBaseURL(_ url: URL) {
         guard shouldPersistBackendBaseURL else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
+        UserDefaults.standard.synchronize()
     }
 }
 

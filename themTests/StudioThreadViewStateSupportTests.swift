@@ -103,6 +103,39 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(result.reopenedSource, .merged)
     }
 
+    func testResolveAttributesMirroredReopenedStateToBackend() throws {
+        let backend = StudioFullThreadBrowseState(
+            searchText: "",
+            selectedFilterRaw: "",
+            selectedSceneKey: "",
+            scrollTargetKey: "",
+            collapsedSectionKeys: [],
+            focusedDiffKey: "thread:backend",
+            reopenedLineageKeys: ["lineage:backend"],
+            latestReopenedWriteID: "write-backend"
+        )
+        let local = StudioFullThreadBrowseState(
+            searchText: "",
+            selectedFilterRaw: "",
+            selectedSceneKey: "",
+            scrollTargetKey: "",
+            collapsedSectionKeys: [],
+            focusedDiffKey: "thread:local",
+            reopenedLineageKeys: ["lineage:backend"],
+            latestReopenedWriteID: "write-backend"
+        )
+
+        let result = StudioFullThreadBrowseStateRestoreResult.resolve(local: local, backend: backend)
+        let record = try XCTUnwrap(result.record)
+
+        XCTAssertEqual(record.focusedDiffKey, "thread:local")
+        XCTAssertEqual(record.reopenedLineageKeys, ["lineage:backend"])
+        XCTAssertEqual(record.latestReopenedWriteID, "write-backend")
+        XCTAssertEqual(result.source, .merged)
+        XCTAssertEqual(result.focusedDiffSource, .local)
+        XCTAssertEqual(result.reopenedSource, .backend)
+    }
+
     func testBackendPayloadNormalizesFocusedAndReopenedKeys() {
         let state = StudioFullThreadBrowseState(
             searchText: " note ",
@@ -123,6 +156,136 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(payload.focusedDiffKey, "write:abc")
         XCTAssertEqual(payload.reopenedLineageKeys ?? [], ["lineage:a", "lineage:b"])
         XCTAssertEqual(payload.latestReopenedWriteID, "write:xyz")
+    }
+
+    func testFocusRestorePolicyPreservesPersistentKeyDuringProjectRestore() {
+        let restoring = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: true,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: false,
+            isRestoringReopenedDiffState: false
+        )
+        let awaitingAcknowledgementHydration = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: false,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: true,
+            isRestoringReopenedDiffState: false
+        )
+
+        XCTAssertFalse(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(restoring))
+        XCTAssertFalse(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(awaitingAcknowledgementHydration))
+    }
+
+    func testFocusRestorePolicyClearsPersistentKeyAfterRestoreSettles() {
+        let settledProject = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: false,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: false,
+            isRestoringReopenedDiffState: false
+        )
+        let liveDraft = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: false,
+            isRestoringFullThreadBrowseState: true,
+            isAwaitingInitialFullThreadRestore: true,
+            isAwaitingInitialAcknowledgedDiffHydration: true,
+            isRestoringReopenedDiffState: true
+        )
+
+        XCTAssertTrue(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(settledProject))
+        XCTAssertTrue(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(liveDraft))
+    }
+
+    func testScreenplayQualityStatusShowsRepairDirectivesForBlockedPageBatch() throws {
+        let quality = BackendTalkScreenplayQuality(
+            ok: false,
+            reason: "summary_like_page_batch",
+            source: "guard_low_page_quality",
+            confidence: "needs_repair",
+            counts: ["summary_like_action": 3],
+            minimumSpecificActions: 3,
+            repairDirectives: [
+                "Replace synopsis/overview language with playable Fountain pages.",
+                "Replace synopsis/overview language with playable Fountain pages."
+            ]
+        )
+        let output = BackendTalkScreenplayOutput(
+            target: "voice_pin",
+            format: "note",
+            source: "guard_low_page_quality",
+            quality: quality,
+            text: "",
+            lines: []
+        )
+
+        let status = try XCTUnwrap(ScreenplayQualityStatus(quality: quality, output: output))
+
+        XCTAssertEqual(status.resolution, .blocked)
+        XCTAssertEqual(status.minimumSpecificActions, 3)
+        XCTAssertEqual(status.repairDirectives, ["Replace synopsis/overview language with playable Fountain pages."])
+        XCTAssertTrue(status.detail.contains("summary instead of playable pages"))
+        XCTAssertTrue(status.detail.contains("Repair focus: Replace synopsis/overview language"))
+    }
+
+    func testScreenplayQualityStatusShowsRepairDirectivesForRepairedPageBatch() throws {
+        let quality = BackendTalkScreenplayQuality(
+            ok: true,
+            reason: "ok",
+            source: "repair_pass",
+            confidence: "repaired",
+            repairDirectives: [
+                "Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image."
+            ]
+        )
+        let output = BackendTalkScreenplayOutput(
+            target: "page",
+            format: "hollywood",
+            source: "repair_pass",
+            quality: quality,
+            text: "INT. MOTEL ROOM - NIGHT\n\nJune folds the receipt.",
+            lines: [
+                BackendTalkScreenplayOutputLine(index: 0, text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading"),
+                BackendTalkScreenplayOutputLine(index: 1, text: "June folds the receipt.", element: "action")
+            ]
+        )
+
+        let status = try XCTUnwrap(ScreenplayQualityStatus(quality: quality, output: output))
+
+        XCTAssertEqual(status.resolution, .repaired)
+        XCTAssertEqual(status.repairDirectives.count, 1)
+        XCTAssertTrue(status.detail.contains("Clementine repaired the page"))
+        XCTAssertTrue(status.detail.contains("Break the run into escalating turns"))
+    }
+
+    func testScreenplayTraceCarriesRepairTimingTelemetry() {
+        XCTAssertFalse(BackendTalkScreenplayTrace.empty.repairAttempted)
+        XCTAssertEqual(BackendTalkScreenplayTrace.empty.repairOutcome, "none")
+        XCTAssertNil(BackendTalkScreenplayTrace.empty.repairMs)
+        XCTAssertNil(BackendTalkScreenplayTrace.empty.repairReason)
+
+        let trace = BackendTalkScreenplayTrace(
+            modeEnabled: true,
+            phase: " scene_draft ",
+            pack: " Act II ",
+            packLock: false,
+            projectId: " project-7 ",
+            versionId: " version-3 ",
+            repairAttempted: true,
+            repairOutcome: " Repaired ",
+            repairMs: 1240,
+            repairReason: " summary_like_page_batch "
+        )
+
+        XCTAssertTrue(trace.repairAttempted)
+        XCTAssertEqual(trace.repairOutcome, "repaired")
+        XCTAssertEqual(trace.repairMs, 1240)
+        XCTAssertEqual(trace.repairReason, "summary_like_page_batch")
+        XCTAssertEqual(trace.phase, "scene_draft")
+        XCTAssertEqual(trace.pack, "Act II")
+        XCTAssertEqual(trace.projectId, "project-7")
+        XCTAssertEqual(trace.versionId, "version-3")
     }
 
     func testRenderedCharacterMentionExtractorFindsDialogueCues() {
@@ -206,6 +369,296 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         )
     }
 
+    func testCharacterVoiceMemorySelectionFollowsActiveSceneCharacters() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let original = bridge.characterVoiceMemories
+        let originalUserID = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "test-restore"
+        defer {
+            bridge.updateCharacterVoiceMemories(
+                from: BackendCharacterTraitsResponse(
+                    schemaVersion: 1,
+                    userId: originalUserID,
+                    characters: original.map { memory in
+                        BackendCharacterTraitRecord(
+                            name: memory.character,
+                            traits: BackendCharacterTraits(voiceFingerprint: memory.voiceFingerprint)
+                        )
+                    },
+                    error: nil
+                ),
+                authenticatedUserID: originalUserID
+            )
+        }
+
+        bridge.updateCharacterVoiceMemories(
+            from: BackendCharacterTraitsResponse(
+                schemaVersion: 1,
+                userId: "usr_test",
+                characters: [
+                    BackendCharacterTraitRecord(
+                        name: "MARA",
+                        traits: BackendCharacterTraits(
+                            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                                tactics: ["refuses first"],
+                                silence: "cuts lines short"
+                            )
+                        )
+                    ),
+                    BackendCharacterTraitRecord(
+                        name: "ELI",
+                        traits: BackendCharacterTraits(
+                            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                                tactics: ["asks questions"],
+                                emotionalTells: ["security language"]
+                            )
+                        )
+                    ),
+                ],
+                error: nil
+            ),
+            authenticatedUserID: "usr_test"
+        )
+
+        let selected = bridge.screenplayCharacterVoiceMemories(
+            matching: ["ELI (V.O.)"],
+            authenticatedUserID: "usr_test"
+        )
+
+        XCTAssertEqual(selected.map(\.character), ["ELI"])
+        XCTAssertEqual(selected.first?.voiceFingerprint.tactics, ["asks questions"])
+
+        bridge.updateCharacterVoiceMemories(
+            from: BackendCharacterTraitsResponse(
+                schemaVersion: 1,
+                userId: "user-b",
+                characters: [],
+                error: nil
+            ),
+            authenticatedUserID: "usr_test"
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: ["ELI"],
+                authenticatedUserID: "usr_test"
+            ).map(\.character),
+            ["ELI"]
+        )
+
+        bridge.forgetCharacterVoiceMemory(
+            named: "ELI (V.O.)",
+            authenticatedUserID: "usr_test"
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: ["ELI"],
+                authenticatedUserID: "usr_test"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: [],
+                authenticatedUserID: "usr_test"
+            ).map(\.character),
+            ["MARA"]
+        )
+    }
+
+    func testCharacterVoiceMemoryCacheRestoresOnlyForFreshMatchingAccount() throws {
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let memory = BackendScreenplayCharacterVoiceMemory(
+            character: "MARA",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
+        let payload = try XCTUnwrap(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
+                userID: "user-a",
+                memories: [memory],
+                updatedAt: updatedAt
+            )
+        )
+
+        let restored = try XCTUnwrap(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-a",
+                now: updatedAt.addingTimeInterval(60)
+            )
+        )
+
+        XCTAssertEqual(restored.userID, "user-a")
+        XCTAssertEqual(restored.memories, [memory])
+        XCTAssertNil(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-b",
+                now: updatedAt.addingTimeInterval(60)
+            )
+        )
+        XCTAssertNil(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-a",
+                now: updatedAt.addingTimeInterval(
+                    ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredMaxAge + 1
+                )
+            )
+        )
+    }
+
+    func testCommittedWriteSnapshotsProjectAndVersionContext() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let originalProjectID = bridge.preferredProjectID
+        let originalVersionID = bridge.preferredVersionID
+        defer {
+            bridge.preferredProjectID = originalProjectID
+            bridge.preferredVersionID = originalVersionID
+        }
+        bridge.preferredProjectID = "project-alpha"
+        bridge.preferredVersionID = "version-alpha"
+
+        let write = bridge.makeCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000031")!,
+            writeID: "write-31",
+            previousDraft: "",
+            committedDraft: "INT. ROOFTOP - NIGHT",
+            insertedText: "INT. ROOFTOP - NIGHT",
+            replacementApplied: false,
+            replacedWriteID: nil as String?,
+            startLine: 1,
+            endLine: 1,
+            committedAt: Date(timeIntervalSince1970: 31)
+        )
+
+        bridge.preferredProjectID = "project-beta"
+        bridge.preferredVersionID = "version-beta"
+
+        XCTAssertEqual(write.normalizedProjectID, "project-alpha")
+        XCTAssertEqual(write.normalizedVersionID, "version-alpha")
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                write,
+                preferredProjectID: bridge.preferredProjectID,
+                bindingProjectID: "project-binding"
+            ),
+            "project-alpha"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                write,
+                preferredVersionID: bridge.preferredVersionID,
+                bindingVersionID: "version-binding"
+            ),
+            "version-alpha"
+        )
+    }
+
+    func testCommittedWriteContextFallsBackForLegacyWrites() {
+        let legacy = ScreenplayCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000032")!,
+            writeID: "write-32",
+            previousDraft: "",
+            committedDraft: "INT. STAGE - DAY",
+            insertedText: "INT. STAGE - DAY",
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 1,
+            endLine: 1,
+            committedAt: Date(timeIntervalSince1970: 32)
+        )
+
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                legacy,
+                preferredProjectID: "project-preferred",
+                bindingProjectID: "project-binding"
+            ),
+            "project-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                legacy,
+                preferredProjectID: "",
+                bindingProjectID: "project-binding"
+            ),
+            "project-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                legacy,
+                preferredVersionID: "version-preferred",
+                bindingVersionID: "version-binding"
+            ),
+            "version-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                legacy,
+                preferredVersionID: "",
+                bindingVersionID: "version-binding"
+            ),
+            "version-binding"
+        )
+    }
+
+    func testPreferredContextPersistenceTrimsStoredValuesAndClearsEmptyValues() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(" project-alpha "),
+            "project-alpha"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.valueForStorage("\nversion-alpha\t"),
+            "version-alpha"
+        )
+        XCTAssertNil(ScreenplayLivePreferredContextPersistencePolicy.valueForStorage("   "))
+    }
+
+    func testPreferredContextRestorePrefersStoredIDsOverBindingFallbacks() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: " project-preferred ",
+                bindingProjectID: "project-binding"
+            ),
+            "project-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+                storedPreferredVersionID: " version-preferred ",
+                bindingVersionID: "version-binding"
+            ),
+            "version-preferred"
+        )
+    }
+
+    func testPreferredContextRestoreFallsBackToBindingIDs() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: nil,
+                bindingProjectID: " project-binding "
+            ),
+            "project-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+                storedPreferredVersionID: " ",
+                bindingVersionID: " version-binding "
+            ),
+            "version-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: nil,
+                bindingProjectID: " "
+            ),
+            ""
+        )
+    }
+
     func testCharacterMentionPayloadUsesRecordEndpointContract() throws {
         let mention = ScreenplayRenderedCharacterMention(
             characterName: "JUNE",
@@ -269,6 +722,475 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(completed.firstFeedbackMilliseconds, 0)
         XCTAssertEqual(completed.statusText, "Preparing a fast reply...")
         XCTAssertEqual(completed.skeletonLines.count, 3)
+    }
+
+    func testCreativeMemoryTraceNormalizesCorrectionsForDebugState() {
+        XCTAssertFalse(BackendTalkCreativeMemoryTrace.empty.applied)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.characterCount, 0)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.episodicCount, 0)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.correctionCount, 0)
+        XCTAssertNil(BackendTalkCreativeMemoryTrace.empty.canonClarification)
+
+        let trace = BackendTalkCreativeMemoryTrace(
+            applied: true,
+            projectId: " rain-docket ",
+            projectTitle: " Rain Docket ",
+            queryChars: 420,
+            characterCount: 0,
+            characters: [
+                BackendTalkCreativeMemoryCharacterTrace(
+                    name: " Mara ",
+                    hasBible: true,
+                    hasCorrections: true,
+                    correctedTerms: [" mother ", ""],
+                    correctionReplacements: [" mother -> Eli's sister "]
+                )
+            ],
+            episodicCount: 0,
+            episodic: [
+                BackendTalkCreativeMemoryEpisodeTrace(
+                    summary: " Correction for Mara ",
+                    excerpt: " VHS tape, not cassette ",
+                    projectId: " rain-docket ",
+                    projectTitle: " Rain Docket ",
+                    characters: [" Mara "],
+                    tags: [" correction "],
+                    correction: true
+                )
+            ],
+            correctionCount: 2,
+            correctedTerms: [" mother "],
+            correctionReplacements: [" mother -> Eli's sister "],
+            styleApplied: true
+        )
+
+        XCTAssertEqual(trace.projectId, "rain-docket")
+        XCTAssertEqual(trace.projectTitle, "Rain Docket")
+        XCTAssertEqual(trace.characterCount, 1)
+        XCTAssertEqual(trace.episodicCount, 1)
+        XCTAssertEqual(trace.correctionCount, 2)
+        XCTAssertEqual(trace.characters.map(\.name), ["Mara"])
+        XCTAssertEqual(trace.characters.first?.correctedTerms, ["mother"])
+        XCTAssertEqual(trace.correctionReplacements, ["mother -> Eli's sister"])
+        XCTAssertEqual(trace.episodic.first?.summary, "Correction for Mara")
+        XCTAssertEqual(trace.episodic.first?.characters, ["Mara"])
+        XCTAssertTrue(trace.styleApplied)
+    }
+
+    func testCreativeMemoryTraceAttachesPendingCanonClarification() throws {
+        let data = Data(#"""
+        {
+          "id": "canon_ambiguity_talk_1",
+          "status": "pending",
+          "project_id": "split-ferries",
+          "project_title": "Split Ferries",
+          "correction_text": "Mara goes back for both of them.",
+          "candidate_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "correction_memory_id": null,
+          "selected_fact": null,
+          "selected_facts": [],
+          "receipt_id": null,
+          "created_at": 1800000000000,
+          "resolved_at": null
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let clarification = try decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
+
+        let trace = BackendTalkCreativeMemoryTrace.empty.attachingCanonClarification(clarification)
+
+        XCTAssertEqual(trace.canonClarification?.id, "canon_ambiguity_talk_1")
+        XCTAssertEqual(trace.canonClarification?.projectTitle, "Split Ferries")
+        XCTAssertEqual(trace.canonClarification?.candidateFacts.count, 2)
+    }
+
+    func testResolvedCanonCorrectionRefreshesAppliedStudioMemoryWithoutLosingRunway() {
+        let initial = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "talk_response",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            act: "Act II",
+            nextScenePlan: "Mara races back to the east ferry dock.",
+            characters: ["Mara"],
+            correctedTerms: ["Mara leaves Eli behind."],
+            correctionReplacements: [],
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: false,
+            lastSavedCorrection: "",
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        let resolved = initial.applyingCanonCorrection(
+            correctionText: "Mara goes back for both of them.",
+            retiredFacts: [
+                "Mara abandons Eli at the east ferry dock.",
+                "Mara abandons June at the east ferry dock.",
+            ],
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+
+        XCTAssertEqual(resolved.projectId, "split-ferries")
+        XCTAssertEqual(resolved.act, "Act II")
+        XCTAssertEqual(resolved.nextScenePlan, "Mara races back to the east ferry dock.")
+        XCTAssertEqual(resolved.correctedTerms, [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock.",
+            "Mara leaves Eli behind.",
+        ])
+        XCTAssertTrue(resolved.correctionAppliedToPrompt)
+        XCTAssertEqual(resolved.lastSavedCorrection, "Mara goes back for both of them.")
+        XCTAssertEqual(resolved.source, "canon_correction_resolution")
+        XCTAssertEqual(resolved.updatedAt, Date(timeIntervalSince1970: 20))
+    }
+
+    func testTalkCreativeMemoryTraceBecomesAppliedStudioMemory() {
+        let trace = BackendTalkCreativeMemoryTrace(
+            applied: true,
+            characterCount: 1,
+            characters: [
+                BackendTalkCreativeMemoryCharacterTrace(
+                    name: " Mara ",
+                    hasBible: true,
+                    hasCorrections: true,
+                    correctedTerms: [" mother "],
+                    correctionReplacements: [" mother -> Eli's sister "]
+                )
+            ],
+            episodic: [
+                BackendTalkCreativeMemoryEpisodeTrace(
+                    summary: "Mara correction",
+                    excerpt: "Mara is Eli's sister, not his mother.",
+                    characters: [" Eli ", "Mara"],
+                    tags: ["correction"],
+                    correction: true
+                )
+            ],
+            correctionCount: 1,
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+            screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace(
+                applied: true,
+                projectId: "rain-docket",
+                projectTitle: "Rain Docket",
+                act: "Act II",
+                featureSequence: "Act II - Reversal Fallout",
+                currentBeat: "Mara sees the sealed affidavit under the vent.",
+                nextScenePlan: "Force Mara to use the affidavit in public.",
+                nextThreeTurns: [
+                    "Mara pockets the affidavit.",
+                    "Eli forces a public choice."
+                ],
+                actThreePayoffPath: [
+                    "The affidavit becomes courtroom testimony."
+                ],
+                unresolvedStoryThreads: [
+                    "Who forged the testimony?"
+                ],
+                characterArcTurns: [
+                    "Mara chooses exposure over control."
+                ],
+                imageMotifs: [
+                    "rain-swollen vent"
+                ]
+            )
+        )
+
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
+            source: " talk_result ",
+            previousSavedCorrection: " old correction "
+        )
+
+        XCTAssertTrue(state.hasContent)
+        XCTAssertEqual(state.source, "talk_result")
+        XCTAssertEqual(state.characters, ["Mara", "Eli"])
+        XCTAssertEqual(state.primaryCharacter, "Mara")
+        XCTAssertTrue(state.characterBibleApplied)
+        XCTAssertTrue(state.correctionAppliedToPrompt)
+        XCTAssertEqual(state.correctedTerms, ["mother"])
+        XCTAssertEqual(state.correctionReplacements, ["mother -> Eli's sister"])
+        XCTAssertEqual(state.lastSavedCorrection, "old correction")
+        XCTAssertEqual(state.summary, "Mara, Eli: mother -> Eli's sister")
+        XCTAssertEqual(state.projectId, "rain-docket")
+        XCTAssertEqual(state.act, "Act II")
+        XCTAssertEqual(state.nextThreeTurns, [
+            "Mara pockets the affidavit.",
+            "Eli forces a public choice."
+        ])
+        XCTAssertEqual(state.actThreePayoffPath, [
+            "The affidavit becomes courtroom testimony."
+        ])
+        XCTAssertTrue(state.storyMemoryHasContent)
+        XCTAssertTrue(state.storyRunwayLines.contains("Next: Mara pockets the affidavit."))
+        XCTAssertTrue(state.storyRunwayLines.contains("Payoff: The affidavit becomes courtroom testimony."))
+        XCTAssertTrue(state.storyRunwayLines.contains("Thread: Who forged the testimony?"))
+        XCTAssertTrue(state.storyRunwayLines.contains("Arc: Mara chooses exposure over control."))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Characters: Mara, Eli"))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Next turns: Mara pockets the affidavit. -> Eli forces a public choice."))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Act III payoff path: The affidavit becomes courtroom testimony."))
+    }
+
+    func testTalkCreativeMemoryTraceDecodesScreenplayProjectMemory() throws {
+        let data = Data(
+            #"""
+            {
+              "applied": true,
+              "screenplay_project_memory": {
+                "applied": true,
+                "project_id": "rain-docket",
+                "project_title": "Rain Docket",
+                "act": "Act II",
+                "next_three_turns": ["Mara pockets the affidavit."],
+                "act_three_payoff_path": ["The affidavit becomes courtroom testimony."],
+                "character_arc_turns": ["Mara chooses exposure over control."]
+              },
+              "story_obligation_change": {
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel."
+              }
+            }
+            """#.utf8
+        )
+
+        let trace = try JSONDecoder().decode(BackendTalkCreativeMemoryTrace.self, from: data)
+
+        XCTAssertTrue(trace.applied)
+        XCTAssertEqual(trace.screenplayProjectMemory?.projectId, "rain-docket")
+        XCTAssertEqual(trace.screenplayProjectMemory?.projectTitle, "Rain Docket")
+        XCTAssertEqual(trace.screenplayProjectMemory?.act, "Act II")
+        XCTAssertEqual(trace.screenplayProjectMemory?.nextThreeTurns, ["Mara pockets the affidavit."])
+        XCTAssertEqual(trace.screenplayProjectMemory?.actThreePayoffPath, ["The affidavit becomes courtroom testimony."])
+        XCTAssertEqual(trace.screenplayProjectMemory?.characterArcTurns, ["Mara chooses exposure over control."])
+        XCTAssertEqual(trace.storyObligationChange?.statusLabel, "Paid off")
+
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
+            source: "talk_response"
+        )
+        XCTAssertEqual(state.currentStoryObligationChange?.result, "June returns the token after Mara gives her the wheel.")
+        XCTAssertEqual(state.storyRunwayLines.first, "Paid off: June returns the token after Mara gives her the wheel.")
+    }
+
+    func testSessionRestorePersistsAcceptedSetupAndPayoffEvidence() throws {
+        let data = Data(
+            #"""
+            {
+              "has_continuity": true,
+              "source": "creative_project_continuity",
+              "project_id": "split-ferries",
+              "project_title": "Split Ferries",
+              "act": "Act III",
+              "character_focus": ["Mara", "June"],
+              "story_obligation_ledger": [{
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel.",
+                "source_scene_heading": "INT. PILOT HOUSE - DAWN",
+                "source_act": "Act III"
+              }],
+              "current_story_obligation_change": {
+                "id": "obligation_12_1",
+                "kind": "promised_payoff",
+                "obligation": "June returns the token when Mara gives her the wheel.",
+                "status": "paid_off",
+                "result": "June returns the token after Mara gives her the wheel.",
+                "evidence": "June sets the token in Mara's palm, then takes the wheel."
+              }
+            }
+            """#.utf8
+        )
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let snapshot = try decoder.decode(BackendSessionContinuitySnapshot.self, from: data)
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            snapshot,
+            source: "session_continuity_restore",
+            previous: .empty
+        )
+
+        XCTAssertTrue(snapshot.isMeaningful)
+        XCTAssertEqual(state.storyObligationChanges?.count, 1)
+        XCTAssertEqual(state.currentStoryObligationChange?.statusLabel, "Paid off")
+        XCTAssertTrue(state.featureMemoryBrief.contains("Accepted-page promised payoff paid off"))
+
+        let payload = try XCTUnwrap(
+            ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(state)
+        )
+        let restored = ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: payload,
+            now: state.updatedAt.addingTimeInterval(60)
+        )
+        XCTAssertEqual(restored.currentStoryObligationChange, state.currentStoryObligationChange)
+        XCTAssertEqual(restored.storyRunwayLines.first, state.storyRunwayLines.first)
+    }
+
+    func testStoryObligationCorrectionRepairsAppliedStudioMemoryImmediately() {
+        let change = BackendStoryObligationChange(
+            id: "obligation_12_1",
+            kind: "setup",
+            obligation: "The cracked ferry token Mara gave June",
+            status: "paid_off",
+            result: "June returns the token.",
+            evidence: "June places it in Mara's palm.",
+            sourceSceneHeading: "INT. PILOT HOUSE - DAWN",
+            sourceAct: "Act III",
+            sourcePosition: 12,
+            acceptedAt: 4_000
+        )
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "session_continuity_restore",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            act: "Act III",
+            actThreePayoffPath: ["June returns the token."],
+            unresolvedSetups: [],
+            storyObligationChanges: [change],
+            characters: ["Mara", "June"],
+            correctedTerms: [],
+            correctionReplacements: [],
+            characterBibleApplied: false,
+            correctionAppliedToPrompt: false,
+            lastSavedCorrection: "",
+            updatedAt: Date(timeIntervalSince1970: 4_000)
+        )
+
+        let keptOpen = state.applyingStoryObligationCorrection(
+            change: change,
+            action: "keep_open",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+        XCTAssertNil(keptOpen.currentStoryObligationChange)
+        XCTAssertEqual(keptOpen.unresolvedSetups, [change.obligation])
+        XCTAssertTrue(keptOpen.correctionAppliedToPrompt)
+        XCTAssertTrue(keptOpen.lastSavedCorrection.contains("Kept story obligation open"))
+
+        let retired = state.applyingStoryObligationCorrection(
+            change: change,
+            action: "retire",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+        XCTAssertNil(retired.currentStoryObligationChange)
+        XCTAssertNil(retired.unresolvedSetups)
+        XCTAssertTrue(retired.lastSavedCorrection.contains("Retired story obligation"))
+    }
+
+    func testAppliedMemoryPersistenceRestoresFreshCharacterCorrections() throws {
+        let createdAt = Date(timeIntervalSince1970: 4_000)
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            source: "talk_result",
+            projectId: "rain-docket",
+            projectTitle: "Rain Docket",
+            act: "Act III",
+            featureSequence: "Act III - Climax",
+            currentBeat: "Mara walks toward the witness table.",
+            nextScenePlan: "Pay off the affidavit in public.",
+            nextThreeTurns: ["Mara names the judge."],
+            actThreePayoffPath: ["The affidavit becomes testimony."],
+            unresolvedSetups: ["sealed affidavit"],
+            unresolvedStoryThreads: ["Who forged the testimony?"],
+            characterArcTurns: ["Mara chooses exposure over control."],
+            imageMotifs: ["rain-swollen vent"],
+            characters: ["Mara"],
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: "Mara is Eli's sister, not his mother.",
+            updatedAt: createdAt
+        )
+
+        let payload = try XCTUnwrap(ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(state))
+        let restored = ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: payload,
+            now: createdAt.addingTimeInterval(60)
+        )
+
+        XCTAssertEqual(restored, state)
+        XCTAssertTrue(restored.featureMemoryBrief.contains("Honor corrections before continuing Act I / Act II / Act III pages."))
+        XCTAssertTrue(restored.featureMemoryBrief.contains("Next turns: Mara names the judge."))
+        XCTAssertEqual(restored.storyRunwayLines.first, "Next: Mara names the judge.")
+        XCTAssertEqual(
+            ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+                from: payload,
+                now: createdAt.addingTimeInterval(ScreenplayStudioAppliedMemoryPersistencePolicy.restoredMaxAge + 1)
+            ),
+            .empty
+        )
+        XCTAssertNil(ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(.empty))
+    }
+
+    func testInlineAppliedMemoryCorrectionBuildsStructuredReplacement() {
+        let inline = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: " Mara ",
+            correction: " Mara is Eli's sister, not his mother. "
+        )
+
+        XCTAssertEqual(inline.correctionLine, "Authoritative correction for Mara: Mara is Eli's sister, not his mother")
+        XCTAssertEqual(inline.correctedTerms, ["mother"])
+        XCTAssertEqual(inline.correctionReplacements, ["mother -> Eli's sister"])
+
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            source: "studio_inline",
+            characters: ["Mara"],
+            correctedTerms: ScreenplayStudioAppliedMemoryState.mergedMemoryList(inline.correctedTerms),
+            correctionReplacements: ScreenplayStudioAppliedMemoryState.mergedMemoryList(inline.correctionReplacements),
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: "Mara is Eli's sister, not his mother.",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+
+        XCTAssertEqual(state.summary, "Mara: mother -> Eli's sister")
+        XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
+    }
+
+    func testConversationalAppliedMemoryCorrectionDetectsActuallyNo() {
+        let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+            from: "Actually, no, Mara is Eli's sister, not his mother."
+        )
+
+        XCTAssertEqual(correction, "Mara is Eli's sister, not his mother")
+
+        let inline = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: "Mara",
+            correction: correction ?? ""
+        )
+
+        XCTAssertEqual(inline.correctionLine, "Authoritative correction for Mara: Mara is Eli's sister, not his mother")
+        XCTAssertEqual(inline.correctedTerms, ["mother"])
+        XCTAssertEqual(inline.correctionReplacements, ["mother -> Eli's sister"])
+    }
+
+    func testConversationalAppliedMemoryCorrectionDetectsReplacementCue() {
+        let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+            from: "Correction: replace Mara's mother with Eli's sister."
+        )
+
+        XCTAssertEqual(correction, "Mara's mother -> Eli's sister")
+    }
+
+    func testConversationalAppliedMemoryCorrectionIgnoresOrdinaryInsteadPrompt() {
+        XCTAssertNil(
+            ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+                from: "Maybe instead write the bridge scene with less dialogue."
+            )
+        )
     }
 
 }

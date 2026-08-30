@@ -22,6 +22,7 @@ import {
   corsMiddleware,
   requestIdMiddleware,
   requestLoggerMiddleware,
+  securityHeadersMiddleware,
 } from "../middleware/auth.js";
 
 function mockRes(statusCode, headers = {}) {
@@ -295,6 +296,7 @@ test("[req-log] production middleware order logs CORS and token early rejects", 
   assert.equal(applyAppMiddleware(app), app);
   assert.deepEqual(mounted, [
     requestIdMiddleware,
+    securityHeadersMiddleware,
     requestLoggerMiddleware,
     corsMiddleware,
     appTokenMiddleware,

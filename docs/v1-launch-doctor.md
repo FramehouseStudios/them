@@ -7,12 +7,13 @@ before TestFlight or external review.
 
 Open Data Controls, then choose V1 Launch Doctor.
 
-The panel covers four flows:
+The panel covers five gates:
 
 - Talk Pipeline
 - Screenplay Studio
 - Creative Memory
 - Realtime
+- iOS Release Readiness
 
 Each flow has pass, fail, in-progress, notes, and evidence fields. Exporting
 the report writes these files on macOS:
@@ -55,6 +56,7 @@ node scripts/v1_launch_doctor_report.mjs \
   --studio-notes="Export failed after save." \
   --memory=in-progress \
   --realtime=not-started \
+  --release=not-started \
   --write-docs
 ```
 
@@ -72,8 +74,8 @@ node scripts/v1_launch_doctor_report.mjs \
   "generatedAt": "2026-05-15T00:00:00Z",
   "overallStatus": "passed",
   "summary": {
-    "total": 4,
-    "passed": 4,
+    "total": 5,
+    "passed": 5,
     "failed": 0,
     "inProgress": 0,
     "notStarted": 0

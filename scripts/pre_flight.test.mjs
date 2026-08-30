@@ -84,6 +84,26 @@ function writeTaskFile(tmp, name, body) {
   fs.writeFileSync(path.join(tmp, "tasks", "_active", name), body);
 }
 
+function writeManualQaGenerator(tmp, body) {
+  const escapedBody = JSON.stringify(body);
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_manual_qa_checklist.mjs"),
+    `#!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+const body = ${escapedBody};
+const writeArg = process.argv.find((arg) => arg.startsWith("--write="));
+if (writeArg) {
+  const target = writeArg.slice("--write=".length);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, body);
+} else {
+  process.stdout.write(body);
+}
+`,
+  );
+}
+
 function runIn(tmp, extraArgs = []) {
   return spawnSync("node", [path.join(tmp, "scripts", "pre_flight.mjs"), ...extraArgs], { encoding: "utf8" });
 }
@@ -466,6 +486,28 @@ test("[pre-flight] accepts outbox schema docs matching the canonical store shape
   });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-doc-backend-drift/);
+});
+
+// ---------- generated-testflight-preflight-drift ----------
+
+test("[pre-flight] flags generated TestFlight preflight drift", () => {
+  const tmp = tempRepo();
+  writeManualQaGenerator(tmp, "# io.them V1 TestFlight Preflight\n\nfresh\n");
+  fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), "# io.them V1 TestFlight Preflight\n\nstale\n");
+  const r = runIn(tmp);
+  assert.match(r.stderr, /generated-testflight-preflight-drift/);
+  assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+});
+
+test("[pre-flight] accepts generated TestFlight preflight artifact in sync", () => {
+  const tmp = tempRepo();
+  const body = "# io.them V1 TestFlight Preflight\n\nfresh\n";
+  writeManualQaGenerator(tmp, body);
+  fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), body);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /generated-testflight-preflight-drift/);
 });
 
 // ---------- schema-doc-only-out-of-lane ----------
@@ -1215,17 +1257,49 @@ test("[pre-flight] flags stale V1 launch handoff instructions", () => {
   const tmp = tempRepo();
   fs.writeFileSync(
     path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
-    "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
+    [
+      "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.",
+      "Provide the hosted release `BACKEND_URL` and production app token.",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(tmp, "docs", "coordination.json"),
+    JSON.stringify({
+      openPullRequests: [
+        {
+          reviewer_note: "release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN.",
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tmp, "TASKS.md"),
+    "Add a template so the Apple team ID, hosted backend URL, and production app token can be supplied.\n",
   );
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
     "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.\n",
+  );
+  fs.mkdirSync(path.join(tmp, "them"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, "them", "RELEASE_RUNBOOK.md"),
+    [
+      "cd /Users/halfmutantfilms/Desktop/io.them",
+      "Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`.",
+      "",
+    ].join("\n"),
   );
   const r = runIn(tmp);
   assert.match(r.stderr, /stale-v1-launch-handoff/);
   assert.match(r.stderr, /PR #33\/#359 are merged/);
   assert.match(r.stderr, /five V1 gates/);
   assert.match(r.stderr, /include iOS Release Readiness/);
+  assert.match(r.stderr, /BACKEND_URL is already hosted/);
+  assert.match(r.stderr, /coordination state must treat release BACKEND_URL as hosted/);
+  assert.match(r.stderr, /task handoff text must treat release BACKEND_URL as hosted/);
+  assert.match(r.stderr, /repo-relative paths/);
+  assert.match(r.stderr, /DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only/);
 });
 
 test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () => {
@@ -1235,8 +1309,31 @@ test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () =
     "Claude should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
   );
   fs.writeFileSync(
+    path.join(tmp, "docs", "coordination.json"),
+    JSON.stringify({
+      openPullRequests: [
+        {
+          reviewer_note: "Release BACKEND_URL is hosted as https://api.them.io; missing private inputs are DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE.",
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tmp, "TASKS.md"),
+    "Release `BACKEND_URL` is hosted as `https://api.them.io`; fill `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE`.\n",
+  );
+  fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
     "Records Talk, Studio, Memory, Realtime, and iOS Release Readiness as JSON/Markdown launch proof.\n",
+  );
+  fs.mkdirSync(path.join(tmp, "them"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, "them", "RELEASE_RUNBOOK.md"),
+    [
+      "Fill `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` in `them/Release.local.env`.",
+      "Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.",
+      "",
+    ].join("\n"),
   );
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /stale-v1-launch-handoff/);
