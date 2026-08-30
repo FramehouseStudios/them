@@ -22,9 +22,12 @@
 //         lines: [
 //           { kind: "action", text: string },
 //           { kind: "character", name: string,
-//             parenthetical?: string,
+//             parenthetical?: string, forced?: boolean,
+//             dualDialogue?: boolean,
 //             dialogue: string | string[] },
-//           { kind: "transition", text: string },     // "CUT TO:"
+//           { kind: "transition", text: string, forced?: boolean },
+//           { kind: "centered", text: string },
+//           { kind: "lyrics", text: string },
 //           { kind: "section", level?: 1|2|3, text: string },
 //           { kind: "synopsis", text: string },
 //           { kind: "blank" }
@@ -95,9 +98,18 @@ function serializeAction(line) {
 }
 
 function serializeCharacter(line) {
-  const name = trim(line.name);
+  let name = trim(line.name);
   if (!name) return "";
-  const cue = isAllUpper(name) ? name : name.toUpperCase();
+  const explicitlyForced = name.startsWith("@");
+  if (explicitlyForced) name = name.slice(1).trim();
+  const explicitlyDual = /\^\s*$/.test(name);
+  if (explicitlyDual) name = name.replace(/\s*\^\s*$/, "").trim();
+  if (!name) return "";
+  let cue = isAllUpper(name) ? name : name.toUpperCase();
+  const ambiguous = /^(?:INT\.|EXT\.|INT\/EXT|EST\.|[!~.>@=#])/.test(cue)
+    || /\bTO:$/.test(cue);
+  if (line.forced === true || explicitlyForced || ambiguous) cue = `@${cue}`;
+  if (line.dualDialogue === true || explicitlyDual) cue = `${cue} ^`;
   const out = [cue];
   if (line.parenthetical) {
     const p = trim(line.parenthetical).replace(/^\(|\)$/g, "");
@@ -122,7 +134,18 @@ function serializeTransition(line) {
   // Fountain detects transitions as ALL-CAPS lines ending with "TO:";
   // we force the convention so they round-trip.
   const upper = text.toUpperCase();
+  if (line.forced === true) return `> ${upper.replace(/^>\s*/, "")}`;
   return upper.endsWith("TO:") ? upper : `${upper.replace(/:$/, "")} TO:`;
+}
+
+function serializeCentered(line) {
+  const text = trim(line.text).replace(/^>\s*/, "").replace(/\s*<$/, "").trim();
+  return text ? `> ${text} <` : "";
+}
+
+function serializeLyrics(line) {
+  const text = trim(line.text).replace(/^~/, "").trim();
+  return text ? `~${text}` : "";
 }
 
 function serializeSection(line) {
@@ -144,6 +167,8 @@ function serializeLine(line) {
     case "action":     return serializeAction(line);
     case "character":  return serializeCharacter(line);
     case "transition": return serializeTransition(line);
+    case "centered":   return serializeCentered(line);
+    case "lyrics":     return serializeLyrics(line);
     case "section":    return serializeSection(line);
     case "synopsis":   return serializeSynopsis(line);
     case "blank":      return "";
@@ -183,6 +208,8 @@ export {
   serializeAction,
   serializeCharacter,
   serializeTransition,
+  serializeCentered,
+  serializeLyrics,
   serializeSection,
   serializeSynopsis,
   serializeScene,

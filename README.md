@@ -41,7 +41,7 @@ The product principle is deliberately demanding: the technology should disappear
 ### A professional writing surface
 
 - Continue scenes, rewrite selections, polish dialogue, explore structure, and generate alternatives.
-- Import and export screenplay material through Fountain and production-oriented document formats.
+- Import and export screenplay material through Fountain and Final Draft XML (FDX) without silently changing supported element meaning.
 - Track project versions, comments, history, and recovery state.
 - Keep the page authoritative: generated suggestions do not silently overwrite a writer's work.
 
@@ -67,7 +67,7 @@ The client owns interaction quality and local continuity. The backend owns ident
 ## Engineering highlights
 
 - **Authoritative state reconciliation.** Voice playback, streamed partials, local edits, backend acknowledgements, and restored drafts are reconciled explicitly instead of relying on last-write-wins UI state.
-- **Screenplay-native domain logic.** Fountain parsing and formatting live in focused Swift packages with rules for common screenplay elements and natural-language input.
+- **Screenplay-native domain logic.** Fountain parsing, formatting, and FDX export live in focused modules with round-trip fixtures for centered text, lyrics, forced cues and transitions, dual dialogue, and cross-platform pasted text.
 - **Layered reliability.** Requests use idempotency, per-session serialization, concurrency controls, bounded retries, recovery paths, and persistent outbox patterns where the workflow requires them.
 - **Identity and privacy boundaries.** Email/password and Sign in with Apple flows are backed by rotating sessions, revocation, verification/reset contracts, route protection, per-user project isolation, and PII-safe request logging.
 - **Durable creative memory.** Memory, craft signals, project history, and companion state have explicit schemas and persistence contracts rather than being hidden exclusively inside prompts.
@@ -175,7 +175,7 @@ Production signing, backend URL, app token, provider credentials, privacy answer
 - Request logging excludes query-string credentials and sensitive auth payloads.
 - Privacy-sensitive schemas and release mappings are documented and reviewed alongside the code that implements them.
 
-Relevant references: [`docs/schemas/INDEX.md`](docs/schemas/INDEX.md), [`them/PRIVACY_POLICY.md`](them/PRIVACY_POLICY.md), and [`them/APP_STORE_PRIVACY_MAPPING.md`](them/APP_STORE_PRIVACY_MAPPING.md).
+Relevant references: [`docs/schemas/INDEX.md`](docs/schemas/INDEX.md), [`docs/opendraft-intake.md`](docs/opendraft-intake.md), [`them/PRIVACY_POLICY.md`](them/PRIVACY_POLICY.md), and [`them/APP_STORE_PRIVACY_MAPPING.md`](them/APP_STORE_PRIVACY_MAPPING.md).
 
 ## Product standard
 
