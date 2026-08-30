@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
 
@@ -34,15 +34,92 @@ function runOptional(command, args, options = {}) {
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
+const studioApp = debugContext.ownedApp;
 const debugDefaults = debugContext.defaults;
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
+let studioAppPID = 0;
+let studioAppExecutablePath = "";
+let studioAppStartSignature = "";
+let cleanupStarted = false;
+
+function syntheticSmokeIdentityLaunchArguments() {
+  const stamp = Date.now().toString(36);
+  return [
+    "-user_id", `studio-inspector-${stamp}`,
+    "-auth_debug_access_token", `studio-inspector-token-${stamp}`,
+    "-auth_debug_access_token_enabled", "true",
+    "-auth_signed_in", "true",
+    "-auth_user_email", `studio-inspector-${stamp}@example.com`,
+    "-auth_access_expires_at", "0",
+  ];
 }
+
+function studioAppProcessMatches() {
+  if (studioAppPID <= 0 || !studioAppExecutablePath || !studioAppStartSignature) return false;
+  const commandResult = runOptional("ps", ["-p", String(studioAppPID), "-o", "command="]);
+  const startResult = runOptional("ps", ["-p", String(studioAppPID), "-o", "lstart="]);
+  const command = commandResult.stdout.trim();
+  const exactExecutable = command === studioAppExecutablePath
+    || command.startsWith(`${studioAppExecutablePath} `);
+  const exactMarker = command === "--studio-eval"
+    || command.endsWith(" --studio-eval")
+    || command.includes(" --studio-eval ");
+  return commandResult.status === 0
+    && startResult.status === 0
+    && exactExecutable
+    && exactMarker
+    && startResult.stdout.trim() === studioAppStartSignature;
+}
+
+function sleepSync(ms) {
+  const signal = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(signal, 0, 0, ms);
+}
+
+function waitForStudioAppExit(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!studioAppProcessMatches()) return true;
+    sleepSync(100);
+  }
+  return !studioAppProcessMatches();
+}
+
+function terminateStudioApp() {
+  if (!studioAppProcessMatches()) return true;
+  runOptional("kill", ["-TERM", String(studioAppPID)]);
+  if (waitForStudioAppExit(5000)) return true;
+  if (studioAppProcessMatches()) {
+    runOptional("kill", ["-KILL", String(studioAppPID)]);
+  }
+  return waitForStudioAppExit(2000);
+}
+
+function cleanupSmokeSession() {
+  if (cleanupStarted) return;
+  cleanupStarted = true;
+  if (!terminateStudioApp()) {
+    throw new Error(`Studio eval process ${studioAppPID} survived bounded cleanup`);
+  }
+}
+
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
+  process.once(signal, () => {
+    try {
+      cleanupSmokeSession();
+    } catch (error) {
+      console.error(error?.stack || String(error));
+    }
+    process.exit(exitCode);
+  });
+}
+process.once("exit", () => {
+  try {
+    cleanupSmokeSession();
+  } catch {
+    // The main finally path reports cleanup failures; exit handlers are best effort.
+  }
+});
 
 function readDefaultString(key) {
   return debugDefaults.readString(key);
@@ -98,52 +175,33 @@ function nextToken(...keys) {
 
 function findDebugAppPath() {
   const direct = String(process.env.THEM_APP_PATH || "").trim();
-  if (direct && existsSync(direct)) return direct;
+  if (direct && existsSync(direct)) return realpathSync(direct);
   const discovered = run("/bin/zsh", [
     "-lc",
     "find ~/Library/Developer/Xcode/DerivedData -path '*Build/Products/Debug/them.app/Contents/MacOS/them' -exec stat -f '%m %N' {} \\; | sort -nr | head -n 1 | cut -d' ' -f2- | sed 's#/Contents/MacOS/them$##'",
   ]);
   assert(discovered, "Could not locate Debug them.app");
   assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
-  return discovered;
+  return realpathSync(discovered);
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    "return count of windows",
-    "end tell",
-    "end tell",
-    "on error",
-    'return "0"',
-    "end try",
-  ]);
-  return Number(output) > 0;
+  return studioApp.hasWindow();
 }
 
-function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
-}
-
-function activateApp(appPath = "") {
-  if (!appIsRunning() && appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  const appleScript = runOptional("osascript", ["-e", 'tell application "them" to activate']);
-  if (appleScript.status === 0) return;
-  const message = `${appleScript.stderr}\n${appleScript.stdout}`;
-  if (/timed out|connection invalid|can’t get application|can't get application/i.test(message)) return;
-  throw new Error(message.trim() || 'unable to activate "them"');
+function activateApp(appPath = "", appSession = null) {
+  studioApp.activate(appPath, appSession);
+  const snapshot = studioApp.snapshot();
+  studioAppPID = snapshot.pid;
+  studioAppExecutablePath = snapshot.executablePath;
+  studioAppStartSignature = snapshot.startSignature;
 }
 
 async function ensureStudioVisible() {
   const appPath = findDebugAppPath();
   await ensureStudioVisibleWithOpenHandshake({
     appPath,
+    launchArguments: syntheticSmokeIdentityLaunchArguments(),
     debugDefaults,
     runOptional,
     activateApp,
@@ -154,11 +212,14 @@ async function ensureStudioVisible() {
 
 async function seedStructuralDraft() {
   const appPath = findDebugAppPath();
-  runOptional("open", ["-na", appPath]);
-  await sleep(700);
+  await waitForDiffState(
+    (state) => state?.initialLoadSettled === true,
+    "settled initial Studio hydration",
+    20000
+  );
   let lastError = null;
+  const token = nextToken("studio_debug_seed_structural_token", "studio_debug_seed_structural_ack_token");
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken("studio_debug_seed_structural_token", "studio_debug_seed_structural_ack_token");
     writeDefaultInt("studio_debug_seed_structural_token", token);
     activateApp(appPath);
     try {
@@ -180,8 +241,8 @@ async function seedStructuralDraft() {
 async function seedRouteMetadata() {
   const appPath = findDebugAppPath();
   let lastError = null;
+  const token = nextToken("studio_debug_seed_route_metadata_token", "studio_debug_seed_route_metadata_ack_token");
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken("studio_debug_seed_route_metadata_token", "studio_debug_seed_route_metadata_ack_token");
     writeDefaultInt("studio_debug_seed_route_metadata_token", token);
     activateApp(appPath);
     try {
@@ -207,12 +268,12 @@ async function seedRouteMetadata() {
 async function runIntelligenceQueueAction(action, itemID = "") {
   const appPath = findDebugAppPath();
   let lastError = null;
+  const token = nextToken(
+    "studio_debug_intelligence_queue_token",
+    "studio_debug_intelligence_queue_ack_token",
+    "studio_debug_intelligence_queue_result_token"
+  );
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken(
-      "studio_debug_intelligence_queue_token",
-      "studio_debug_intelligence_queue_ack_token",
-      "studio_debug_intelligence_queue_result_token"
-    );
     writeDefaultString("studio_debug_intelligence_queue_action", action);
     writeDefaultString("studio_debug_intelligence_queue_item_id", itemID);
     writeDefaultInt("studio_debug_intelligence_queue_token", token);
@@ -227,6 +288,8 @@ async function runIntelligenceQueueAction(action, itemID = "") {
       );
       const payload = readDefaultJSON("studio_debug_intelligence_queue_result_json", null);
       assert(payload, `Missing intelligence queue result payload for ${action}`);
+      assert(Number(payload.request_token) === token, `Expected queue result token ${token}, got ${payload.request_token ?? "<missing>"}`);
+      assert(payload.action === action, `Expected queue result action ${action}, got ${payload.action || "<missing>"}`);
       return payload;
     } catch (error) {
       lastError = error;
@@ -239,8 +302,8 @@ async function runIntelligenceQueueAction(action, itemID = "") {
 async function showInspector() {
   const appPath = findDebugAppPath();
   let lastError = null;
+  const token = nextToken("studio_debug_shell_visibility_token", "studio_debug_shell_visibility_ack_token");
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken("studio_debug_shell_visibility_token", "studio_debug_shell_visibility_ack_token");
     writeDefaultString("studio_debug_shell_visibility_sidebar", "show");
     writeDefaultString("studio_debug_shell_visibility_inspector", "show");
     writeDefaultInt("studio_debug_shell_visibility_token", token);
@@ -263,8 +326,8 @@ async function showInspector() {
 
 async function openRightPanelTab(tab) {
   let lastError = null;
+  const token = nextToken("studio_debug_right_panel_tab_token", "studio_debug_right_panel_tab_ack_token");
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken("studio_debug_right_panel_tab_token", "studio_debug_right_panel_tab_ack_token");
     writeDefaultString("studio_debug_right_panel_tab", tab);
     writeDefaultInt("studio_debug_right_panel_tab_token", token);
     try {
@@ -290,8 +353,8 @@ async function openRightPanelTab(tab) {
 
 async function setCompanionMode(mode) {
   let lastError = null;
+  const token = nextToken("studio_debug_companion_mode_token", "studio_debug_companion_mode_ack_token");
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const token = nextToken("studio_debug_companion_mode_token", "studio_debug_companion_mode_ack_token");
     writeDefaultString("studio_debug_companion_mode_value", mode);
     writeDefaultInt("studio_debug_companion_mode_token", token);
     try {
@@ -315,62 +378,9 @@ async function setCompanionMode(mode) {
   throw lastError || new Error(`companion mode ${mode} never applied`);
 }
 
-function readFrontWindowInfo() {
-  const swiftSource = String.raw`
-import AppKit
-import CoreGraphics
-import Foundation
-
-let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-
-let candidates = windows.compactMap { window -> [String: Any]? in
-    let owner = String(describing: window[kCGWindowOwnerName as String] ?? "")
-    guard owner.caseInsensitiveCompare("them") == .orderedSame else { return nil }
-    let layer = window[kCGWindowLayer as String] as? Int ?? 0
-    guard layer == 0 else { return nil }
-    guard let bounds = window[kCGWindowBounds as String] as? [String: Any] else { return nil }
-    let x = Int((bounds["X"] as? Double ?? 0).rounded())
-    let y = Int((bounds["Y"] as? Double ?? 0).rounded())
-    let width = Int((bounds["Width"] as? Double ?? 0).rounded())
-    let height = Int((bounds["Height"] as? Double ?? 0).rounded())
-    guard width > 0, height > 0 else { return nil }
-    let area = width * height
-    let windowID = Int(window[kCGWindowNumber as String] as? Int ?? 0)
-    guard windowID > 0 else { return nil }
-    return [
-        "windowID": windowID,
-        "x": x,
-        "y": y,
-        "width": width,
-        "height": height,
-        "area": area,
-    ]
-}
-
-guard let selected = candidates.max(by: { ($0["area"] as? Int ?? 0) < ($1["area"] as? Int ?? 0) }) else {
-    fputs("missing THEM window\n", stderr)
-    exit(1)
-}
-
-let data = try JSONSerialization.data(withJSONObject: selected, options: [])
-print(String(data: data, encoding: .utf8) ?? "{}")
-`;
-  const raw = run("swift", ["-e", swiftSource]).trim();
-  const parsed = JSON.parse(raw);
-  return {
-    windowID: Math.round(Number(parsed.windowID || 0)),
-    x: Math.max(0, Math.round(Number(parsed.x || 0))),
-    y: Math.max(0, Math.round(Number(parsed.y || 0))),
-    width: Math.max(1, Math.round(Number(parsed.width || 0))),
-    height: Math.max(1, Math.round(Number(parsed.height || 0))),
-  };
-}
-
 function captureWindow(targetPath) {
-  const window = readFrontWindowInfo();
+  const window = studioApp.captureWindow(targetPath);
   assert(window.windowID > 0, "Missing THEM front window for capture");
-  run("screencapture", ["-x", "-l", String(window.windowID), targetPath]);
   assert(existsSync(targetPath), `Expected screenshot at ${targetPath}`);
   const stats = statSync(targetPath);
   assert(stats.size > 0, `Expected screenshot ${targetPath} to be non-empty`);
@@ -493,7 +503,29 @@ async function main() {
   console.log(JSON.stringify(results, null, 2));
 }
 
-main().catch((error) => {
+async function runSmokeWithCleanup() {
+  let smokeError = null;
+  try {
+    await main();
+  } catch (error) {
+    smokeError = error;
+  }
+
+  let cleanupError = null;
+  try {
+    cleanupSmokeSession();
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  if (smokeError && cleanupError) {
+    throw new AggregateError([smokeError, cleanupError], "Studio smoke and cleanup both failed");
+  }
+  if (smokeError) throw smokeError;
+  if (cleanupError) throw cleanupError;
+}
+
+runSmokeWithCleanup().catch((error) => {
   console.error(error?.stack || String(error));
   process.exit(1);
 });

@@ -204,15 +204,21 @@ function buildBlockCoachingBlockForPrompt(signal) {
   if (!signal || typeof signal !== "object") return "";
   const level = signal.level;
   if (level !== "medium" && level !== "high") return "";
-  const summary = typeof signal.summary === "string" && signal.summary
-    ? signal.summary
-    : "Writer may be stuck.";
+  const summary = (
+    typeof signal.summary === "string" && signal.summary
+      ? signal.summary
+      : "Writer may be stuck."
+  ).trim().slice(0, 240) || "Writer may be stuck.";
   if (level === "high") {
     return [
       "writer-coaching-note:",
       `  observation: ${summary}`,
-      "  tone: warmer, shorter sentences, lower-stakes prompts",
-      "  ask: invite ONE concrete image or beat — do not ask for a finished scene",
+      "  tone: warmer, low-stakes",
+      "  ask: invite ONE concrete image or beat; never demand a scene",
+      "story-rescue-protocol:",
+      "  diagnose: name one blockage: unclear want, obstacle, tactic, consequence, reveal, act pressure, or exit",
+      "  engine: use one: reversal, revelation, deadline, hard choice, secret, relationship cost, antagonist move, payoff, or irony",
+      "  delivery: lead with best beat; with context, draft a tiny playable Fountain sample",
     ].join("\n");
   }
   // medium
@@ -221,6 +227,10 @@ function buildBlockCoachingBlockForPrompt(signal) {
     `  observation: ${summary}`,
     "  tone: gentle, encouraging",
     "  ask: a small concrete prompt that builds on what the writer already has",
+    "story-rescue-protocol:",
+    "  diagnose: translate stuckness into one story problem: want, obstacle, consequence, tactic, reveal, or act pressure",
+    "  engines: suggest one clean next-move engine before offering alternatives",
+    "  delivery: make the next move playable on the page, not abstract encouragement",
   ].join("\n");
 }
 

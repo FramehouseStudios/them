@@ -289,13 +289,12 @@ test("[block-detector] GET /memory/block-signal returns the computed signal afte
   );
 });
 
-test("[block-detector] unauthenticated request returns the empty snapshot, not 401", async () => {
+test("[block-detector] unauthenticated request returns 401", async () => {
   await withTestServer(
     async ({ baseURL }) => {
       const { status, body } = await get(baseURL, "/memory/block-signal");
-      assert.equal(status, 200);
-      assert.equal(body.level, "low");
-      assert.equal(body.score, 0);
+      assert.equal(status, 401);
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );
@@ -345,6 +344,9 @@ test("[block-prompt] coaching block emits warmer tone for medium signals", () =>
   assert.ok(block.includes("writer-coaching-note"));
   assert.ok(/gentle|encouraging/i.test(block));
   assert.ok(block.includes(signal.summary));
+  assert.ok(block.includes("story-rescue-protocol"));
+  assert.ok(block.includes("want, obstacle, consequence"));
+  assert.ok(block.includes("playable on the page"));
 });
 
 test("[block-prompt] coaching block escalates for high signals", () => {
@@ -356,6 +358,9 @@ test("[block-prompt] coaching block escalates for high signals", () => {
   assert.ok(block.includes("writer-coaching-note"));
   assert.ok(/warmer|shorter|low-stakes/i.test(block));
   assert.ok(block.includes("ONE concrete image"));
+  assert.ok(block.includes("unclear want"));
+  assert.ok(block.includes("reversal, revelation, deadline"));
+  assert.ok(block.includes("tiny playable Fountain sample"));
 });
 
 test("[block-prompt] coaching block tolerates missing summary", () => {

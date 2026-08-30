@@ -7,14 +7,13 @@ import { parseBool, parsePositiveInt, resolveStorePath } from "./lib/utils.js";
 const MAX_FILE_MB = 25;
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
+const NODE_ENV = String(process.env.NODE_ENV || "development").trim().toLowerCase() || "development";
 const PORT = process.env.PORT || 3000;
-// Provider-backed routes accept an empty key in local development and return
-// their documented 503 envelopes at request time. Keep the exported config
-// value string-typed even when the variable is absent so route mount guards do
-// not turn an optional local provider into a process-wide startup failure.
-const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "");
+const HOST = String(
+  process.env.HOST || (NODE_ENV === "production" ? "" : "127.0.0.1")
+).trim();
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const APP_TOKEN = process.env.APP_TOKEN || "";
-const NODE_ENV = process.env.NODE_ENV || "development";
 const CORS_ALLOW_ORIGIN = String(process.env.CORS_ALLOW_ORIGIN || "").trim();
 const API_SCHEMA_VERSION = parsePositiveInt(process.env.API_SCHEMA_VERSION, 1);
 const BACKEND_BUILD = String(process.env.BACKEND_BUILD || "dev").trim() || "dev";
@@ -45,7 +44,25 @@ const AUTH_AUTO_VERIFY_EMAILS = parseBool(process.env.AUTH_AUTO_VERIFY_EMAILS);
 const AUTH_APPLE_AUDIENCE = String(process.env.AUTH_APPLE_AUDIENCE || "").trim();
 const AUTH_APPLE_TEST_JWT_SECRET = String(process.env.AUTH_APPLE_TEST_JWT_SECRET || "").trim();
 const AUTH_APPLE_JWT_PUBLIC_KEY = String(process.env.AUTH_APPLE_JWT_PUBLIC_KEY || "").trim();
-const REQUIRE_USER_AUTH = parseBool(process.env.REQUIRE_USER_AUTH);
+
+// Protected routes are secure-by-default in production. V1 requires login:
+// production boot rejects explicit false-ish values instead of quietly
+// exposing user data routes.
+function resolveRequireUserAuth(env = process.env) {
+  const nodeEnv = String(env.NODE_ENV || "development").trim().toLowerCase();
+  if (nodeEnv === "production") return true;
+  return parseBool(env.REQUIRE_USER_AUTH);
+}
+
+function isRequireUserAuthExplicitlyDisabled(env = process.env) {
+  const raw = String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase();
+  return raw === "0" || raw === "false" || raw === "no";
+}
+
+const REQUIRE_USER_AUTH = resolveRequireUserAuth(process.env);
+const STUDIO_RENDER_TEST_REPLY = NODE_ENV === "production"
+  ? ""
+  : String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim();
 const UNIFIED_PERSONA_PRESET = "clementine";
 const CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT = "I missed that. Say it one more time.";
 const CURRENT_FILE_PATH = fileURLToPath(import.meta.url);
@@ -60,13 +77,51 @@ const SHOULD_START_SERVER = process.env.RUN_SERVER == null
   ? true
   : parseBool(process.env.RUN_SERVER);
 
-// Structured request logging (T-backend-structured-logs). JSON by default in
-// production (for log aggregators); human-readable text in dev. LOG_LEVEL
-// gates request-log verbosity: error | warn | info | debug.
+// Structured request logging uses route templates only. JSON is the production
+// default for log aggregation; local runs stay readable unless explicitly
+// overridden.
 const LOG_FORMAT = String(
   process.env.LOG_FORMAT || (NODE_ENV === "production" ? "json" : "text")
 ).trim().toLowerCase();
 const LOG_LEVEL = String(process.env.LOG_LEVEL || "info").trim().toLowerCase();
+
+// Production startup guard. Throws a clear, multi-line error listing every
+// missing required environment variable. Callable from app/index startup or
+// from tests with a process-like env arg. Returns nothing on success.
+function assertProductionEnv(env = process.env) {
+  const nodeEnv = String(env.NODE_ENV || "development").trim().toLowerCase() || "development";
+  if (nodeEnv === "development" || nodeEnv === "test") return;
+  if (nodeEnv !== "production") {
+    throw new Error(
+      `Refusing to boot: unsupported NODE_ENV=${JSON.stringify(nodeEnv)}. ` +
+      "Use development/test locally or production with the complete release configuration."
+    );
+  }
+  const missing = [];
+  if (!String(env.DATABASE_URL || "").trim()) {
+    missing.push("DATABASE_URL — production must run against Postgres, not the JSON adapter.");
+  }
+  if (!String(env.JWT_SECRET || "").trim()) {
+    missing.push("JWT_SECRET — required to sign auth tokens.");
+  }
+  if (!String(env.OPENAI_API_KEY || "").trim()) {
+    missing.push("OPENAI_API_KEY — required for talk and realtime suppliers.");
+  }
+  if (!String(env.APP_TOKEN || "").trim()) {
+    missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
+  }
+  if (!String(env.AUTH_APPLE_AUDIENCE || "").trim()) {
+    missing.push("AUTH_APPLE_AUDIENCE — required to validate Sign in with Apple token audiences.");
+  }
+  if (isRequireUserAuthExplicitlyDisabled(env)) {
+    missing.push("REQUIRE_USER_AUTH — production must not disable authenticated user routes.");
+  }
+  if (missing.length === 0) return;
+  const banner = "Refusing to boot: required production environment variables are missing.";
+  const detail = missing.map((line) => "  - " + line).join("\n");
+  throw new Error(banner + "\n" + detail);
+}
+
 export {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -78,6 +133,7 @@ export {
   AUTH_PASSWORD_RESET_TTL_SECONDS,
   AUTH_REFRESH_TTL_SECONDS,
   AUTH_REQUIRE_EMAIL_VERIFIED,
+  assertProductionEnv,
   BACKEND_BOOT_ID,
   BACKEND_BUILD,
   CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT,
@@ -87,6 +143,7 @@ export {
   DEFAULT_ASSISTANT_SELF_NAME,
   JWT_SECRET,
   JWT_TTL_SECONDS,
+  HOST,
   LOG_FORMAT,
   LOG_LEVEL,
   MAX_FILE_BYTES,
@@ -97,7 +154,9 @@ export {
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
+  resolveRequireUserAuth,
   SHOULD_START_SERVER,
+  STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
 };

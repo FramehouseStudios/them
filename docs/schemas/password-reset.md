@@ -9,7 +9,7 @@ revoke all sessions).
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| POST | `/auth/request_password_reset` | `{ ok, delivery, debug_password_reset_token? }` |
+| POST | `/auth/request_password_reset` | shared auth envelope with `user: null`, `email_delivery`, and test/local-only `debug_password_reset_token?` |
 | POST | `/auth/reset_password` | `{ ok, revoked_sessions }` |
 
 ## Schema version
@@ -26,8 +26,8 @@ revoke all sessions).
 ## Access-control posture
 
 **TIER-3 SENSITIVE**. The plaintext reset token MUST NOT appear
-in logs, telemetry, or any non-production response except behind
-the `allowDebugTokens` flag (default off in production).
+in logs, telemetry, or any non-test/non-local response. The request
+route must not reveal whether the email belongs to an account.
 
 ## Request shapes
 
@@ -59,7 +59,9 @@ the `allowDebugTokens` flag (default off in production).
 ```json
 {
   "ok": true,
-  "delivery": { "status": "queued", "transport": "log" },
+  "user": null,
+  "password_reset_requested": true,
+  "email_delivery": { "status": "queued", "transport": "none" },
   "debug_password_reset_token": "rst_..."
 }
 ```
@@ -67,8 +69,10 @@ the `allowDebugTokens` flag (default off in production).
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `ok` | bool | yes | constant `true` |
-| `delivery` | object | yes | `{ status, transport }` describing email transport |
-| `debug_password_reset_token` | string | no | present only when `allowDebugTokens` is true |
+| `user` | null | yes | always null for this route so response shape cannot reveal account existence |
+| `password_reset_requested` | bool | yes | always true when email syntax was accepted |
+| `email_delivery` | object | yes | `{ status, action, transport, compose_url, error }` delivery description |
+| `debug_password_reset_token` | string | no | present only in test/development/local for known accounts |
 
 ### `/auth/reset_password`
 
@@ -90,12 +94,11 @@ the `allowDebugTokens` flag (default off in production).
 | 400 | `new_password_required` | `validate` | reset_password with missing new_password |
 | 400 | `password_too_short` | `validate` | new_password fails min-length check |
 | 401 | `invalid_reset_token` | `consume_token` | token unknown, expired, or already used |
-| 404 | `user_not_found` | `lookup_user` | email has no associated account |
 | 503 | `user_auth_not_configured` | `configure` | JWT secret missing in production |
 
 Note: by design, `request_password_reset` returns `ok` even when
 the email is unknown — so the public surface does not leak account
-existence. The 404 path is reserved for internal flows.
+existence. Known and unknown emails share the same production response body.
 
 ## Invariants
 
@@ -104,6 +107,7 @@ existence. The 404 path is reserved for internal flows.
 - The reset token is single-use; consuming it (success or failure)
   marks it consumed.
 - Token TTL is `passwordResetTtlSeconds` (default 600s / 10 min).
+- `request_password_reset` never returns the public user object.
 
 ## Compatibility rules
 
@@ -116,3 +120,5 @@ existence. The 404 path is reserved for internal flows.
 
 - v1 — initial documented shape. `revoked_sessions` count is the
   iOS-visible signal that the reset fully cleaned up sessions.
+- v1.1 — reset request response is account-agnostic; debug reset tokens
+  are test/local only.

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  cleanupStudioEvalSessionsWithHelper,
   createStudioEvalDebugContext,
+  createStudioOwnedAppController,
   ensureStudioProjectLoadedWithDebugHook,
   ensureStudioVisibleWithOpenHandshake,
   sleepMs,
@@ -39,7 +41,12 @@ function runOptional(command, args, options = {}) {
   };
 }
 
+const ownedApp = createStudioOwnedAppController({ runOptional });
+
 const LOCAL_BACKEND_BASE_URL = String(process.env.THEM_BASE_URL || "").trim() || "http://127.0.0.1:3000";
+const STUDIO_DEBUG_VOICE_TURN_REQUEST_PATH = String(
+  process.env.THEM_STUDIO_DEBUG_VOICE_TURN_REQUEST_PATH || "/tmp/them_studio_debug_voice_turn_request.json"
+).trim() || "/tmp/them_studio_debug_voice_turn_request.json";
 const voicePrompt = [
   "Write exactly this screenplay block and nothing else:",
   "INT. WAREHOUSE - NIGHT",
@@ -68,6 +75,7 @@ const debugIntKeys = new Set([
   "studio_debug_load_project_ack_token",
   "studio_debug_focus_page_token",
   "studio_debug_focus_page_ack_token",
+  "studio_debug_freeze_synced_voice_playback_after_ms",
   "studio_debug_voice_turn_token",
   "studio_debug_voice_turn_command_received_token",
   "studio_debug_voice_turn_ack_token",
@@ -92,6 +100,7 @@ const debugDefaultKeys = [
   "studio_debug_diff_state_json",
   "studio_debug_focus_page_token",
   "studio_debug_focus_page_ack_token",
+  "studio_debug_freeze_synced_voice_playback_after_ms",
   "studio_debug_voice_turn_token",
   "studio_debug_voice_turn_command_received_token",
   "studio_debug_voice_turn_ack_token",
@@ -103,6 +112,9 @@ const debugDefaultKeys = [
   "studio_debug_voice_turn_result_json",
   "studio_debug_voice_draft_trace_json",
 ];
+const volatileDebugDefaultKeys = new Set(
+  debugDefaultKeys.filter((key) => key === "studio_auto_insert" || key.startsWith("studio_debug_"))
+);
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const {
@@ -115,6 +127,10 @@ const {
   nextToken,
 } = debugContext;
 const debugDomains = Array.isArray(debugDefaults?.domains) ? debugDefaults.domains : ["io.them.them"];
+const debugPlistDefaultsTargets = (Array.isArray(debugDefaults?.plistTargets) ? debugDefaults.plistTargets : [])
+  .map((plistPath) => String(plistPath || "").trim())
+  .filter(Boolean)
+  .map((plistPath) => plistPath.endsWith(".plist") ? plistPath.slice(0, -".plist".length) : plistPath);
 const originalDefaults = Object.fromEntries(
   debugDefaultKeys.map((key) => [key, readDefaultString(key)])
 );
@@ -176,6 +192,9 @@ function readIdentityString(key) {
 }
 
 function deleteDefaultKey(key) {
+  for (const target of debugPlistDefaultsTargets) {
+    runOptional("defaults", ["delete", target, key]);
+  }
   for (const domain of debugDomains) {
     runOptional("defaults", ["delete", domain, key]);
   }
@@ -196,6 +215,26 @@ function restoreDefaultKey(key, value) {
     return;
   }
   writeDefaultString(key, value);
+}
+
+function clearVolatileStudioDebugState(restoreErrors = []) {
+  for (const key of volatileDebugDefaultKeys) {
+    try {
+      deleteDefaultKey(key);
+    } catch (error) {
+      restoreErrors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  for (const requestPath of [STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH, STUDIO_DEBUG_VOICE_TURN_REQUEST_PATH]) {
+    if (!existsSync(requestPath)) continue;
+    try {
+      unlinkSync(requestPath);
+    } catch (error) {
+      restoreErrors.push(
+        `${requestPath}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 }
 
 function localBackendURL(path = "/") {
@@ -237,7 +276,6 @@ function ownerHeaders() {
   const userId = readIdentityString("user_id");
   if (userId) {
     headers["X-User-Id"] = userId;
-    return headers;
   }
   const clientToken = readIdentityString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");
@@ -345,33 +383,24 @@ function findDebugAppPath() {
   return discovered;
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
-
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
-function activateApp(appPath = "") {
-  if (appPath) {
-    runOptional("open", ["-na", appPath]);
-  }
-  runOptional("osascript", ["-e", 'tell application "them" to activate']);
+function appIsRunning() {
+  return ownedApp.isRunning();
+}
+
+function quitApp() {
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
+}
+
+async function ensureAppStopped() {
+  quitApp();
+}
+
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function appleScriptQuoted(value) {
@@ -392,27 +421,19 @@ async function focusPageEditor({ moveToEnd = false } = {}) {
   );
   if (!moveToEnd) return;
   activateApp();
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.2',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.1',
     'key code 125 using {command down}',
-    'end tell',
   ]);
 }
 
 function injectKeystrokeEdit(marker) {
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.2',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.1',
     'key code 36',
     `keystroke "${appleScriptQuoted(marker)}"`,
-    'end tell',
   ]);
 }
 
@@ -462,6 +483,14 @@ function combinedDraftPreview(state) {
     .join("\n");
 }
 
+function writeStudioDebugVoiceTurnRequest({ token, prompt, projectId }) {
+  writeFileSync(STUDIO_DEBUG_VOICE_TURN_REQUEST_PATH, JSON.stringify({
+    token,
+    prompt: String(prompt || ""),
+    projectID: String(projectId || "").trim(),
+  }), "utf8");
+}
+
 async function sendStudioVoiceTurn(prompt, projectId) {
   const token = nextToken(
     "studio_debug_voice_turn_token",
@@ -481,6 +510,7 @@ async function sendStudioVoiceTurn(prompt, projectId) {
   writeDefaultString(studioVoiceTurnResultKey(token), "");
   writeDefaultString(studioVoiceTurnTraceKey(token), "[]");
   writeDefaultInt("studio_debug_voice_turn_token", 0);
+  writeStudioDebugVoiceTurnRequest({ token, prompt, projectId });
   await sleepMs(120);
   writeDefaultInt("studio_debug_voice_turn_token", token);
   await waitForCondition(
@@ -519,11 +549,13 @@ try {
   const health = await readHealth();
   assert.equal(health?.ok, true, "Backend health is not OK on localhost:3000");
   ownerIdentity = await ensureOwnerIdentity();
+  appPath = findDebugAppPath();
+  await ensureAppStopped();
+  clearVolatileStudioDebugState();
 
   writeDefaultString("backend_base_url", LOCAL_BACKEND_BASE_URL);
   writeDefaultString("clementine_voice_transport_mode", "turn_based");
 
-  appPath = findDebugAppPath();
   openResult = await ensureStudioVisibleWithOpenHandshake({
     appPath,
     debugDefaults,
@@ -552,10 +584,16 @@ try {
     readDebugDiffState,
   });
   await focusPageEditor({ moveToEnd: true });
+  writeDefaultBool("studio_auto_insert", false);
+  await sleepMs(500);
   autoInsertDisabledVoiceToken = await sendStudioVoiceTurn(voicePrompt, autoInsertDisabledProject.projectId);
   await waitForCondition(
-    () => readVoiceResult(autoInsertDisabledVoiceToken) != null,
-    "voice result with auto-insert disabled",
+    () => {
+      const result = readVoiceResult(autoInsertDisabledVoiceToken);
+      if (!result) return false;
+      return String(result?.status || "").trim().toLowerCase() !== "running";
+    },
+    "final voice result with auto-insert disabled",
     45000,
     250
   );
@@ -599,6 +637,19 @@ try {
     !normalizedAutoInsertDisabledDraft.includes(normalizeText(unappliedCueProbe)),
     "Manual interrupt smoke still wrote screenplay text to the page with auto-insert disabled"
   );
+  await ensureAppStopped();
+  clearVolatileStudioDebugState();
+  writeDefaultString("backend_base_url", LOCAL_BACKEND_BASE_URL);
+  writeDefaultString("clementine_voice_transport_mode", "turn_based");
+  openResult = await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    debugDefaults,
+    helperPath: studioAppSessionHelperPath,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+  });
 
   manualInterruptProject = await createThrowawayStudioProject(
     "studio-voice-manual-edit",
@@ -618,6 +669,9 @@ try {
     readDebugDiffState,
   });
   await focusPageEditor({ moveToEnd: true });
+  writeDefaultBool("studio_auto_insert", true);
+  writeDefaultInt("studio_debug_freeze_synced_voice_playback_after_ms", 3200);
+  await sleepMs(500);
   manualInterruptVoiceToken = await sendStudioVoiceTurn(voicePrompt, manualInterruptProject.projectId);
 
   let cueCountAtEdit = 0;
@@ -636,8 +690,12 @@ try {
     return String(cancelBreadcrumb?.interruptionReason || "").trim() === "manual_typing";
   }, "manual typing interruption reason", 30000, 100);
   await waitForCondition(
-    () => readVoiceResult(manualInterruptVoiceToken) != null,
-    "voice result snapshot after manual edit cancellation",
+    () => {
+      const result = readVoiceResult(manualInterruptVoiceToken);
+      if (!result) return false;
+      return String(result?.status || "").trim().toLowerCase() !== "running";
+    },
+    "final voice result snapshot after manual edit cancellation",
     45000,
     250
   );
@@ -723,23 +781,18 @@ try {
 } catch (error) {
   smokeFailure = error;
 } finally {
-  cleanupVoiceToken(autoInsertDisabledVoiceToken);
-  cleanupVoiceToken(manualInterruptVoiceToken);
   const restoreErrors = [];
-  if (existsSync(STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH)) {
-    try {
-      unlinkSync(STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH);
-    } catch (error) {
-      restoreErrors.push(
-        `load_project_request_file: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-  for (const [key, value] of Object.entries(originalDefaults)) {
-    try {
-      restoreDefaultKey(key, value);
-    } catch (error) {
-      restoreErrors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
+  if (!smokeFailure) {
+    cleanupVoiceToken(autoInsertDisabledVoiceToken);
+    cleanupVoiceToken(manualInterruptVoiceToken);
+    clearVolatileStudioDebugState(restoreErrors);
+    for (const [key, value] of Object.entries(originalDefaults)) {
+      if (volatileDebugDefaultKeys.has(key)) continue;
+      try {
+        restoreDefaultKey(key, value);
+      } catch (error) {
+        restoreErrors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   if (restoreErrors.length) {

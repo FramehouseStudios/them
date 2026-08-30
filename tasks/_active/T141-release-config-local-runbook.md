@@ -13,8 +13,10 @@ v1_effect: unblocks release preflight as soon as real signing/backend/token valu
 
 Make the release configuration path safer and faster after T139 proved the
 remaining blocker is missing real release inputs. Add a local-only release
-config template and documentation so the Apple team ID, hosted backend URL, and
-production app token can be supplied without editing tracked project files.
+config template and documentation so the Apple team ID and
+`APP_TOKEN_RELEASE` can be supplied without editing tracked project files,
+while the hosted backend remains the tracked `https://api.them.io` release
+origin.
 
 ## Done When
 

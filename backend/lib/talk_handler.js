@@ -33,8 +33,52 @@ import {
   createSttSupplier,
   createTtsSupplier,
 } from "./talk_supplier_glue.js";
+import { incrementErrorCounter } from "./talk_error_counter.js";
+import {
+  applyTalkFailureHeaders,
+  buildTalkFailureBody,
+  buildTalkFailureDiagnostics,
+  createTalkFailureError,
+} from "./talk_failure_diagnostics.js";
+import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
+import { buildCanonClarificationPayload } from "./canon_clarification.js";
+import {
+  buildTalkScreenplayExecutionBriefLines,
+  isNextSceneExecutionBriefRepairReason,
+} from "./talk_screenplay_repair_plan.js";
+import {
+  buildFailedStoryRescueRepair,
+  buildDeliveredStoryRescueInteraction,
+  formatRankedStoryRescueMoveLine,
+  rankStoryRescueMovesForContext,
+  selectStoryMoveLibraryLinesForContext,
+} from "./story_rescue_move_library.js";
+import {
+  buildScreenplayQuestionPlan,
+  createPendingScreenplayLearningQuestion,
+  enforceScreenplayQuestionPlan,
+  extractProvisionalScreenplayOptions,
+  removePendingScreenplayLearningQuestion,
+  resolvePendingScreenplayLearningAnswer,
+  selectPendingScreenplayLearningQuestion,
+  upsertPendingScreenplayLearningQuestion,
+} from "./screenplay_question_planner.js";
+import {
+  buildStructuralScreenplayRepairMessages,
+  evaluateStructuralScreenplayReply,
+  shouldAcceptStructuralRepair,
+} from "./structural_screenplay_quality.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
+
+function mergeProviderUsage(current = null, additional = null) {
+  const merged = {};
+  for (const key of ["inputTokens", "outputTokens", "reasoningTokens", "totalTokens"]) {
+    merged[key] = Math.max(0, Number(current?.[key] || 0)) +
+      Math.max(0, Number(additional?.[key] || 0));
+  }
+  return merged;
+}
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -61,7 +105,6 @@ function createTalkHandler(deps) {
     BARGE_IN_ENABLED,
     BARGE_IN_HINT_THRESHOLD,
     BARGE_IN_STOP_PLAYBACK,
-    CALENDAR_COMPOSE_TARGET,
     CHAT_STREAM_ENABLED,
     CHAT_TIMEOUT_MS,
     CLEMENTINE_CHAOS_FACTOR_BASELINE,
@@ -70,13 +113,10 @@ function createTalkHandler(deps) {
     COMPANION_MODE_PROFILE,
     DEEP_TURN_SCORE_THRESHOLD,
     DEFAULT_ASSISTANT_SELF_NAME,
-    EMAIL_COMPOSE_BODY_MAX_CHARS,
-    EMAIL_SEND_TARGET,
     EMOTIONAL_TRAJECTORY,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_ENABLED,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_MIN_BYTES,
     EMPTY_TRANSCRIPT_VOICE_PROMPT_STREAK,
-    ENABLE_LOCAL_EMAIL_SEND,
     ENABLE_LOCAL_NOTE_CAPTURE,
     FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
     INTERACTIVE_TTS_PROVIDER,
@@ -126,19 +166,17 @@ function createTalkHandler(deps) {
     WEEKLY_EXPANSION_SELF_AWARENESS_TURNS,
     appendCraftContextToSystem,
     appendDirectorAddendum,
+    applyClementineVoiceDirection,
     applyAdaptiveTurnLearning,
     applyTtsLeadIn,
     applyUserIdentityIntentToMemory,
     buildBackReferenceAddendum,
     buildBackReferencePlan,
-    buildCalendarActionReply,
-    buildCalendarComposeUrl,
     buildCharacterTextureAddendum,
     buildCinemaCheckEnvelope,
     buildCycleConsciousMemoryAddendum,
     buildCycleConsciousMemoryPlan,
     buildCycleEvolutionAddendum,
-    buildEmailSendReply,
     buildEmotionalTrajectoryAddendum,
     buildEstimatedTalkScreenplayCues,
     buildEvolvingSelfAwarenessAddendum,
@@ -167,6 +205,7 @@ function createTalkHandler(deps) {
     buildTalkDirectTranscriptScreenplayOutput,
     buildTalkReplyPreview,
     buildTalkScreenplayOutput,
+    applyTalkScreenplayRepairCandidate,
     buildTalkTestDebugOfflineReply,
     buildTaskActionReply,
     buildTherapeuticDepthAddendum,
@@ -178,13 +217,13 @@ function createTalkHandler(deps) {
     captureTalkResponseHeaders,
     clampUnit,
     classifyActionLane,
-    clearPendingEmailDraft,
     clearPendingLocalAction,
     clearTalkIdempotencyPending,
     clientIp,
     commitTalkIdempotencySuccess,
     completeTaskInMemory,
     computeChatMaxTokensForTurn,
+    resolveTalkScreenplayRequestedPageBatch,
     computeMemoryTurnNumber,
     computeOutboxRetryAt,
     computeSpeculativePromptHash,
@@ -219,8 +258,6 @@ function createTalkHandler(deps) {
     evaluateTurnQualityHeuristics,
     extractAnchorTerms,
     extractAssistantRenameIntent,
-    extractCalendarIntent,
-    extractEmailSendIntent,
     extractNoteCaptureIntent,
     extractTaskCompleteIntent,
     extractTaskCreateIntent,
@@ -244,6 +281,7 @@ function createTalkHandler(deps) {
     inferRoutingPriorityLane,
     isAbortError,
     isAdviceRequestedByUser,
+    isAuthoritativeTalkScreenplayOutput,
     isLikelyAmbiguousLowConfidenceUtterance,
     isLikelyMp3Buffer,
     isLocalActionCancelTranscript,
@@ -257,10 +295,10 @@ function createTalkHandler(deps) {
     maybeRefineActiveThemesWithLLM,
     mergeTurnQualitySignals,
     normalizeAffectionStyle,
+    normalizeAcceptedCausalFacts,
     normalizeAssistantSelfName,
     normalizeClientIp,
     normalizeClientToken,
-    normalizeEmailAddress,
     normalizeLocalActionType,
     normalizeMotivationOutcome,
     normalizePersonaPreset,
@@ -287,8 +325,8 @@ function createTalkHandler(deps) {
     recordTalkMetric,
     recordUserTalkMetrics,
     recordUserTurnQualityMetric,
-    resolveEmailSendIntentWithPending,
     resolveTalkSessionKey,
+    resolveCanonicalWritableMemoryContext,
     sanitizeActiveThemes,
     sanitizeAdaptiveBias,
     sanitizeAdaptiveQualityTags,
@@ -298,11 +336,9 @@ function createTalkHandler(deps) {
     selectChatModelForTurn,
     selectChatTemperatureForTurn,
     selectExecutableLocalActionCandidate,
-    sendLocalEmail,
     setAssistantSelfNameForIp,
-    setPendingEmailDraft,
     setPendingLocalAction,
-    setPersistedUserMemoryForIp,
+    createTalkMemoryCommitter,
     shouldForceSessionCheckInOpener,
     shouldHoldForContinuation,
     shouldPrioritizeReassurance,
@@ -347,6 +383,1246 @@ function createTalkHandler(deps) {
     synthesizeTalkScreenplayPageAudio,
   });
 
+  function buildScreenplayMetricFields({
+    talkScreenplayModeEnabled = false,
+    studioMeta = null,
+    talkScreenplayOutput = null,
+    hasAuthoritativeScreenplayText = false,
+    replyRepaired = false,
+    repairTrace = null,
+  } = {}) {
+    const requestedTarget = talkScreenplayModeEnabled
+      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() || "unspecified")
+      : "none";
+    const quality = talkScreenplayOutput?.quality && typeof talkScreenplayOutput.quality === "object"
+      ? talkScreenplayOutput.quality
+      : null;
+    return {
+      screenplayMode: Boolean(talkScreenplayModeEnabled),
+      screenplayRequestedTarget: requestedTarget,
+      screenplayFinalTarget: String(talkScreenplayOutput?.target || "").trim().toLowerCase() || "none",
+      screenplayOutputSource: String(talkScreenplayOutput?.source || "").trim().toLowerCase() || "none",
+      screenplayQualityReason: String(quality?.reason || "").trim().toLowerCase() || "none",
+      screenplayQualityConfidence: String(quality?.confidence || "").trim().toLowerCase() || "none",
+      screenplayAuthoritative: Boolean(hasAuthoritativeScreenplayText),
+      screenplayReplyRepaired: Boolean(
+        replyRepaired ||
+        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_") ||
+        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repair_pass")
+      ),
+      screenplayRepairAttempted: Boolean(repairTrace?.attempted),
+      screenplayRepairOutcome: String(repairTrace?.outcome || "none").trim().toLowerCase() || "none",
+      screenplayRepairMs: Math.max(0, Number(repairTrace?.elapsedMs || 0)),
+    };
+  }
+
+  function applyTalkScreenplayRepairHeaders(res, repairTrace = null) {
+    const attempted = Boolean(repairTrace?.attempted);
+    const outcome = normalizeSnippet(repairTrace?.outcome || "none", 48) || "none";
+    const elapsedMs = Math.max(0, Math.round(Number(repairTrace?.elapsedMs || 0)));
+    const reason = normalizeSnippet(repairTrace?.reason || "", 96);
+    res.setHeader("x-screenplay-repair-attempted", attempted ? "1" : "0");
+    res.setHeader("x-screenplay-repair-outcome", encodeURIComponent(outcome));
+    res.setHeader("x-screenplay-repair-ms", String(elapsedMs));
+    if (reason) {
+      res.setHeader("x-screenplay-repair-reason", encodeURIComponent(reason));
+    }
+  }
+
+  function applyCreativeMemoryTraceHeaders(res, trace = null) {
+    const applied = Boolean(trace?.applied);
+    const characterCount = Math.max(0, Math.round(Number(trace?.character_count || 0)));
+    const episodicCount = Math.max(0, Math.round(Number(trace?.episodic_count || 0)));
+    const correctionCount = Math.max(0, Math.round(Number(trace?.correction_count || 0)));
+    res.setHeader("x-creative-memory-applied", applied ? "1" : "0");
+    res.setHeader("x-creative-memory-character-count", String(characterCount));
+    res.setHeader("x-creative-memory-episodic-count", String(episodicCount));
+    res.setHeader("x-creative-memory-correction-count", String(correctionCount));
+    if (trace && typeof trace === "object") {
+      const traceJson = JSON.stringify(trace);
+      if (traceJson.length <= 5000) {
+        res.setHeader("x-creative-memory-trace", encodeURIComponent(traceJson));
+      }
+    }
+  }
+
+  function applyCanonClarificationHeader(res, memoryWriteSummary = null) {
+    const clarification = buildCanonClarificationPayload(memoryWriteSummary);
+    if (!clarification) return;
+    const payload = JSON.stringify(clarification);
+    if (payload.length <= 3000) {
+      res.setHeader("x-canon-clarification", encodeURIComponent(payload));
+    }
+  }
+
+  function applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput = null) {
+    const quality = talkScreenplayOutput?.quality && typeof talkScreenplayOutput.quality === "object"
+      ? talkScreenplayOutput.quality
+      : null;
+    if (!quality) return;
+    res.setHeader("x-screenplay-quality-ok", quality.ok ? "1" : "0");
+    res.setHeader("x-screenplay-quality-reason", encodeURIComponent(normalizeSnippet(quality.reason, 80)));
+    res.setHeader("x-screenplay-quality-confidence", encodeURIComponent(normalizeSnippet(quality.confidence, 40)));
+    if (quality.feature_act) {
+      res.setHeader("x-screenplay-quality-feature-act", encodeURIComponent(normalizeSnippet(quality.feature_act, 40)));
+    }
+    res.setHeader(
+      "x-screenplay-canon-facts-checked",
+      String(Math.max(0, Math.round(Number(quality.canon_facts_checked || 0))))
+    );
+    res.setHeader(
+      "x-screenplay-canon-violation-count",
+      String(Math.max(0, Math.round(Number(quality.canon_violation_count || 0))))
+    );
+    if (Array.isArray(quality.canon_violation_types) && quality.canon_violation_types.length) {
+      res.setHeader(
+        "x-screenplay-canon-violation-types",
+        encodeURIComponent(quality.canon_violation_types.slice(0, 4).map((item) => normalizeSnippet(item, 48)).filter(Boolean).join(","))
+      );
+    }
+    res.setHeader("x-screenplay-canon-correction-override", quality.canon_correction_override ? "1" : "0");
+    if (Array.isArray(quality.repair_directives) && quality.repair_directives.length) {
+      res.setHeader(
+        "x-screenplay-repair-directives",
+        encodeURIComponent(quality.repair_directives.slice(0, 5).map((item) => normalizeSnippet(item, 160)).filter(Boolean).join(" | "))
+      );
+    }
+  }
+
+  function normalizeTalkRepairList(items, maxItems = 5, maxChars = 200) {
+    const source = Array.isArray(items)
+      ? items
+      : String(items || "").trim()
+        ? String(items).split(/\r?\n|;/)
+        : [];
+    const out = [];
+    const seen = new Set();
+    for (const item of source) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  function shouldAttemptTalkMomentumRescueRepairPass(currentOutput = null) {
+    const source = String(currentOutput?.source || "").trim().toLowerCase();
+    const target = String(currentOutput?.target || "").trim().toLowerCase();
+    const reason = String(currentOutput?.quality?.reason || "").trim().toLowerCase();
+    const confidence = String(currentOutput?.quality?.confidence || "").trim().toLowerCase();
+    return (
+      target === "voice_pin" &&
+      source === "guard_momentum_rescue_quality" &&
+      confidence === "needs_repair" &&
+      reason &&
+      reason !== "ok"
+    );
+  }
+
+  function selectTalkMomentumMemoryProject(memory = null, studioMeta = null) {
+    const items = Array.isArray(memory?.screenplayProjectMemory)
+      ? memory.screenplayProjectMemory.filter((item) => item && typeof item === "object")
+      : [];
+    if (!items.length) return null;
+    const projectId = normalizeSnippet(studioMeta?.screenplayProjectId, 96);
+    const documentRevisionId = normalizeSnippet(studioMeta?.screenplayDocumentRevisionId, 96);
+    if (projectId) {
+      const byProject = items.find((item) => normalizeSnippet(item?.projectId, 96) === projectId);
+      if (byProject) return byProject;
+    }
+    if (documentRevisionId) {
+      const byRevision = items.find((item) => normalizeSnippet(item?.documentRevisionId, 96) === documentRevisionId);
+      if (byRevision) return byRevision;
+    }
+    return items[0] || null;
+  }
+
+  function mergeTalkMomentumRepairContextList(currentValue, memoryValue, maxItems = 6, maxChars = 180) {
+    return normalizeTalkRepairList(
+      [
+        ...normalizeTalkRepairList(currentValue, maxItems, maxChars),
+        ...normalizeTalkRepairList(memoryValue, maxItems, maxChars),
+      ],
+      maxItems,
+      maxChars
+    );
+  }
+
+  function mergeTalkMomentumRepairStudioMeta(
+    studioMeta = null,
+    memory = null,
+    creativeMemoryTrace = null
+  ) {
+    const base = studioMeta && typeof studioMeta === "object" ? { ...studioMeta } : {};
+    const tracedEpisodes = Array.isArray(creativeMemoryTrace?.episodic)
+      ? creativeMemoryTrace.episodic.filter((item) => item && typeof item === "object")
+      : [];
+    const tracedAcceptedScenes = Array.isArray(creativeMemoryTrace?.accepted_scenes)
+      ? creativeMemoryTrace.accepted_scenes.filter((item) => item && typeof item === "object")
+      : [];
+    const acceptedPageContinuity = normalizeTalkRepairList(
+      [
+        ...tracedAcceptedScenes.map((item) => [
+          normalizeSnippet(item.scene_heading, 120),
+          normalizeSnippet(item.outcome || item.summary || item.excerpt, 220),
+        ].filter(Boolean).join(" - ")),
+        ...tracedEpisodes
+          .filter((item) => String(item.authority || "").trim().toLowerCase() === "accepted_page")
+          .map((item) => item.excerpt || item.summary),
+      ],
+      3,
+      240
+    );
+    const retrievedStoryMoments = normalizeTalkRepairList(
+      tracedEpisodes
+        .filter((item) => ["accepted_page", "user_note", "user_correction"].includes(
+          String(item.authority || "").trim().toLowerCase()
+        ))
+        .map((item) => item.excerpt || item.summary),
+      4,
+      220
+    );
+    const tracedDueStoryThread = creativeMemoryTrace?.due_story_thread &&
+      typeof creativeMemoryTrace.due_story_thread === "object" &&
+      !Array.isArray(creativeMemoryTrace.due_story_thread)
+      ? {
+        kind: normalizeSnippet(creativeMemoryTrace.due_story_thread.kind, 24),
+        setup: normalizeSnippet(creativeMemoryTrace.due_story_thread.setup, 220),
+        promisedPayoff: normalizeSnippet(creativeMemoryTrace.due_story_thread.promised_payoff, 220),
+        sourceSceneHeading: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_heading, 140),
+        sourceSceneSummary: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_summary, 220),
+        sourceSceneOutcome: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_outcome, 220),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(creativeMemoryTrace.due_story_thread.age_in_scenes || 0))),
+      }
+      : null;
+    const tracedAcceptedCausalFacts = Array.isArray(creativeMemoryTrace?.accepted_causal_facts)
+      ? creativeMemoryTrace.accepted_causal_facts.slice(0, 8).map((item) => ({
+        kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+        fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+        sourceSceneHeading: normalizeSnippet(item?.source_scene_heading ?? item?.sourceSceneHeading, 140),
+        sourceAct: normalizeSnippet(item?.source_act ?? item?.sourceAct, 80),
+        ageInScenes: Math.max(0, Math.round(Number(item?.age_in_scenes ?? item?.ageInScenes ?? 0))),
+      })).filter((item) => item.kind && item.fact)
+      : [];
+    const tracedDueConsequence = creativeMemoryTrace?.due_consequence &&
+      typeof creativeMemoryTrace.due_consequence === "object" &&
+      !Array.isArray(creativeMemoryTrace.due_consequence)
+      ? {
+        id: normalizeSnippet(creativeMemoryTrace.due_consequence.id, 96),
+        kind: normalizeSnippet(creativeMemoryTrace.due_consequence.kind, 48),
+        fact: normalizeSnippet(creativeMemoryTrace.due_consequence.fact, 220),
+        status: normalizeSnippet(creativeMemoryTrace.due_consequence.status, 32),
+        sourceSceneHeading: normalizeSnippet(
+          creativeMemoryTrace.due_consequence.source_scene_heading,
+          140
+        ),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.due_consequence.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(
+          creativeMemoryTrace.due_consequence.age_in_scenes || 0
+        ))),
+      }
+      : null;
+    const tracedStoryObligationChange = creativeMemoryTrace?.story_obligation_change &&
+      typeof creativeMemoryTrace.story_obligation_change === "object" &&
+      !Array.isArray(creativeMemoryTrace.story_obligation_change)
+      ? {
+        id: normalizeSnippet(creativeMemoryTrace.story_obligation_change.id, 96),
+        kind: normalizeSnippet(creativeMemoryTrace.story_obligation_change.kind, 48),
+        obligation: normalizeSnippet(creativeMemoryTrace.story_obligation_change.obligation, 220),
+        status: normalizeSnippet(creativeMemoryTrace.story_obligation_change.status, 32),
+        result: normalizeSnippet(creativeMemoryTrace.story_obligation_change.result, 240),
+        evidence: normalizeSnippet(creativeMemoryTrace.story_obligation_change.evidence, 320),
+        sourceSceneHeading: normalizeSnippet(
+          creativeMemoryTrace.story_obligation_change.source_scene_heading,
+          140
+        ),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.story_obligation_change.source_act, 80),
+      }
+      : null;
+    const tracedQuestionEffectiveness = Array.isArray(
+      creativeMemoryTrace?.screenplay_project_memory?.question_effectiveness
+    )
+      ? creativeMemoryTrace.screenplay_project_memory.question_effectiveness.slice(0, 24)
+      : [];
+    const tracedStoryMovePreferenceOverrides = Array.isArray(
+      creativeMemoryTrace?.screenplay_project_memory?.story_move_preference_overrides
+    )
+      ? creativeMemoryTrace.screenplay_project_memory.story_move_preference_overrides.slice(0, 9)
+      : [];
+    const tracedProjectMemory = creativeMemoryTrace?.screenplay_project_memory &&
+      typeof creativeMemoryTrace.screenplay_project_memory === "object" &&
+      !Array.isArray(creativeMemoryTrace.screenplay_project_memory)
+      ? creativeMemoryTrace.screenplay_project_memory
+      : {};
+    const latestAcceptedScene = tracedAcceptedScenes[0] || {};
+    const tracedLastSceneOutcome = normalizeSnippet(
+      latestAcceptedScene.outcome || tracedProjectMemory.last_scene_outcome,
+      240
+    );
+    const tracedNextScenePlan = normalizeSnippet(
+      latestAcceptedScene.next_scene_plan ||
+        latestAcceptedScene.causal_handoff ||
+        tracedProjectMemory.next_scene_plan,
+      340
+    );
+    const tracedNextTurns = normalizeTalkRepairList(
+      tracedProjectMemory.next_three_turns,
+      3,
+      180
+    );
+    const tracedPayoffs = normalizeTalkRepairList(
+      tracedProjectMemory.act_three_payoff_path,
+      4,
+      200
+    );
+    const tracedImages = normalizeTalkRepairList(
+      tracedProjectMemory.image_motifs,
+      4,
+      140
+    );
+    const tracedExecutionBrief = {
+      assignment: tracedNextScenePlan || tracedNextTurns[0] || tracedDueConsequence?.fact || tracedStoryObligationChange?.result || "",
+      consequence: tracedDueConsequence?.fact || "",
+      obstacle: tracedDueStoryThread?.setup ||
+        normalizeTalkRepairList(tracedProjectMemory.unresolved_story_threads, 4, 220)[0] ||
+        normalizeTalkRepairList(tracedProjectMemory.unresolved_setups, 4, 200)[0] ||
+        "",
+      arc: normalizeSnippet(tracedProjectMemory.character_arc_state, 220) ||
+        normalizeTalkRepairList(tracedProjectMemory.character_arc_turns, 4, 180)[0] ||
+        "",
+      payoff: tracedDueStoryThread?.promisedPayoff || tracedPayoffs[0] || "",
+      image: normalizeSnippet(tracedProjectMemory.ending_image, 180) || tracedImages[0] || "",
+      exit: tracedNextTurns[1] || "",
+    };
+    const hasTracedExecutionBrief = Boolean(
+      normalizeSnippet(tracedExecutionBrief.assignment, 240) ||
+      Object.values(tracedExecutionBrief)
+        .filter((value) => normalizeSnippet(value, 240))
+        .length >= 3
+    );
+    const baseExecutionBrief = base.screenplayNextSceneExecutionBrief &&
+      typeof base.screenplayNextSceneExecutionBrief === "object" &&
+      !Array.isArray(base.screenplayNextSceneExecutionBrief)
+      ? base.screenplayNextSceneExecutionBrief
+      : null;
+    const baseWithCreativeRecall = {
+      ...base,
+      screenplayLastSceneOutcome: normalizeSnippet(base.screenplayLastSceneOutcome, 240) ||
+        tracedLastSceneOutcome,
+      screenplayNextScenePlan: normalizeSnippet(base.screenplayNextScenePlan, 340) ||
+        tracedNextScenePlan,
+      screenplayNextSceneExecutionBrief: baseExecutionBrief
+        ? { ...tracedExecutionBrief, ...baseExecutionBrief }
+        : hasTracedExecutionBrief
+          ? tracedExecutionBrief
+          : null,
+      screenplayAcceptedConsequenceDue: normalizeSnippet(
+        base.screenplayAcceptedConsequenceDue,
+        220
+      ) || tracedDueConsequence?.fact || "",
+      screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
+        base.screenplayAcceptedPageContinuity,
+        acceptedPageContinuity,
+        3,
+        240
+      ),
+      screenplayRetrievedStoryMoments: mergeTalkMomentumRepairContextList(
+        base.screenplayRetrievedStoryMoments,
+        retrievedStoryMoments,
+        4,
+        220
+      ),
+      ...(tracedDueStoryThread?.setup || tracedDueStoryThread?.promisedPayoff
+        ? { screenplayDueStoryThread: tracedDueStoryThread }
+        : {}),
+      ...(tracedAcceptedCausalFacts.length
+        ? { screenplayAcceptedCausalFacts: tracedAcceptedCausalFacts }
+        : {}),
+      ...(tracedDueConsequence?.fact
+        ? { screenplayDueConsequence: tracedDueConsequence }
+        : {}),
+      ...(tracedStoryObligationChange?.result
+        ? { screenplayStoryObligationChange: tracedStoryObligationChange }
+        : {}),
+      ...(tracedQuestionEffectiveness.length
+        ? { screenplayQuestionEffectiveness: tracedQuestionEffectiveness }
+        : {}),
+      ...(tracedStoryMovePreferenceOverrides.length
+        ? { screenplayStoryMovePreferenceOverrides: tracedStoryMovePreferenceOverrides }
+        : {}),
+    };
+    const memoryProject = selectTalkMomentumMemoryProject(memory, base);
+    if (!memoryProject) {
+      return acceptedPageContinuity.length ||
+        retrievedStoryMoments.length ||
+        tracedAcceptedCausalFacts.length ||
+        tracedDueConsequence?.fact ||
+        tracedStoryObligationChange?.result ||
+        tracedDueStoryThread?.setup ||
+        tracedDueStoryThread?.promisedPayoff
+        ? baseWithCreativeRecall
+        : studioMeta;
+    }
+    const pick = (currentValue, memoryValue, maxChars = 220) =>
+      normalizeSnippet(currentValue, maxChars) || normalizeSnippet(memoryValue, maxChars);
+    const positiveInt = (currentValue, memoryValue) => {
+      const current = Math.max(0, Math.round(Number(currentValue || 0)));
+      if (current > 0) return current;
+      const remembered = Math.max(0, Math.round(Number(memoryValue || 0)));
+      return remembered > 0 ? remembered : 0;
+    };
+    return {
+      ...baseWithCreativeRecall,
+      screenplayProjectId: pick(base.screenplayProjectId, memoryProject.projectId, 96),
+      screenplayDocumentRevisionId: pick(base.screenplayDocumentRevisionId, memoryProject.documentRevisionId, 96),
+      screenplayAnchorSceneLabel: pick(base.screenplayAnchorSceneLabel, memoryProject.sceneLabel, 120),
+      screenplayAct: pick(base.screenplayAct, memoryProject.act, 120),
+      screenplaySceneObjective: pick(base.screenplaySceneObjective, memoryProject.sceneObjective, 280),
+      screenplaySceneSummary: pick(base.screenplaySceneSummary, memoryProject.sceneSummary, 280),
+      screenplayCurrentBeat: pick(base.screenplayCurrentBeat, memoryProject.currentBeat, 220),
+      screenplayLogline: pick(base.screenplayLogline, memoryProject.logline, 280),
+      screenplayThemeArgument: pick(base.screenplayThemeArgument, memoryProject.themeArgument, 280),
+      screenplayCentralQuestion: pick(base.screenplayCentralQuestion, memoryProject.centralQuestion, 280),
+      screenplayProtagonistWant: pick(base.screenplayProtagonistWant, memoryProject.protagonistWant, 240),
+      screenplayProtagonistNeed: pick(base.screenplayProtagonistNeed, memoryProject.protagonistNeed, 240),
+      screenplayAntagonisticForce: pick(base.screenplayAntagonisticForce, memoryProject.antagonisticForce, 260),
+      screenplayEndingImage: pick(base.screenplayEndingImage, memoryProject.endingImage, 240),
+      screenplayFeatureSequence: pick(base.screenplayFeatureSequence, memoryProject.featureSequence, 220),
+      screenplayFeatureObligation: pick(base.screenplayFeatureObligation, memoryProject.featureObligation, 280),
+      screenplayActPressureState: pick(base.screenplayActPressureState, memoryProject.actPressureState, 280),
+      screenplayCharacterArcState: pick(base.screenplayCharacterArcState, memoryProject.characterArcState, 280),
+      screenplayLastSceneOutcome: pick(base.screenplayLastSceneOutcome, memoryProject.lastSceneOutcome, 240),
+      screenplayNextScenePlan: pick(base.screenplayNextScenePlan, memoryProject.nextScenePlan, 340),
+      screenplayDraftExcerpt: normalizeTalkMultilineSnippet(base.screenplayDraftExcerpt, 6_000) ||
+        normalizeTalkMultilineSnippet(memoryProject.lastWritePreview, 1_800),
+      screenplayNextSceneMoves: mergeTalkMomentumRepairContextList(base.screenplayNextSceneMoves, memoryProject.nextSceneMoves, 5, 180),
+      screenplayNextThreeTurns: mergeTalkMomentumRepairContextList(base.screenplayNextThreeTurns, memoryProject.nextThreeTurns, 3, 180),
+      screenplayActThreePayoffPath: mergeTalkMomentumRepairContextList(base.screenplayActThreePayoffPath, memoryProject.actThreePayoffPath, 5, 200),
+      screenplayBeatSequence: mergeTalkMomentumRepairContextList(base.screenplayBeatSequence, memoryProject.beatSequence, 8, 180),
+      screenplayCharacterFocus: mergeTalkMomentumRepairContextList(base.screenplayCharacterFocus, memoryProject.characterFocus, 8, 120),
+      screenplayUnresolvedSetups: mergeTalkMomentumRepairContextList(base.screenplayUnresolvedSetups, memoryProject.unresolvedSetups, 8, 220),
+      screenplayUnresolvedStoryThreads: mergeTalkMomentumRepairContextList(base.screenplayUnresolvedStoryThreads, memoryProject.unresolvedStoryThreads, 8, 220),
+      screenplayCharacterArcTurns: mergeTalkMomentumRepairContextList(base.screenplayCharacterArcTurns, memoryProject.characterArcTurns, 6, 180),
+      screenplayImageMotifs: mergeTalkMomentumRepairContextList(base.screenplayImageMotifs, memoryProject.imageMotifs, 6, 140),
+      screenplayContinuityNotes: mergeTalkMomentumRepairContextList(base.screenplayContinuityNotes, memoryProject.continuityNotes, 8, 220),
+      screenplayCorrectedTerms: mergeTalkMomentumRepairContextList(base.screenplayCorrectedTerms, memoryProject.correctedTerms, 8, 120),
+      screenplayCorrectionReplacements: mergeTalkMomentumRepairContextList(
+        base.screenplayCorrectionReplacements,
+        memoryProject.correctionReplacements,
+        8,
+        160
+      ),
+      screenplayEmotionalContinuity: pick(base.screenplayEmotionalContinuity, memoryProject.emotionalContinuity, 280),
+      screenplayPageCount: positiveInt(base.screenplayPageCount, memoryProject.pageCount),
+      screenplayTargetPages: positiveInt(base.screenplayTargetPages, memoryProject.targetPages),
+    };
+  }
+
+  async function attemptStructuralScreenplayAnalysisRepairPass({
+    initialQuality = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.3,
+    chatMaxTokens = 1_000,
+    rid = "",
+  } = {}) {
+    if (!initialQuality?.applicable || initialQuality.ok) return null;
+    const modelReason = String(chatModelPlan?.reason || "").trim().toLowerCase();
+    const messages = buildStructuralScreenplayRepairMessages({
+      modelReason,
+      userRequest: transcript,
+      weakDraft: rawReply,
+      quality: initialQuality,
+      studioMeta,
+    });
+    if (!messages.length) return null;
+
+    const startedAt = Date.now();
+    try {
+      const repairTokenCap = modelReason === "screenplay_feature_architecture" ? 2_600 : 1_400;
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
+        temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.3))),
+        maxTokens: Math.max(700, Math.min(repairTokenCap, Number(chatMaxTokens || 1_000))),
+        messages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "responses"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || chatModelPlan?.reasoningEffort || "medium"),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || chatModelPlan?.fallbackModel || ""),
+      });
+      const elapsedMs = Date.now() - startedAt;
+      const metadata = {
+        elapsedMs,
+        usage: repairResult?.usage || null,
+        fallbackUsed: Boolean(repairResult?.fallbackUsed),
+        model: String(repairResult?.model || ""),
+        apiMode: String(repairResult?.apiMode || ""),
+        reasoningEffort: String(repairResult?.reasoningEffort || ""),
+      };
+      if (!repairResult?.response?.ok) {
+        return { ...metadata, repaired: false, outcome: "supplier_failed" };
+      }
+      let payload;
+      try {
+        payload = JSON.parse(String(repairResult.rawText || ""));
+      } catch {
+        return { ...metadata, repaired: false, outcome: "invalid_json" };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        payload?.choices?.[0]?.message?.content || "",
+        10_000
+      );
+      const candidateQuality = evaluateStructuralScreenplayReply({
+        reply: candidateReply,
+        modelReason,
+      });
+      if (!candidateReply || !shouldAcceptStructuralRepair(initialQuality, candidateQuality)) {
+        logger.log(
+          `[${rid}] structural_analysis_repair rejected initial=${Number(initialQuality?.score || 0).toFixed(2)} candidate=${Number(candidateQuality?.score || 0).toFixed(2)}`
+        );
+        return {
+          ...metadata,
+          repaired: false,
+          outcome: "not_improved",
+          quality: candidateQuality,
+        };
+      }
+      logger.log(
+        `[${rid}] structural_analysis_repair accepted reason=${modelReason} initial=${Number(initialQuality?.score || 0).toFixed(2)} candidate=${Number(candidateQuality?.score || 0).toFixed(2)} passed=${candidateQuality.ok ? 1 : 0}`
+      );
+      return {
+        ...metadata,
+        repaired: true,
+        outcome: candidateQuality.ok ? "repaired_pass" : "improved",
+        reply: candidateReply,
+        quality: candidateQuality,
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] structural_analysis_repair error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return {
+        repaired: false,
+        outcome: "error",
+        elapsedMs: Date.now() - startedAt,
+        usage: null,
+        fallbackUsed: false,
+      };
+    }
+  }
+
+  async function attemptTalkMomentumRescueRepairPass({
+    currentOutput = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.4,
+    chatMaxTokens = 1_200,
+    rid = "",
+  } = {}) {
+    if (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page") return null;
+    if (!shouldAttemptTalkMomentumRescueRepairPass(currentOutput)) return null;
+    if (typeof buildTalkScreenplayOutput !== "function") return null;
+
+    const failedReason = normalizeSnippet(
+      currentOutput?.quality?.reason || currentOutput?.source || "low_momentum_rescue_quality",
+      120
+    );
+    const repairDirectives = normalizeTalkRepairList(
+      currentOutput?.quality?.repair_directives || currentOutput?.quality?.repairDirectives || [],
+      5,
+      220
+    );
+    const userRequest = normalizeTalkMultilineSnippet(transcript, 1_400);
+    const weakDraft = normalizeTalkMultilineSnippet(rawReply, 2_400);
+    if (!userRequest && !weakDraft) return null;
+
+    const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
+    const screenplayFeatureSequence = normalizeSnippet(
+      studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
+      160
+    );
+    const screenplayFeatureObligation = normalizeSnippet(
+      studioMeta?.screenplayFeatureObligation || studioMeta?.screenplay_feature_obligation,
+      220
+    );
+    const screenplaySceneObjective = normalizeSnippet(
+      studioMeta?.screenplaySceneObjective || studioMeta?.screenplay_scene_objective,
+      220
+    );
+    const screenplayCurrentBeat = normalizeSnippet(
+      studioMeta?.screenplayCurrentBeat || studioMeta?.screenplay_current_beat,
+      220
+    );
+    const screenplayActPressureState = normalizeSnippet(
+      studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
+      220
+    );
+    const screenplayLastSceneOutcome = normalizeSnippet(
+      studioMeta?.screenplayLastSceneOutcome || studioMeta?.screenplay_last_scene_outcome,
+      220
+    );
+    const screenplayCharacterArcState = normalizeSnippet(
+      studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
+      220
+    );
+    const screenplayProtagonistWant = normalizeSnippet(
+      studioMeta?.screenplayProtagonistWant || studioMeta?.screenplay_protagonist_want,
+      200
+    );
+    const screenplayProtagonistNeed = normalizeSnippet(
+      studioMeta?.screenplayProtagonistNeed || studioMeta?.screenplay_protagonist_need,
+      200
+    );
+    const screenplayAntagonisticForce = normalizeSnippet(
+      studioMeta?.screenplayAntagonisticForce || studioMeta?.screenplay_antagonistic_force,
+      200
+    );
+    const screenplayEndingImage = normalizeSnippet(
+      studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
+      180
+    );
+    const screenplayNextThreeTurns = normalizeTalkRepairList(
+      studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
+      3,
+      180
+    );
+    const screenplayNextSceneMoves = normalizeTalkRepairList(
+      studioMeta?.screenplayNextSceneMoves || studioMeta?.screenplay_next_scene_moves,
+      5,
+      180
+    );
+    const screenplayUnresolvedSetups = normalizeTalkRepairList(
+      studioMeta?.screenplayUnresolvedSetups || studioMeta?.screenplay_unresolved_setups,
+      4,
+      200
+    );
+    const screenplayUnresolvedStoryThreads = normalizeTalkRepairList(
+      studioMeta?.screenplayUnresolvedStoryThreads || studioMeta?.screenplay_unresolved_story_threads,
+      4,
+      200
+    );
+    const screenplayImageMotifs = normalizeTalkRepairList(
+      studioMeta?.screenplayImageMotifs || studioMeta?.screenplay_image_motifs,
+      4,
+      140
+    );
+    const screenplayCharacterArcTurns = normalizeTalkRepairList(
+      studioMeta?.screenplayCharacterArcTurns || studioMeta?.screenplay_character_arc_turns,
+      4,
+      180
+    );
+    const screenplayActThreePayoffPath = normalizeTalkRepairList(
+      studioMeta?.screenplayActThreePayoffPath || studioMeta?.screenplay_act_three_payoff_path,
+      4,
+      180
+    );
+    const screenplayCharacterFocus = normalizeTalkRepairList(
+      studioMeta?.screenplayCharacterFocus || studioMeta?.screenplay_character_focus,
+      4,
+      80
+    );
+    const screenplayAcceptedPageContinuity = normalizeTalkRepairList(
+      studioMeta?.screenplayAcceptedPageContinuity || studioMeta?.screenplay_accepted_page_continuity,
+      3,
+      240
+    );
+    const screenplayRetrievedStoryMoments = normalizeTalkRepairList(
+      studioMeta?.screenplayRetrievedStoryMoments || studioMeta?.screenplay_retrieved_story_moments,
+      4,
+      220
+    );
+    const rawAcceptedCausalFacts = studioMeta?.screenplayAcceptedCausalFacts ||
+      studioMeta?.screenplay_accepted_causal_facts ||
+      studioMeta?.acceptedCausalFacts ||
+      studioMeta?.accepted_causal_facts;
+    const screenplayAcceptedCausalFacts = Array.isArray(rawAcceptedCausalFacts)
+      ? rawAcceptedCausalFacts.slice(0, 8).map((item) => ({
+        kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+        fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+        sourceSceneHeading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+        sourceAct: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+      })).filter((item) => item.kind && item.fact)
+      : [];
+    const screenplayQuestionEffectiveness = Array.isArray(
+      studioMeta?.screenplayQuestionEffectiveness ||
+      studioMeta?.screenplay_question_effectiveness
+    )
+      ? (
+        studioMeta?.screenplayQuestionEffectiveness ||
+        studioMeta?.screenplay_question_effectiveness
+      ).slice(0, 24)
+      : [];
+    const screenplayStoryMovePreferenceOverrides = Array.isArray(
+      studioMeta?.screenplayStoryMovePreferenceOverrides ||
+      studioMeta?.screenplay_story_move_preference_overrides
+    )
+      ? (
+        studioMeta?.screenplayStoryMovePreferenceOverrides ||
+        studioMeta?.screenplay_story_move_preference_overrides
+      ).slice(0, 9)
+      : [];
+    const rawDueStoryThread = studioMeta?.screenplayDueStoryThread ||
+      studioMeta?.screenplay_due_story_thread ||
+      studioMeta?.dueStoryThread ||
+      studioMeta?.due_story_thread;
+    const screenplayDueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+      ? {
+        kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+        setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+        promisedPayoff: normalizeSnippet(rawDueStoryThread.promisedPayoff || rawDueStoryThread.promised_payoff, 220),
+        sourceSceneHeading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading || rawDueStoryThread.source_scene_heading, 140),
+        sourceSceneSummary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary || rawDueStoryThread.source_scene_summary, 220),
+        sourceSceneOutcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome || rawDueStoryThread.source_scene_outcome, 220),
+        sourceAct: normalizeSnippet(rawDueStoryThread.sourceAct || rawDueStoryThread.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes || rawDueStoryThread.age_in_scenes || 0))),
+      }
+      : null;
+    const storyMoveLibraryLines = selectStoryMoveLibraryLinesForContext({
+      transcript: userRequest,
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      featureObligation: screenplayFeatureObligation,
+      currentBeat: screenplayCurrentBeat,
+      actPressureState: screenplayActPressureState,
+      characterArcState: screenplayCharacterArcState,
+      problem: failedReason,
+      nextThreeTurns: screenplayNextThreeTurns,
+      nextSceneMoves: screenplayNextSceneMoves,
+      unresolvedSetups: screenplayUnresolvedSetups,
+      unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
+      actThreePayoffPath: screenplayActThreePayoffPath,
+      imageMotifs: screenplayImageMotifs,
+      causalFacts: screenplayAcceptedCausalFacts,
+      dueStoryThread: screenplayDueStoryThread,
+      questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
+    });
+    const rankedRescueMoves = rankStoryRescueMovesForContext({
+      transcript: userRequest,
+      intent: "momentum_rescue",
+      problem: failedReason,
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      featureObligation: screenplayFeatureObligation,
+      sceneObjective: screenplaySceneObjective,
+      currentBeat: screenplayCurrentBeat,
+      lastSceneOutcome: screenplayLastSceneOutcome,
+      actPressureState: screenplayActPressureState,
+      characterArcState: screenplayCharacterArcState,
+      protagonistWant: screenplayProtagonistWant,
+      protagonistNeed: screenplayProtagonistNeed,
+      antagonisticForce: screenplayAntagonisticForce,
+      endingImage: screenplayEndingImage,
+      characters: screenplayCharacterFocus,
+      nextThreeTurns: screenplayNextThreeTurns,
+      nextSceneMoves: screenplayNextSceneMoves,
+      unresolvedSetups: screenplayUnresolvedSetups,
+      unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
+      characterArcTurns: screenplayCharacterArcTurns,
+      actThreePayoffPath: screenplayActThreePayoffPath,
+      imageMotifs: screenplayImageMotifs,
+      acceptedPages: screenplayAcceptedPageContinuity,
+      storyMoments: screenplayRetrievedStoryMoments,
+      causalFacts: screenplayAcceptedCausalFacts,
+      dueStoryThread: screenplayDueStoryThread,
+      questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
+    });
+    const failedRescueRepair = buildFailedStoryRescueRepair({
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      questionEffectiveness: screenplayQuestionEffectiveness,
+      storyMovePreferenceOverrides: screenplayStoryMovePreferenceOverrides,
+    }, { rankedMoves: rankedRescueMoves });
+    const contextLines = [
+      screenplayAct ? `ACT: ${screenplayAct}` : "",
+      screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
+      screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
+      screenplaySceneObjective ? `SCENE_OBJECTIVE: ${screenplaySceneObjective}` : "",
+      screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
+      screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
+      screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
+      screenplayCharacterArcState ? `CHARACTER_ARC_PRESSURE: ${screenplayCharacterArcState}` : "",
+      screenplayDueStoryThread?.setup ? `DUE_STORY_THREAD: ${screenplayDueStoryThread.setup}` : "",
+      screenplayDueStoryThread?.promisedPayoff ? `DUE_STORY_PAYOFF: ${screenplayDueStoryThread.promisedPayoff}` : "",
+      screenplayDueStoryThread?.sourceSceneHeading ? `DUE_STORY_SOURCE: ${screenplayDueStoryThread.sourceSceneHeading}` : "",
+      screenplayDueStoryThread?.ageInScenes ? `DUE_STORY_AGE: ${screenplayDueStoryThread.ageInScenes} accepted scenes` : "",
+      ...screenplayAcceptedCausalFacts.slice(0, 3).map((item) => (
+        `BINDING_CAUSAL_FACT: ${item.kind} | ${item.fact}`
+      )),
+      ...screenplayAcceptedPageContinuity.map((item) => `ACCEPTED_PAGE_CONTINUITY: ${item}`),
+      ...screenplayRetrievedStoryMoments.map((item) => `AUTHORITATIVE_STORY_MEMORY: ${item}`),
+      failedRescueRepair ? `FAILED_RESCUE_REPAIR: ${failedRescueRepair.promptDirective}` : "",
+      ...rankedRescueMoves.map((item) => `RANKED_RESCUE_MOVE: ${formatRankedStoryRescueMoveLine(item)}`),
+      ...storyMoveLibraryLines.map((item) => `STORY_MOVE_LIBRARY: ${item}`),
+      ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
+      ...screenplayNextSceneMoves.map((item) => `NEXT_SCENE_MOVE: ${item}`),
+      ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
+      ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
+      ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
+    ].filter(Boolean).slice(0, 24);
+    const repairMessages = [
+      {
+        role: "system",
+        content: [
+          "You are Clementine's writer-block repair pass.",
+          "The previous answer failed the live momentum-rescue quality gate.",
+          "Return Clementine's final answer only: no JSON, no markdown table, no apology, no long option menu.",
+          "Diagnose the precise story blockage silently, then answer with one strongest next move.",
+          "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
+          "When RANKED_RESCUE_MOVE is supplied, execute rank_1 unless it conflicts with a writer correction; preserve its named evidence and satisfy its success check.",
+          "When FAILED_RESCUE_REPAIR is supplied, acknowledge what failed in one warm natural sentence, then immediately change to rank_1. Never expose internal labels, scores, classifiers, or memory machinery.",
+          "When DUE_STORY_THREAD is supplied, pressure or pay that accepted-page obligation before inventing a replacement thread.",
+          "When BINDING_CAUSAL_FACT is supplied, continue its consequence. Never make a character unknow a revelation, restore an earlier relationship state, or undo an irreversible event offscreen.",
+          "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",
+          "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
+          "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",
+          "Treat danger or harm as fictional story content only; never provide real-world instructions to hurt anyone.",
+          "Be emotionally intelligent, concise, specific, cinematic, and practical.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          "FAILED_GATE: guard_momentum_rescue_quality",
+          failedReason ? `FAILED_REASON: ${failedReason}` : "",
+          repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
+          ...repairDirectives.map((line) => `- ${line}`),
+          contextLines.length ? "STORY_CONTEXT:" : "",
+          ...contextLines.map((line) => `- ${line}`),
+          "",
+          "USER_REQUEST:",
+          userRequest || "(not supplied)",
+          "",
+          "WEAK_DRAFT:",
+          weakDraft || "(empty)",
+          "",
+          "Repair this into a concrete writer-block response now. Keep it brief, but make it playable.",
+        ].filter((line) => line !== "").join("\n"),
+      },
+    ];
+    const startedAt = Date.now();
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        const promptChars = repairMessages.reduce((sum, message) => sum + String(message?.content || "").length, 0);
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass prompt_chars=${promptChars} failed_draft_chars=${weakDraft.length} context_lines=${contextLines.length} reason=${failedReason || "unknown"}`
+        );
+      }
+      const requestedTemperature = Number(chatTemperature);
+      const repairTemperature = Math.min(0.45, Math.max(0, Number.isFinite(requestedTemperature) ? requestedTemperature : 0.4));
+      const requestedMaxTokens = Number(chatMaxTokens);
+      const repairMaxTokens = Math.max(512, Math.min(1_800, Number.isFinite(requestedMaxTokens) ? requestedMaxTokens : 1_200));
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
+        temperature: repairTemperature,
+        maxTokens: repairMaxTokens,
+        messages: repairMessages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "chat_completions"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || ""),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || ""),
+      });
+      const repairMs = Date.now() - startedAt;
+      if (repairResult?.fallbackUsed) {
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass structural_fallback model=${String(repairResult?.model || "unknown")}`
+        );
+      }
+      if (!repairResult?.response?.ok) {
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass failed status=${Number(repairResult?.response?.status || 0)}`
+        );
+        return { repaired: false, elapsedMs: repairMs, outcome: "supplier_failed" };
+      }
+      let repairJson;
+      try {
+        repairJson = JSON.parse(String(repairResult.rawText || ""));
+      } catch (_err) {
+        logger.log(`[${rid}] momentum_rescue_repair_pass invalid_json=1`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "invalid_json" };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        repairJson?.choices?.[0]?.message?.content || "",
+        8_000
+      );
+      const repairedOutput = buildTalkScreenplayOutput({
+        reply: candidateReply,
+        transcript,
+        studioMeta,
+      });
+      if (
+        !candidateReply ||
+        String(repairedOutput?.target || "").trim().toLowerCase() !== "voice_pin" ||
+        String(repairedOutput?.source || "").trim().toLowerCase() === "guard_momentum_rescue_quality" ||
+        !repairedOutput?.quality?.ok
+      ) {
+        logger.log(`[${rid}] momentum_rescue_repair_pass rejected_by_gate=1`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "rejected_by_gate" };
+      }
+      const quality = repairedOutput.quality && typeof repairedOutput.quality === "object"
+        ? { ...repairedOutput.quality }
+        : {};
+      const carriedRepairDirectives = Array.isArray(currentOutput?.quality?.repair_directives)
+        ? currentOutput.quality.repair_directives
+          .map((item) => normalizeSnippet(item, 220))
+          .filter(Boolean)
+          .slice(0, 5)
+        : [];
+      quality.source = "repair_pass_momentum_rescue";
+      quality.confidence = "repaired";
+      if (carriedRepairDirectives.length) {
+        quality.repair_directives = carriedRepairDirectives;
+      }
+      logger.log(
+        `[${rid}] momentum_rescue_repair_pass repaired=1 chars=${candidateReply.length}`
+      );
+      return {
+        repaired: true,
+        elapsedMs: repairMs,
+        outcome: "repaired",
+        reply: candidateReply,
+        output: {
+          ...repairedOutput,
+          source: "repair_pass_momentum_rescue",
+          quality,
+        },
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] momentum_rescue_repair_pass error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return { repaired: false, elapsedMs: Date.now() - startedAt, outcome: "error" };
+    }
+  }
+
+  async function attemptTalkScreenplayRepairPass({
+    currentOutput = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.4,
+    chatMaxTokens = 1_500,
+    screenplayRequestedPages = 0,
+    rid = "",
+  } = {}) {
+    if (typeof applyTalkScreenplayRepairCandidate !== "function") return null;
+    if (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() !== "page") return null;
+    const currentSource = String(currentOutput?.source || "").trim().toLowerCase();
+    const currentTarget = String(currentOutput?.target || "").trim().toLowerCase();
+    if (currentTarget === "page" && !currentSource.startsWith("guard_")) return null;
+    if (currentSource && !currentSource.startsWith("guard_")) return null;
+
+    const failedReason = normalizeSnippet(currentOutput?.quality?.reason || currentSource || "guard_low_page_quality", 120);
+    const requestedPageCount = Math.max(
+      0,
+      Math.min(
+        30,
+        Math.round(Number(
+          screenplayRequestedPages ||
+            resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }) ||
+            0
+        ))
+      )
+    );
+    const requestedPages = requestedPageCount > 0 ? String(requestedPageCount) : "";
+    const failedDraftLimit = (() => {
+      if (failedReason === "outline_or_craft_artifact" || failedReason === "non_screenplay_output") return 1_800;
+      if (failedReason === "summary_like_page_batch") return 2_800;
+      if (failedReason === "thin_long_page_batch" || failedReason === "underfilled_page_text") return 3_400;
+      if (failedReason === "accepted_canon_contradiction") return 3_600;
+      if (requestedPageCount >= 4) return 3_600;
+      return 2_600;
+    })();
+    const featureLineLimit = (() => {
+      if (isNextSceneExecutionBriefRepairReason(failedReason)) return 18;
+      if (failedReason === "missing_act_three_payoff") return 12;
+      if (failedReason.startsWith("missing_act_")) return 10;
+      if (failedReason === "missing_character_arc_memory") return 10;
+      if (failedReason === "summary_like_page_batch" || failedReason === "thin_long_page_batch") return 8;
+      if (failedReason === "accepted_canon_contradiction") return 16;
+      return 6;
+    })();
+    const failedDraft = normalizeTalkMultilineSnippet(rawReply, failedDraftLimit);
+    const userRequest = normalizeTalkMultilineSnippet(transcript, 1_200);
+    if (!failedDraft && !userRequest) return null;
+    const sceneAnchor = normalizeSnippet(
+      studioMeta?.screenplayAnchorSceneLabel || studioMeta?.screenplaySceneLabel || studioMeta?.sceneLabel,
+      180
+    );
+    const normalizeRepairList = (items, maxItems = 5, maxChars = 200) => {
+      const source = Array.isArray(items)
+        ? items
+        : String(items || "").trim()
+          ? String(items).split(/\r?\n|;/)
+          : [];
+      const out = [];
+      const seen = new Set();
+      for (const item of source) {
+        const clean = normalizeSnippet(item, maxChars);
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(clean);
+        if (out.length >= maxItems) break;
+      }
+      return out;
+    };
+    const repairDirectives = normalizeRepairList(
+      currentOutput?.quality?.repair_directives || currentOutput?.quality?.repairDirectives || [],
+      5,
+      220
+    );
+    const screenplayAcceptedCausalFacts = normalizeAcceptedCausalFacts(
+      studioMeta?.screenplayAcceptedCausalFacts ??
+      studioMeta?.screenplay_accepted_causal_facts ??
+      studioMeta?.acceptedCausalFacts ??
+      studioMeta?.accepted_causal_facts ??
+      []
+    );
+    const screenplayCanonViolations = Array.isArray(currentOutput?.quality?.canon_violations)
+      ? currentOutput.quality.canon_violations.slice(0, 3).map((item) => ({
+        type: normalizeSnippet(item?.type, 48),
+        excerpt: normalizeSnippet(item?.excerpt, 260),
+      })).filter((item) => item.type && item.excerpt)
+      : [];
+    const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
+    const screenplayFeatureSequence = normalizeSnippet(
+      studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
+      160
+    );
+    const screenplayFeatureObligation = normalizeSnippet(
+      studioMeta?.screenplayFeatureObligation || studioMeta?.screenplay_feature_obligation,
+      220
+    );
+    const screenplaySceneObjective = normalizeSnippet(
+      studioMeta?.screenplaySceneObjective || studioMeta?.screenplay_scene_objective,
+      220
+    );
+    const screenplayCurrentBeat = normalizeSnippet(
+      studioMeta?.screenplayCurrentBeat || studioMeta?.screenplay_current_beat,
+      220
+    );
+    const screenplayCharacterArcState = normalizeSnippet(
+      studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
+      220
+    );
+    const screenplayCharacterArcMemory = studioMeta?.screenplayCharacterArcMemory &&
+      typeof studioMeta.screenplayCharacterArcMemory === "object"
+      ? studioMeta.screenplayCharacterArcMemory
+      : null;
+    const screenplayCharacterArcMemoryLines = screenplayCharacterArcMemory
+      ? [
+        ["CHARACTER_ARC_WANT", screenplayCharacterArcMemory.want],
+        ["CHARACTER_ARC_NEED", screenplayCharacterArcMemory.need],
+        ["CHARACTER_ARC_WOUND", screenplayCharacterArcMemory.wound],
+        ["CHARACTER_ARC_FALSE_BELIEF", screenplayCharacterArcMemory.falseBelief || screenplayCharacterArcMemory.false_belief],
+        ["CHARACTER_ARC_RELATIONSHIP_PRESSURE", screenplayCharacterArcMemory.relationshipPressure || screenplayCharacterArcMemory.relationship_pressure],
+        ["CHARACTER_ARC_CURRENT_TACTIC", screenplayCharacterArcMemory.currentTactic || screenplayCharacterArcMemory.current_tactic],
+        ["CHARACTER_ARC_NEXT_EMOTIONAL_TURN", screenplayCharacterArcMemory.nextEmotionalTurn || screenplayCharacterArcMemory.next_emotional_turn],
+      ]
+        .map(([label, value]) => {
+          const clean = normalizeSnippet(value, 180);
+          return clean ? `${label}: ${clean}` : "";
+        })
+        .filter(Boolean)
+      : [];
+    const screenplayActPressureState = normalizeSnippet(
+      studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
+      220
+    );
+    const screenplayLastSceneOutcome = normalizeSnippet(
+      studioMeta?.screenplayLastSceneOutcome || studioMeta?.screenplay_last_scene_outcome,
+      220
+    );
+    const screenplayEndingImage = normalizeSnippet(
+      studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
+      220
+    );
+    const screenplayNextSceneMoves = normalizeRepairList(
+      studioMeta?.screenplayNextSceneMoves || studioMeta?.screenplay_next_scene_moves,
+      5,
+      180
+    );
+    const screenplayNextThreeTurns = normalizeRepairList(
+      studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
+      3,
+      180
+    );
+    const screenplayActThreePayoffPath = normalizeRepairList(
+      studioMeta?.screenplayActThreePayoffPath || studioMeta?.screenplay_act_three_payoff_path,
+      4,
+      200
+    );
+    const screenplayUnresolvedSetups = normalizeRepairList(
+      studioMeta?.screenplayUnresolvedSetups || studioMeta?.screenplay_unresolved_setups,
+      4,
+      200
+    );
+    const screenplayUnresolvedStoryThreads = normalizeRepairList(
+      studioMeta?.screenplayUnresolvedStoryThreads || studioMeta?.screenplay_unresolved_story_threads,
+      4,
+      200
+    );
+    const screenplayCharacterArcTurns = normalizeRepairList(
+      studioMeta?.screenplayCharacterArcTurns || studioMeta?.screenplay_character_arc_turns,
+      4,
+      180
+    );
+    const screenplayImageMotifs = normalizeRepairList(
+      studioMeta?.screenplayImageMotifs || studioMeta?.screenplay_image_motifs,
+      4,
+      140
+    );
+    const nextSceneExecutionBriefLines = buildTalkScreenplayExecutionBriefLines(studioMeta);
+    const nextSceneExecutionBriefRequired = isNextSceneExecutionBriefRepairReason(failedReason);
+    const featureObligationLines = [
+      ...screenplayAcceptedCausalFacts.map((item) => `BINDING_CAUSAL_FACT [${item.kind}]: ${item.fact}`),
+      ...screenplayCanonViolations.map((item) => `CANON_VIOLATION [${item.type}]: ${item.excerpt}`),
+      screenplayAct ? `ACT: ${screenplayAct}` : "",
+      screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
+      screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
+      screenplaySceneObjective ? `SCENE_OBJECTIVE: ${screenplaySceneObjective}` : "",
+      screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
+      screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
+      screenplayCharacterArcState ? `CHANGED_BEHAVIOR_DUE: ${screenplayCharacterArcState}` : "",
+      ...screenplayCharacterArcMemoryLines,
+      screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
+      screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
+      ...screenplayNextSceneMoves.map((item) => `NEXT_SCENE_MOVE: ${item}`),
+      ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
+      ...screenplayActThreePayoffPath.map((item) => `ACT_THREE_PAYOFF: ${item}`),
+      ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
+      ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
+      ...screenplayCharacterArcTurns.map((item) => `CHARACTER_ARC_TURN: ${item}`),
+      ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
+    ].filter(Boolean);
+    const effectiveFeatureObligationLines = featureObligationLines.slice(0, featureLineLimit);
+    const repairMessages = [
+      {
+        role: "system",
+        content: [
+          "You are Clementine's screenplay page repair pass.",
+          "The previous answer failed the live page-quality gate.",
+          "Return only clean playable Fountain screenplay text.",
+          "No diagnosis, no markdown, no outline, no placeholders, no strategy note, no permission question.",
+          "Use scene heading, action, character cues, dialogue, subtext, visible behavior, escalation, and a turn.",
+          sceneAnchor ? `If the scene heading is missing, begin with exactly: ${sceneAnchor}` : "If no scene heading is supplied, create a specific INT./EXT. scene heading.",
+          "If Act I context is supplied, dramatize the catalyst/commitment pressure instead of writing a generic setup scene.",
+          "If Act II context is supplied, dramatize the active reversal, cost, trap, or false-tactic pressure instead of repeating the premise.",
+          "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
+          "If CHARACTER_ARC_* context is supplied, turn want/need/false-belief/tactic into visible behavior on the page.",
+          "If NEXT_SCENE_EXECUTION_BRIEF is supplied, execute SCENE_ASSIGNMENT plus at least three support lanes: obstacle, changed behavior, payoff/setup, visual motif, or exit handoff.",
+          "If BINDING_CAUSAL_FACT context is supplied, preserve it exactly: do not unknow a revelation, reset a changed relationship, erase an accepted decision, or restore an irreversible loss.",
+          "If REPAIR_DIRECTIVES are supplied, satisfy them literally before adding any new invention.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `FAILED_GATE: ${currentSource || "guard_low_page_quality"}`,
+          failedReason ? `FAILED_REASON: ${failedReason}` : "",
+          requestedPages ? `REQUESTED_PAGES: ${requestedPages}` : "",
+          sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
+          repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
+          ...repairDirectives.map((line) => `- ${line}`),
+          nextSceneExecutionBriefLines.length ? "NEXT_SCENE_EXECUTION_BRIEF:" : "",
+          ...nextSceneExecutionBriefLines.map((line) => `- ${line}`),
+          nextSceneExecutionBriefRequired ? "PASSING_REPAIR_REQUIREMENTS:" : "",
+          nextSceneExecutionBriefRequired ? "- Spend SCENE_ASSIGNMENT as the immediate page engine." : "",
+          nextSceneExecutionBriefRequired ? "- Use at least three support lanes as playable action, dialogue pressure, or changed behavior." : "",
+          nextSceneExecutionBriefRequired ? "- Preserve the concrete nouns from the supplied lanes; do not replace them with generic conflict." : "",
+          effectiveFeatureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
+          ...effectiveFeatureObligationLines.map((line) => `- ${line}`),
+          "",
+          "USER_REQUEST:",
+          userRequest || "(not supplied)",
+          "",
+          "FAILED_DRAFT:",
+          failedDraft || "(empty)",
+          "",
+          "Repair it into usable screenplay pages now. Output only the screenplay text.",
+        ].filter((line) => line !== "").join("\n"),
+      },
+    ];
+    const startedAt = Date.now();
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        const promptChars = repairMessages.reduce((sum, message) => sum + String(message?.content || "").length, 0);
+        logger.log(
+          `[${rid}] screenplay_repair_pass prompt_chars=${promptChars} failed_draft_chars=${failedDraft.length} feature_lines=${effectiveFeatureObligationLines.length}/${featureObligationLines.length} execution_brief_lines=${nextSceneExecutionBriefLines.length} reason=${failedReason || "unknown"}`
+        );
+      }
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.repairModel || chatModelPlan?.model || ""),
+        temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.4))),
+        maxTokens: Math.max(512, Math.min(6_000, Number(chatMaxTokens || 1_500))),
+        messages: repairMessages,
+        apiMode: String(chatModelPlan?.repairApiMode || chatModelPlan?.apiMode || "chat_completions"),
+        reasoningEffort: String(chatModelPlan?.repairReasoningEffort || ""),
+        fallbackModel: String(chatModelPlan?.repairFallbackModel || ""),
+      });
+      const repairMs = Date.now() - startedAt;
+      if (repairResult?.fallbackUsed) {
+        logger.log(
+          `[${rid}] screenplay_repair_pass structural_fallback model=${String(repairResult?.model || "unknown")}`
+        );
+      }
+      if (!repairResult?.response?.ok) {
+        logger.log(
+          `[${rid}] screenplay_repair_pass failed status=${Number(repairResult?.response?.status || 0)} source=${currentSource || "unknown"}`
+        );
+        return { repaired: false, elapsedMs: repairMs, outcome: "supplier_failed" };
+      }
+      let repairJson;
+      try {
+        repairJson = JSON.parse(String(repairResult.rawText || ""));
+      } catch (_err) {
+        logger.log(`[${rid}] screenplay_repair_pass invalid_json=1 source=${currentSource || "unknown"}`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "invalid_json" };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        repairJson?.choices?.[0]?.message?.content || "",
+        32_000
+      );
+      const repairedOutput = applyTalkScreenplayRepairCandidate({
+        currentOutput,
+        candidateReply,
+        transcript,
+        studioMeta,
+      });
+      if (!repairedOutput) {
+        logger.log(`[${rid}] screenplay_repair_pass rejected_by_gate=1 source=${currentSource || "unknown"}`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "rejected_by_gate" };
+      }
+      logger.log(
+        `[${rid}] screenplay_repair_pass repaired=1 source=${currentSource || "unknown"} chars=${candidateReply.length}`
+      );
+      return {
+        repaired: true,
+        elapsedMs: repairMs,
+        outcome: "repaired",
+        reply: normalizeTalkScreenplayText(repairedOutput.text || candidateReply),
+        output: repairedOutput,
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] screenplay_repair_pass error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return { repaired: false, elapsedMs: Date.now() - startedAt, outcome: "error" };
+    }
+  }
+
   return async function handleTalkRequest(req, res) {
   logger.log(`\n==================== NEW TALK ====================`);
 
@@ -354,25 +1630,59 @@ function createTalkHandler(deps) {
   const rid = req.requestId || reqId;
   const ts = new Date().toISOString();
   const ip = clientIp(req);
-  // T08w-triggers: fire-and-forget creative-memory writes based on the
-  // request transcript. Never blocks the response. Errors are logged
-  // and swallowed — memory writes must not affect the /talk contract.
-  void recordCreativeMemoryTriggersForRequest(req).catch((err) => {
-    console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
-  });
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
-  const interactiveVoiceProfile = {
+  let interactiveVoiceProfile = applyClementineVoiceDirection({
     ...CLEMENTINE_PROFILE.voice,
     provider: INTERACTIVE_TTS_PROVIDER,
-  };
+  }, "curious_steady");
   let thinkingDelayMs = pickThinkingDurationMs();
   const thinkingStartedAt = Date.now();
+  let screenplayLearningAnswerContext = null;
+  let pendingScreenplayLearningQuestion = null;
+  let pendingScreenplayLearningResolution = null;
+  let screenplayQuestionPlan = null;
+  let deliveredStoryRescueInteraction = null;
 
   const t0 = Date.now();
   let sttMs = 0, chatMs = 0, ttsMs = 0;
   let debugTranscriptOverride = "";
   let talkTestDebugOfflineMode = false;
+  let screenplayQuestionInteraction = null;
+  const commitCreativeMemoryAfterTurn = ({
+    transcript = "",
+    reply = "",
+    studioMeta = null,
+    screenplayOutput = null,
+    sessionStartedAt = null,
+    sessionDurationMs = null,
+    source = "",
+  } = {}) => {
+    const screenplayText = screenplayOutput?.target === "page"
+      ? normalizeTalkScreenplayText(screenplayOutput?.text || "")
+      : "";
+    const memoryReply = screenplayText || reply;
+    if (!String(transcript || "").trim() && !String(memoryReply || "").trim()) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve()
+      .then(() => recordCreativeMemoryTriggersForRequest(req, {
+        transcript,
+        reply: memoryReply,
+        turnStartedAt: t0,
+        studioMeta,
+        screenplayOutput,
+        sessionStartedAt,
+        sessionDurationMs,
+        source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
+        learningContext: screenplayLearningAnswerContext,
+        questionInteraction: screenplayQuestionInteraction || deliveredStoryRescueInteraction,
+      }))
+      .catch((err) => {
+        console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+        return null;
+      });
+  };
 
   const uploadedFile = req.file ||
     req.files?.file?.[0] ||
@@ -424,16 +1734,33 @@ function createTalkHandler(deps) {
         .json({ stage: "upload", error: `Unsupported file type: ${mime || "unknown"}` });
     }
 
+    const memoryContext = await resolveCanonicalWritableMemoryContext(req, Date.now());
+    const requesterIp = normalizeClientIp(memoryContext?.requesterIp || ip);
+    const persistTalkMemory = createTalkMemoryCommitter(memoryContext);
+    const trustedUserId = String(
+      req?.authUser?.id ||
+      req?.userId ||
+      req?.user?.id ||
+      memoryContext?.authenticatedUserId ||
+      ""
+    ).trim();
     const clientTokenHeader = normalizeClientToken(req.get("X-Client-Token"));
-    const activeSession = req.clientSession && typeof req.clientSession === "object"
-      ? req.clientSession
-      : (clientTokenHeader ? getValidSession(clientTokenHeader) : null);
+    const activeSession = memoryContext?.activeSession && typeof memoryContext.activeSession === "object"
+      ? memoryContext.activeSession
+      : (req.clientSession && typeof req.clientSession === "object"
+        ? req.clientSession
+        : (clientTokenHeader ? getValidSession(clientTokenHeader) : null));
     if (activeSession && !req.clientSession) {
       req.clientSession = activeSession;
     }
-    const previousMemory = activeSession?.memory && typeof activeSession.memory === "object"
-      ? activeSession.memory
-      : null;
+    const previousMemory = memoryContext?.memory && typeof memoryContext.memory === "object"
+      ? memoryContext.memory
+      : (activeSession?.memory && typeof activeSession.memory === "object"
+        ? activeSession.memory
+        : null);
+    if (activeSession && previousMemory) {
+      activeSession.memory = previousMemory;
+    }
     debugTranscriptOverride = TALK_TEST_DEBUG_TRANSCRIPT_ENABLED
       ? normalizeSnippet(req.body?.debug_transcript ?? req.body?.debugTranscript, 1_200)
       : "";
@@ -492,18 +1819,45 @@ function createTalkHandler(deps) {
           modelName: STT_MODEL_PRIMARY,
         });
       } catch (err) {
-        const status = Number(err?.status || 500);
-        const message = String(err?.message || "Transcription failed.");
-        return res.status(status).json({ stage: "stt", error: message });
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: Number(err?.status || 500),
+          message: String(err?.message || "Transcription failed."),
+        });
       }
       sttMs = Date.now() - sttStart;
 
       if (!sttResult.response.ok) {
-        logger.log(`[${rid}] STT failed model=${sttResult.model}:`, sttResult.rawText);
-        return res.status(sttResult.response.status).json({ stage: "stt", error: sttResult.rawText });
+        const diagnostic = buildTalkFailureDiagnostics(
+          { stage: "stt", status: sttResult.response.status, rawBody: sttResult.rawText },
+          {
+            requestId: rid,
+            providerStage: "stt",
+            status: sttResult.response.status,
+            rawBody: sttResult.rawText,
+          }
+        );
+        logger.log(`[${rid}] STT failed model=${sttResult.model} ${diagnostic.supportMessage}`);
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: sttResult.response.status,
+          rawBody: sttResult.rawText,
+        });
       }
 
-      sttJson = JSON.parse(sttResult.rawText);
+      try {
+        sttJson = JSON.parse(sttResult.rawText);
+      } catch (_) {
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: 502,
+          message: "Transcription response was invalid JSON.",
+          errorClass: "response_invalid",
+        });
+      }
       transcript = String(sttJson?.text || "").trim();
       sttModelUsed = sttResult.model;
       sttUsedLanguageHint = true;
@@ -539,8 +1893,17 @@ function createTalkHandler(deps) {
             });
             sttMs += Math.max(0, Number(fallbackResult.elapsedMs || 0));
             if (!fallbackResult.response.ok) {
+              const fallbackDiagnostic = buildTalkFailureDiagnostics(
+                { stage: "stt", status: fallbackResult.response.status, rawBody: fallbackResult.rawText },
+                {
+                  requestId: rid,
+                  providerStage: "stt",
+                  status: fallbackResult.response.status,
+                  rawBody: fallbackResult.rawText,
+                }
+              );
               logger.log(
-                `[${rid}] STT fallback failed model=${fallbackResult.model}: ${fallbackResult.rawText}`
+                `[${rid}] STT fallback failed model=${fallbackResult.model} ${fallbackDiagnostic.supportMessage}`
               );
               continue;
             }
@@ -553,8 +1916,13 @@ function createTalkHandler(deps) {
               sttUsedLanguageHint = attempt.includeLanguage;
             }
           } catch (err) {
+            const fallbackDiagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "stt",
+              status: Number(err?.status || 500),
+            });
             logger.log(
-              `[${rid}] STT fallback error model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} reason=${String(err?.message || err)}`
+              `[${rid}] STT fallback error model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} ${fallbackDiagnostic.supportMessage}`
             );
           }
         }
@@ -577,7 +1945,7 @@ function createTalkHandler(deps) {
           emptyMemory.lastEmptyTranscriptAt = now;
           emptyMemory.lastUpdatedAt = now;
           activeSession.memory = emptyMemory;
-          setPersistedUserMemoryForIp(ip, emptyMemory, now);
+          activeSession.memory = await persistTalkMemory(emptyMemory, now);
         }
         const allowEmptyPromptVoice = parseBool(
           req.body?.allow_empty_prompt ??
@@ -631,7 +1999,7 @@ function createTalkHandler(deps) {
         previousMemory.lastEmptyTranscriptAt = 0;
         previousMemory.lastUpdatedAt = Date.now();
         activeSession.memory = previousMemory;
-        setPersistedUserMemoryForIp(ip, previousMemory, Date.now());
+        activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
@@ -640,7 +2008,7 @@ function createTalkHandler(deps) {
         24
       ).toLowerCase()
       : "";
-    if (forcedErrorStageRaw) {
+    if (forcedErrorStageRaw && forcedErrorStageRaw !== "screenplay_quality") {
       const allowedStages = new Set(["server", "stt", "chat", "tts"]);
       const forcedStage = allowedStages.has(forcedErrorStageRaw) ? forcedErrorStageRaw : "server";
       const forcedErr = new Error(`Forced /talk failure (${forcedStage})`);
@@ -697,24 +2065,10 @@ function createTalkHandler(deps) {
       };
     let rawTaskCreateIntent = extractTaskCreateIntent(transcript);
     let rawTaskCompleteIntent = extractTaskCompleteIntent(transcript);
-    let rawCalendarIntent = extractCalendarIntent(transcript);
-    let rawEmailSendIntent = ENABLE_LOCAL_EMAIL_SEND
-      ? extractEmailSendIntent(transcript)
-      : {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-      };
     const hasStrongActionTrigger = Boolean(
       noteCaptureIntent.shouldCapture ||
       rawTaskCreateIntent.shouldCreate ||
-      rawTaskCompleteIntent.shouldComplete ||
-      rawCalendarIntent.shouldCreate ||
-      rawEmailSendIntent.shouldSend
+      rawTaskCompleteIntent.shouldComplete
     );
     const shouldPromptLowConfidenceRepeat =
       isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) &&
@@ -777,16 +2131,6 @@ function createTalkHandler(deps) {
       };
       rawTaskCreateIntent = { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
       rawTaskCompleteIntent = { shouldComplete: false, query: "", trigger: "" };
-      rawCalendarIntent = { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-      rawEmailSendIntent = {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-      };
       logger.log(
         `[${rid}] local_action_gate suppressed=1 stt_conf=${sttConfidence.toFixed(2)} min_conf=${LOCAL_ACTION_MIN_STT_CONFIDENCE.toFixed(2)}`
       );
@@ -851,6 +2195,8 @@ function createTalkHandler(deps) {
         reply: prepared.reply,
         audioBuffer: prepared.audioBuffer,
         ttsProvider: prepared.ttsProvider,
+        ttsVoice: prepared.ttsVoice,
+        emotionLane: prepared.emotionLane,
         preparedAt: Date.now(),
       });
       res.setHeader("Cache-Control", "no-store");
@@ -897,26 +2243,15 @@ function createTalkHandler(deps) {
       }
       activeSession.memory = sessionMemory;
     }
-    let emailSendIntent = resolveEmailSendIntentWithPending({
-      transcript,
-      baseIntent: rawEmailSendIntent,
-      memory: activeSession?.memory || previousMemory,
-      noteCaptureIntent,
-    });
     let taskCreateIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
+      noteCaptureIntent.shouldCapture
         ? { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" }
         : rawTaskCreateIntent;
     let taskCompleteIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
+      noteCaptureIntent.shouldCapture
         ? { shouldComplete: false, query: "", trigger: "" }
         : rawTaskCompleteIntent;
-    let calendarIntent =
-      noteCaptureIntent.shouldCapture || emailSendIntent.shouldSend
-        ? { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" }
-        : rawCalendarIntent;
     let hasTaskIntent = Boolean(taskCreateIntent.shouldCreate || taskCompleteIntent.shouldComplete);
-    let hasCalendarIntent = Boolean(calendarIntent.shouldCreate);
     let actionGateReply = "";
     const pendingLocalActionMemory = activeSession?.memory && typeof activeSession.memory === "object"
       ? activeSession.memory
@@ -926,8 +2261,6 @@ function createTalkHandler(deps) {
     const askedLocalActionCancel = isLocalActionCancelTranscript(transcript);
     const executableLocalActionCandidate = selectExecutableLocalActionCandidate({
       noteCaptureIntent,
-      emailSendIntent,
-      calendarIntent,
       taskCreateIntent,
       taskCompleteIntent,
     });
@@ -939,22 +2272,9 @@ function createTalkHandler(deps) {
         noteText: "",
         trigger: "",
       };
-      emailSendIntent = {
-        shouldSend: false,
-        needsRecipient: false,
-        needsContent: false,
-        trigger: "",
-        recipient: "",
-        subject: "",
-        body: "",
-        fromPending: false,
-        canceled: false,
-      };
       taskCreateIntent = { shouldCreate: false, title: "", dueAt: 0, priority: "normal", trigger: "" };
       taskCompleteIntent = { shouldComplete: false, query: "", trigger: "" };
-      calendarIntent = { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
       hasTaskIntent = false;
-      hasCalendarIntent = false;
     };
 
     if (askedLocalActionCancel) {
@@ -985,27 +2305,6 @@ function createTalkHandler(deps) {
             noteText: normalizeSnippet(pendingPayload.noteText, 1_600),
             trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
           };
-        } else if (pendingType === "email_compose") {
-          emailSendIntent = {
-            shouldSend: true,
-            needsRecipient: false,
-            needsContent: false,
-            trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
-            recipient: normalizeEmailAddress(pendingPayload.recipient || pendingPayload.to),
-            subject: trimToMax(String(pendingPayload.subject || "").trim(), 120),
-            body: normalizeSnippet(pendingPayload.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-            fromPending: true,
-            canceled: false,
-          };
-        } else if (pendingType === "calendar_compose") {
-          calendarIntent = {
-            shouldCreate: true,
-            title: normalizeSnippet(pendingPayload.title, 120) || "Calendar block",
-            startAt: Math.max(0, Number(pendingPayload.startAt || 0)),
-            endAt: Math.max(0, Number(pendingPayload.endAt || 0)),
-            trigger: normalizeSnippet(pendingPayload.trigger || "confirm", 64) || "confirm",
-          };
-          hasCalendarIntent = true;
         } else if (pendingType === "task_create") {
           taskCreateIntent = {
             shouldCreate: true,
@@ -1070,9 +2369,7 @@ function createTalkHandler(deps) {
       continuationGate.hold &&
       !actionGateReply &&
       !noteCaptureIntent.shouldCapture &&
-      !emailSendIntent.shouldSend &&
-      !hasTaskIntent &&
-      !hasCalendarIntent
+      !hasTaskIntent
     ) {
       if (activeSession) {
         const holdMemory = activeSession.memory && typeof activeSession.memory === "object"
@@ -1086,7 +2383,7 @@ function createTalkHandler(deps) {
         holdMemory.lastContinuationReason = continuationGate.reason;
         holdMemory.lastUpdatedAt = Date.now();
         activeSession.memory = holdMemory;
-        setPersistedUserMemoryForIp(ip, holdMemory, Date.now());
+        activeSession.memory = await persistTalkMemory(holdMemory, Date.now());
       }
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("x-turn-status", "continue_listening");
@@ -1136,7 +2433,6 @@ function createTalkHandler(deps) {
       thinkingDelayMs = Math.min(thinkingDelayMs, 55);
     }
 
-    const requesterIp = ip;
     const metricStateBeforeTurn = getUserMetricState(requesterIp);
     const sameDaySessionStartCount = countSessionStartsForDay(
       metricStateBeforeTurn,
@@ -1146,14 +2442,15 @@ function createTalkHandler(deps) {
     const prevBehaviorMode = String(previousMemory?.behaviorMode || "surface");
     const prevFollowUpPromptCount = Math.max(0, Number(previousMemory?.followUpPromptCount || 0));
     const prevFollowUpAnswerCount = Math.max(0, Number(previousMemory?.followUpAnswerCount || 0));
-    const sessionMemory = activeSession
+    let sessionMemory = activeSession
       ? updateSessionEmotionMemory(activeSession.memory, transcript, flags, {
         sameDaySessionReturns,
       })
       : null;
     if (activeSession) activeSession.memory = sessionMemory;
     if (sessionMemory) {
-      setPersistedUserMemoryForIp(requesterIp, sessionMemory, Date.now());
+      sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
+      if (activeSession) activeSession.memory = sessionMemory;
     }
     const activeThemeRefreshPromise = talkTestDebugOfflineMode
       ? null
@@ -1208,6 +2505,41 @@ function createTalkHandler(deps) {
     const ipCheckInCooldownActive = hasRecentCheckInForIp(requesterIp);
     const shouldAskCheckInThisTurn = sessionNeedsCheckIn && !ipCheckInCooldownActive;
     const turnsInSession = Math.max(0, Number(sessionMemory?.turns || 0));
+    if (sessionMemory) {
+      const screenplayProjectTitle =
+        studioMeta?.screenplayProjectTitle ??
+        req.body?.screenplayProjectTitle ??
+        req.body?.screenplay_project_title ??
+        req.body?.projectTitle ??
+        req.body?.project_title ??
+        req.body?.pack ??
+        "";
+      pendingScreenplayLearningQuestion = selectPendingScreenplayLearningQuestion(
+        sessionMemory.pendingScreenplayLearningQuestions,
+        {
+          projectId: studioMeta?.screenplayProjectId,
+          projectTitle: screenplayProjectTitle,
+        }
+      );
+      pendingScreenplayLearningResolution = resolvePendingScreenplayLearningAnswer({
+        pending: pendingScreenplayLearningQuestion,
+        transcript,
+        projectId: studioMeta?.screenplayProjectId,
+        projectTitle: screenplayProjectTitle,
+        currentTurn: turnsInSession,
+      });
+      screenplayLearningAnswerContext = pendingScreenplayLearningResolution.learningContext;
+      screenplayQuestionInteraction = pendingScreenplayLearningResolution.interaction;
+      if (pendingScreenplayLearningResolution.shouldClear) {
+        sessionMemory.pendingScreenplayLearningQuestions =
+          removePendingScreenplayLearningQuestion(
+            sessionMemory.pendingScreenplayLearningQuestions,
+            pendingScreenplayLearningQuestion
+          );
+        sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
+      }
+      if (activeSession) activeSession.memory = sessionMemory;
+    }
     const growthProgress = Math.max(0, Math.min(1, Number(sessionMemory?.growthProgress || 0)));
     const growthLevel = Math.max(1, Number(sessionMemory?.growthLevel || 1));
     const growthGuidance = growthGuidanceLine(growthLevel);
@@ -1371,13 +2703,23 @@ function createTalkHandler(deps) {
       behaviorMode,
       memory: sessionMemory,
     });
+    interactiveVoiceProfile = applyClementineVoiceDirection(
+      interactiveVoiceProfile,
+      turnPlanner.emotionToMatch,
+    );
     const runtimeStatusSnapshot = deriveBackendRuntimeStatus();
     const chatModelPlan = selectChatModelForTurn({
-      transcript,
+      transcript: talkGenerationTranscript,
       turnPlanner,
       flags,
       routingLane,
       runtimeStatus: runtimeStatusSnapshot,
+      screenplayPageWrite: isScreenplayPageWriteTurn,
+      screenplayContextActive: Boolean(
+        studioMeta?.screenplayProjectId ||
+        studioMeta?.screenplayTarget ||
+        studioMeta?.screenplayPromptSource
+      ),
     });
     const boundaryEdgeSignal = deriveBoundaryEdgeSignal({
       transcript,
@@ -1445,14 +2787,10 @@ function createTalkHandler(deps) {
       activeSession.memory = sessionMemory;
     }
 
-    const shouldProcessEmailIntent = emailSendIntent.shouldSend || emailSendIntent.canceled;
-    const shouldProcessNoteIntent = noteCaptureIntent.shouldCapture && !shouldProcessEmailIntent;
-    const shouldProcessCalendarIntent = hasCalendarIntent && !shouldProcessEmailIntent && !shouldProcessNoteIntent;
+    const shouldProcessNoteIntent = noteCaptureIntent.shouldCapture;
     const shouldProcessTaskIntent =
       hasTaskIntent &&
-      !shouldProcessEmailIntent &&
-      !shouldProcessNoteIntent &&
-      !shouldProcessCalendarIntent;
+      !shouldProcessNoteIntent;
     let noteCaptureResult = null;
     if (shouldProcessNoteIntent) {
       if (noteCaptureIntent.needsContent) {
@@ -1479,125 +2817,6 @@ function createTalkHandler(deps) {
       if (noteCaptureResult?.error) {
         logger.log(`[${rid}] note_capture error=${noteCaptureResult.error}`);
       }
-    }
-    let emailSendResult = null;
-    if (shouldProcessEmailIntent) {
-      const emailActionSignature = buildLocalActionSignature("email_send", {
-        to: emailSendIntent.recipient,
-        subject: emailSendIntent.subject,
-        body: normalizeSnippet(emailSendIntent.body, 280),
-        trigger: emailSendIntent.trigger,
-      });
-      const duplicateEmailAction = Boolean(sessionMemory) && !emailSendIntent.canceled &&
-        isLocalActionDuplicate(sessionMemory, {
-          type: "email_send",
-          signature: emailActionSignature,
-          nowTs: Date.now(),
-          windowMs: LOCAL_ACTION_DEDUPE_WINDOW_MS,
-        });
-
-      if (emailSendIntent.canceled) {
-        if (sessionMemory) {
-          clearPendingEmailDraft(sessionMemory, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "canceled",
-          target: EMAIL_SEND_TARGET,
-          to: "",
-          subject: "",
-        };
-      } else if (duplicateEmailAction) {
-        emailSendResult = {
-          status: "duplicate",
-          action: "none",
-          target: EMAIL_SEND_TARGET,
-          transport: "none",
-          to: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-          composeUrl: "",
-        };
-      } else if (emailSendIntent.needsRecipient) {
-        if (sessionMemory) {
-          clearPendingEmailDraft(sessionMemory, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "needs_recipient",
-          target: EMAIL_SEND_TARGET,
-          to: "",
-          subject: "",
-        };
-      } else if (emailSendIntent.needsContent) {
-        if (sessionMemory) {
-          setPendingEmailDraft(sessionMemory, {
-            recipient: emailSendIntent.recipient,
-            subject: emailSendIntent.subject,
-          }, Date.now());
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-        emailSendResult = {
-          status: "needs_content",
-          target: EMAIL_SEND_TARGET,
-          to: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-        };
-      } else {
-        emailSendResult = await sendLocalEmail({
-          recipient: emailSendIntent.recipient,
-          subject: emailSendIntent.subject,
-          body: emailSendIntent.body,
-          reqId: rid,
-        });
-        if (sessionMemory) {
-          if (emailSendResult?.status === "composed" || emailSendResult?.status === "failed") {
-            // Avoid accidental resend loops after compose/failure.
-            clearPendingEmailDraft(sessionMemory, Date.now());
-          }
-          if (emailSendResult?.status === "composed" || emailSendResult?.status === "needs_content") {
-            recordLocalAction(sessionMemory, {
-              type: "email_send",
-              signature: emailActionSignature,
-              nowTs: Date.now(),
-            });
-          }
-          if (activeSession) activeSession.memory = sessionMemory;
-        }
-      }
-      const emailLogTarget = String(emailSendResult?.target || "none");
-      const emailLogStatus = String(emailSendResult?.status || "unknown");
-      const emailLogTo = trimToMax(String(emailSendResult?.to || ""), 120);
-      const emailLogSubject = trimToMax(String(emailSendResult?.subject || ""), 96);
-      logger.log(
-        `[${rid}] email_send intent=1 trigger="${emailSendIntent.trigger}" from_pending=${emailSendIntent.fromPending ? "1" : "0"} status=${emailLogStatus} target=${emailLogTarget} to="${emailLogTo}" subject="${emailLogSubject}"`
-      );
-      if (emailSendResult?.error) {
-        logger.log(`[${rid}] email_send error=${emailSendResult.error}`);
-      }
-    }
-    let calendarActionResult = null;
-    if (shouldProcessCalendarIntent) {
-      const compose = buildCalendarComposeUrl({
-        title: calendarIntent.title,
-        startAt: calendarIntent.startAt,
-        endAt: calendarIntent.endAt,
-        details: `Drafted by CLEMENTINE at ${formatNoteTimestamp()}`,
-        target: CALENDAR_COMPOSE_TARGET,
-      });
-      calendarActionResult = {
-        status: compose?.url ? "composed" : "failed",
-        action: compose?.url ? "compose" : "none",
-        trigger: calendarIntent.trigger,
-        title: normalizeSnippet(calendarIntent.title, 120) || "Calendar block",
-        startAt: Math.max(0, Number(calendarIntent.startAt || 0)),
-        endAt: Math.max(0, Number(calendarIntent.endAt || 0)),
-        target: String(compose?.target || CALENDAR_COMPOSE_TARGET),
-        transport: String(compose?.transport || "none"),
-        composeUrl: String(compose?.url || ""),
-      };
-      logger.log(
-        `[${rid}] calendar_action intent=1 trigger="${calendarIntent.trigger}" status=${calendarActionResult.status} target=${calendarActionResult.target} title="${trimToMax(calendarActionResult.title, 96)}"`
-      );
     }
     let taskActionResult = null;
     if (shouldProcessTaskIntent) {
@@ -1678,74 +2897,17 @@ function createTalkHandler(deps) {
           reqId: rid,
         });
       }
-      if (emailSendResult) {
-        const emailStatus = String(emailSendResult.status || "");
-        const emailPayload = {
-          recipient: normalizeEmailAddress(emailSendIntent.recipient || emailSendResult.to),
-          subject: trimToMax(String(emailSendIntent.subject || emailSendResult.subject || "").trim(), 120),
-          body: normalizeSnippet(emailSendIntent.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-          trigger: normalizeSnippet(emailSendIntent.trigger, 64),
-          fromPending: Boolean(emailSendIntent.fromPending),
-        };
-        const emailActionKey = buildOutboxActionKey("email_compose", emailPayload);
-        const emailRetryableFailure = emailStatus === "failed";
-        const emailCompletedLike = emailStatus === "composed" ||
-          emailStatus === "duplicate" ||
-          emailStatus === "canceled" ||
-          emailStatus === "needs_content" ||
-          emailStatus === "needs_recipient" ||
-          emailStatus === "disabled";
-        await enqueueActionOutbox({
-          type: "email_compose",
-          actionKey: emailActionKey,
-          payload: emailPayload,
-          result: emailSendResult,
-          status: emailCompletedLike && !emailRetryableFailure ? "completed" : "pending",
-          retryAt: emailRetryableFailure ? computeOutboxRetryAt(0) : 0,
-          reqId: rid,
-        });
-      }
-      if (calendarActionResult) {
-        const calStatus = String(calendarActionResult.status || "");
-        const calPayload = {
-          title: normalizeSnippet(calendarActionResult.title, 120),
-          startAt: Math.max(0, Number(calendarActionResult.startAt || 0)),
-          endAt: Math.max(0, Number(calendarActionResult.endAt || 0)),
-          target: normalizeSnippet(calendarActionResult.target, 32),
-          details: "Drafted by CLEMENTINE",
-          trigger: normalizeSnippet(calendarIntent.trigger, 64),
-        };
-        const calActionKey = buildOutboxActionKey("calendar_compose", calPayload);
-        const calRetryableFailure = calStatus === "failed";
-        await enqueueActionOutbox({
-          type: "calendar_compose",
-          actionKey: calActionKey,
-          payload: calPayload,
-          result: calendarActionResult,
-          status: calRetryableFailure ? "pending" : "completed",
-          retryAt: calRetryableFailure ? computeOutboxRetryAt(0) : 0,
-          reqId: rid,
-        });
-      }
     }
     const noteCaptureReply = noteCaptureResult
       ? buildNoteCaptureReply(noteCaptureResult)
-      : "";
-    const emailSendReply = emailSendResult
-      ? buildEmailSendReply(emailSendResult)
-      : "";
-    const calendarActionReply = calendarActionResult
-      ? buildCalendarActionReply(calendarActionResult)
       : "";
     const taskActionReply = taskActionResult
       ? buildTaskActionReply(taskActionResult)
       : "";
     const localActionReply =
-      actionGateReply || emailSendReply || calendarActionReply || taskActionReply || noteCaptureReply;
+      actionGateReply || taskActionReply || noteCaptureReply;
     const actionLaneMeta = classifyActionLane({
-      emailResult: emailSendResult,
       noteResult: noteCaptureResult,
-      calendarResult: calendarActionResult,
       taskResult: taskActionResult,
     });
 
@@ -1765,24 +2927,30 @@ function createTalkHandler(deps) {
       const talkScreenplayPhase = talkScreenplayModeEnabled
         ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
         : "";
+      const talkDebugScreenplayStudioMeta = isScreenplayPageWriteTurn
+        ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
+        : studioMeta;
       let talkScreenplayOutput = buildTalkScreenplayOutput({
         reply: "",
         transcript: talkGenerationTranscript,
-        studioMeta,
+        studioMeta: talkDebugScreenplayStudioMeta,
       });
       if (
         String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page" &&
         isScreenplayPageWriteTurn &&
         talkGenerationTranscript
       ) {
-        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(talkGenerationTranscript);
+        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(
+          talkGenerationTranscript,
+          talkDebugScreenplayStudioMeta
+        );
         if (directTranscriptOutput) {
           talkScreenplayOutput = directTranscriptOutput;
         }
       }
-      const hasAuthoritativeScreenplayText = Boolean(
-        talkScreenplayOutput?.target === "page" &&
-        normalizeTalkScreenplayText(talkScreenplayOutput?.text).length
+      const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
+        talkScreenplayOutput,
+        { studioMeta: talkDebugScreenplayStudioMeta, transcript: talkGenerationTranscript }
       );
       const reply = hasAuthoritativeScreenplayText
         ? normalizeTalkScreenplayText(talkScreenplayOutput?.text || "")
@@ -1813,7 +2981,24 @@ function createTalkHandler(deps) {
         authoritative_page_text_available: hasAuthoritativeScreenplayText,
         sync_ready: hasAuthoritativeScreenplayText,
       };
-      const committedMemory = activeSession
+      if (forcedErrorStageRaw === "screenplay_quality" && isScreenplayPageWriteTurn) {
+        logger.log(`[${rid}] debug_force_error stage=screenplay_quality`);
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Forced screenplay page-quality failure.",
+          errorClass: "screenplay_page_quality_failed",
+        });
+      }
+      const creativeMemoryWritePromise = commitCreativeMemoryAfterTurn({
+        transcript,
+        reply,
+        studioMeta,
+        screenplayOutput: talkScreenplayOutput,
+        source: hasAuthoritativeScreenplayText ? "talk_screenplay_output" : "talk_turn",
+      });
+      let committedMemory = activeSession
         ? updateSessionAfterReply(
           activeSession.memory,
           transcript,
@@ -1824,7 +3009,8 @@ function createTalkHandler(deps) {
         : null;
       if (committedMemory) {
         activeSession.memory = committedMemory;
-        setPersistedUserMemoryForIp(requesterIp, committedMemory, Date.now());
+        committedMemory = await persistTalkMemory(committedMemory, Date.now());
+        activeSession.memory = committedMemory;
       }
       const committedSessionId =
         String(req.get("X-Client-Token") || "").trim() || `ip:${normalizeClientIp(requesterIp)}`;
@@ -1850,7 +3036,7 @@ function createTalkHandler(deps) {
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.authUser?.id || req.userId || null,
+          userId: trustedUserId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
@@ -1916,6 +3102,10 @@ function createTalkHandler(deps) {
       if (talkScreenplayOutput?.target) {
         res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
       }
+      const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
+      applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
+      applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
+      applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
       if (talkScreenplayOutput) {
         const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
         if (screenplayOutputJson.length <= 5000) {
@@ -1934,23 +3124,6 @@ function createTalkHandler(deps) {
           res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
         }
       }
-      const emailComposed = emailSendResult?.status === "composed";
-      res.setHeader("x-email-sent", "0");
-      res.setHeader("x-email-composed", emailComposed ? "1" : "0");
-      if (emailSendResult) {
-        res.setHeader("x-email-action", String(emailSendResult.action || (emailComposed ? "compose" : "none")));
-        res.setHeader("x-email-status", String(emailSendResult.status || "unknown"));
-        res.setHeader("x-email-target", String(emailSendResult.target || "none"));
-        if (emailSendResult.to) {
-          res.setHeader("x-email-to", encodeURIComponent(String(emailSendResult.to)));
-        }
-        if (emailSendResult.subject) {
-          res.setHeader("x-email-subject", encodeURIComponent(String(emailSendResult.subject)));
-        }
-        if (emailSendResult.composeUrl) {
-          res.setHeader("x-email-compose-url", encodeURIComponent(String(emailSendResult.composeUrl)));
-        }
-      }
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
@@ -1967,6 +3140,13 @@ function createTalkHandler(deps) {
         talkStatus: "responded",
         lane: actionLaneMeta?.lane || "chat",
         model: "debug_offline",
+        ...buildScreenplayMetricFields({
+          talkScreenplayModeEnabled,
+          studioMeta,
+          talkScreenplayOutput,
+          hasAuthoritativeScreenplayText,
+          replyRepaired: false,
+        }),
       });
       void scaleBackplane.emitTalkCommit({
         id: randomUUID(),
@@ -2014,9 +3194,24 @@ function createTalkHandler(deps) {
       ACTIVE_PRESET_GUIDANCE ||
       CLEMENTINE_PROFILE.prompts.presetGuidance;
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
-    const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
+    const systemBaseRaw = withOutputContract(presetBoundSystem, {
+      screenplayPageWrite: isScreenplayPageWriteTurn,
+    });
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
+      screenplayTaskHint: transcript,
+      memory: sessionMemory,
+    });
+    screenplayQuestionPlan = buildScreenplayQuestionPlan({
+      transcript,
+      creativeMemoryTrace: req.creativeMemoryTrace,
+      studioMeta,
+      turnPlanner,
+      answeredLearningContext: screenplayLearningAnswerContext,
+      pendingLearningQuestion: pendingScreenplayLearningQuestion,
+      pendingLearningResolution: pendingScreenplayLearningResolution,
+    });
+    turnPlanner.screenplayQuestionPlan = screenplayQuestionPlan;
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
@@ -2391,6 +3586,19 @@ EVOLVING SELF-AWARENESS:
       `avg_quality:${Number(memoryGuardrailsNow.avgQuality || 0).toFixed(2)} ` +
       `low_usefulness:${memoryGuardrailsNow.lowUsefulnessCount}/${memoryGuardrailsNow.totalThemes}`;
     const userPrimaryName = normalizeUserPersonName(sessionMemory?.userPrimaryName);
+    const screenplayQuestionSummary = screenplayQuestionPlan?.active
+      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} momentum=${screenplayQuestionPlan.writingMomentum?.active ? "protected" : screenplayQuestionPlan.writingMomentum?.source || "none"} cadence=${screenplayQuestionPlan.writingMomentum?.interventionProfile?.strategy || "balanced"}:${screenplayQuestionPlan.writingMomentum?.interventionProfile?.windowMinutes || 30}m strategy=${screenplayQuestionPlan.questionStrategy || "none"} score=${screenplayQuestionPlan.selectionScore || 0} learned_bonus=${screenplayQuestionPlan.effectivenessBonus || 0} reason=${screenplayQuestionPlan.reason || "none"}`
+      : "inactive";
+    const screenplayQuestionRule = screenplayQuestionPlan?.shouldAsk
+      ? `${screenplayQuestionPlan.objective || "First execute this turn's useful story work."} Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
+      : screenplayQuestionPlan?.mode === "answer_now"
+        ? "Deliver the requested pages or rewrite now. Do not block the work with a clarifying question."
+        : screenplayQuestionPlan?.objective
+          ? `${screenplayQuestionPlan.objective} Do not invent another screenplay-learning question this turn.`
+        : "Do not invent a screenplay-learning question this turn.";
+    const directorOutputRule = isScreenplayPageWriteTurn
+      ? "OUTPUT_SCREENPLAY_PAGE_MODE: override all conversational length/check-in/question guidance; begin with Fountain text, use the full page budget, and emit no greeting, preamble, reflection, or closing question."
+      : "OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.";
     let directorAddendum = "";
     try {
       directorAddendum = `
@@ -2413,6 +3621,9 @@ GUIDANCE:
 - routing_rule -> high_distress_safety > knowledge > therapeutic_depth > social_spark > vulnerability_quiet > creative > philosophical > normal_rotation.
 - turn_planner -> intent=${turnPlanner.intent} emotion=${turnPlanner.emotionToMatch} question_policy=${turnPlanner.questionPolicy} next=${turnPlanner.nextBestMove} depth=${turnPlanner.plannerDepth.toFixed(2)} rel_depth=${turnPlanner.relationshipDepth.toFixed(1)}
 - planner_rule -> execute the turn_planner sequence before writing final wording.
+- screenplay_question_plan -> ${screenplayQuestionSummary}
+- screenplay_question_rule -> ${screenplayQuestionRule}
+- screenplay_memory_learning_rule -> a direct writer answer to the planned question is durable WRITER_CLARIFICATION memory and should populate its matching Character Bible or Story Spine field; it is not locked canon, so explicit corrections and explicit canon declarations still outrank it.
 - idea_development_mode -> ${turnPlanner.intent === "idea_development" ? "active" : "inactive"}
 - idea_development_rule -> if active: co-build in this order: mirror the user's core idea, sharpen one constraint, propose one concrete iteration step, then ask one specific build-choice question.
 - idea_development_guard -> avoid generic prompts like "let's keep this grounded"; reference at least one concrete term from the user's idea.
@@ -2554,7 +3765,7 @@ ${backReferenceHintLine ? `- back_reference_hint -> ${backReferenceHintLine}` : 
 ${opening ? `- optional opener: "${opening}" (use only if natural).` : ""}
 ${memoryAddendum ? `${memoryAddendum}` : ""}
 ${clientMemoryAddendum}
-OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.
+${directorOutputRule}
 OUTPUT_QUESTION_MODE: when substantial_question=1, use 3-5 lines with higher substance; include one short perspective line with varied opener wording, avoid generic praise openers.
 `.trim();
     } catch (directorErr) {
@@ -2570,7 +3781,7 @@ GUIDANCE:
 - self_name_lock -> current self-name is "${assistantSelfName}" and remains until explicit rename.
 - continuity -> answer the latest user question directly, then build from recent context.
 - response_structure_rule -> reflection -> insight -> gentle continuation; ask one question max.
-OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines, one question max, question-ending only ~10%.
+${directorOutputRule}
 `.trim();
     }
 
@@ -2615,12 +3826,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier}`
       );
     }
+    const screenplayRequestedPages = isScreenplayPageWriteTurn
+      ? resolveTalkScreenplayRequestedPageBatch({
+          transcript: talkGenerationTranscript,
+          studioMeta,
+        })
+      : 0;
     const chatMaxTokens = computeChatMaxTokensForTurn({
-      transcript,
+      transcript: talkGenerationTranscript,
       turnPlanner,
       flags,
       routingLane,
       chatModelPlan,
+      screenplayPageWrite: isScreenplayPageWriteTurn,
+      screenplayRequestedPages,
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -2701,7 +3920,9 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       speculativeReuseApplied = Boolean(
         speculativeReuse?.reply &&
         Buffer.isBuffer(speculativeReuse?.audioBuffer) &&
-        speculativeReuse.audioBuffer.length
+        speculativeReuse.audioBuffer.length &&
+        String(speculativeReuse?.emotionLane || "curious_steady") ===
+          String(interactiveVoiceProfile.emotionLane || "curious_steady")
       );
       logger.log(
         `[${rid}] speculative_reuse requested=1 hit=${speculativeReuseApplied ? "1" : "0"} key=${speculativeReuseKeyInput} prompt_hash=${speculativePromptHashInput}`
@@ -2710,6 +3931,16 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     let rawReply = "";
     let streamFirstSentence = "";
     let streamChatUsed = false;
+    let effectiveChatModel = String(chatModelPlan.model || "unknown");
+    let effectiveChatApiMode = String(chatModelPlan.apiMode || "chat_completions");
+    let effectiveChatReasoningEffort = String(chatModelPlan.reasoningEffort || "");
+    let chatModelFallbackUsed = false;
+    let effectiveChatUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 0,
+    };
     let earlyTtsPromise = null;
     let earlyTtsSeedSpeech = "";
     let earlyTtsLeadIn = "";
@@ -2739,15 +3970,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     } else if (localActionReply) {
       rawReply = localActionReply;
       chatMs = Date.now() - chatStart;
-      if (emailSendResult) {
-        logger.log(
-          `[${rid}] email_send handled_internally status=${String(emailSendResult?.status || "unknown")} target=${String(emailSendResult?.target || "none")} llm_bypassed=1`
-        );
-      } else if (calendarActionResult) {
-        logger.log(
-          `[${rid}] calendar_action handled_internally status=${String(calendarActionResult?.status || "unknown")} target=${String(calendarActionResult?.target || "none")} llm_bypassed=1`
-        );
-      } else if (taskActionResult) {
+      if (taskActionResult) {
         logger.log(
           `[${rid}] task_action handled_internally status=${String(taskActionResult?.status || "unknown")} llm_bypassed=1`
         );
@@ -2769,16 +3992,31 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             model: chatModelPlan.model,
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
+            apiMode: chatModelPlan.apiMode,
+            reasoningEffort: chatModelPlan.reasoningEffort,
+            fallbackModel: chatModelPlan.fallbackModel,
           });
           rawReply = String(streamResult.reply || "").trim();
           streamFirstSentence = String(streamResult.firstSentence || "").trim();
           streamChatUsed = Boolean(rawReply);
+          effectiveChatModel = String(streamResult.model || effectiveChatModel);
+          effectiveChatApiMode = String(streamResult.apiMode || effectiveChatApiMode);
+          effectiveChatReasoningEffort = String(
+            streamResult.reasoningEffort ?? effectiveChatReasoningEffort
+          );
+          chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
+          effectiveChatUsage = streamResult.usage || effectiveChatUsage;
           chatMs = Date.now() - streamStart;
           if (streamFirstSentence && !earlyTtsPromise) {
             maybeStartEarlyTts(streamFirstSentence);
           }
         } catch (err) {
-          logger.log(`[${rid}] CHAT stream fallback reason=${String(err?.message || err)}`);
+          const streamDiagnostic = buildTalkFailureDiagnostics(err, {
+            requestId: rid,
+            providerStage: "chat",
+            status: Number(err?.status || 500),
+          });
+          logger.log(`[${rid}] CHAT stream fallback ${streamDiagnostic.supportMessage}`);
           rawReply = "";
         }
       }
@@ -2791,32 +4029,72 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
             messages: chatMessages,
+            apiMode: chatModelPlan.apiMode,
+            reasoningEffort: chatModelPlan.reasoningEffort,
+            fallbackModel: chatModelPlan.fallbackModel,
           });
         } catch (err) {
-          if (String(err?.stage || "") === "chat" && Number(err?.status || 0) === 504) {
-            return res.status(504).json({
-              stage: "chat",
-              error: String(err?.message || "Chat completion timed out."),
-            });
-          }
-          throw err;
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: Number(err?.status || 500),
+            message: String(err?.message || "Chat completion failed."),
+          });
         }
 
         const chatResp = chatResult.response;
         const chatText = chatResult.rawText;
+        effectiveChatModel = String(chatResult.model || effectiveChatModel);
+        effectiveChatApiMode = String(chatResult.apiMode || effectiveChatApiMode);
+        effectiveChatReasoningEffort = String(
+          chatResult.reasoningEffort ?? effectiveChatReasoningEffort
+        );
+        chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
+        effectiveChatUsage = chatResult.usage || effectiveChatUsage;
         chatMs = Date.now() - chatStart;
 
         if (!chatResp.ok) {
-          logger.log(`[${rid}] CHAT failed:`, chatText);
-          return res.status(chatResp.status).json({ stage: "chat", error: chatText });
+          const diagnostic = buildTalkFailureDiagnostics(
+            { stage: "chat", status: chatResp.status, rawBody: chatText },
+            {
+              requestId: rid,
+              providerStage: "chat",
+              status: chatResp.status,
+              rawBody: chatText,
+            }
+          );
+          logger.log(`[${rid}] CHAT failed ${diagnostic.supportMessage}`);
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: chatResp.status,
+            rawBody: chatText,
+          });
         }
 
-        const chatJson = JSON.parse(chatText);
+        let chatJson;
+        try {
+          chatJson = JSON.parse(chatText);
+        } catch (_) {
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: 502,
+            message: "Chat completion response was invalid JSON.",
+            errorClass: "response_invalid",
+          });
+        }
         rawReply = (chatJson.choices?.[0]?.message?.content || "").trim();
       }
 
       if (!rawReply) {
-        return res.status(400).json({ stage: "chat", error: "Empty reply." });
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Chat completion returned an empty reply.",
+          errorClass: "response_invalid",
+        });
       }
     }
 
@@ -2963,6 +4241,170 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         });
       }
     }
+    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+      const plannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
+      if (plannedQuestionReply && plannedQuestionReply !== reply) {
+        reply = plannedQuestionReply;
+        replyRepaired = true;
+        heuristicTurnQuality = evaluateTurnQualityHeuristics({
+          transcript,
+          reply,
+          flags,
+          routingLane,
+          turnIntent: String(turnPlanner.intent || "unknown"),
+        });
+      }
+    }
+    const talkScreenplayModeEnabled = Boolean(
+      studioMeta?.screenplayProjectId ||
+      studioMeta?.screenplayTarget ||
+      studioMeta?.screenplayPromptSource
+    );
+    const talkScreenplayPhase = talkScreenplayModeEnabled
+      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
+      : "";
+    const talkScreenplayContinuityStudioMeta = isScreenplayPageWriteTurn
+      ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
+      : studioMeta;
+    let talkScreenplayOutput = null;
+    const talkScreenplayRepairTrace = {
+      attempted: false,
+      outcome: "none",
+      elapsedMs: 0,
+      reason: "",
+    };
+    const structuralQualityTrace = {
+      applicable: false,
+      attempted: false,
+      repaired: false,
+      passed: true,
+      outcome: "not_applicable",
+      initialReason: "",
+      finalReason: "",
+      initialScore: 1,
+      finalScore: 1,
+      elapsedMs: 0,
+    };
+    if (isScreenplayPageWriteTurn && !localActionReply) {
+      talkScreenplayOutput = buildTalkScreenplayOutput({
+        reply,
+        transcript: talkGenerationTranscript,
+        studioMeta: talkScreenplayContinuityStudioMeta,
+      });
+      if (String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page") {
+        talkScreenplayRepairTrace.attempted = true;
+        talkScreenplayRepairTrace.reason = normalizeSnippet(
+          talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_low_page_quality",
+          96
+        );
+        const repairPass = await attemptTalkScreenplayRepairPass({
+          currentOutput: talkScreenplayOutput,
+          rawReply,
+          transcript: talkGenerationTranscript,
+          studioMeta: talkScreenplayContinuityStudioMeta,
+          chatModelPlan,
+          chatTemperature,
+          chatMaxTokens,
+          screenplayRequestedPages,
+          rid,
+        });
+        if (repairPass?.elapsedMs) {
+          talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
+          chatMs += talkScreenplayRepairTrace.elapsedMs;
+        }
+        talkScreenplayRepairTrace.outcome = normalizeSnippet(
+          repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
+          48
+        ) || "not_repaired";
+        if (repairPass?.repaired && repairPass.output) {
+          talkScreenplayOutput = repairPass.output;
+          reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
+          rawReply = reply;
+          replyRepaired = true;
+          heuristicTurnQuality = evaluateTurnQualityHeuristics({
+            transcript,
+            reply,
+            flags,
+            routingLane,
+            turnIntent: String(turnPlanner.intent || "unknown"),
+          });
+        }
+      }
+      if (String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page") {
+        logger.log(
+          `[${rid}] screenplay_page_quality_exhausted reason=${talkScreenplayRepairTrace.reason || "unknown"} outcome=${talkScreenplayRepairTrace.outcome}`
+        );
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Screenplay generation did not pass the requested page-quality contract.",
+          errorClass: "screenplay_page_quality_failed",
+        });
+      }
+    }
+    if (!isScreenplayPageWriteTurn && !localActionReply) {
+      const initialStructuralQuality = evaluateStructuralScreenplayReply({
+        reply,
+        modelReason: chatModelPlan.reason,
+      });
+      if (initialStructuralQuality.applicable) {
+        structuralQualityTrace.applicable = true;
+        structuralQualityTrace.passed = Boolean(initialStructuralQuality.ok);
+        structuralQualityTrace.outcome = initialStructuralQuality.ok ? "initial_pass" : "initial_fail";
+        structuralQualityTrace.initialReason = normalizeSnippet(initialStructuralQuality.reason, 96);
+        structuralQualityTrace.finalReason = structuralQualityTrace.initialReason;
+        structuralQualityTrace.initialScore = Math.max(0, Number(initialStructuralQuality.score || 0));
+        structuralQualityTrace.finalScore = structuralQualityTrace.initialScore;
+        if (!initialStructuralQuality.ok) {
+          structuralQualityTrace.attempted = true;
+          const repairStudioMeta = mergeTalkMomentumRepairStudioMeta(
+            studioMeta,
+            sessionMemory,
+            req.creativeMemoryTrace
+          );
+          const repairPass = await attemptStructuralScreenplayAnalysisRepairPass({
+            initialQuality: initialStructuralQuality,
+            rawReply: reply,
+            transcript: talkGenerationTranscript,
+            studioMeta: repairStudioMeta,
+            chatModelPlan,
+            chatTemperature,
+            chatMaxTokens,
+            rid,
+          });
+          structuralQualityTrace.elapsedMs = Math.max(0, Number(repairPass?.elapsedMs || 0));
+          chatMs += structuralQualityTrace.elapsedMs;
+          effectiveChatUsage = mergeProviderUsage(effectiveChatUsage, repairPass?.usage);
+          chatModelFallbackUsed = chatModelFallbackUsed || Boolean(repairPass?.fallbackUsed);
+          structuralQualityTrace.outcome = normalizeSnippet(
+            repairPass?.outcome || "not_repaired",
+            48
+          ) || "not_repaired";
+          if (repairPass?.repaired && repairPass.reply && repairPass.quality) {
+            reply = repairPass.reply;
+            rawReply = reply;
+            replyRepaired = true;
+            structuralQualityTrace.repaired = true;
+            structuralQualityTrace.passed = Boolean(repairPass.quality.ok);
+            structuralQualityTrace.finalReason = normalizeSnippet(repairPass.quality.reason, 96);
+            structuralQualityTrace.finalScore = Math.max(0, Number(repairPass.quality.score || 0));
+            effectiveChatModel = String(repairPass.model || effectiveChatModel);
+            effectiveChatApiMode = String(repairPass.apiMode || effectiveChatApiMode);
+            effectiveChatReasoningEffort = String(
+              repairPass.reasoningEffort || effectiveChatReasoningEffort
+            );
+            heuristicTurnQuality = evaluateTurnQualityHeuristics({
+              transcript,
+              reply,
+              flags,
+              routingLane,
+              turnIntent: String(turnPlanner.intent || "unknown"),
+            });
+          }
+        }
+      }
+    }
     const usedBoundaryEdgeLine = hasBoundaryEdgeStatement(reply);
     logger.log(`\n[${reqId}] assistant reply:\n${reply}\n`);
     const didUseCheckInOpener = startsWithDayFeelingCheckIn(reply);
@@ -3030,7 +4472,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       activeSession.memory.kpiTargetsMetCount = qualityTargetStatus.metCount;
       activeSession.memory.kpiTargetsTotal = qualityTargetStatus.total;
       activeSession.memory.kpiTargetsAllMet = Boolean(qualityTargetStatus.allMet);
-      setPersistedUserMemoryForIp(requesterIp, activeSession.memory, qualityAppliedAt);
+      activeSession.memory = await persistTalkMemory(activeSession.memory, qualityAppliedAt);
 
       if (process.env.NODE_ENV !== "production") {
         logger.log(
@@ -3050,7 +4492,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           flags,
           routingLane,
         })
-          .then((llmEval) => {
+          .then(async (llmEval) => {
             if (!activeSession?.memory) return;
             const evalAt = Date.now();
             if (!llmEval || typeof llmEval !== "object") {
@@ -3059,7 +4501,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
                 Number(activeSession.memory.adaptiveEvalFailureCount || 0)
               ) + 1;
               activeSession.memory.lastUpdatedAt = evalAt;
-              setPersistedUserMemoryForIp(requesterIp, activeSession.memory, evalAt);
+              activeSession.memory = await persistTalkMemory(activeSession.memory, evalAt);
               if (process.env.NODE_ENV !== "production") {
                 logger.log(`[${rid}] adaptive_eval skipped=no_result`);
               }
@@ -3073,14 +4515,14 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               evalAt,
               { countAsTurn: false }
             );
-            setPersistedUserMemoryForIp(requesterIp, activeSession.memory, evalAt);
+            activeSession.memory = await persistTalkMemory(activeSession.memory, evalAt);
             if (process.env.NODE_ENV !== "production") {
               logger.log(
                 `[${rid}] adaptive_eval score=${clampUnit(llmEval.score, 0.66).toFixed(2)} merged=${clampUnit(mergedQuality.score, 0.66).toFixed(2)} tags=${sanitizeAdaptiveQualityTags(llmEval.tags, 8).join(",") || "none"}`
               );
             }
           })
-          .catch((err) => {
+          .catch(async (err) => {
             if (!activeSession?.memory) return;
             const failAt = Date.now();
             activeSession.memory.adaptiveEvalFailureCount = Math.max(
@@ -3088,7 +4530,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               Number(activeSession.memory.adaptiveEvalFailureCount || 0)
             ) + 1;
             activeSession.memory.lastUpdatedAt = failAt;
-            setPersistedUserMemoryForIp(requesterIp, activeSession.memory, failAt);
+            try {
+              activeSession.memory = await persistTalkMemory(activeSession.memory, failAt);
+            } catch (persistError) {
+              logger.log(`[${rid}] adaptive_eval memory_error=${String(persistError?.message || persistError)}`);
+            }
             if (process.env.NODE_ENV !== "production") {
               logger.log(`[${rid}] adaptive_eval error=${String(err?.message || err)}`);
             }
@@ -3096,23 +4542,143 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       }
     }
 
-    const talkScreenplayModeEnabled = Boolean(
-      studioMeta?.screenplayProjectId ||
-      studioMeta?.screenplayTarget ||
-      studioMeta?.screenplayPromptSource
-    );
-    const talkScreenplayPhase = talkScreenplayModeEnabled
-      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
-      : "";
-    const talkScreenplayOutput = buildTalkScreenplayOutput({
-      reply,
-      transcript: talkGenerationTranscript,
-      studioMeta,
-    });
+    if (!talkScreenplayOutput) {
+      talkScreenplayOutput = buildTalkScreenplayOutput({
+        reply,
+        transcript: talkGenerationTranscript,
+        studioMeta: talkScreenplayContinuityStudioMeta,
+      });
+    }
+    if (
+      !isScreenplayPageWriteTurn &&
+      !localActionReply &&
+      shouldAttemptTalkMomentumRescueRepairPass(talkScreenplayOutput)
+    ) {
+      talkScreenplayRepairTrace.attempted = true;
+      talkScreenplayRepairTrace.reason = normalizeSnippet(
+        talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_momentum_rescue_quality",
+        96
+      );
+      const momentumRepairStudioMeta = mergeTalkMomentumRepairStudioMeta(
+        studioMeta,
+        sessionMemory,
+        req.creativeMemoryTrace
+      );
+      const repairPass = await attemptTalkMomentumRescueRepairPass({
+        currentOutput: talkScreenplayOutput,
+        rawReply,
+        transcript: talkGenerationTranscript,
+        studioMeta: momentumRepairStudioMeta,
+        chatModelPlan,
+        chatTemperature,
+        chatMaxTokens,
+        rid,
+      });
+      if (repairPass?.elapsedMs) {
+        talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
+        chatMs += talkScreenplayRepairTrace.elapsedMs;
+      }
+      talkScreenplayRepairTrace.outcome = normalizeSnippet(
+        repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
+        48
+      ) || "not_repaired";
+      if (repairPass?.repaired && repairPass.output) {
+        talkScreenplayOutput = repairPass.output;
+        reply = repairPass.reply || reply;
+        rawReply = reply;
+        replyRepaired = true;
+      } else {
+        const fallbackReply = buildMomentumRescueFallbackReply({
+          transcript: talkGenerationTranscript,
+          studioMeta: momentumRepairStudioMeta,
+        });
+        const fallbackOutput = buildTalkScreenplayOutput({
+          reply: fallbackReply,
+          transcript: talkGenerationTranscript,
+          studioMeta: momentumRepairStudioMeta,
+        });
+        if (
+          fallbackReply &&
+          String(fallbackOutput?.target || "").trim().toLowerCase() === "voice_pin" &&
+          String(fallbackOutput?.source || "").trim().toLowerCase() !== "guard_momentum_rescue_quality" &&
+          fallbackOutput?.quality?.ok
+        ) {
+          const quality = fallbackOutput.quality && typeof fallbackOutput.quality === "object"
+            ? { ...fallbackOutput.quality }
+            : {};
+          quality.source = "fallback_momentum_rescue";
+          quality.confidence = "fallback";
+          talkScreenplayOutput = {
+            ...fallbackOutput,
+            source: "fallback_momentum_rescue",
+            quality,
+          };
+          reply = fallbackReply;
+          rawReply = reply;
+          replyRepaired = true;
+          talkScreenplayRepairTrace.outcome = "fallback_momentum_rescue";
+        }
+      }
+    }
+    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+      const finalPlannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
+      if (finalPlannedQuestionReply && finalPlannedQuestionReply !== reply) {
+        reply = finalPlannedQuestionReply;
+        rawReply = reply;
+        replyRepaired = true;
+      }
+      if (sessionMemory) {
+        const provisionalOptions = screenplayQuestionPlan.mode === "provisional_options"
+          ? extractProvisionalScreenplayOptions(reply)
+          : [];
+        const pendingQuestion = createPendingScreenplayLearningQuestion(
+          screenplayQuestionPlan,
+          {
+            askedAtTurn: turnsInSession,
+            provisionalOptions,
+          }
+        );
+        if (pendingQuestion) {
+          sessionMemory.pendingScreenplayLearningQuestions =
+            upsertPendingScreenplayLearningQuestion(
+              sessionMemory.pendingScreenplayLearningQuestions,
+              pendingQuestion
+            );
+          screenplayQuestionInteraction = {
+            ...pendingQuestion,
+            questionId: pendingQuestion.id,
+            responseStatus: "asked",
+            respondedAt: 0,
+          };
+          if (activeSession) activeSession.memory = sessionMemory;
+          sessionMemory = await persistTalkMemory(sessionMemory, Date.now());
+          if (activeSession) activeSession.memory = sessionMemory;
+        }
+      }
+    }
     const talkReplyPreview = buildTalkReplyPreview({
       reply,
       screenplayOutput: talkScreenplayOutput,
     });
+    const screenplayQuestionMode = String(screenplayQuestionPlan?.mode || "").trim().toLowerCase();
+    if (
+      !isScreenplayPageWriteTurn &&
+      !localActionReply &&
+      (
+        String(turnPlanner?.intent || "").trim().toLowerCase() === "momentum_rescue" ||
+        screenplayQuestionMode.startsWith("rescue_")
+      )
+    ) {
+      deliveredStoryRescueInteraction = buildDeliveredStoryRescueInteraction({
+        systemPrompt: system,
+        reply,
+        requestId: rid,
+        projectId: screenplayQuestionPlan?.projectId || studioMeta?.screenplayProjectId,
+        projectTitle: screenplayQuestionPlan?.projectTitle || studioMeta?.screenplayProjectTitle,
+        actKey: screenplayQuestionPlan?.actContext?.key,
+        sequenceKey: screenplayQuestionPlan?.sequenceContext?.key,
+      });
+    }
     let talkAudioDurationMs = estimateTalkSpeechDurationMs(
       reply,
       cycleUiReflection.voiceSpeed
@@ -3122,6 +4688,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       talkScreenplayOutput,
       talkAudioDurationMs
     );
+    const creativeMemoryWritePromise = commitCreativeMemoryAfterTurn({
+      transcript,
+      reply,
+      studioMeta,
+      screenplayOutput: talkScreenplayOutput,
+      source: talkScreenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn",
+    });
     let talkTtsSegmentCount = 1;
     if (talkScreenplayOutput?.target === "page" && speculativeReuseApplied) {
       logger.log(`[${rid}] speculative_reuse audio_disabled_for_page_sync=1`);
@@ -3150,6 +4723,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     let secondMp3 = Buffer.alloc(0);
     let secondTtsResult = null;
     let ttsProviderUsed = "openai";
+    let ttsVoiceUsed = String(
+      interactiveVoiceProfile.provider === "openai"
+        ? interactiveVoiceProfile.openaiVoice
+        : interactiveVoiceProfile.elevenlabsVoiceId,
+    );
     if (speculativeReuseApplied) {
       firstMp3 = Buffer.from(speculativeReuse.audioBuffer || []);
       if (!firstMp3.length || !isLikelyMp3Buffer(firstMp3)) {
@@ -3160,6 +4738,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         firstMp3 = Buffer.alloc(0);
       } else {
         ttsProviderUsed = String(speculativeReuse.ttsProvider || "speculative");
+        ttsVoiceUsed = String(speculativeReuse.ttsVoice || ttsVoiceUsed);
         ttsMs = 0;
       }
     }
@@ -3175,6 +4754,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           firstMp3 = Buffer.from(screenplaySpeech?.firstSegmentBuffer || []);
           secondMp3 = Buffer.from(screenplaySpeech?.remainderBuffer || []);
           ttsProviderUsed = String(screenplaySpeech?.providerLabel || "openai");
+          ttsVoiceUsed = String(screenplaySpeech?.voiceLabel || ttsVoiceUsed);
           talkTtsSegmentCount = Math.max(1, Number(screenplaySpeech?.segmentCount || 1));
           talkAudioDurationMs = Math.max(
             0,
@@ -3186,11 +4766,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             : talkScreenplayCues;
         } catch (err) {
           const status = Number(err?.status || 500);
-          const stage = String(err?.stage || "tts");
           const message = String(err?.message || "Speech synthesis failed.");
           ttsMs = Date.now() - ttsStart;
-          logger.log(`[${rid}] screenplay cue TTS failed:`, message);
-          return res.status(status).json({ stage, error: message });
+          const diagnostic = buildTalkFailureDiagnostics(err, {
+            requestId: rid,
+            providerStage: "tts",
+            status,
+          });
+          logger.log(`[${rid}] screenplay cue TTS failed ${diagnostic.supportMessage}`);
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "tts",
+            status,
+            message,
+          });
         }
       } else {
         ttsLeadIn = earlyTtsLeadIn || pickTtsLeadIn({ rid, transcript, reply });
@@ -3231,11 +4820,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             });
           } catch (err) {
             const status = Number(err?.status || 500);
-            const stage = String(err?.stage || "tts");
             const message = String(err?.message || "Speech synthesis failed.");
             ttsMs = Date.now() - ttsStart;
-            logger.log(`[${rid}] TTS failed:`, message);
-            return res.status(status).json({ stage, error: message });
+            const diagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "tts",
+              status,
+            });
+            logger.log(`[${rid}] TTS failed ${diagnostic.supportMessage}`);
+            throw createTalkFailureError({
+              requestId: rid,
+              providerStage: "tts",
+              status,
+              message,
+            });
           }
         }
 
@@ -3254,11 +4852,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             });
           } catch (err) {
             const status = Number(err?.status || 500);
-            const stage = String(err?.stage || "tts");
             const message = String(err?.message || "Speech synthesis failed.");
             ttsMs = Date.now() - ttsStart;
-            logger.log(`[${rid}] TTS failed:`, message);
-            return res.status(status).json({ stage, error: message });
+            const diagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "tts",
+              status,
+            });
+            logger.log(`[${rid}] TTS failed ${diagnostic.supportMessage}`);
+            throw createTalkFailureError({
+              requestId: rid,
+              providerStage: "tts",
+              status,
+              message,
+            });
           }
         }
 
@@ -3272,18 +4879,31 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         ttsProviderUsed = firstProvider === secondProvider
           ? firstProvider
           : `${firstProvider}+${secondProvider}`;
+        ttsVoiceUsed = String(firstTtsResult?.voice || secondTtsResult?.voice || ttsVoiceUsed);
         talkTtsSegmentCount = remainderSpeech ? 2 : 1;
       }
     }
     const combinedMp3 = secondMp3.length ? Buffer.concat([firstMp3, secondMp3]) : firstMp3;
     if (!combinedMp3.length) {
-      return res.status(502).json({ stage: "tts", error: "Speech synthesis returned empty audio." });
+      throw createTalkFailureError({
+        requestId: rid,
+        providerStage: "tts",
+        status: 502,
+        message: "Speech synthesis returned empty audio.",
+        errorClass: "response_invalid",
+      });
     }
 
     if (!isLikelyMp3Buffer(combinedMp3)) {
       const signatureHex = combinedMp3.subarray(0, 8).toString("hex");
       logger.log(`[${rid}] TTS non-MP3 signature first8=${signatureHex}`);
-      return res.status(502).json({ stage: "tts", error: "Speech synthesis output was not MP3." });
+      throw createTalkFailureError({
+        requestId: rid,
+        providerStage: "tts",
+        status: 502,
+        message: "Speech synthesis output was not MP3.",
+        errorClass: "response_invalid",
+      });
     }
 
     if (!didLogMp3SignatureLocal) {
@@ -3316,12 +4936,27 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (speculativeReuseApplied && speculativePromptHashInput) {
       res.setHeader("x-speculative-prompt-hash", speculativePromptHashInput);
     }
-    res.setHeader("x-chat-model", chatModelPlan.model);
+    res.setHeader("x-chat-model", effectiveChatModel);
     res.setHeader("x-chat-model-tier", chatModelPlan.tier);
     res.setHeader("x-chat-model-reason", chatModelPlan.reason);
+    res.setHeader("x-chat-api-mode", effectiveChatApiMode);
+    res.setHeader("x-chat-reasoning-effort", effectiveChatReasoningEffort || "none");
+    res.setHeader("x-chat-model-fallback", chatModelFallbackUsed ? "1" : "0");
+    res.setHeader("x-chat-input-tokens", String(Math.max(0, Number(effectiveChatUsage.inputTokens || 0))));
+    res.setHeader("x-chat-output-tokens", String(Math.max(0, Number(effectiveChatUsage.outputTokens || 0))));
+    res.setHeader("x-chat-reasoning-tokens", String(Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0))));
+    res.setHeader("x-chat-total-tokens", String(Math.max(0, Number(effectiveChatUsage.totalTokens || 0))));
+    res.setHeader("x-structural-quality-applicable", structuralQualityTrace.applicable ? "1" : "0");
+    res.setHeader("x-structural-quality-passed", structuralQualityTrace.passed ? "1" : "0");
+    res.setHeader("x-structural-quality-repaired", structuralQualityTrace.repaired ? "1" : "0");
+    res.setHeader("x-structural-quality-outcome", structuralQualityTrace.outcome);
+    res.setHeader("x-structural-quality-reason", encodeURIComponent(structuralQualityTrace.finalReason || "none"));
+    res.setHeader("x-structural-quality-score", Number(structuralQualityTrace.finalScore || 0).toFixed(3));
+    res.setHeader("x-structural-repair-ms", String(Math.max(0, Number(structuralQualityTrace.elapsedMs || 0))));
     res.setHeader("x-chat-load-shed", chatModelPlan.loadShed ? "1" : "0");
     res.setHeader("x-chat-load-shed-cause", encodeURIComponent(String(chatModelPlan.loadShedCause || "none")));
     res.setHeader("x-chat-temperature", chatTemperature.toFixed(2));
+    res.setHeader("x-chat-max-tokens", String(Math.max(0, Number(chatMaxTokens || 0))));
     res.setHeader("x-stt-model", encodeURIComponent(String(sttModelUsed || STT_MODEL_PRIMARY)));
     res.setHeader("x-stt-confidence", sttConfidence.toFixed(3));
     res.setHeader("x-knowledge-cards", String(knowledgeCardsUsed.length));
@@ -3346,9 +4981,9 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkReplyPreview) {
       res.setHeader("x-reply", encodeURIComponent(String(talkReplyPreview)));
     }
-    const hasAuthoritativeScreenplayText = Boolean(
-      talkScreenplayOutput?.target === "page" &&
-      normalizeTalkScreenplayText(talkScreenplayOutput?.text).length
+    const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
+      talkScreenplayOutput,
+      { studioMeta: talkScreenplayContinuityStudioMeta, transcript: talkGenerationTranscript }
     );
     const talkRenderContract = {
       reply_role: hasAuthoritativeScreenplayText ? "preview" : "final",
@@ -3374,6 +5009,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkScreenplayOutput?.target) {
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
+    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
+    applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
+    applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
+    applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
+    applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
     if (talkScreenplayOutput) {
       const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
       if (screenplayOutputJson.length <= 5000) {
@@ -3388,6 +5028,14 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     }
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
+    res.setHeader(
+      "x-voice-emotion-lane",
+      encodeURIComponent(String(interactiveVoiceProfile.emotionLane || "curious_steady")),
+    );
+    res.setHeader(
+      "x-tts-voice",
+      encodeURIComponent(ttsVoiceUsed),
+    );
     res.setHeader("x-tts-filler", encodeURIComponent(ttsLeadIn || ""));
     res.setHeader("x-tts-segments", String(Math.max(1, Number(talkTtsSegmentCount || 1))));
     res.setHeader("x-tts-first-bytes", String(Math.max(0, Number(firstMp3.length || 0))));
@@ -3426,7 +5074,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.authUser?.id || req.userId || null,
+          userId: trustedUserId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
@@ -3475,38 +5123,6 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         res.setHeader("x-note-path", encodeURIComponent(String(noteCaptureResult.path)));
       }
       res.setHeader("x-note-status", String(noteCaptureResult.status || "unknown"));
-    }
-    const emailComposed = emailSendResult?.status === "composed";
-    res.setHeader("x-email-sent", "0");
-    res.setHeader("x-email-composed", emailComposed ? "1" : "0");
-    if (emailSendResult) {
-      res.setHeader("x-email-action", String(emailSendResult.action || (emailComposed ? "compose" : "none")));
-      res.setHeader("x-email-status", String(emailSendResult.status || "unknown"));
-      res.setHeader("x-email-target", String(emailSendResult.target || "none"));
-      if (emailSendResult.to) {
-        res.setHeader("x-email-to", encodeURIComponent(String(emailSendResult.to)));
-      }
-      if (emailSendResult.subject) {
-        res.setHeader("x-email-subject", encodeURIComponent(String(emailSendResult.subject)));
-      }
-      if (emailSendResult.composeUrl) {
-        res.setHeader("x-email-compose-url", encodeURIComponent(String(emailSendResult.composeUrl)));
-      }
-    }
-    const calendarComposed = calendarActionResult?.status === "composed";
-    res.setHeader("x-calendar-composed", calendarComposed ? "1" : "0");
-    if (calendarActionResult) {
-      res.setHeader("x-calendar-action", String(calendarActionResult.action || (calendarComposed ? "compose" : "none")));
-      res.setHeader("x-calendar-status", String(calendarActionResult.status || "unknown"));
-      res.setHeader("x-calendar-target", String(calendarActionResult.target || "none"));
-      res.setHeader("x-calendar-start-at", String(Math.max(0, Number(calendarActionResult.startAt || 0))));
-      res.setHeader("x-calendar-end-at", String(Math.max(0, Number(calendarActionResult.endAt || 0))));
-      if (calendarActionResult.title) {
-        res.setHeader("x-calendar-title", encodeURIComponent(String(calendarActionResult.title)));
-      }
-      if (calendarActionResult.composeUrl) {
-        res.setHeader("x-calendar-compose-url", encodeURIComponent(String(calendarActionResult.composeUrl)));
-      }
     }
     if (taskActionResult) {
       res.setHeader("x-task-action", String(taskActionResult.status || "none"));
@@ -3562,7 +5178,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
       res.setHeader(
         "Server-Timing",
-        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
@@ -3579,7 +5195,30 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         chatStreamUsed: streamChatUsed,
         talkStatus,
         lane: actionLaneMeta?.lane || "chat",
-        model: chatModelPlan.model,
+        model: effectiveChatModel,
+        modelTier: chatModelPlan.tier,
+        modelReason: chatModelPlan.reason,
+        reasoningEffort: effectiveChatReasoningEffort || "none",
+        modelFallback: chatModelFallbackUsed,
+        inputTokens: effectiveChatUsage.inputTokens,
+        outputTokens: effectiveChatUsage.outputTokens,
+        reasoningTokens: effectiveChatUsage.reasoningTokens,
+        structuralQualityApplicable: structuralQualityTrace.applicable,
+        structuralQualityPassed: structuralQualityTrace.passed,
+        structuralQualityRepaired: structuralQualityTrace.repaired,
+        structuralQualityOutcome: structuralQualityTrace.outcome,
+        structuralQualityReason: structuralQualityTrace.finalReason,
+        structuralQualityInitialScore: structuralQualityTrace.initialScore,
+        structuralQualityFinalScore: structuralQualityTrace.finalScore,
+        structuralRepairMs: structuralQualityTrace.elapsedMs,
+        ...buildScreenplayMetricFields({
+          talkScreenplayModeEnabled,
+          studioMeta,
+          talkScreenplayOutput,
+          hasAuthoritativeScreenplayText,
+          replyRepaired,
+          repairTrace: talkScreenplayRepairTrace,
+        }),
       });
       void scaleBackplane.emitTalkCommit({
         id: randomUUID(),
@@ -3596,7 +5235,17 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           streamAudio: true,
           chatStreamUsed: Boolean(streamChatUsed),
           lane: String(actionLaneMeta?.lane || "chat"),
-          model: String(chatModelPlan.model || "unknown"),
+          model: effectiveChatModel,
+          modelTier: String(chatModelPlan.tier || "unknown"),
+          reasoningEffort: effectiveChatReasoningEffort || "none",
+          modelFallback: Boolean(chatModelFallbackUsed),
+          inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
+          outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
+          reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
+          structuralQualityPassed: Boolean(structuralQualityTrace.passed),
+          structuralQualityRepaired: Boolean(structuralQualityTrace.repaired),
+          structuralQualityScore: Math.max(0, Number(structuralQualityTrace.finalScore || 0)),
+          structuralRepairMs: Math.max(0, Number(structuralQualityTrace.elapsedMs || 0)),
           speculativeReuse: Boolean(speculativeReuseApplied),
         },
       });
@@ -3621,9 +5270,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
   tts_segments=${Math.max(1, Number(talkTtsSegmentCount || 1))}
   tts_provider=${ttsProviderUsed}
   chat_stream_used=${streamChatUsed ? 1 : 0}
-  chat_model=${chatModelPlan.model}
+  chat_model=${effectiveChatModel}
   chat_tier=${chatModelPlan.tier}
   chat_reason=${chatModelPlan.reason}
+  chat_api=${effectiveChatApiMode}
+  chat_reasoning=${effectiveChatReasoningEffort || "none"}
+  chat_fallback=${chatModelFallbackUsed ? 1 : 0}
   chat_temp=${chatTemperature.toFixed(2)}
   knowledge_cards=${knowledgeCardsUsed.length}
   knowledge_semantic=${knowledgeMeta?.semanticUsed ? 1 : 0}
@@ -3663,7 +5315,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
     res.setHeader(
       "Server-Timing",
-      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
     commitTalkIdempotencySuccess(req, {
       statusCode: 200,
@@ -3680,7 +5332,30 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       chatStreamUsed: streamChatUsed,
       talkStatus,
       lane: actionLaneMeta?.lane || "chat",
-      model: chatModelPlan.model,
+      model: effectiveChatModel,
+      modelTier: chatModelPlan.tier,
+      modelReason: chatModelPlan.reason,
+      reasoningEffort: effectiveChatReasoningEffort || "none",
+      modelFallback: chatModelFallbackUsed,
+      inputTokens: effectiveChatUsage.inputTokens,
+      outputTokens: effectiveChatUsage.outputTokens,
+      reasoningTokens: effectiveChatUsage.reasoningTokens,
+      structuralQualityApplicable: structuralQualityTrace.applicable,
+      structuralQualityPassed: structuralQualityTrace.passed,
+      structuralQualityRepaired: structuralQualityTrace.repaired,
+      structuralQualityOutcome: structuralQualityTrace.outcome,
+      structuralQualityReason: structuralQualityTrace.finalReason,
+      structuralQualityInitialScore: structuralQualityTrace.initialScore,
+      structuralQualityFinalScore: structuralQualityTrace.finalScore,
+      structuralRepairMs: structuralQualityTrace.elapsedMs,
+      ...buildScreenplayMetricFields({
+        talkScreenplayModeEnabled,
+        studioMeta,
+        talkScreenplayOutput,
+        hasAuthoritativeScreenplayText,
+        replyRepaired,
+        repairTrace: talkScreenplayRepairTrace,
+      }),
     });
     void scaleBackplane.emitTalkCommit({
       id: randomUUID(),
@@ -3697,7 +5372,17 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         streamAudio: false,
         chatStreamUsed: Boolean(streamChatUsed),
         lane: String(actionLaneMeta?.lane || "chat"),
-        model: String(chatModelPlan.model || "unknown"),
+        model: effectiveChatModel,
+        modelTier: String(chatModelPlan.tier || "unknown"),
+        reasoningEffort: effectiveChatReasoningEffort || "none",
+        modelFallback: Boolean(chatModelFallbackUsed),
+        inputTokens: Math.max(0, Number(effectiveChatUsage.inputTokens || 0)),
+        outputTokens: Math.max(0, Number(effectiveChatUsage.outputTokens || 0)),
+        reasoningTokens: Math.max(0, Number(effectiveChatUsage.reasoningTokens || 0)),
+        structuralQualityPassed: Boolean(structuralQualityTrace.passed),
+        structuralQualityRepaired: Boolean(structuralQualityTrace.repaired),
+        structuralQualityScore: Math.max(0, Number(structuralQualityTrace.finalScore || 0)),
+        structuralRepairMs: Math.max(0, Number(structuralQualityTrace.elapsedMs || 0)),
         speculativeReuse: Boolean(speculativeReuseApplied),
       },
     });
@@ -3713,9 +5398,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
   tts_segments=${Math.max(1, Number(talkTtsSegmentCount || 1))}
   tts_provider=${ttsProviderUsed}
   chat_stream_used=${streamChatUsed ? 1 : 0}
-  chat_model=${chatModelPlan.model}
+  chat_model=${effectiveChatModel}
   chat_tier=${chatModelPlan.tier}
   chat_reason=${chatModelPlan.reason}
+  chat_api=${effectiveChatApiMode}
+  chat_reasoning=${effectiveChatReasoningEffort || "none"}
+  chat_fallback=${chatModelFallbackUsed ? 1 : 0}
   chat_temp=${chatTemperature.toFixed(2)}
   knowledge_cards=${knowledgeCardsUsed.length}
   knowledge_semantic=${knowledgeMeta?.semanticUsed ? 1 : 0}
@@ -3748,12 +5436,17 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     return res.send(audioBuffer);
   } catch (err) {
     const totalMs = Date.now() - t0;
-    const statusCode = Number(err?.status || 500);
-    const errStage = normalizeSnippet(String(err?.stage || "server"), 32).toLowerCase();
-    const errMessage = String(err?.message || err || "Internal server error.");
-    const safeErrMessage = normalizeSnippet(errMessage, 180);
+    const diagnostic = buildTalkFailureDiagnostics(err, {
+      requestId: rid,
+      providerStage: err?.stage || "server",
+      status: Number(err?.status || 500),
+    });
+    const statusCode = diagnostic.status;
+    const errStage = diagnostic.providerStage;
+    const safeErrMessage = diagnostic.publicMessage;
     clearTalkIdempotencyPending(req, { keepCompleted: true });
-    console.error(`[${rid}] Server error after ${totalMs}ms:`, err);
+    incrementErrorCounter(diagnostic.errorClass);
+    console.error(`[${rid}] talk_failure after ${totalMs}ms ${diagnostic.supportMessage}`);
 
     // Reliability guard: recover server-stage failures with a short fallback voice response
     // so the client isn't left with a hard 500/no-audio path.
@@ -3766,8 +5459,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           recoveryProvider = "fixture";
         }
         if (!recoveryAudio.length || !isLikelyMp3Buffer(recoveryAudio)) {
+          const recoveryPromptText = diagnostic.errorClass === "screenplay_page_quality_failed"
+            ? "Those pages did not meet my quality bar, so I left your draft unchanged. Try that page batch again."
+            : TALK_RUNTIME_RECOVERY_PROMPT_TEXT;
           const recoveryResult = await ttsSupplier.synthesizeOpenAI({
-            inputText: TALK_RUNTIME_RECOVERY_PROMPT_TEXT,
+            inputText: recoveryPromptText,
             speed: 1.0,
             voice: CLEMENTINE_PROFILE.voice.openaiVoice,
           });
@@ -3779,11 +5475,17 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           res.setHeader("Cache-Control", "no-store");
           res.setHeader("x-turn-status", "error_recovered");
           res.setHeader("x-continue-listening", "1");
-          res.setHeader("x-turn-error-stage", encodeURIComponent(errStage || "server"));
-          res.setHeader("x-turn-error-message", encodeURIComponent(safeErrMessage));
+          applyTalkFailureHeaders(res, diagnostic);
           res.setHeader("x-tts-provider", recoveryProvider);
           res.setHeader("x-tts-segments", "1");
           res.setHeader("x-turn-meta-available", "0");
+          if (diagnostic.errorClass === "screenplay_page_quality_failed") {
+            res.setHeader("x-screenplay-output-available", "0");
+            res.setHeader("x-screenplay-authoritative", "0");
+            res.setHeader("x-screenplay-sync-ready", "0");
+            res.setHeader("x-screenplay-quality-ok", "0");
+            res.setHeader("x-screenplay-repair-outcome", "exhausted");
+          }
           res.setHeader("x-schema-version", String(API_SCHEMA_VERSION));
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);
@@ -3820,14 +5522,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               streamAudio: Boolean(streamAudioRequested),
               recovered: true,
               stage: errStage || "server",
+              errorClass: diagnostic.errorClass,
               error: safeErrMessage,
             },
           });
           return res.status(200).send(recoveryAudio);
         }
       } catch (recoveryErr) {
+        const recoveryDiagnostic = buildTalkFailureDiagnostics(recoveryErr, {
+          requestId: rid,
+          providerStage: "tts",
+          status: Number(recoveryErr?.status || 500),
+        });
         console.error(
-          `[${rid}] talk_error_recovery_failed stage=${errStage || "server"} error=${normalizeSnippet(String(recoveryErr?.message || recoveryErr || "unknown"), 180)}`
+          `[${rid}] talk_error_recovery_failed stage=${errStage || "server"} class=${diagnostic.errorClass} recovery=${recoveryDiagnostic.supportMessage}`
         );
       }
     }
@@ -3859,11 +5567,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         streamAudio: Boolean(streamAudioRequested),
         error: safeErrMessage,
         stage: errStage || "server",
+        errorClass: diagnostic.errorClass,
       },
     });
-    res.setHeader("x-turn-error-stage", encodeURIComponent(errStage || "server"));
-    res.setHeader("x-turn-error-message", encodeURIComponent(safeErrMessage));
-    return res.status(statusCode).json({ stage: "server", error: errMessage });
+    applyTalkFailureHeaders(res, diagnostic);
+    return res.status(statusCode).json(buildTalkFailureBody(diagnostic));
   }
   };
 }

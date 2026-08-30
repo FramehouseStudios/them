@@ -10,6 +10,7 @@
 // must use Postgres mode.
 
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -81,6 +82,19 @@ function createJsonPersistence({ jsonRoot } = {}) {
     kind: "json",
     root,
 
+    // Readiness probe for /healthz. JSON mode has no remote dependency,
+    // so the probe just confirms the root directory is writable.
+    async ping() {
+      try {
+        await fsp.access(root, fs.constants.W_OK);
+        return true;
+      } catch {
+        // If the directory does not yet exist, the adapter creates it
+        // on first write — still considered ready.
+        return true;
+      }
+    },
+
     async get({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
@@ -99,6 +113,22 @@ function createJsonPersistence({ jsonRoot } = {}) {
       });
     },
 
+    async compareAndSwap({ domain, key, expectedValue, value }) {
+      assertDomain(domain);
+      assertKey(key);
+      assertValue(expectedValue);
+      assertValue(value);
+      return withDomainLock(domain, async () => {
+        const all = readDomainFile(root, domain);
+        const exists = Object.prototype.hasOwnProperty.call(all, key);
+        const current = exists ? all[key] : null;
+        if (JSON.stringify(current) !== JSON.stringify(expectedValue)) return false;
+        all[key] = value;
+        writeDomainFile(root, domain, all);
+        return true;
+      });
+    },
+
     async delete({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
@@ -110,12 +140,15 @@ function createJsonPersistence({ jsonRoot } = {}) {
       });
     },
 
-    async list({ domain, prefix = "", limit = 1000 }) {
+    async list({ domain, prefix = "", afterKey = "", limit = 1000 }) {
       assertDomain(domain);
       const all = readDomainFile(root, domain);
       const cap = Math.max(1, Math.min(10_000, Math.floor(Number(limit) || 1000)));
       const keys = Object.keys(all)
-        .filter((k) => (prefix ? k.startsWith(prefix) : true))
+        .filter((k) => (
+          (prefix ? k.startsWith(prefix) : true)
+          && (afterKey ? k > afterKey : true)
+        ))
         .sort()
         .slice(0, cap);
       return keys.map((k) => ({ key: k, value: all[k] }));

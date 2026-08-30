@@ -287,10 +287,16 @@ extension HerDirectorContext {
             "full scene", "full script", "full sequence", "play the whole scene",
             "write the whole scene", "write the full scene", "make it longer",
             "more beats", "more dialogue", "more pages", "three pages", "3 pages",
-            "five pages", "5 pages", "pilot", "feature version"
+            "five pages", "5 pages", "pilot", "feature version",
+            "feature-length", "feature length", "feature film", "feature screenplay",
+            "whole movie", "whole screenplay", "whole script", "entire movie",
+            "entire screenplay", "finish the movie", "finish this movie",
+            "finish the feature", "finish this feature", "act two", "second act",
+            "act three", "third act", "final sequence", "third-act"
         ]) || affirmedAny([
             "keep going", "play it out", "let the scene breathe", "stretch this moment",
-            "write a longer scene", "give me a full scene"
+            "write a longer scene", "give me a full scene",
+            "finish my feature", "finish my screenplay", "shape the whole movie"
         ], in: t)
 
         let canUseRomanticAmbiguity = (store.stage >= 3 && store.romanceTension >= 2.0)

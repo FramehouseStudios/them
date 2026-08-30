@@ -5,18 +5,24 @@ import os
 @main
 struct themApp: App {
     init() {
-        #if DEBUG || os(macOS)
+        #if DEBUG
+        UITestLaunchConfiguration.applyIfNeeded()
+        #endif
+
+        #if DEBUG
         #if os(macOS)
-        let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
-        UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
-        UserDefaults.standard.synchronize()
-        let launchProbeMirrorDomain = "io.them.them"
-        let appDefaultsDomain = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if launchProbeMirrorDomain != appDefaultsDomain {
-            UserDefaults(suiteName: launchProbeMirrorDomain)?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
-            UserDefaults(suiteName: launchProbeMirrorDomain)?.synchronize()
+        if IOThemRuntime.isStudioEvalSession {
+            let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
+            UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+            UserDefaults.standard.synchronize()
+            let launchProbeMirrorDomain = "io.them.them"
+            let appDefaultsDomain = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if launchProbeMirrorDomain != appDefaultsDomain {
+                UserDefaults(suiteName: launchProbeMirrorDomain)?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+                UserDefaults(suiteName: launchProbeMirrorDomain)?.synchronize()
+            }
+            _ = StudioDebugDefaultsBridge.shared
         }
-        _ = StudioDebugDefaultsBridge.shared
         #endif
         #endif
         configureAudioSession()
@@ -24,8 +30,20 @@ struct themApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if os(macOS)
             ContentView()
+                .frame(minWidth: 1_200, minHeight: 800)
+            #else
+            ContentView()
+            #endif
         }
+        #if os(macOS)
+        .defaultSize(width: 1_360, height: 860)
+        .windowResizability(.contentMinSize)
+        .commands {
+            ThemWorkspaceCommands()
+        }
+        #endif
     }
 
     private func configureAudioSession() {

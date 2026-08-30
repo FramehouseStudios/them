@@ -96,6 +96,14 @@ for (const impl of makeImplementations()) {
     assert.equal(r.sessionConfig.type, "realtime");
     assert.ok(r.sessionConfig.model);
     assert.ok(r.sessionConfig.audio?.output?.voice);
+    assert.deepEqual(r.sessionConfig.audio?.input?.turn_detection, {
+      type: "server_vad",
+      threshold: 0.45,
+      prefix_padding_ms: 300,
+      silence_duration_ms: 360,
+      create_response: true,
+      interrupt_response: true,
+    });
   });
 
   test(`[${impl.name}] buildSessionConfig is callable without minting`, async () => {

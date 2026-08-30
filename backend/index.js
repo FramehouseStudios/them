@@ -20,6 +20,7 @@ import {
   BACKEND_BUILD,
   CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT,
   DEFAULT_ASSISTANT_SELF_NAME,
+  HOST,
   JWT_SECRET,
   JWT_TTL_SECONDS,
   MAX_FILE_MB,
@@ -30,23 +31,29 @@ import {
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
   SHOULD_START_SERVER,
+  STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
+  assertProductionEnv,
 } from "./config.js";
 import {
   cleanupUserMemoryStore,
   configureMemoryStore,
   getPersistedIpForClientToken,
   getPersistedUserMemoryForClientToken,
+  getPersistedUserMemoryForUserId,
   getPersistedUserMemoryForIp,
   loadUserMemoryStore,
   loadUserMemoryStoreFromAdapter,
   sanitizePersistedSessionMemory,
   sanitizeClientTokenAliasList,
+  selectFreshestSessionMemory,
   saveUserMemoryStore,
   setPersistedUserMemoryForIp,
+  setPersistedUserMemoryForUserId,
   userMemoryByClientToken,
   userMemoryByIp,
+  userMemoryByUserId,
 } from "./lib/memory_store.js";
 import {
   buildOutboxActionKey,
@@ -58,16 +65,43 @@ import {
   runOutboxWorkerTick,
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
-import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
+import { applyClementineVoiceDirection } from "./lib/clementine_voice_director.js";
+import {
+  buildCharacterFieldProvenance,
+  buildProjectFieldProvenance,
+  createCreativeMemoryStore,
+  extractWriterCanonStructuredTargets,
+} from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
-import { mountCreativeMemoryExportRoute } from "./lib/creative_memory_export_route.js";
 import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
+import { mountApiVersionRoute } from "./lib/api_version_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
-import { createTalkHandler } from "./lib/talk_handler.js";
+import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
+import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
+import { normalizeStudioTextOutput } from "./lib/studio_text_output.js";
+import {
+  classifyScreenplayLines,
+  evaluateMomentumRescueQuality,
+  evaluateScreenplayPageQuality,
+} from "./lib/screenplay_page_quality.js";
+import { buildFeatureStoryGraph } from "./lib/feature_story_graph.js";
+import {
+  evaluateScreenplayCanonContinuity,
+  normalizeAcceptedCausalFacts,
+} from "./lib/screenplay_canon_guard.js";
+import { selectPendingScreenplayLearningQuestion } from "./lib/screenplay_question_planner.js";
+import { normalizeStoryMovePreferenceOverrides } from "./lib/story_rescue_move_library.js";
+import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
+import {
+  buildTalkScreenplayQualityAlert,
+  deriveTalkScreenplayQualitySignal,
+  normalizeTalkScreenplayMetricSample,
+  summarizeTalkScreenplayMetrics,
+} from "./lib/talk_screenplay_metrics.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
@@ -76,17 +110,41 @@ import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
+import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
+import { mountSessionEvolutionRoute } from "./lib/session_evolution_route.js";
+import { restoreAuthenticatedSessionMemory } from "./lib/session_memory_restore.js";
+import { mountStateRoute } from "./lib/state_route.js";
+import { mountDataRoutes } from "./lib/data_routes.js";
+import { mountOutboxRoutes } from "./lib/outbox_routes.js";
+import { mountHistoryRoutes } from "./lib/history_routes.js";
+import { mountRecapRoutes } from "./lib/recap_routes.js";
+import { mountTasksRoutes } from "./lib/tasks_routes.js";
+import { createReadStateHelpers } from "./lib/read_state.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
-import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
+import {
+  buildModelPrompt,
+  buildModelPromptParts,
+  inferScreenplayTask,
+  MEMORY_BLOCK_OPEN,
+} from "./lib/prompt_assembly.js";
+import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase } from "./lib/system_prompt_trim.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
 import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
+import {
+  normalizeOpenAITextResponseRaw,
+  normalizeReasoningEffort,
+  parseOpenAITextStreamLine,
+  requestOpenAIText,
+} from "./lib/openai_text_generation.js";
 import { probeSupplierShape, probeSupplierLive, createSupplierHealthCache } from "./lib/realtime_supplier_health.js";
 import { mintWithFailover } from "./lib/realtime_supplier_failover.js";
 import {
+  commitScreenplayOwnerMutation,
   configureScreenplayStore,
   ensureScreenplayOutline,
   getLatestScreenplayVersion,
@@ -96,9 +154,17 @@ import {
   loadScreenplayStoreFromAdapter,
   markScreenplayOwnerDirty,
   recalculateScreenplayProject,
+  refreshScreenplayOwnerRecord,
+  saveScreenplayStore,
   screenplayStoreByOwner,
+  tombstoneScreenplayOwnerRecord,
 } from "./lib/screenplay_store.js";
+import {
+  normalizeOutlineMutationReceipts,
+  normalizeOutlineRevision,
+} from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { createTalkHandler } from "./lib/talk_handler.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
@@ -106,13 +172,26 @@ import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
-import { mountAuthRoutes } from "./lib/auth_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
 import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
+import { structuralScreenplayModelReasonForTask } from "./lib/structural_screenplay_quality.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { createAccountMemoryCAS } from "./lib/account_memory_cas.js";
+import {
+  createAccountMemoryMutationCommitter,
+  createAccountMemoryTurnCommitter,
+} from "./lib/account_memory_turn_commit.js";
+import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
+import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
+import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
+import {
+  createAccountPurgeWorker,
+  listPersistenceRowsPaginated,
+  purgePersistenceRowsForUser,
+} from "./lib/account_purge_worker.js";
 import {
   createTalkRateLimitGuard,
   createTalkIdempotencyGuard,
@@ -128,15 +207,20 @@ import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifi
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
-import { mountOutboxRoutes } from "./lib/outbox_routes.js";
-import { mountStateRoute } from "./lib/state_route.js";
-import { mountDataRoutes } from "./lib/data_routes.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
+  deleteUserById,
+  flushUserStorePersistenceWrites,
+  loadUserStoreFromAdapter,
   loadUserStore,
+  revokeAllAuthSessionsForUserDurably,
+  runUserStoreMutationExclusive,
+  saveUserStore,
 } from "./lib/user_store.js";
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
+import { createRateLimiter } from "./lib/rate_limit.js";
+import { createProviderBudgetGuard } from "./lib/provider_budget.js";
 import {
   clampUnit,
   createRequestId,
@@ -155,13 +239,27 @@ import {
   writeJsonFileAtomic,
 } from "./lib/utils.js";
 
+// Validate the deployment shape before opening stores or starting background
+// work. Production and unknown environment names must fail on configuration,
+// not on whichever persistence/provider subsystem initializes first.
+if (SHOULD_START_SERVER) {
+  try {
+    assertProductionEnv();
+  } catch (error) {
+    console.error(String(error?.message || error));
+    process.exit(1);
+  }
+}
+
 const ALLOWED_TTS_VOICES = new Set([
   "alloy",
   "ash",
   "ballad",
+  "cedar",
   "coral",
   "echo",
   "fable",
+  "marin",
   "nova",
   "onyx",
   "sage",
@@ -184,8 +282,20 @@ const ALLOWED_REALTIME_VOICES = new Set([
   "verse",
 ]);
 
+app.set("trust proxy", 1);
+
 const TALK_RATE_LIMIT_MAX = parsePositiveInt(process.env.TALK_RATE_LIMIT_MAX, 40);
 const TALK_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.TALK_RATE_LIMIT_WINDOW_MS, 60_000);
+const AUTH_RATE_LIMIT_MAX = parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30);
+const AUTH_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 60_000);
+const REALTIME_RATE_LIMIT_MAX = parsePositiveInt(process.env.REALTIME_RATE_LIMIT_MAX, 30);
+const REALTIME_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.REALTIME_RATE_LIMIT_WINDOW_MS, 60_000);
+const PROVIDER_RATE_LIMIT_MAX = parsePositiveInt(process.env.PROVIDER_RATE_LIMIT_MAX, 60);
+const PROVIDER_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.PROVIDER_RATE_LIMIT_WINDOW_MS, 60_000);
+const PROVIDER_DAILY_BUDGET_LIMIT = parsePositiveInt(process.env.PROVIDER_DAILY_BUDGET_LIMIT, 500);
+const PROVIDER_BUDGET_ENABLED = process.env.PROVIDER_BUDGET_ENABLED == null
+  ? true
+  : parseBool(process.env.PROVIDER_BUDGET_ENABLED);
 const TALK_MAX_IN_FLIGHT = parsePositiveInt(process.env.TALK_MAX_IN_FLIGHT, 3);
 const TALK_SESSION_SERIAL_ENABLED = process.env.TALK_SESSION_SERIAL_ENABLED == null
   ? true
@@ -235,6 +345,7 @@ const TALK_TURN_META_MAX_ENTRIES = parsePositiveInt(
   process.env.TALK_TURN_META_MAX_ENTRIES,
   4_000
 );
+const TALK_TURN_META_SCREENPLAY_MAX_CHARS = 32_000;
 const TALK_TEST_DEBUG_TRANSCRIPT_ENABLED = process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED == null
   ? false
   : parseBool(process.env.TALK_TEST_DEBUG_TRANSCRIPT_ENABLED);
@@ -292,6 +403,10 @@ const EMPTY_TRANSCRIPT_VOICE_PROMPT_TEXT = String(
   process.env.EMPTY_TRANSCRIPT_VOICE_PROMPT_TEXT || CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT
 ).trim();
 const CHAT_TIMEOUT_MS = parsePositiveInt(process.env.CHAT_TIMEOUT_MS, 30_000);
+const CHAT_STRUCTURAL_TIMEOUT_MS = Math.max(
+  CHAT_TIMEOUT_MS,
+  parsePositiveInt(process.env.CHAT_STRUCTURAL_TIMEOUT_MS, 90_000)
+);
 const TTS_TIMEOUT_MS = parsePositiveInt(process.env.TTS_TIMEOUT_MS, 30_000);
 const TALK_THINKING_MIN_MS = parseNonNegativeInt(process.env.TALK_THINKING_MIN_MS, 0);
 const TALK_THINKING_MAX_MS = Math.max(
@@ -339,7 +454,16 @@ const RICH_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
     parsePositiveInt(process.env.RICH_TURN_SYSTEM_PROMPT_MAX_CHARS, 6_200)
   )
 );
+const STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
+  RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+  Math.min(
+    MAX_SYSTEM_PROMPT_CHARS,
+    parsePositiveInt(process.env.STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS, 10_000)
+  )
+);
 const CHAT_MAX_TOKENS = parsePositiveInt(process.env.CHAT_MAX_TOKENS, 124);
+const CHAT_SCREENPLAY_PAGE_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 900);
+const CHAT_SCREENPLAY_BATCH_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_BATCH_MAX_TOKENS, 3200);
 const CHAT_TEMPERATURE = parseNumberInRange(process.env.CHAT_TEMPERATURE, 0, 2, 0.45);
 const USER_NAME_MENTION_EVERY_TURNS = Math.max(
   2,
@@ -347,13 +471,22 @@ const USER_NAME_MENTION_EVERY_TURNS = Math.max(
 );
 const CHAT_MODEL_FAST = String(process.env.CHAT_MODEL_FAST || "gpt-4o-mini").trim();
 const CHAT_MODEL_RICH = String(process.env.CHAT_MODEL_RICH || "gpt-4o").trim();
-// Knowledge-tier turns require accurate, substantive, structured answers
-// (art history, philosophy + criticism, evidence-based learning science).
-// Default to the knowledge-grade rich model, not the fast/mini model:
-// the prior CHAT_MODEL_FAST default under-served knowledge answers in
-// production while the regression eval force-riches — a prod/eval
-// divergence. Env override still wins.
 const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_RICH).trim();
+const CHAT_STRUCTURAL_REASONING_ENABLED = process.env.CHAT_STRUCTURAL_REASONING_ENABLED == null
+  ? true
+  : parseBool(process.env.CHAT_STRUCTURAL_REASONING_ENABLED);
+const CHAT_MODEL_STRUCTURAL = String(process.env.CHAT_MODEL_STRUCTURAL || "gpt-5.6-sol").trim();
+const CHAT_MODEL_STRUCTURAL_FALLBACK = String(
+  process.env.CHAT_MODEL_STRUCTURAL_FALLBACK || CHAT_MODEL_RICH
+).trim();
+const CHAT_STRUCTURAL_REASONING_EFFORT = normalizeReasoningEffort(
+  process.env.CHAT_STRUCTURAL_REASONING_EFFORT,
+  "low"
+);
+const CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT = normalizeReasoningEffort(
+  process.env.CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT,
+  "medium"
+);
 const VISUAL_CONTEXT_MODEL = String(process.env.VISUAL_CONTEXT_MODEL || CHAT_MODEL_FAST).trim();
 const VISUAL_CONTEXT_TIMEOUT_MS = parsePositiveInt(process.env.VISUAL_CONTEXT_TIMEOUT_MS, 7_500);
 const VISUAL_CONTEXT_SUMMARY_MAX_CHARS = parsePositiveInt(
@@ -394,22 +527,6 @@ const NOTE_CAPTURE_FALLBACK_DIR = path.resolve(
       path.join(process.env.HOME || process.cwd(), "Documents", "Clementine Notes")
   ).trim()
 );
-const ENABLE_LOCAL_EMAIL_SEND = process.env.ENABLE_LOCAL_EMAIL_SEND == null
-  ? true
-  : parseBool(process.env.ENABLE_LOCAL_EMAIL_SEND);
-const EMAIL_COMPOSE_TARGETS = new Set(["mailto", "gmail", "outlook", "yahoo"]);
-const EMAIL_SEND_TARGET_RAW = String(
-  process.env.EMAIL_SEND_TARGET || process.env.EMAIL_COMPOSE_TARGET || "mailto"
-).trim().toLowerCase();
-const EMAIL_SEND_TARGET = parseOneOf(
-  EMAIL_SEND_TARGET_RAW === "apple_mail" ? "mailto" : EMAIL_SEND_TARGET_RAW,
-  EMAIL_COMPOSE_TARGETS,
-  "mailto"
-);
-const EMAIL_COMPOSE_BODY_MAX_CHARS = parsePositiveInt(
-  process.env.EMAIL_COMPOSE_BODY_MAX_CHARS,
-  1800
-);
 const LOCAL_ACTION_MIN_STT_CONFIDENCE = parseNumberInRange(
   process.env.LOCAL_ACTION_MIN_STT_CONFIDENCE,
   0,
@@ -420,45 +537,9 @@ const LOCAL_ACTION_DEDUPE_WINDOW_MS = parsePositiveInt(
   process.env.LOCAL_ACTION_DEDUPE_WINDOW_MS,
   45_000
 );
-const CALENDAR_COMPOSE_TARGETS = new Set(["google", "outlook", "ics"]);
-const CALENDAR_COMPOSE_TARGET = parseOneOf(
-  String(process.env.CALENDAR_COMPOSE_TARGET || "google").trim().toLowerCase(),
-  CALENDAR_COMPOSE_TARGETS,
-  "google"
-);
 const TASKS_MAX_STORED = parsePositiveInt(process.env.TASKS_MAX_STORED, 240);
 const TASKS_LIST_DEFAULT_LIMIT = parsePositiveInt(process.env.TASKS_LIST_DEFAULT_LIMIT, 80);
 const DAILY_RECAP_HOUR_LOCAL = parsePositiveInt(process.env.DAILY_RECAP_HOUR_LOCAL, 9);
-const SECRETARY_EMAIL_FOLLOWUP_ENABLED = process.env.SECRETARY_EMAIL_FOLLOWUP_ENABLED == null
-  ? true
-  : parseBool(process.env.SECRETARY_EMAIL_FOLLOWUP_ENABLED);
-const SECRETARY_EMAIL_ENDPOINT_ENABLED = process.env.SECRETARY_EMAIL_ENDPOINT_ENABLED == null
-  ? true
-  : parseBool(process.env.SECRETARY_EMAIL_ENDPOINT_ENABLED);
-const SECRETARY_CALENDAR_ENDPOINT_ENABLED = process.env.SECRETARY_CALENDAR_ENDPOINT_ENABLED == null
-  ? true
-  : parseBool(process.env.SECRETARY_CALENDAR_ENDPOINT_ENABLED);
-const SECRETARY_EMAIL_DRAFT_MODEL = String(
-  process.env.SECRETARY_EMAIL_DRAFT_MODEL || CHAT_MODEL_FAST
-).trim();
-const SECRETARY_EMAIL_DRAFT_TIMEOUT_MS = parsePositiveInt(
-  process.env.SECRETARY_EMAIL_DRAFT_TIMEOUT_MS,
-  2500
-);
-const LINKEDIN_ANALYSIS_ENABLED = process.env.LINKEDIN_ANALYSIS_ENABLED == null
-  ? true
-  : parseBool(process.env.LINKEDIN_ANALYSIS_ENABLED);
-const LINKEDIN_ANALYSIS_MODEL = String(
-  process.env.LINKEDIN_ANALYSIS_MODEL || CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_FAST
-).trim();
-const LINKEDIN_ANALYSIS_TIMEOUT_MS = parsePositiveInt(
-  process.env.LINKEDIN_ANALYSIS_TIMEOUT_MS,
-  6000
-);
-const LINKEDIN_ANALYSIS_MAX_CHARS = parsePositiveInt(
-  process.env.LINKEDIN_ANALYSIS_MAX_CHARS,
-  12000
-);
 const ENDING_QUESTION_RATE = parseNumberInRange(process.env.ENDING_QUESTION_RATE, 0, 1, 0.10);
 const VENTING_QUESTION_RATE = parseNumberInRange(process.env.VENTING_QUESTION_RATE, 0, 1, 0.72);
 const ADAPTIVE_INTELLIGENCE_ENABLED = process.env.ADAPTIVE_INTELLIGENCE_ENABLED == null
@@ -1446,6 +1527,17 @@ const SOCIAL_SPARK_REFERENCE_COOLDOWN_TURNS = Math.max(
 const USER_MEMORY_STORE_PATH = resolveStorePath(
   "user_memory_store.json",
   process.env.USER_MEMORY_STORE_PATH
+);
+const SCREENPLAY_PROJECT_MEMORY_MAX = Math.max(
+  3,
+  parsePositiveInt(process.env.SCREENPLAY_PROJECT_MEMORY_MAX, 8)
+);
+const SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX = Math.max(
+  1,
+  Math.min(
+    4,
+    parsePositiveInt(process.env.SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX, 3)
+  )
 );
 const SCALE_REDIS_URL = String(process.env.REDIS_URL || process.env.SCALE_REDIS_URL || "").trim();
 const SCALE_POSTGRES_URL = String(process.env.DATABASE_URL || process.env.SCALE_POSTGRES_URL || "").trim();
@@ -2888,7 +2980,31 @@ console.log(`[persistence] kind=${sharedPersistence.kind}`);
 // T08 + T08-postgres: creative memory tier — per-user style/characters/
 // tone/habits. Persistence-adapter-backed (Postgres when DATABASE_URL
 // is set, JSON-file otherwise via the shared adapter from T07).
-const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
+const creativeMemoryStore = createCreativeMemoryStore({
+  persistence: sharedPersistence,
+  embeddingModel: KNOWLEDGE_RAG_EMBEDDING_MODEL,
+  embedTexts: KNOWLEDGE_RAG_EMBEDDINGS_ENABLED
+    ? (inputs) => fetchKnowledgeEmbeddings(inputs, {
+      timeoutMs: KNOWLEDGE_RAG_EMBEDDING_TIMEOUT_MS,
+    })
+    : null,
+  embedQuery: KNOWLEDGE_RAG_EMBEDDINGS_ENABLED
+    ? async (query) => {
+      const embedding = await getKnowledgeQueryEmbedding(query, {
+        timeoutMs: Math.min(KNOWLEDGE_RAG_QUERY_TIMEOUT_MS, 650),
+      });
+      return embedding ? { ...embedding, model: KNOWLEDGE_RAG_EMBEDDING_MODEL } : null;
+    }
+    : null,
+  renderAcceptedSceneState: NODE_ENV === "test" || !OPENAI_API_KEY
+    ? null
+    : ({ systemPrompt, userPrompt, modelTier, maxTokens }) => renderStudioRealtimeText({
+      systemPrompt,
+      transcript: userPrompt,
+      modelTier,
+      maxTokens,
+    }),
+});
 
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
@@ -2907,48 +3023,1688 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-// T08w-triggers: fire creative-memory write triggers from a /talk turn.
-// Best-effort, fire-and-forget — never blocks the response. Uses
-// transcript candidates from req.body to detect character mentions and
-// capture lexical phrases. Reply-side detection is a follow-up that
-// requires capturing the final assembled reply; user-side signals here
-// are reliable and the highest-leverage starting point.
-function recordCreativeMemoryTriggersForRequest(req) {
-  const userId = req?.user?.id || null;
+// T08w-triggers: persist creative-memory writes from a completed turn.
+// Callers can overlap this promise with response work, then await its receipt
+// when they need to expose a durable canon clarification.
+// Uses trusted auth identity, final transcript, final reply/page text,
+// and project metadata so generated screenplay pages become continuity.
+function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studioMeta = turn?.studioMeta && typeof turn.studioMeta === "object"
+    ? turn.studioMeta
+    : sanitizeStudioTurnMetadata(body || null);
+  const screenplayOutput = turn?.screenplayOutput && typeof turn.screenplayOutput === "object"
+    ? turn.screenplayOutput
+    : null;
   const transcriptCandidates = [
-    req?.body?.client_transcript,
-    req?.body?.clientTranscript,
-    req?.body?.transcript,
-    req?.body?.debug_transcript,
-    req?.body?.debugTranscript,
+    turn?.transcript,
+    body.client_transcript,
+    body.clientTranscript,
+    body.transcript,
+    body.debug_transcript,
+    body.debugTranscript,
   ];
   const transcript = transcriptCandidates
     .map((t) => (typeof t === "string" ? t : ""))
     .find((t) => t.trim().length > 0) || "";
-  if (!transcript) return Promise.resolve({ skipped: true, reason: "no transcript" });
-  const startedAt = Number(req?.body?.session_started_at) || Number(req?.body?.sessionStartedAt) || null;
+  const replyCandidates = [
+    turn?.reply,
+    turn?.pageText,
+    screenplayOutput?.text,
+    body.reply,
+  ];
+  const reply = replyCandidates
+    .map((t) => (typeof t === "string" ? t : ""))
+    .find((t) => t.trim().length > 0) || "";
+  if (!transcript && !reply) {
+    return Promise.resolve({ skipped: true, reason: "no transcript_or_reply" });
+  }
+  const startedAt = Number(turn?.sessionStartedAt) ||
+    Number(body.session_started_at) ||
+    Number(body.sessionStartedAt) ||
+    null;
+  const turnStartedAt = Number(turn?.turnStartedAt) || Date.now();
+  const durationMs = Number(turn?.sessionDurationMs) ||
+    Number(body.session_duration_ms) ||
+    Number(body.sessionDurationMs) ||
+    null;
+  const projectId = normalizeSnippet(
+    turn?.projectId ??
+      body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id ??
+      studioMeta?.screenplayProjectId,
+    96
+  );
+  const projectTitle = normalizeSnippet(
+    turn?.projectTitle ??
+      body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
+  const projectContinuity = studioMeta && (projectId || projectTitle)
+    ? {
+      projectId,
+      projectTitle,
+      act: studioMeta.screenplayAct,
+      featureSequence: studioMeta.screenplayFeatureSequence,
+      featureObligation: studioMeta.screenplayFeatureObligation,
+      actPressureState: studioMeta.screenplayActPressureState,
+      sceneObjective: studioMeta.screenplaySceneObjective,
+      sceneSummary: studioMeta.screenplaySceneSummary,
+      currentBeat: studioMeta.screenplayCurrentBeat,
+      lastSceneOutcome: studioMeta.screenplayLastSceneOutcome,
+      nextScenePlan: studioMeta.screenplayNextScenePlan,
+      logline: studioMeta.screenplayLogline,
+      themeArgument: studioMeta.screenplayThemeArgument,
+      centralQuestion: studioMeta.screenplayCentralQuestion,
+      protagonistWant: studioMeta.screenplayProtagonistWant,
+      protagonistNeed: studioMeta.screenplayProtagonistNeed,
+      antagonisticForce: studioMeta.screenplayAntagonisticForce,
+      endingImage: studioMeta.screenplayEndingImage,
+      characterArcState: studioMeta.screenplayCharacterArcState,
+      emotionalContinuity: studioMeta.screenplayEmotionalContinuity,
+      nextSceneMoves: studioMeta.screenplayNextSceneMoves,
+      nextThreeTurns: studioMeta.screenplayNextThreeTurns,
+      beatSequence: studioMeta.screenplayBeatSequence,
+      actThreePayoffPath: studioMeta.screenplayActThreePayoffPath,
+      unresolvedSetups: studioMeta.screenplayUnresolvedSetups,
+      unresolvedStoryThreads: studioMeta.screenplayUnresolvedStoryThreads,
+      characterFocus: studioMeta.screenplayCharacterFocus,
+      characterArcTurns: studioMeta.screenplayCharacterArcTurns,
+      imageMotifs: studioMeta.screenplayImageMotifs,
+      continuityNotes: studioMeta.screenplayContinuityNotes,
+      correctedTerms: studioMeta.screenplayCorrectedTerms,
+      correctionReplacements: studioMeta.screenplayCorrectionReplacements,
+      pageCount: studioMeta.screenplayPageCount,
+      targetPages: studioMeta.screenplayTargetPages,
+    }
+    : null;
+  const source = normalizeSnippet(
+    turn?.source ||
+      (screenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn"),
+    64
+  );
+  const acceptedPageText = String(
+    turn?.acceptedPageText ??
+      studioMeta?.screenplayInsertedText ??
+      body.screenplayInsertedText ??
+      body.screenplay_inserted_text ??
+      ""
+  ).trim().slice(0, 20_000);
+  const characterArcMemories = Array.isArray(studioMeta?.screenplayCharacterArcMemories) &&
+    studioMeta.screenplayCharacterArcMemories.length
+    ? studioMeta.screenplayCharacterArcMemories
+    : studioMeta?.screenplayCharacterArcMemory
+      ? [studioMeta.screenplayCharacterArcMemory]
+      : [];
+  const acceptedSceneContext = studioMeta
+    ? {
+      writeId: studioMeta.screenplayWriteId,
+      anchorSceneId: studioMeta.screenplayAnchorDraftSceneId || studioMeta.screenplayAnchorOutlineSceneId,
+      sceneLabel: studioMeta.screenplayAnchorSceneLabel,
+      documentRevisionId: studioMeta.screenplayDocumentRevisionId,
+    }
+    : null;
   return creativeMemoryStore.recordTriggersFromTalkTurn({
     userId,
     transcript,
-    reply: "",
+    reply,
     sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+    turnStartedAt,
+    sessionDurationMs: Number.isFinite(durationMs) ? durationMs : null,
+    projectId,
+    projectTitle,
+    projectContinuity,
+    characterArcMemories,
+    acceptedSceneContext,
+    acceptedPageText,
+    source,
+    learningContext: turn?.learningContext,
+    questionInteraction: turn?.questionInteraction,
   });
 }
 
-async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
-  if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) return systemPrompt;
-  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
-  if (!userId) return systemPrompt;
-  const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
-  if (!memory) return systemPrompt;
+function parseTalkScreenplayContextList(value, maxItems = 8, maxChars = 180) {
+  if (Array.isArray(value)) return normalizeScreenplayStringList(value, maxItems, maxChars);
+  const raw = String(value ?? "").trim();
+  if (!raw) return [];
+  if (raw.startsWith("[") || raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw);
+      return normalizeScreenplayStringList(Array.isArray(parsed) ? parsed : [], maxItems, maxChars);
+    } catch (_err) {
+      // Fall through to delimiter parsing.
+    }
+  }
+  return normalizeScreenplayStringList(
+    raw.split(/\r?\n|;|,/).map((item) => item.trim()),
+    maxItems,
+    maxChars
+  );
+}
 
+function parseTalkScreenplayCharacterArcMemory(value) {
+  if (!value) return null;
+  let source = value;
+  if (Array.isArray(source)) {
+    source = source.find((item) => item && typeof item === "object") || null;
+  }
+  if (!source) return null;
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return null;
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        return parseTalkScreenplayCharacterArcMemory(JSON.parse(raw));
+      } catch (_err) {
+        // Fall through to key/value parsing.
+      }
+    }
+    const parsed = {};
+    for (const part of raw.split(/\r?\n|;/)) {
+      const match = part.match(/^\s*([A-Za-z][A-Za-z0-9_\-\s]{1,40})\s*:\s*(.+?)\s*$/);
+      if (!match) continue;
+      const key = match[1]
+        .trim()
+        .replace(/[-\s]+([a-zA-Z0-9])/g, (_all, ch) => ch.toUpperCase())
+        .replace(/^([A-Z])/, (_all, ch) => ch.toLowerCase());
+      parsed[key] = match[2].trim();
+    }
+    source = parsed;
+  }
+  if (!source || typeof source !== "object") return null;
+
+  const arc = source.bible?.arc && typeof source.bible.arc === "object"
+    ? source.bible.arc
+    : (source.arc && typeof source.arc === "object" ? source.arc : source);
+  const clean = {
+    character: normalizeSnippet(
+      source.character ?? source.characterName ?? source.character_name ?? source.name ?? arc.character ?? arc.characterName ?? arc.character_name ?? "",
+      80
+    ),
+    act: normalizeSnippet(arc.act ?? arc.currentAct ?? arc.current_act ?? "", 80),
+    want: normalizeSnippet(arc.want ?? arc.externalWant ?? arc.external_want ?? "", 180),
+    need: normalizeSnippet(arc.need ?? arc.innerNeed ?? arc.inner_need ?? "", 180),
+    wound: normalizeSnippet(arc.wound ?? arc.ghost ?? arc.trauma ?? "", 180),
+    falseBelief: normalizeSnippet(arc.falseBelief ?? arc.false_belief ?? arc.lie ?? arc.misbelief ?? "", 180),
+    relationshipPressure: normalizeSnippet(
+      arc.relationshipPressure ?? arc.relationship_pressure ?? arc.relationalPressure ?? arc.relational_pressure ?? "",
+      180
+    ),
+    currentTactic: normalizeSnippet(arc.currentTactic ?? arc.current_tactic ?? arc.tactic ?? "", 180),
+    nextEmotionalTurn: normalizeSnippet(
+      arc.nextEmotionalTurn ?? arc.next_emotional_turn ?? arc.emotionalTurn ?? arc.emotional_turn ?? arc.nextTurn ?? arc.next_turn ?? "",
+      180
+    ),
+  };
+  const hasSignal = Object.entries(clean)
+    .some(([key, val]) => key !== "character" && key !== "act" && Boolean(val));
+  return hasSignal ? clean : null;
+}
+
+function parseTalkScreenplayCharacterArcMemoryItems(value, maxItems = 8) {
+  if (!value) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (candidate) => {
+    const clean = parseTalkScreenplayCharacterArcMemory(candidate);
+    if (!clean) return;
+    const key = [
+      clean.character,
+      clean.act,
+      clean.want,
+      clean.need,
+      clean.wound,
+      clean.falseBelief,
+      clean.relationshipPressure,
+      clean.currentTactic,
+      clean.nextEmotionalTurn,
+    ].join("|").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return [];
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      try {
+        return parseTalkScreenplayCharacterArcMemoryItems(JSON.parse(raw), maxItems);
+      } catch (_err) {
+        push(raw);
+        return out;
+      }
+    }
+    push(raw);
+    return out.slice(0, Math.max(1, Number(maxItems || 8)));
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      push(item);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  if (value && typeof value === "object") {
+    const nested =
+      value.characterBibles ??
+      value.character_bibles ??
+      value.characters ??
+      value.arcs ??
+      value.items ??
+      null;
+    if (Array.isArray(nested)) {
+      for (const item of nested) {
+        push(item);
+        if (out.length >= maxItems) break;
+      }
+      return out;
+    }
+    push(value);
+  }
+
+  return out.slice(0, Math.max(1, Number(maxItems || 8)));
+}
+
+function parseTalkScreenplayCharacterVoiceMemory(value) {
+  if (!value) return null;
+  let source = value;
+  if (Array.isArray(source)) {
+    source = source.find((item) => item && typeof item === "object") || null;
+  }
+  if (!source) return null;
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return null;
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        return parseTalkScreenplayCharacterVoiceMemory(JSON.parse(raw));
+      } catch (_err) {
+        return null;
+      }
+    }
+    return null;
+  }
+  if (!source || typeof source !== "object") return null;
+
+  const nestedTraits = source.traits && typeof source.traits === "object" ? source.traits : null;
+  const fingerprint =
+    (source.voice_fingerprint && typeof source.voice_fingerprint === "object" ? source.voice_fingerprint : null) ||
+    (source.voiceFingerprint && typeof source.voiceFingerprint === "object" ? source.voiceFingerprint : null) ||
+    (nestedTraits?.voice_fingerprint && typeof nestedTraits.voice_fingerprint === "object" ? nestedTraits.voice_fingerprint : null) ||
+    (nestedTraits?.voiceFingerprint && typeof nestedTraits.voiceFingerprint === "object" ? nestedTraits.voiceFingerprint : null) ||
+    source;
+  const character = normalizeSnippet(
+    source.character ?? source.characterName ?? source.character_name ?? source.name ?? fingerprint.character ?? fingerprint.characterName ?? fingerprint.character_name ?? "",
+    80
+  );
+  const voiceFingerprint = {
+    tactics: normalizeScreenplayStringList(
+      fingerprint.tactics ?? fingerprint.dialogueTactics ?? fingerprint.dialogue_tactics,
+      6,
+      80
+    ),
+    silence: normalizeSnippet(
+      fingerprint.silence ?? fingerprint.silencePattern ?? fingerprint.silence_pattern ?? "",
+      120
+    ),
+    emotionalTells: normalizeScreenplayStringList(
+      fingerprint.emotional_tells ?? fingerprint.emotionalTells ?? fingerprint.tells,
+      6,
+      100
+    ),
+  };
+  if (
+    !character ||
+    (
+      voiceFingerprint.tactics.length < 1 &&
+      !voiceFingerprint.silence &&
+      voiceFingerprint.emotionalTells.length < 1
+    )
+  ) {
+    return null;
+  }
+  return { character, voiceFingerprint };
+}
+
+function parseTalkScreenplayCharacterVoiceMemoryItems(value, maxItems = 8) {
+  if (!value) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (candidate) => {
+    const clean = parseTalkScreenplayCharacterVoiceMemory(candidate);
+    if (!clean) return;
+    const key = [
+      clean.character,
+      clean.voiceFingerprint.tactics.join(","),
+      clean.voiceFingerprint.silence,
+      clean.voiceFingerprint.emotionalTells.join(","),
+    ].join("|").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return [];
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      try {
+        return parseTalkScreenplayCharacterVoiceMemoryItems(JSON.parse(raw), maxItems);
+      } catch (_err) {
+        push(raw);
+        return out;
+      }
+    }
+    push(raw);
+    return out.slice(0, Math.max(1, Number(maxItems || 8)));
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      push(item);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  if (value && typeof value === "object") {
+    const nested =
+      value.characterVoiceFingerprints ??
+      value.character_voice_fingerprints ??
+      value.characterVoiceMemories ??
+      value.character_voice_memories ??
+      value.voiceFingerprints ??
+      value.voice_fingerprints ??
+      value.characters ??
+      value.items ??
+      null;
+    if (Array.isArray(nested)) {
+      for (const item of nested) {
+        push(item);
+        if (out.length >= maxItems) break;
+      }
+      return out;
+    }
+    push(value);
+  }
+
+  return out.slice(0, Math.max(1, Number(maxItems || 8)));
+}
+
+function buildCreativeMemoryRecallQuery(req = null, {
+  screenplayTaskHint = "",
+  studioMeta = null,
+} = {}) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studio = studioMeta && typeof studioMeta === "object"
+    ? studioMeta
+    : sanitizeStudioTurnMetadata(body || null);
+  const lines = [];
+  const seen = new Set();
+  const addLine = (label, value, maxChars = 240) => {
+    const clean = normalizeSnippet(value, maxChars);
+    if (!clean) return;
+    const line = `${label}: ${clean}`;
+    const key = line.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  };
+  const addList = (label, value, maxItems = 6, maxChars = 160) => {
+    const items = Array.isArray(value)
+      ? normalizeScreenplayStringList(value, maxItems, maxChars)
+      : parseTalkScreenplayContextList(value, maxItems, maxChars);
+    if (!items.length) return;
+    addLine(label, items.join(" / "), Math.max(240, maxItems * maxChars));
+  };
+
+  addLine("user_request", screenplayTaskHint, 700);
+  addLine(
+    "transcript",
+    body.client_transcript ??
+      body.clientTranscript ??
+      body.transcript ??
+      body.debug_transcript ??
+      body.debugTranscript ??
+      "",
+    700
+  );
+  addLine(
+    "screenplay_generation_transcript",
+    body.screenplay_generation_transcript ?? body.screenplayGenerationTranscript ?? "",
+    900
+  );
+  addLine("project_id", studio?.screenplayProjectId ?? body.projectId ?? body.project_id, 96);
+  addLine(
+    "project_title",
+    body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
+  addLine("screenplay_target", studio?.screenplayTarget, 40);
+  addLine("act", studio?.screenplayAct, 120);
+  addLine("feature_sequence", studio?.screenplayFeatureSequence, 220);
+  addLine("scene", studio?.screenplayAnchorSceneLabel, 160);
+  addLine("scene_objective", studio?.screenplaySceneObjective, 260);
+  addLine("scene_summary", studio?.screenplaySceneSummary, 260);
+  addLine("current_beat", studio?.screenplayCurrentBeat, 240);
+  addLine("logline", studio?.screenplayLogline, 260);
+  addLine("theme_argument", studio?.screenplayThemeArgument, 260);
+  addLine("central_question", studio?.screenplayCentralQuestion, 260);
+  addLine("protagonist_want", studio?.screenplayProtagonistWant, 220);
+  addLine("protagonist_need", studio?.screenplayProtagonistNeed, 220);
+  addLine("antagonistic_force", studio?.screenplayAntagonisticForce, 240);
+  addLine("ending_image", studio?.screenplayEndingImage, 220);
+  addLine("structural_obligation", studio?.screenplayFeatureObligation, 260);
+  addLine("act_pressure", studio?.screenplayActPressureState, 260);
+  addLine("character_arc", studio?.screenplayCharacterArcState, 260);
+  const arcMemories = Array.isArray(studio?.screenplayCharacterArcMemories) && studio.screenplayCharacterArcMemories.length
+    ? studio.screenplayCharacterArcMemories
+    : (studio?.screenplayCharacterArcMemory ? [studio.screenplayCharacterArcMemory] : []);
+  for (const arcMemory of arcMemories.slice(0, 6)) {
+    if (!arcMemory || typeof arcMemory !== "object") continue;
+    addLine(
+      "character_arc_memory",
+      [
+        arcMemory.character ? `character=${arcMemory.character}` : "",
+        arcMemory.act ? `act=${arcMemory.act}` : "",
+        arcMemory.want ? `want=${arcMemory.want}` : "",
+        arcMemory.need ? `need=${arcMemory.need}` : "",
+        arcMemory.wound ? `wound=${arcMemory.wound}` : "",
+        arcMemory.falseBelief ? `false_belief=${arcMemory.falseBelief}` : "",
+        arcMemory.relationshipPressure ? `relationship_pressure=${arcMemory.relationshipPressure}` : "",
+        arcMemory.currentTactic ? `current_tactic=${arcMemory.currentTactic}` : "",
+        arcMemory.nextEmotionalTurn ? `next_emotional_turn=${arcMemory.nextEmotionalTurn}` : "",
+      ].filter(Boolean).join("; "),
+      700
+    );
+  }
+  const voiceMemories = Array.isArray(studio?.screenplayCharacterVoiceMemories) && studio.screenplayCharacterVoiceMemories.length
+    ? studio.screenplayCharacterVoiceMemories
+    : (studio?.screenplayCharacterVoiceMemory ? [studio.screenplayCharacterVoiceMemory] : []);
+  for (const voiceMemory of voiceMemories.slice(0, 6)) {
+    if (!voiceMemory || typeof voiceMemory !== "object") continue;
+    const fingerprint = voiceMemory.voiceFingerprint || voiceMemory.voice_fingerprint || {};
+    addLine(
+      "character_voice_memory",
+      [
+        voiceMemory.character ? `character=${voiceMemory.character}` : "",
+        Array.isArray(fingerprint.tactics) && fingerprint.tactics.length
+          ? `tactics=${fingerprint.tactics.join(" / ")}`
+          : "",
+        fingerprint.silence ? `silence=${fingerprint.silence}` : "",
+        Array.isArray(fingerprint.emotionalTells) && fingerprint.emotionalTells.length
+          ? `emotional_tells=${fingerprint.emotionalTells.join(" / ")}`
+          : "",
+        Array.isArray(fingerprint.emotional_tells) && fingerprint.emotional_tells.length
+          ? `emotional_tells=${fingerprint.emotional_tells.join(" / ")}`
+          : "",
+      ].filter(Boolean).join("; "),
+      700
+    );
+  }
+  addLine("last_scene_outcome", studio?.screenplayLastSceneOutcome, 240);
+  addLine("next_scene_plan", studio?.screenplayNextScenePlan, 320);
+  addList("character_focus", studio?.screenplayCharacterFocus, 8, 120);
+  addList("next_scene_moves", studio?.screenplayNextSceneMoves, 5, 180);
+  addList("next_three_turns", studio?.screenplayNextThreeTurns, 3, 180);
+  addList("act_three_payoff_path", studio?.screenplayActThreePayoffPath, 5, 200);
+  addList("beat_sequence", studio?.screenplayBeatSequence, 8, 160);
+  addList("unresolved_setups", studio?.screenplayUnresolvedSetups, 8, 200);
+  addList("unresolved_story_threads", studio?.screenplayUnresolvedStoryThreads, 8, 200);
+  addList("character_arc_turns", studio?.screenplayCharacterArcTurns, 6, 180);
+  addList("image_motifs", studio?.screenplayImageMotifs, 6, 140);
+  addList("continuity_notes", studio?.screenplayContinuityNotes, 8, 200);
+  addLine("emotional_continuity", studio?.screenplayEmotionalContinuity, 260);
+  addLine("draft_excerpt", studio?.screenplayDraftExcerpt, 900);
+
+  return normalizeSnippet(lines.join("\n"), 4_000);
+}
+
+function buildLearnedFieldPromptTrace(rows = []) {
+  return (Array.isArray(rows) ? rows : []).slice(0, 16).map((row) => (
+    Object.fromEntries(Object.entries({
+      field: normalizeSnippet(row?.field, 64),
+      value: normalizeSnippet(row?.value, 240),
+      learned_value: normalizeSnippet(row?.learnedValue ?? row?.learned_value, 240),
+      source: normalizeSnippet(row?.source, 64),
+      status: normalizeSnippet(row?.status, 32),
+      question_id: normalizeSnippet(row?.questionId ?? row?.question_id, 120),
+      question: normalizeSnippet(row?.question, 260),
+      target_label: normalizeSnippet(row?.targetLabel ?? row?.target_label, 120),
+      anchor: normalizeSnippet(row?.anchor, 180),
+      source_correction_id: normalizeSnippet(
+        row?.sourceCorrectionId ?? row?.source_correction_id,
+        96
+      ),
+      learned_at: Math.max(0, Number(row?.learnedAt ?? row?.learned_at ?? 0)),
+      updated_at: Math.max(0, Number(row?.updatedAt ?? row?.updated_at ?? 0)),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+  )).filter((row) => row.field && row.value);
+}
+
+function mergeScreenplayProjectMemoryForPromptTrace(
+  screenplayProjectMemory = null,
+  projectContinuity = null
+) {
+  const session = screenplayProjectMemory && typeof screenplayProjectMemory === "object"
+    ? screenplayProjectMemory
+    : {};
+  const creative = projectContinuity && typeof projectContinuity === "object"
+    ? projectContinuity
+    : {};
+  if (!Object.keys(creative).length) return Object.keys(session).length ? session : null;
+  return {
+    ...session,
+    ...creative,
+    correctedTerms: normalizeScreenplayStringList(
+      [...(creative.correctedTerms || []), ...(session.correctedTerms || [])],
+      8,
+      120
+    ),
+    correctionReplacements: normalizeScreenplayStringList(
+      [...(creative.correctionReplacements || []), ...(session.correctionReplacements || [])],
+      8,
+      160
+    ),
+  };
+}
+
+function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => {
+      const questionId = normalizeSnippet(item?.questionId ?? item?.question_id, 120);
+      const targetField = normalizeSnippet(item?.targetField ?? item?.target_field, 64).toLowerCase();
+      const askedAt = Math.max(0, Number(item?.askedAt ?? item?.asked_at ?? 0));
+      const answeredAt = Math.max(0, Number(item?.answeredAt ?? item?.answered_at ?? 0));
+      if (!questionId || !targetField || (!askedAt && !answeredAt)) return null;
+      const responseStatusRaw = normalizeSnippet(
+        item?.responseStatus ?? item?.response_status,
+        24
+      ).toLowerCase();
+      const responseStatus = ["asked", "answered", "declined", "expired"].includes(
+        responseStatusRaw
+      )
+        ? responseStatusRaw
+        : answeredAt
+          ? "answered"
+          : "asked";
+      return Object.fromEntries(Object.entries({
+        question_id: questionId,
+        target_field: targetField,
+        act_key: normalizeSnippet(item?.actKey ?? item?.act_key, 24).toLowerCase(),
+        sequence_key: normalizeSnippet(item?.sequenceKey ?? item?.sequence_key, 32).toLowerCase(),
+        writer_blocked: Boolean(item?.writerBlocked ?? item?.writer_blocked),
+        asked_at: askedAt || answeredAt,
+        answered_at: answeredAt,
+        response_status: responseStatus,
+        accepted_page_count: Math.max(
+          0,
+          Math.floor(Number(item?.acceptedPageCount ?? item?.accepted_page_count ?? 0))
+        ),
+        block_resolution_count: Math.max(
+          0,
+          Math.floor(Number(item?.blockResolutionCount ?? item?.block_resolution_count ?? 0))
+        ),
+        selected_move_family: normalizeSnippet(
+          item?.selectedMoveFamily ?? item?.selected_move_family,
+          48
+        ).toLowerCase(),
+        offered_move_families: normalizeScreenplayStringList(
+          item?.offeredMoveFamilies ?? item?.offered_move_families,
+          3,
+          48
+        ),
+        outcome: normalizeSnippet(item?.outcome, 48).toLowerCase(),
+      }).filter(([, fieldValue]) => {
+        if (Array.isArray(fieldValue)) return fieldValue.length > 0;
+        return typeof fieldValue === "boolean" ? fieldValue : Boolean(fieldValue);
+      }));
+    })
+    .filter(Boolean)
+    .sort((left, right) => (
+      Math.max(Number(right.answered_at || 0), Number(right.asked_at || 0)) -
+      Math.max(Number(left.answered_at || 0), Number(left.asked_at || 0))
+    ))
+    .slice(0, Math.max(1, Math.min(24, Number(maxItems) || 12)));
+}
+
+function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance = []) {
+  const questionEffectiveness = project?.questionEffectiveness ?? project?.question_effectiveness;
+  const storyMovePreferenceOverrides = normalizeStoryMovePreferenceOverrides(
+    project?.storyMovePreferenceOverrides ?? project?.story_move_preference_overrides
+  );
+  project = repairScreenplayProjectMemoryForPrompt(project);
+  if (!project || typeof project !== "object") return null;
+  const correctedTerms = normalizeScreenplayStringList(project.correctedTerms, 8, 120);
+  const correctionReplacements = normalizeScreenplayStringList(project.correctionReplacements, 8, 160);
+  const correctionContract = buildScreenplayProjectCorrectionContract(project);
+  const learnedFieldProvenance = buildLearnedFieldPromptTrace(fieldProvenance);
+  const trace = {
+    applied: true,
+    project_id: normalizeSnippet(project.projectId, 96),
+    project_title: normalizeSnippet(project.projectTitle, 160),
+    logline: normalizeSnippet(project.logline, 260),
+    theme_argument: normalizeSnippet(project.themeArgument, 220),
+    central_question: normalizeSnippet(project.centralQuestion, 220),
+    protagonist_want: normalizeSnippet(project.protagonistWant, 220),
+    protagonist_need: normalizeSnippet(project.protagonistNeed, 220),
+    antagonistic_force: normalizeSnippet(project.antagonisticForce, 220),
+    ending_image: normalizeSnippet(project.endingImage, 220),
+    act: normalizeSnippet(project.act, 80),
+    feature_sequence: normalizeSnippet(project.featureSequence, 180),
+    feature_obligation: normalizeSnippet(project.featureObligation, 220),
+    scene_objective: normalizeSnippet(project.sceneObjective, 220),
+    current_beat: normalizeSnippet(project.currentBeat, 180),
+    last_scene_outcome: normalizeSnippet(project.lastSceneOutcome, 220),
+    character_arc_state: normalizeSnippet(project.characterArcState, 220),
+    act_progress: screenplayActProgressToApi(project.actProgress),
+    next_scene_plan: normalizeSnippet(project.nextScenePlan, 220),
+    next_three_turns: normalizeScreenplayStringList(project.nextThreeTurns, 3, 180),
+    act_three_payoff_path: normalizeScreenplayStringList(project.actThreePayoffPath, 5, 200),
+    unresolved_setups: normalizeScreenplayStringList(project.unresolvedSetups, 5, 180),
+    unresolved_story_threads: normalizeScreenplayStringList(project.unresolvedStoryThreads, 5, 200),
+    character_arc_turns: normalizeScreenplayStringList(project.characterArcTurns, 5, 180),
+    image_motifs: normalizeScreenplayStringList(project.imageMotifs, 5, 120),
+    has_corrections: Boolean(
+      correctedTerms.length ||
+      correctionReplacements.length ||
+      correctionContract ||
+      learnedFieldProvenance.some((row) => row.status === "corrected")
+    ),
+    corrected_terms: correctedTerms,
+    correction_replacements: correctionReplacements,
+    correction_contract: correctionContract,
+    field_provenance: learnedFieldProvenance,
+    question_effectiveness: buildScreenplayQuestionEffectivenessPromptTrace(
+      questionEffectiveness
+    ),
+    story_move_preference_overrides: storyMovePreferenceOverrides.map((item) => ({
+      family: item.family,
+      stance: item.stance,
+      ...(item.updatedAt ? { updated_at: item.updatedAt } : {}),
+    })),
+  };
+  return Object.fromEntries(
+    Object.entries(trace).filter(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "boolean") return value;
+      return Boolean(value);
+    })
+  );
+}
+
+function buildCreativeMemoryPromptTrace(memory = null, {
+  projectId = "",
+  projectTitle = "",
+  query = "",
+  screenplayProjectMemory = null,
+} = {}) {
+  const characters = Array.isArray(memory?.characters)
+    ? memory.characters.slice(0, 8).map((character) => {
+      const bible = character?.bible && typeof character.bible === "object" ? character.bible : null;
+      const arc = bible?.arc && typeof bible.arc === "object" ? bible.arc : null;
+      return {
+        name: normalizeSnippet(character?.name, 80),
+        has_bible: Boolean(bible),
+        arc: arc ? Object.fromEntries(Object.entries({
+          want: normalizeSnippet(arc.want, 180),
+          need: normalizeSnippet(arc.need, 180),
+          wound: normalizeSnippet(arc.wound, 180),
+          false_belief: normalizeSnippet(arc.falseBelief ?? arc.false_belief, 180),
+          relationship_pressure: normalizeSnippet(
+            arc.relationshipPressure ?? arc.relationship_pressure,
+            180
+          ),
+          current_tactic: normalizeSnippet(arc.currentTactic ?? arc.current_tactic, 180),
+          next_emotional_turn: normalizeSnippet(
+            arc.nextEmotionalTurn ?? arc.next_emotional_turn,
+            180
+          ),
+        }).filter(([, value]) => Boolean(value))) : null,
+        has_corrections: Boolean(
+          (Array.isArray(bible?.corrections) && bible.corrections.length) ||
+          (Array.isArray(bible?.correctedTerms) && bible.correctedTerms.length) ||
+          (Array.isArray(bible?.correctionReplacements) && bible.correctionReplacements.length)
+        ),
+        corrected_terms: normalizeScreenplayStringList(bible?.correctedTerms, 6, 80),
+        correction_replacements: normalizeScreenplayStringList(bible?.correctionReplacements, 6, 120),
+        field_provenance: buildLearnedFieldPromptTrace(
+          buildCharacterFieldProvenance(bible)
+        ),
+      };
+    }).filter((character) => character.name)
+    : [];
+  const episodic = Array.isArray(memory?.episodicMemories)
+    ? memory.episodicMemories.slice(0, 4).map((episode) => {
+      const tags = normalizeScreenplayStringList(episode?.tags, 6, 48);
+      const source = normalizeSnippet(episode?.source, 64);
+      const correction = tags.some((tag) => tag.toLowerCase() === "correction");
+      const userNote = tags.some((tag) => tag.toLowerCase() === "user-note");
+      const writerClarification = tags.some((tag) => tag.toLowerCase() === "writer-clarification");
+      const acceptedPage = tags.some((tag) => tag.toLowerCase() === "accepted-pages");
+      const authority = correction
+        ? "user_correction"
+        : userNote
+          ? "user_note"
+          : writerClarification
+            ? "writer_clarification"
+          : acceptedPage
+            ? "accepted_page"
+            : source === "talk_screenplay_output"
+              ? "generated_draft"
+              : source === "talk_turn"
+                ? "conversation_context"
+                : "persisted_memory";
+      return {
+        summary: normalizeSnippet(episode?.summary, 180),
+        excerpt: normalizeSnippet(episode?.excerpt, 220),
+        project_id: normalizeSnippet(episode?.projectId ?? episode?.project_id, 96),
+        project_title: normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 160),
+        characters: normalizeScreenplayStringList(episode?.characterNames ?? episode?.characters, 6, 80),
+        tags,
+        source,
+        authority,
+        correction,
+      };
+    }).filter((episode) => episode.summary || episode.excerpt)
+    : [];
+  const acceptedScenes = Array.isArray(memory?.acceptedScenes)
+    ? memory.acceptedScenes.slice(0, 3).map((scene) => ({
+      scene_heading: normalizeSnippet(scene?.sceneHeading ?? scene?.scene_heading ?? scene?.sceneLabel, 140),
+      act: normalizeSnippet(scene?.act, 80),
+      feature_sequence: normalizeSnippet(scene?.featureSequence ?? scene?.feature_sequence, 180),
+      summary: normalizeSnippet(scene?.summary ?? scene?.scene_summary, 240),
+      outcome: normalizeSnippet(scene?.outcome ?? scene?.scene_outcome, 220),
+      next_scene_plan: normalizeSnippet(scene?.nextScenePlan ?? scene?.next_scene_plan, 240),
+      causal_handoff: normalizeSnippet(scene?.causalHandoff ?? scene?.causal_handoff, 240),
+      excerpt: normalizeSnippet(scene?.excerpt ?? scene?.page_excerpt, 420),
+      characters: normalizeScreenplayStringList(scene?.characterNames ?? scene?.character_names, 8, 72),
+      decisions: normalizeScreenplayStringList(scene?.decisions, 4, 220),
+      revelations: normalizeScreenplayStringList(scene?.revelations, 4, 220),
+      relationship_changes: normalizeScreenplayStringList(
+        scene?.relationshipChanges ?? scene?.relationship_changes,
+        4,
+        220
+      ),
+      irreversible_consequences: normalizeScreenplayStringList(
+        scene?.irreversibleConsequences ?? scene?.irreversible_consequences,
+        4,
+        220
+      ),
+      accepted_at: Math.max(0, Number(scene?.acceptedAt ?? scene?.accepted_at ?? 0) || 0),
+    })).map((scene) => Object.fromEntries(
+      Object.entries(scene).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
+    )).filter((scene) => scene.scene_heading || scene.summary || scene.outcome || scene.excerpt)
+    : [];
+  const acceptedCausalFacts = Array.isArray(memory?.acceptedCausalFacts)
+    ? memory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+      fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      authority: normalizeSnippet(item?.authority ?? item?.source, 48),
+      source_correction_id: normalizeSnippet(
+        item?.sourceCorrectionId ?? item?.source_correction_id,
+        96
+      ),
+      replaces_facts: normalizeScreenplayStringList(
+        item?.replacesFacts ?? item?.replaces_facts,
+        8,
+        220
+      ),
+      structured_updates: normalizeScreenplayStringList(
+        item?.structuredUpdates ?? item?.structured_updates,
+        8,
+        220
+      ),
+      created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
+      source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+      source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+    }).filter(([, value]) => Array.isArray(value)
+      ? value.length > 0
+      : typeof value === "number"
+        ? value > 0
+        : Boolean(value))))
+      .filter((item) => item.kind && item.fact)
+    : [];
+  const rawDueStoryThread = memory?.dueStoryThread ?? memory?.due_story_thread;
+  const dueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+    ? Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+      setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+      promised_payoff: normalizeSnippet(rawDueStoryThread.promisedPayoff ?? rawDueStoryThread.promised_payoff, 220),
+      source_scene_heading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading ?? rawDueStoryThread.source_scene_heading, 140),
+      source_scene_summary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary ?? rawDueStoryThread.source_scene_summary, 220),
+      source_scene_outcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome ?? rawDueStoryThread.source_scene_outcome, 220),
+      source_act: normalizeSnippet(rawDueStoryThread.sourceAct ?? rawDueStoryThread.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes ?? rawDueStoryThread.age_in_scenes ?? 0))),
+      accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+    : null;
+  const rawDueConsequence = memory?.featureStoryGraph?.currentDueConsequence ??
+    memory?.feature_story_graph?.current_due_consequence;
+  const dueConsequence = rawDueConsequence && typeof rawDueConsequence === "object" &&
+    !Array.isArray(rawDueConsequence)
+    ? Object.fromEntries(Object.entries({
+      id: normalizeSnippet(rawDueConsequence.id, 96),
+      kind: normalizeSnippet(rawDueConsequence.kind, 48),
+      fact: normalizeSnippet(rawDueConsequence.fact, 220),
+      status: normalizeSnippet(rawDueConsequence.status, 32),
+      source_scene_heading: normalizeSnippet(
+        rawDueConsequence.sourceSceneHeading ?? rawDueConsequence.source_scene_heading,
+        140
+      ),
+      source_act: normalizeSnippet(rawDueConsequence.sourceAct ?? rawDueConsequence.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(
+        rawDueConsequence.ageInScenes ?? rawDueConsequence.age_in_scenes ?? 0
+      ))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+    : null;
+  const rawStoryObligationChange = memory?.featureStoryGraph?.currentStoryObligationChange ??
+    memory?.feature_story_graph?.current_story_obligation_change;
+  const storyObligationChange = rawStoryObligationChange &&
+    typeof rawStoryObligationChange === "object" &&
+    !Array.isArray(rawStoryObligationChange)
+    ? Object.fromEntries(Object.entries({
+      id: normalizeSnippet(rawStoryObligationChange.id, 96),
+      kind: normalizeSnippet(rawStoryObligationChange.kind, 48),
+      obligation: normalizeSnippet(rawStoryObligationChange.obligation, 220),
+      status: normalizeSnippet(rawStoryObligationChange.status, 32),
+      result: normalizeSnippet(rawStoryObligationChange.result, 240),
+      evidence: normalizeSnippet(rawStoryObligationChange.evidence, 320),
+      source_scene_heading: normalizeSnippet(
+        rawStoryObligationChange.sourceSceneHeading ?? rawStoryObligationChange.source_scene_heading,
+        140
+      ),
+      source_act: normalizeSnippet(
+        rawStoryObligationChange.sourceAct ?? rawStoryObligationChange.source_act,
+        80
+      ),
+    }).filter(([, value]) => Boolean(value)))
+    : null;
+  const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
+    ? memory.episodicSelection
+    : null;
+  const episodicCoverageRatio = Number(episodicSelection?.coverageRatio);
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  for (const character of characters) {
+    correctedTerms.push(...character.corrected_terms);
+    correctionReplacements.push(...character.correction_replacements);
+  }
+  const projectContinuity = memory?.projectContinuity &&
+    typeof memory.projectContinuity === "object" &&
+    !Array.isArray(memory.projectContinuity)
+    ? memory.projectContinuity
+    : null;
+  const screenplayProjectTrace = buildScreenplayProjectMemoryPromptTrace(
+    mergeScreenplayProjectMemoryForPromptTrace(screenplayProjectMemory, projectContinuity),
+    buildProjectFieldProvenance(projectContinuity)
+  );
+  if (screenplayProjectTrace) {
+    correctedTerms.push(...(screenplayProjectTrace.corrected_terms || []));
+    correctionReplacements.push(...(screenplayProjectTrace.correction_replacements || []));
+  }
+  const applied = Boolean(
+    characters.length ||
+    episodic.length ||
+    acceptedScenes.length ||
+    acceptedCausalFacts.length ||
+    dueStoryThread ||
+    dueConsequence?.fact ||
+    storyObligationChange?.result ||
+    screenplayProjectTrace ||
+    (memory?.style && Object.keys(memory.style).length) ||
+    (memory?.tone && Object.keys(memory.tone).length) ||
+    (memory?.habits && Object.keys(memory.habits).length)
+  );
+  return {
+    applied,
+    project_id: normalizeSnippet(projectId, 96),
+    project_title: normalizeSnippet(projectTitle, 160),
+    query_chars: normalizeSnippet(query, 4_000).length,
+    character_count: characters.length,
+    characters,
+    episodic_count: episodic.length,
+    episodic,
+    accepted_scene_count: acceptedScenes.length,
+    accepted_scenes: acceptedScenes,
+    accepted_causal_facts: acceptedCausalFacts,
+    due_story_thread: dueStoryThread,
+    due_consequence: dueConsequence,
+    story_obligation_change: storyObligationChange,
+    episodic_retrieval: episodicSelection ? {
+      strategy: normalizeSnippet(episodicSelection.strategy, 48),
+      semantic_used: Boolean(episodicSelection.semanticUsed),
+      embedded_candidates: Math.max(0, Math.floor(Number(episodicSelection.embeddedCandidates) || 0)),
+      missing_embeddings: Math.max(0, Math.floor(Number(episodicSelection.missingEmbeddings) || 0)),
+      coverage_ratio: Number.isFinite(episodicCoverageRatio)
+        ? Math.max(0, Math.min(1, episodicCoverageRatio))
+        : 0,
+      backfill_queued: Boolean(episodicSelection.backfillQueued),
+    } : null,
+    correction_count: characters.filter((character) => character.has_corrections).length +
+      episodic.filter((episode) => episode.correction).length +
+      (screenplayProjectTrace?.has_corrections ? 1 : 0),
+    corrected_terms: normalizeScreenplayStringList(correctedTerms, 10, 80),
+    correction_replacements: normalizeScreenplayStringList(correctionReplacements, 10, 120),
+    screenplay_project_memory: screenplayProjectTrace,
+    style_applied: Boolean(memory?.style && Object.keys(memory.style).length),
+    tone_applied: Boolean(memory?.tone && Object.keys(memory.tone).length),
+    habits_applied: Boolean(memory?.habits && Object.keys(memory.habits).length),
+  };
+}
+
+function positiveTalkContextInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
+const SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS = new Set([
+  "write_scene",
+  "rewrite_scene",
+  "continue_script",
+  "scene_doctor",
+  "outline_structure",
+  "character_development",
+  "dialogue_punchup",
+  "emotional_continuity",
+  "pacing_pass",
+  "finish_feature",
+  "momentum_rescue",
+]);
+
+function screenplayTaskCanUseProjectMemory(task, hint = "") {
+  const intent = String(task?.intent || "").trim();
+  if (!SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS.has(intent)) return false;
+  const lowerHint = String(hint || "").toLowerCase();
+  if (!lowerHint.trim()) return false;
+  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "momentum_rescue"].includes(intent)) {
+    return true;
+  }
+  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing|stuck|blocked|writer'?s block|writers block|creative block|out of ideas|next move)\b/.test(lowerHint);
+}
+
+function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body = {}) {
+  const items = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  if (!items.length) return null;
+  const projectId = normalizeSnippet(
+    body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id ??
+      studioMeta?.screenplayProjectId ??
+      "",
+    96
+  );
+  const versionId = normalizeSnippet(
+    body.versionId ??
+      body.version_id ??
+      body.screenplayDocumentRevisionId ??
+      body.screenplay_document_revision_id ??
+      studioMeta?.screenplayDocumentRevisionId ??
+      "",
+    96
+  );
+  if (projectId) {
+    const byProject = items.find((item) => item.projectId === projectId);
+    if (byProject) return repairScreenplayProjectMemoryForPrompt(byProject) || byProject;
+  }
+  if (versionId) {
+    const byVersion = items.find((item) => item.documentRevisionId === versionId);
+    if (byVersion) return repairScreenplayProjectMemoryForPrompt(byVersion) || byVersion;
+  }
+  return repairScreenplayProjectMemoryForPrompt(items[0]) || items[0] || null;
+}
+
+function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
+  if (!memoryProject) return "";
+  const correctionContract = buildScreenplayProjectCorrectionContract(memoryProject, {
+    label: "corrections",
+    maxChars: 360,
+  });
+  const parts = [
+    memoryProject.logline ? `logline: ${memoryProject.logline}` : "",
+    memoryProject.act || memoryProject.featureSequence
+      ? `position: ${[memoryProject.act, memoryProject.featureSequence].filter(Boolean).join(" / ")}`
+      : "",
+    correctionContract,
+    memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
+    memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
+    memoryProject.actPressureState ? `act pressure: ${memoryProject.actPressureState}` : "",
+    memoryProject.characterArcState ? `character arc: ${memoryProject.characterArcState}` : "",
+    memoryProject.lastSceneOutcome ? `last scene outcome: ${memoryProject.lastSceneOutcome}` : "",
+    Array.isArray(memoryProject.unresolvedSetups) && memoryProject.unresolvedSetups.length
+      ? `open setups: ${memoryProject.unresolvedSetups.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.unresolvedStoryThreads) && memoryProject.unresolvedStoryThreads.length
+      ? `story threads: ${memoryProject.unresolvedStoryThreads.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.nextThreeTurns) && memoryProject.nextThreeTurns.length
+      ? `next three turns: ${memoryProject.nextThreeTurns.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.actThreePayoffPath) && memoryProject.actThreePayoffPath.length
+      ? `Act III payoff path: ${memoryProject.actThreePayoffPath.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.characterArcTurns) && memoryProject.characterArcTurns.length
+      ? `arc turns: ${memoryProject.characterArcTurns.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.imageMotifs) && memoryProject.imageMotifs.length
+      ? `image motifs: ${memoryProject.imageMotifs.slice(0, 3).join(" / ")}`
+      : "",
+    memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
+    memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
+  ].filter(Boolean);
+  return normalizeSnippet(parts.join("; "), 900);
+}
+
+function buildScreenplayProjectCorrectionContract(project = null, {
+  label = "CORRECTION_CONTRACT",
+  maxChars = 520,
+} = {}) {
+  if (!project || typeof project !== "object") return "";
+  const replacements = normalizeScreenplayStringList(project.correctionReplacements, 5, 160);
+  const terms = normalizeScreenplayStringList(project.correctedTerms, 5, 120);
+  const notes = normalizeScreenplayStringList(project.continuityNotes, 5, 220)
+    .filter((note) => /\b(authoritative|correction|corrected|actually|instead|not\b)/i.test(note));
+  if (!replacements.length && !terms.length && !notes.length) return "";
+  const parts = [
+    replacements.length ? `authoritative_replacements:${replacements.join(" / ")}` : "",
+    terms.length ? `retired_terms:${terms.join(" / ")}` : "",
+    notes.length ? `authoritative_notes:${notes.slice(0, 2).join(" / ")}` : "",
+    "rule: apply before older beat, character, setup, draft, or episodic memory",
+  ].filter(Boolean);
+  return normalizeSnippet(`${label}: ${parts.join("; ")}`, maxChars);
+}
+
+function buildSessionContinuityOpeningLine(snapshot = {}) {
+  const sentenceFragment = (value, maxChars) => normalizeSnippet(value, maxChars)
+    .replace(/[.!?]+$/g, "")
+    .trim();
+  const project = normalizeSnippet(snapshot.projectTitle || snapshot.projectId || "", 120);
+  const position = normalizeSnippet(
+    [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
+    180
+  );
+  const characters = Array.isArray(snapshot.characterFocus)
+    ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
+    : [];
+  const lastState = sentenceFragment(
+    snapshot.lastSceneOutcome ||
+      snapshot.sceneSummary ||
+      snapshot.currentBeat ||
+      snapshot.actPressureState ||
+      snapshot.characterArcState ||
+      snapshot.memoryExcerpt ||
+      "",
+    180
+  );
+  const nextMove = sentenceFragment(
+    snapshot.nextScenePlan ||
+      (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
+      (Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath[0] : "") ||
+      "",
+    180
+  );
+  const rawDueStoryThread = snapshot.dueStoryThread ?? snapshot.due_story_thread;
+  const dueSetup = sentenceFragment(rawDueStoryThread?.setup || rawDueStoryThread?.promised_payoff || "", 180);
+  const duePayoff = sentenceFragment(
+    rawDueStoryThread?.promisedPayoff ?? rawDueStoryThread?.promised_payoff ?? "",
+    180
+  );
+  const dueAge = Math.max(0, Math.round(Number(
+    rawDueStoryThread?.ageInScenes ?? rawDueStoryThread?.age_in_scenes ?? 0
+  )));
+  const causalRecord = Array.isArray(snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)
+    ? (snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)[0] || null
+    : null;
+  const causalFact = sentenceFragment(causalRecord?.fact, 180);
+  const causalFactIsWriterCorrection = String(
+    causalRecord?.authority || causalRecord?.kind || ""
+  ).trim().toLowerCase() === "writer_correction";
+  const parts = ["Welcome back."];
+  if (project || position) {
+    parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
+  }
+  if (characters.length && lastState) {
+    parts.push(`${characters.join(" and ")} were carrying this: ${lastState}.`);
+  } else if (lastState) {
+    parts.push(`The last live thread was: ${lastState}.`);
+  }
+  if (nextMove) {
+    parts.push(`Next move: ${nextMove}.`);
+  }
+  if (causalFact && !lastState.toLowerCase().includes(causalFact.toLowerCase())) {
+    parts.push(causalFactIsWriterCorrection
+      ? `Your latest canon correction stays authoritative: ${causalFact}.`
+      : `One accepted consequence stays binding: ${causalFact}.`);
+  }
+  if (snapshot.isCorrection) {
+    parts.push("I'll honor your latest correction first.");
+  }
+  if (dueSetup) {
+    parts.push(
+      `The thread waiting longest is ${dueSetup}${dueAge ? `, still open after ${dueAge} accepted scenes` : ""}.`
+    );
+  }
+  if (duePayoff && duePayoff.toLowerCase() !== dueSetup.toLowerCase()) {
+    parts.push(`Its promised payoff is ${duePayoff}.`);
+  }
+  return normalizeSnippet(parts.join(" "), 640);
+}
+
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
+  const projects = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const legacyProject = repairScreenplayProjectMemoryForPrompt(projects[0]) || projects[0] || null;
+  const durableProject = creativeMemory?.projectContinuity &&
+    typeof creativeMemory.projectContinuity === "object"
+    ? creativeMemory.projectContinuity
+    : null;
+  const acceptedScenes = Array.isArray(creativeMemory?.acceptedScenes)
+    ? creativeMemory.acceptedScenes
+      .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+      .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0))
+    : [];
+  const acceptedScene = acceptedScenes[0] || null;
+  const rawDueStoryThread = creativeMemory?.dueStoryThread ?? creativeMemory?.due_story_thread;
+  const dueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+    ? Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+      setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+      promised_payoff: normalizeSnippet(rawDueStoryThread.promisedPayoff ?? rawDueStoryThread.promised_payoff, 220),
+      source_scene_heading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading ?? rawDueStoryThread.source_scene_heading, 140),
+      source_scene_summary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary ?? rawDueStoryThread.source_scene_summary, 220),
+      source_scene_outcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome ?? rawDueStoryThread.source_scene_outcome, 220),
+      source_act: normalizeSnippet(rawDueStoryThread.sourceAct ?? rawDueStoryThread.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes ?? rawDueStoryThread.age_in_scenes ?? 0))),
+      accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+    : null;
+  const acceptedCausalFacts = Array.isArray(creativeMemory?.acceptedCausalFacts)
+    ? creativeMemory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+      fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      authority: normalizeSnippet(item?.authority ?? item?.source, 48),
+      source_correction_id: normalizeSnippet(
+        item?.sourceCorrectionId ?? item?.source_correction_id,
+        96
+      ),
+      replaces_facts: normalizeScreenplayStringList(
+        item?.replacesFacts ?? item?.replaces_facts,
+        8,
+        220
+      ),
+      structured_updates: normalizeScreenplayStringList(
+        item?.structuredUpdates ?? item?.structured_updates,
+        8,
+        220
+      ),
+      created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
+      source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+      source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+    }).filter(([, value]) => Array.isArray(value)
+      ? value.length > 0
+      : typeof value === "number"
+        ? value > 0
+        : Boolean(value))))
+      .filter((item) => item.kind && item.fact)
+    : [];
+  const featureStoryGraph = creativeMemory?.featureStoryGraph ?? creativeMemory?.feature_story_graph;
+  const storyObligationLedger = normalizeStoryObligationLedgerForApi(
+    featureStoryGraph?.storyObligationLedger ?? featureStoryGraph?.story_obligation_ledger
+  );
+  const currentStoryObligationChange = normalizeStoryObligationChangeForApi(
+    featureStoryGraph?.currentStoryObligationChange ??
+      featureStoryGraph?.current_story_obligation_change ??
+      storyObligationLedger[0]
+  );
+  const storyObligationCorrections = normalizeStoryObligationCorrectionsForApi(
+    featureStoryGraph?.storyObligationCorrections ??
+      featureStoryGraph?.story_obligation_corrections
+  );
+  const project = legacyProject || durableProject;
+  const episodes = Array.isArray(creativeMemory?.episodicMemories)
+    ? creativeMemory.episodicMemories
+    : [];
+  const projectId = normalizeSnippet(project?.projectId || "", 96).toLowerCase();
+  const projectTitle = normalizeSnippet(project?.projectTitle || "", 160).toLowerCase();
+  const episode = project
+    ? episodes.find((item) => {
+        const episodeProjectId = normalizeSnippet(item?.projectId || "", 96).toLowerCase();
+        const episodeProjectTitle = normalizeSnippet(item?.projectTitle || "", 160).toLowerCase();
+        return Boolean(
+          (projectId && episodeProjectId === projectId) ||
+          (projectTitle && episodeProjectTitle === projectTitle)
+        );
+      }) || null
+    : episodes[0] || null;
+  if (
+    !project &&
+    !episode &&
+    !acceptedScene &&
+    !dueStoryThread &&
+    !acceptedCausalFacts.length &&
+    !storyObligationLedger.length &&
+    !storyObligationCorrections.length
+  ) {
+    return {
+      has_continuity: false,
+      source: "none",
+      opening_line: "",
+      project_id: "",
+      project_title: "",
+      act: "",
+      feature_sequence: "",
+      feature_obligation: "",
+      scene_objective: "",
+      scene_summary: "",
+      current_beat: "",
+      logline: "",
+      theme_argument: "",
+      central_question: "",
+      protagonist_want: "",
+      protagonist_need: "",
+      antagonistic_force: "",
+      ending_image: "",
+      act_pressure_state: "",
+      character_arc_state: "",
+      last_scene_outcome: "",
+      next_scene_plan: "",
+      next_scene_moves: [],
+      next_three_turns: [],
+      act_three_payoff_path: [],
+      character_focus: [],
+      unresolved_setups: [],
+      unresolved_story_threads: [],
+      character_arc_turns: [],
+      image_motifs: [],
+      continuity_notes: [],
+      corrected_terms: [],
+      correction_replacements: [],
+      correction_contract: "",
+      emotional_continuity: "",
+      page_count: 0,
+      target_pages: 0,
+      act_progress: null,
+      memory_excerpt: "",
+      is_correction: false,
+      updated_at: 0,
+      accepted_causal_facts: [],
+      due_story_thread: null,
+      story_obligation_ledger: [],
+      current_story_obligation_change: null,
+      story_obligation_corrections: [],
+    };
+  }
+
+  const episodeTags = Array.isArray(episode?.tags)
+    ? episode.tags.map((tag) => String(tag || "").toLowerCase())
+    : [];
+  const characterFocus = mergeScreenplayProjectMemoryList(
+    mergeScreenplayProjectMemoryList(
+      acceptedScene?.characterNames || [],
+      project?.characterFocus || [],
+      4,
+      80
+    ),
+    episode?.characterNames || [],
+    4,
+    80
+  );
+  const continuityNotes = Array.isArray(project?.continuityNotes)
+    ? project.continuityNotes.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
+    : [];
+  const correctedTerms = Array.isArray(project?.correctedTerms)
+    ? project.correctedTerms.slice(0, 8).map((item) => normalizeSnippet(item, 120)).filter(Boolean)
+    : [];
+  const correctionReplacements = Array.isArray(project?.correctionReplacements)
+    ? project.correctionReplacements.slice(0, 8).map((item) => normalizeSnippet(item, 160)).filter(Boolean)
+    : [];
+  const correctionContract = buildScreenplayProjectCorrectionContract(project);
+  const projectHasCorrection = Boolean(
+    correctedTerms.length ||
+    correctionReplacements.length ||
+    storyObligationCorrections.length ||
+    correctionContract ||
+    continuityNotes.some((note) => /\b(authoritative|correction|corrected)\b/i.test(note))
+  );
+  const snapshot = {
+    has_continuity: true,
+    source: legacyProject
+      ? episode
+        ? "screenplay_project_memory+creative_memory"
+        : "screenplay_project_memory"
+      : durableProject
+        ? episode
+          ? "creative_project_continuity+creative_memory"
+          : "creative_project_continuity"
+        : "creative_memory",
+    project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
+    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),
+    act: normalizeSnippet(acceptedScene?.act || project?.act || "", 120),
+    feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
+    feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
+    scene_objective: normalizeSnippet(project?.sceneObjective || "", 280),
+    scene_summary: normalizeSnippet(acceptedScene?.summary || project?.sceneSummary || "", 280),
+    current_beat: normalizeSnippet(acceptedScene?.summary || project?.currentBeat || episode?.summary || "", 220),
+    logline: normalizeSnippet(project?.logline || "", 280),
+    theme_argument: normalizeSnippet(project?.themeArgument || "", 280),
+    central_question: normalizeSnippet(project?.centralQuestion || "", 280),
+    protagonist_want: normalizeSnippet(project?.protagonistWant || "", 240),
+    protagonist_need: normalizeSnippet(project?.protagonistNeed || "", 240),
+    antagonistic_force: normalizeSnippet(project?.antagonisticForce || "", 260),
+    ending_image: normalizeSnippet(project?.endingImage || "", 240),
+    act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
+    character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
+    last_scene_outcome: normalizeSnippet(acceptedScene?.outcome || project?.lastSceneOutcome || "", 240),
+    next_scene_plan: normalizeSnippet(acceptedScene?.nextScenePlan || project?.nextScenePlan || "", 340),
+    next_scene_moves: Array.isArray(project?.nextSceneMoves)
+      ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
+    next_three_turns: Array.isArray(project?.nextThreeTurns)
+      ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
+    act_three_payoff_path: filterRetiredStoryObligationsForApi(
+      project?.actThreePayoffPath,
+      storyObligationCorrections
+    ).slice(0, 5),
+    character_focus: characterFocus,
+    unresolved_setups: filterRetiredStoryObligationsForApi(
+      project?.unresolvedSetups,
+      storyObligationCorrections
+    ),
+    unresolved_story_threads: filterRetiredStoryObligationsForApi(
+      project?.unresolvedStoryThreads,
+      storyObligationCorrections
+    ),
+    character_arc_turns: Array.isArray(project?.characterArcTurns)
+      ? project.characterArcTurns.slice(0, 6).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
+    image_motifs: Array.isArray(project?.imageMotifs)
+      ? project.imageMotifs.slice(0, 6).map((item) => normalizeSnippet(item, 140)).filter(Boolean)
+      : [],
+    continuity_notes: continuityNotes,
+    corrected_terms: correctedTerms,
+    correction_replacements: correctionReplacements,
+    correction_contract: correctionContract,
+    emotional_continuity: normalizeSnippet(project?.emotionalContinuity || "", 280),
+    page_count: positiveTalkContextInteger(project?.pageCount),
+    target_pages: positiveTalkContextInteger(project?.targetPages),
+    act_progress: screenplayActProgressToApi(project?.actProgress),
+    memory_excerpt: normalizeSnippet(
+      acceptedScene?.excerpt || acceptedScene?.summary || episode?.excerpt || episode?.summary || project?.lastWritePreview || "",
+      280
+    ),
+    is_correction: projectHasCorrection || episodeTags.includes("correction"),
+    updated_at: Math.max(
+      0,
+      Number(project?.updatedAt || 0),
+      Number(episode?.updatedAt || episode?.lastReferencedAt || 0),
+      Number(acceptedScene?.acceptedAt || acceptedScene?.updatedAt || 0)
+    ),
+    accepted_causal_facts: acceptedCausalFacts,
+    due_story_thread: dueStoryThread,
+    story_obligation_ledger: storyObligationLedger,
+    current_story_obligation_change: currentStoryObligationChange,
+    story_obligation_corrections: storyObligationCorrections,
+  };
+  return {
+    ...snapshot,
+    opening_line: buildSessionContinuityOpeningLine({
+      projectId: snapshot.project_id,
+      projectTitle: snapshot.project_title,
+      act: snapshot.act,
+      featureSequence: snapshot.feature_sequence,
+      sceneSummary: snapshot.scene_summary,
+      currentBeat: snapshot.current_beat,
+      actPressureState: snapshot.act_pressure_state,
+      characterArcState: snapshot.character_arc_state,
+      lastSceneOutcome: snapshot.last_scene_outcome,
+      nextScenePlan: snapshot.next_scene_plan,
+      nextThreeTurns: snapshot.next_three_turns,
+      actThreePayoffPath: snapshot.act_three_payoff_path,
+      characterFocus: snapshot.character_focus,
+      memoryExcerpt: snapshot.memory_excerpt,
+      isCorrection: snapshot.is_correction,
+      acceptedCausalFacts: snapshot.accepted_causal_facts,
+      dueStoryThread: snapshot.due_story_thread,
+    }),
+  };
+}
+
+function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory = null) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const memoryProject = selectScreenplayProjectMemoryForPrompt(memory, studioMeta, body);
+  const projectId = normalizeSnippet(
+    body.projectId ?? body.project_id ?? body.screenplayProjectId ?? body.screenplay_project_id ?? studioMeta?.screenplayProjectId,
+    96
+  ) || memoryProject?.projectId || "";
+  const versionId = normalizeSnippet(
+    body.versionId ?? body.version_id ?? body.screenplayDocumentRevisionId ?? body.screenplay_document_revision_id ?? studioMeta?.screenplayDocumentRevisionId,
+    96
+  ) || memoryProject?.documentRevisionId || "";
+  const scene = normalizeSnippet(
+    body.scene ?? body.screenplayScene ?? body.screenplay_scene ?? body.screenplayAnchorSceneLabel ?? body.screenplay_anchor_scene_label ?? studioMeta?.screenplayAnchorSceneLabel,
+    160
+  ) || memoryProject?.sceneLabel || "";
+  const target = String(
+    body.screenplayTarget ?? body.screenplay_target ?? studioMeta?.screenplayTarget ?? memoryProject?.lastTarget ?? ""
+  ).trim().toLowerCase();
+  const phase = normalizeSnippet(
+    body.phase ?? body.screenplayPhase ?? body.screenplay_phase ?? (target === "page" ? "scene_draft" : ""),
+    80
+  );
+  const pack = normalizeSnippet(
+    body.pack ?? body.screenplayPack ?? body.screenplay_pack ?? body.projectTitle ?? body.project_title,
+    160
+  );
+  const draftExcerpt = normalizeTalkMultilineSnippet(
+    body.draftExcerpt ?? body.draft_excerpt ?? body.screenplayDraftExcerpt ?? body.screenplay_draft_excerpt,
+    6_000
+  ) || normalizeTalkMultilineSnippet(memoryProject?.lastWritePreview, 1_800);
+  const act = normalizeSnippet(body.act ?? body.screenplayAct ?? body.screenplay_act, 120) || memoryProject?.act || "";
+  const sceneObjective = normalizeSnippet(
+    body.sceneObjective ?? body.scene_objective ?? body.screenplaySceneObjective ?? body.screenplay_scene_objective,
+    280
+  ) || memoryProject?.sceneObjective || "";
+  const sceneSummary = normalizeSnippet(
+    body.sceneSummary ?? body.scene_summary ?? body.screenplaySceneSummary ?? body.screenplay_scene_summary,
+    280
+  ) || memoryProject?.sceneSummary || "";
+  const currentBeat = normalizeSnippet(
+    body.currentBeat ?? body.current_beat ?? body.screenplayCurrentBeat ?? body.screenplay_current_beat,
+    220
+  ) || memoryProject?.currentBeat || "";
+  const emotionalContinuity = normalizeSnippet(
+    body.emotionalContinuity ?? body.emotional_continuity ?? body.screenplayEmotionalContinuity ?? body.screenplay_emotional_continuity,
+    280
+  ) || memoryProject?.emotionalContinuity || "";
+  const featureSequence = normalizeSnippet(
+    body.featureSequence ?? body.feature_sequence ?? body.screenplayFeatureSequence ?? body.screenplay_feature_sequence,
+    220
+  ) || memoryProject?.featureSequence || "";
+  const featureObligation = normalizeSnippet(
+    body.featureObligation ?? body.feature_obligation ?? body.screenplayFeatureObligation ?? body.screenplay_feature_obligation,
+    280
+  ) || memoryProject?.featureObligation || "";
+  const actPressureState = normalizeSnippet(
+    body.actPressureState ?? body.act_pressure_state ?? body.screenplayActPressureState ?? body.screenplay_act_pressure_state,
+    280
+  ) || memoryProject?.actPressureState || "";
+  const characterArcState = normalizeSnippet(
+    body.characterArcState ?? body.character_arc_state ?? body.screenplayCharacterArcState ?? body.screenplay_character_arc_state,
+    280
+  ) || memoryProject?.characterArcState || "";
+  const lastSceneOutcome = normalizeSnippet(
+    body.lastSceneOutcome ?? body.last_scene_outcome ?? body.screenplayLastSceneOutcome ?? body.screenplay_last_scene_outcome,
+    240
+  ) || memoryProject?.lastSceneOutcome || "";
+  const nextScenePlan = normalizeSnippet(
+    body.nextScenePlan ?? body.next_scene_plan ?? body.screenplayNextScenePlan ?? body.screenplay_next_scene_plan,
+    340
+  ) || memoryProject?.nextScenePlan || "";
+  const pageCount = positiveTalkContextInteger(body.pageCount ?? body.page_count ?? body.screenplayPageCount ?? body.screenplay_page_count) ||
+    positiveTalkContextInteger(memoryProject?.pageCount);
+  const targetPages = positiveTalkContextInteger(body.targetPages ?? body.target_pages ?? body.screenplayTargetPages ?? body.screenplay_target_pages) ||
+    positiveTalkContextInteger(memoryProject?.targetPages);
+  const context = {
+    projectId,
+    versionId,
+    scene,
+    phase,
+    pack,
+    draftExcerpt,
+    act,
+    sceneObjective,
+    sceneSummary,
+    currentBeat,
+    logline: normalizeSnippet(body.logline ?? body.screenplayLogline ?? body.screenplay_logline, 280) || memoryProject?.logline || "",
+    themeArgument: normalizeSnippet(body.themeArgument ?? body.theme_argument ?? body.screenplayThemeArgument ?? body.screenplay_theme_argument, 280) || memoryProject?.themeArgument || "",
+    centralQuestion: normalizeSnippet(body.centralQuestion ?? body.central_question ?? body.screenplayCentralQuestion ?? body.screenplay_central_question, 280) || memoryProject?.centralQuestion || "",
+    protagonistWant: normalizeSnippet(body.protagonistWant ?? body.protagonist_want ?? body.screenplayProtagonistWant ?? body.screenplay_protagonist_want, 240) || memoryProject?.protagonistWant || "",
+    protagonistNeed: normalizeSnippet(body.protagonistNeed ?? body.protagonist_need ?? body.screenplayProtagonistNeed ?? body.screenplay_protagonist_need, 240) || memoryProject?.protagonistNeed || "",
+    antagonisticForce: normalizeSnippet(body.antagonisticForce ?? body.antagonistic_force ?? body.screenplayAntagonisticForce ?? body.screenplay_antagonistic_force, 260) || memoryProject?.antagonisticForce || "",
+    endingImage: normalizeSnippet(body.endingImage ?? body.ending_image ?? body.screenplayEndingImage ?? body.screenplay_ending_image, 240) || memoryProject?.endingImage || "",
+    featureSequence,
+    featureObligation,
+    actPressureState,
+    characterArcState,
+    lastSceneOutcome,
+    featureMemoryBrief: buildTalkPersistentFeatureMemoryBrief(memoryProject),
+    correctionContract: buildScreenplayProjectCorrectionContract(memoryProject),
+    correctedTerms: parseTalkScreenplayContextList(
+      body.correctedTerms ??
+        body.corrected_terms ??
+        body.screenplayCorrectedTerms ??
+        body.screenplay_corrected_terms,
+      8,
+      120
+    ).concat(memoryProject?.correctedTerms || []).slice(0, 8),
+    correctionReplacements: parseTalkScreenplayContextList(
+      body.correctionReplacements ??
+        body.correction_replacements ??
+        body.screenplayCorrectionReplacements ??
+        body.screenplay_correction_replacements,
+      8,
+      160
+    ).concat(memoryProject?.correctionReplacements || []).slice(0, 8),
+    nextScenePlan,
+    nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180)
+      .concat(memoryProject?.nextSceneMoves || [])
+      .slice(0, 5),
+    nextThreeTurns: parseTalkScreenplayContextList(body.nextThreeTurns ?? body.next_three_turns ?? body.screenplayNextThreeTurns ?? body.screenplay_next_three_turns, 3, 180)
+      .concat(memoryProject?.nextThreeTurns || [])
+      .slice(0, 3),
+    actThreePayoffPath: parseTalkScreenplayContextList(body.actThreePayoffPath ?? body.act_three_payoff_path ?? body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path ?? body.payoffPath ?? body.payoff_path, 5, 200)
+      .concat(memoryProject?.actThreePayoffPath || [])
+      .slice(0, 5),
+    beatSequence: parseTalkScreenplayContextList(body.beatSequence ?? body.beat_sequence ?? body.screenplayBeatSequence ?? body.screenplay_beat_sequence, 8, 180)
+      .concat(memoryProject?.beatSequence || [])
+      .slice(0, 8),
+    characterFocus: parseTalkScreenplayContextList(body.characterFocus ?? body.character_focus ?? body.screenplayCharacterFocus ?? body.screenplay_character_focus, 8, 120)
+      .concat(memoryProject?.characterFocus || [])
+      .slice(0, 8),
+    unresolvedSetups: parseTalkScreenplayContextList(body.unresolvedSetups ?? body.unresolved_setups ?? body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups, 8, 220)
+      .concat(memoryProject?.unresolvedSetups || [])
+      .slice(0, 8),
+    unresolvedStoryThreads: parseTalkScreenplayContextList(body.unresolvedStoryThreads ?? body.unresolved_story_threads ?? body.screenplayUnresolvedStoryThreads ?? body.screenplay_unresolved_story_threads, 8, 220)
+      .concat(memoryProject?.unresolvedStoryThreads || [])
+      .slice(0, 8),
+    characterArcTurns: parseTalkScreenplayContextList(body.characterArcTurns ?? body.character_arc_turns ?? body.screenplayCharacterArcTurns ?? body.screenplay_character_arc_turns, 6, 180)
+      .concat(memoryProject?.characterArcTurns || [])
+      .slice(0, 6),
+    imageMotifs: parseTalkScreenplayContextList(body.imageMotifs ?? body.image_motifs ?? body.screenplayImageMotifs ?? body.screenplay_image_motifs ?? body.visualMotifs ?? body.visual_motifs, 6, 140)
+      .concat(memoryProject?.imageMotifs || [])
+      .slice(0, 6),
+    continuityNotes: parseTalkScreenplayContextList(body.continuityNotes ?? body.continuity_notes ?? body.screenplayContinuityNotes ?? body.screenplay_continuity_notes, 8, 220)
+      .concat(memoryProject?.continuityNotes || [])
+      .slice(0, 8),
+    emotionalContinuity,
+    pageCount,
+    targetPages,
+  };
+  const hasContext = Object.entries(context).some(([_key, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "number") return value > 0;
+    return String(value || "").trim().length > 0;
+  });
+  return hasContext ? context : null;
+}
+
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
+  screenplayTaskHint = "",
+  memory: persistentMemory = null,
+} = {}) {
+  const basePrompt = String(systemPrompt || "");
+  const hasMemoryBlock = basePrompt.includes(MEMORY_BLOCK_OPEN);
+  const hasScreenplayTaskBlock = basePrompt.includes("<screenplay_task>");
+  const hasFeatureMapBlock = basePrompt.includes("<feature_film_map>");
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studioMeta = sanitizeStudioTurnMetadata(req?.body || null);
+  const projectId = normalizeSnippet(
+    studioMeta?.screenplayProjectId ??
+      body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id,
+    96
+  );
+  const projectTitle = normalizeSnippet(
+    body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
+  const memoryRecallQuery = buildCreativeMemoryRecallQuery(req, {
+    screenplayTaskHint,
+    studioMeta,
+  });
+  const memory = userId && !hasMemoryBlock
+    ? await creativeMemoryStore.getCreativeMemoryForPrompt({
+      userId,
+      projectId,
+      projectTitle,
+      query: memoryRecallQuery,
+      recordEpisodicRecall: true,
+    })
+    : null;
   // T-block-signal-system-prompt: when the writer's habits indicate
   // medium/high block signal, inject a compact coaching note so the
   // model softens tone and asks for less. Cold users + low-block
   // users see no change.
   let blockCoaching = "";
-  if (memory.habits && typeof memory.habits === "object") {
+  if (memory?.habits && typeof memory.habits === "object") {
     try {
       const signal = computeBlockSignal({ habits: memory.habits });
       blockCoaching = buildBlockCoachingBlockForPrompt(signal);
@@ -2960,9 +4716,6 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   // model sees the writer's chosen reversals. Best-effort — never
   // fails the request on a storage error.
   let acceptedTwists = null;
-  const projectId = (typeof req?.body?.projectId === "string" && req.body.projectId)
-    || (typeof req?.body?.screenplay_project_id === "string" && req.body.screenplay_project_id)
-    || null;
   if (projectId) {
     try {
       const { persistence } = acceptedTwistLogDeps();
@@ -2971,10 +4724,50 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
       }
     } catch (_e) { /* never block the prompt on a twist-log read */ }
   }
+  const cleanTaskHint = normalizeSnippet(screenplayTaskHint, 8_000);
+  const inferredScreenplayTask = cleanTaskHint ? inferScreenplayTask(cleanTaskHint) : null;
+  const canUsePersistentScreenplayMemory =
+    screenplayTaskCanUseProjectMemory(inferredScreenplayTask, cleanTaskHint) &&
+    sanitizeScreenplayProjectMemoryItems(
+      persistentMemory?.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    ).length > 0;
+  const screenplayProjectMemoryForTrace = canUsePersistentScreenplayMemory
+    ? selectScreenplayProjectMemoryForPrompt(persistentMemory, studioMeta, body)
+    : null;
+  if (req && typeof req === "object") {
+    req.creativeMemoryTrace = buildCreativeMemoryPromptTrace(memory, {
+      projectId,
+      projectTitle,
+      query: memoryRecallQuery,
+      screenplayProjectMemory: screenplayProjectMemoryForTrace,
+    });
+  }
+  const sessionContext = hasFeatureMapBlock
+    ? null
+    : buildTalkScreenplayPromptSessionContext(
+      req,
+      studioMeta,
+      canUsePersistentScreenplayMemory ? persistentMemory : null
+    );
+  const hasScreenplayModeContext = Boolean(
+    sessionContext ||
+    studioMeta?.screenplayProjectId ||
+    studioMeta?.screenplayTarget ||
+    studioMeta?.screenplayPromptSource
+  );
+  const screenplayTask = !hasScreenplayTaskBlock && hasScreenplayModeContext && cleanTaskHint
+    ? inferredScreenplayTask
+    : null;
+  if (!memory && !blockCoaching && !acceptedTwists && !sessionContext && !screenplayTask) {
+    return systemPrompt;
+  }
 
   return buildModelPrompt({
     persona: systemPrompt,
     creativeMemory: memory,
+    sessionContext,
+    screenplayTask,
     blockCoaching,
     acceptedTwists,
   });
@@ -2984,6 +4777,7 @@ configureMemoryStore({
   DEFAULT_ASSISTANT_SELF_NAME,
   SESSION_THREAD_SCHEMA_VERSION,
   SOCIAL_SPARK_MEMORY_MAX,
+  SCREENPLAY_PROJECT_MEMORY_MAX,
   TASKS_MAX_STORED,
   USER_MEMORY_LISTENING_FACTS_MAX,
   USER_MEMORY_MAX_TRACKED,
@@ -3000,7 +4794,6 @@ configureMemoryStore({
   normalizeAssistantSelfName,
   normalizeClientIp,
   normalizeClientToken,
-  normalizeEmailAddress,
   normalizeLocalActionType,
   normalizeMotivationOutcome,
   normalizeReassuranceStyle,
@@ -3020,6 +4813,7 @@ configureMemoryStore({
   sanitizeReassuranceStyleScores,
   sanitizeRememberedPeople,
   sanitizeSnippetList,
+  sanitizeScreenplayProjectMemoryItems,
   sanitizeSocialSparkMoments,
   sanitizeTaskItems,
   sanitizeTimestampList,
@@ -3041,6 +4835,10 @@ configureScreenplayStore({
   normalizeStoredScreenplayCompanionState,
   normalizeStoredScreenplayOwner,
   resolveScreenplayOwnerKey,
+  screenplayPersistenceTimeoutMs: parsePositiveInt(
+    process.env.SCREENPLAY_PERSISTENCE_TIMEOUT_MS,
+    5_000
+  ),
   writeJsonFileAtomic,
   persistence: sharedPersistence,
 });
@@ -3062,28 +4860,42 @@ if (process.env.OUTBOX_SNAPSHOT_ENABLED == null
 }
 
 configureOutboxStore({
-  CALENDAR_COMPOSE_TARGET,
   OUTBOX_ENABLED,
   OUTBOX_RETRY_BASE_DELAY_MS,
   OUTBOX_RETRY_MAX_ATTEMPTS,
   OUTBOX_WORKER_BATCH_SIZE,
   OUTBOX_WORKER_ENABLED,
-  buildCalendarComposeUrl,
   buildLocalActionSignature,
   captureLocalNote,
   normalizeLocalActionType,
   normalizeSnippet,
   randomUUID,
   scaleBackplane,
-  sendLocalEmail,
 });
 configureUserStore({
   USER_STORE_PATH,
   fs,
   normalizeSnippet,
+  persistence: sharedPersistence,
   writeJsonFileAtomic,
 });
-loadUserStore();
+const loadedUserStoreFromAdapter = await loadUserStoreFromAdapter({
+  failOnUnavailable: NODE_ENV === "production",
+  failOnUninitialized: NODE_ENV === "production",
+});
+if (!loadedUserStoreFromAdapter) {
+  loadUserStore();
+  const authBackfill = saveUserStore(Date.now());
+  let authBackfillResult = authBackfill;
+  if (authBackfill?.persistencePromise) {
+    authBackfillResult = await flushUserStorePersistenceWrites();
+  }
+  if (NODE_ENV === "production" && authBackfillResult?.ok !== true) {
+    const error = new Error("user_store_adapter_backfill_failed");
+    error.code = "USER_STORE_ADAPTER_BACKFILL_FAILED";
+    throw error;
+  }
+}
 const userAuth = createUserAuthSubsystem({
   accessTtlSeconds: JWT_TTL_SECONDS,
   appleAudience: AUTH_APPLE_AUDIENCE,
@@ -3099,21 +4911,271 @@ const userAuth = createUserAuthSubsystem({
   requireUserAuth: REQUIRE_USER_AUTH,
 });
 app.use(userAuth.attachUserAuth);
+// Day 1 Backend Exposure Lock: paid-provider lane runs *before* the
+// optional REQUIRE_USER_AUTH gate so /realtime/* and /visual/context
+// cost-attached endpoints always require authenticated identity.
+app.use(userAuth.protectPaidProviderRoutes);
 app.use(userAuth.protectUserRoutes);
+
+const backendRateLimiter = createRateLimiter({
+  buckets: {
+    auth: { capacity: AUTH_RATE_LIMIT_MAX, windowMs: AUTH_RATE_LIMIT_WINDOW_MS },
+    realtime_mint: { capacity: REALTIME_RATE_LIMIT_MAX, windowMs: REALTIME_RATE_LIMIT_WINDOW_MS },
+    provider: { capacity: PROVIDER_RATE_LIMIT_MAX, windowMs: PROVIDER_RATE_LIMIT_WINDOW_MS },
+    default: { capacity: 120, windowMs: 60_000 },
+  },
+  isProduction: () => NODE_ENV === "production",
+});
+const providerBudgetGuard = createProviderBudgetGuard({
+  dailyLimit: PROVIDER_DAILY_BUDGET_LIMIT,
+  isEnabled: () => PROVIDER_BUDGET_ENABLED,
+  isProduction: () => NODE_ENV === "production",
+  resolveIdentity: (req) => {
+    const userId = String(req?.authUser?.id || req?.userId || "").trim();
+    if (userId) return `user:${userId}`;
+    return `ip:${normalizeClientIp(req?.ip || req?.socket?.remoteAddress || "unknown")}`;
+  },
+});
+
+function createAdapterAccountLifecycleStore(persistence) {
+  const domain = "account_lifecycle";
+  return {
+    async read(userId) {
+      return await persistence.get({ domain, key: String(userId) });
+    },
+    async markPendingDeletion({ userId, pendingDeletionAt, hardDeleteAt, reason = "" }) {
+      await persistence.put({
+        domain,
+        key: String(userId),
+        value: {
+          userId: String(userId),
+          pendingDeletionAt,
+          hardDeleteAt,
+          reason: String(reason || ""),
+          updatedAt: Date.now(),
+        },
+      });
+    },
+    async clearPendingDeletion(userId) {
+      await persistence.delete({ domain, key: String(userId) });
+    },
+    async listDueForHardDelete(limit = 100) {
+      const nowTs = Date.now();
+      const rows = await persistence.list({ domain, limit: 10_000 });
+      return (rows || [])
+        .filter((row) => {
+          const hardDeleteAt = Number(row?.value?.hardDeleteAt || 0);
+          return hardDeleteAt > 0 && hardDeleteAt <= nowTs;
+        })
+        .sort((a, b) => Number(a?.value?.hardDeleteAt || 0) - Number(b?.value?.hardDeleteAt || 0))
+        .slice(0, Math.max(1, Number(limit) || 100))
+        .map((row) => String(row?.value?.userId || row?.key || "").trim())
+        .filter(Boolean);
+    },
+    async finalizeHardDelete(userId) {
+      const normalizedUserId = String(userId || "").trim();
+      await persistence.put({
+        domain: "account_audit_log",
+        key: `${Date.now()}-${randomUUID()}`,
+        value: {
+          userId: normalizedUserId,
+          event: "account_hard_deleted",
+          requestId: null,
+          actorIp: null,
+          metadata: {},
+          createdAt: Date.now(),
+        },
+      });
+      await persistence.delete({ domain, key: normalizedUserId });
+    },
+  };
+}
+
+function createAdapterAccountAuditLog(persistence) {
+  return async function auditLog(entry) {
+    const userId = String(entry?.userId || "").trim();
+    const event = String(entry?.event || "").trim();
+    if (!userId || !event) return;
+    await persistence.put({
+      domain: "account_audit_log",
+      key: `${Date.now()}-${randomUUID()}`,
+      value: {
+        userId,
+        event,
+        requestId: entry?.requestId || null,
+        actorIp: entry?.actorIp || null,
+        metadata: entry?.metadata || {},
+        createdAt: Date.now(),
+      },
+    });
+  };
+}
+
+function persistenceRowBelongsToUser(row, userId) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return false;
+  const key = String(row?.key || "");
+  if (
+    key === normalizedUserId ||
+    key === `user:${normalizedUserId}` ||
+    key === `authuser:${normalizedUserId}` ||
+    key === `byUserId:${normalizedUserId}` ||
+    key === `byIp:authuser:${normalizedUserId}` ||
+    key.startsWith(`${normalizedUserId}:`) ||
+    key.startsWith(`user:${normalizedUserId}:`) ||
+    key.startsWith(`authuser:${normalizedUserId}:`)
+  ) {
+    return true;
+  }
+  const value = row?.value && typeof row.value === "object" ? row.value : {};
+  const candidates = [
+    value.userId,
+    value.user_id,
+    value.ownerId,
+    value.owner_id,
+    value.ownerUserId,
+    value.owner_user_id,
+    value.authUserId,
+    value.auth_user_id,
+    value.ip === `authuser:${normalizedUserId}` ? normalizedUserId : "",
+  ];
+  return candidates.some((candidate) => String(candidate || "").trim() === normalizedUserId);
+}
+
+async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAINS }) {
+  const normalizedUserId = String(userId || "").trim();
+  const payload = {};
+  for (const domain of domains) {
+    const rows = await listPersistenceRowsPaginated({
+      persistence: sharedPersistence,
+      domain,
+      includeRow: (row) => persistenceRowBelongsToUser(row, normalizedUserId),
+    });
+    payload[domain] = rows.map((row) => ({
+      key: row.key,
+      value: row.value,
+    }));
+  }
+  return { domains: payload };
+}
+
+async function purgeAuthenticatedUserData(userId) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) throw new Error("account purge requires userId");
+  // Crossing the hard-delete deadline is irreversible. Remove the identity
+  // first so no new authenticated writer can race the bounded data sweeps;
+  // the lifecycle job remains retryable if any later storage step fails.
+  const authResult = await runUserStoreMutationExclusive(
+    () => deleteUserById(normalizedUserId)
+  );
+  if (!authResult?.ok) throw new Error(authResult?.reason || "account auth deletion failed");
+  const screenplayRows = await listPersistenceRowsPaginated({
+    persistence: sharedPersistence,
+    domain: "screenplay",
+    includeRow: (row) => persistenceRowBelongsToUser(row, normalizedUserId),
+  });
+  const screenplayOwnerKeys = new Set(screenplayRows.map((row) => String(row?.key || "").trim()));
+  screenplayOwnerKeys.add(normalizeScreenplayOwnerValue(normalizedUserId, "user"));
+  for (const [ownerKey, owner] of screenplayStoreByOwner.entries()) {
+    if (persistenceRowBelongsToUser({ key: ownerKey, value: owner }, normalizedUserId)) {
+      screenplayOwnerKeys.add(ownerKey);
+    }
+  }
+  for (const ownerKey of screenplayOwnerKeys) {
+    if (!ownerKey) continue;
+    const screenplayDeletion = await tombstoneScreenplayOwnerRecord(ownerKey, Date.now());
+    if (!screenplayDeletion?.ok || !screenplayDeletion?.tombstoned) {
+      throw new Error("account purge failed to fence screenplay deletion");
+    }
+  }
+  const persistenceResult = await purgePersistenceRowsForUser({
+    persistence: sharedPersistence,
+    userId: normalizedUserId,
+    domains: EXPORTABLE_DOMAINS.filter((domain) => domain !== "screenplay"),
+    rowBelongsToUser: persistenceRowBelongsToUser,
+  });
+
+  const authMemoryIp = legacyAuthMemoryIp(normalizedUserId);
+  userMemoryByUserId.delete(normalizedUserId);
+  userMemoryByIp.delete(authMemoryIp);
+  for (const [clientToken, mappedIp] of userMemoryByClientToken.entries()) {
+    if (String(mappedIp || "").trim() === authMemoryIp) {
+      userMemoryByClientToken.delete(clientToken);
+    }
+  }
+  const memorySave = saveUserMemoryStore(Date.now());
+  if (!memorySave?.fileOk) throw new Error("account purge failed to rewrite user memory mirror");
+  if (memorySave.persistencePromise) {
+    const memoryPersistence = await memorySave.persistencePromise;
+    if (!memoryPersistence?.ok) throw new Error("account purge failed to persist user memory deletion");
+  }
+
+  persistenceResult.deletedRows += screenplayRows.length;
+
+  return {
+    userId: normalizedUserId,
+    deletedRows: persistenceResult.deletedRows,
+    authDeleted: authResult.deleted,
+  };
+}
+
+const accountLifecycleStore = sharedPersistence.kind === "postgres"
+  ? createAccountLifecycleStore({ client: sharedPersistence })
+  : createAdapterAccountLifecycleStore(sharedPersistence);
+const accountAuditLog = sharedPersistence.kind === "postgres"
+  ? async (entry) => {
+      const event = String(entry?.event || "").trim();
+      if (event === "account_deletion_requested" || event === "account_deletion_cancelled") {
+        return;
+      }
+      await accountLifecycleStore.audit(entry);
+    }
+  : createAdapterAccountAuditLog(sharedPersistence);
+
+const accountPurgeWorker = createAccountPurgeWorker({
+  lifecycleStore: accountLifecycleStore,
+  purgeUserData: purgeAuthenticatedUserData,
+  logger: console,
+  batchSize: 50,
+});
+if (NODE_ENV === "production") {
+  const runAccountPurge = () => {
+    void accountPurgeWorker.runOnce().then((summary) => {
+      if (summary.due > 0) {
+        console.log(
+          `[account_purge] due=${summary.due} purged=${summary.purged} failed=${summary.failed}`
+        );
+      }
+    });
+  };
+  const bootPurgeTimer = setTimeout(runAccountPurge, 5_000);
+  bootPurgeTimer.unref?.();
+  const recurringPurgeTimer = setInterval(runAccountPurge, 15 * 60 * 1_000);
+  recurringPurgeTimer.unref?.();
+}
+
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
 if (!memoryLoadedFromAdapter) {
   loadUserMemoryStore(userMemoryByIp, userMemoryByClientToken);
 }
-// T07b: prefer adapter when it has data; fall back to the legacy JSON file.
-// During the migration window, both paths coexist. Once Postgres is canonical
-// and stable, the JSON load can be retired in a follow-up PR.
-const loadedFromAdapter = await loadScreenplayStoreFromAdapter(screenplayStoreByOwner);
-if (!loadedFromAdapter) {
-  loadScreenplayStore(screenplayStoreByOwner);
+// T07b migration recovery: load the complete legacy snapshot first, then let
+// adapter rows override matching owners. The adapter may contain only the
+// owners written since dual-write began, so clearing the file-backed owners
+// when any adapter row exists can hide unrelated projects after a restart.
+loadScreenplayStore(screenplayStoreByOwner);
+const screenplayAdapterStateLoaded = await loadScreenplayStoreFromAdapter(screenplayStoreByOwner);
+if (screenplayAdapterStateLoaded) {
+  const screenplayMirrorSync = saveScreenplayStore(Date.now(), {
+    persistAdapter: false,
+    preferPersistedOwners: true,
+  });
+  if (!screenplayMirrorSync?.fileOk) {
+    console.error("[screenplay_store] failed to persist adapter provenance in migration mirror");
+  }
 }
 console.log(
-  `[user_memory] loaded records=${userMemoryByIp.size} token_aliases=${userMemoryByClientToken.size}`
+  `[user_memory] loaded records=${userMemoryByIp.size} users=${userMemoryByUserId.size} token_aliases=${userMemoryByClientToken.size}`
 );
 setTimeout(() => {
   void hydrateUserMemoryStoreFromBackplane();
@@ -3124,13 +5186,8 @@ let didLogMp3Signature = false;
 let elevenLabsBlockedUntilMs = 0;
 let elevenLabsBlockedReason = "";
 
-if (!OPENAI_API_KEY && NODE_ENV === "production") {
-  console.error("Missing OPENAI_API_KEY in environment.");
-  process.exit(1);
-} else if (!OPENAI_API_KEY) {
-  console.warn(
-    "[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors or explicit degraded/stub responses until configured."
-  );
+if (!OPENAI_API_KEY && (NODE_ENV === "development" || NODE_ENV === "test")) {
+  console.warn("[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors until configured.");
 }
 
 if (REQUIRE_APP_TOKEN && !APP_TOKEN) {
@@ -3286,6 +5343,7 @@ function percentileFromSorted(sortedValues, percentile) {
 
 function recordTalkMetric(sample) {
   const at = Date.now();
+  const screenplayMetric = normalizeTalkScreenplayMetricSample(sample);
   const normalized = {
     at,
     statusCode: Math.max(0, Number(sample?.statusCode || 0)),
@@ -3298,6 +5356,22 @@ function recordTalkMetric(sample) {
     talkStatus: String(sample?.talkStatus || "").trim() || "unknown",
     lane: normalizeSnippet(sample?.lane, 48) || "unknown",
     model: normalizeSnippet(sample?.model, 80) || "unknown",
+    modelTier: normalizeSnippet(sample?.modelTier, 32) || "unknown",
+    modelReason: normalizeSnippet(sample?.modelReason, 80) || "unknown",
+    reasoningEffort: normalizeSnippet(sample?.reasoningEffort, 16) || "none",
+    modelFallback: Boolean(sample?.modelFallback),
+    inputTokens: Math.max(0, Number(sample?.inputTokens || 0)),
+    outputTokens: Math.max(0, Number(sample?.outputTokens || 0)),
+    reasoningTokens: Math.max(0, Number(sample?.reasoningTokens || 0)),
+    structuralQualityApplicable: Boolean(sample?.structuralQualityApplicable),
+    structuralQualityPassed: Boolean(sample?.structuralQualityPassed),
+    structuralQualityRepaired: Boolean(sample?.structuralQualityRepaired),
+    structuralQualityOutcome: normalizeSnippet(sample?.structuralQualityOutcome, 48) || "not_applicable",
+    structuralQualityReason: normalizeSnippet(sample?.structuralQualityReason, 96) || "none",
+    structuralQualityInitialScore: Math.max(0, Math.min(1, Number(sample?.structuralQualityInitialScore || 0))),
+    structuralQualityFinalScore: Math.max(0, Math.min(1, Number(sample?.structuralQualityFinalScore || 0))),
+    structuralRepairMs: Math.max(0, Number(sample?.structuralRepairMs || 0)),
+    ...screenplayMetric,
   };
   talkMetricsSamples.push(normalized);
   if (talkMetricsSamples.length > TALK_METRICS_MAX_SAMPLES) {
@@ -3318,6 +5392,31 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
   const ttsMsSorted = success.map((s) => Number(s.ttsMs || 0)).sort((a, b) => a - b);
   const streamAudioCount = success.filter((s) => s.streamAudio).length;
   const chatStreamCount = success.filter((s) => s.chatStreamUsed).length;
+  const structuralSuccess = success.filter((sample) => sample.modelTier === "structural");
+  const structuralChatMsSorted = structuralSuccess
+    .map((sample) => Number(sample.chatMs || 0))
+    .sort((a, b) => a - b);
+  const structuralFallbackCount = structuralSuccess
+    .filter((sample) => sample.modelFallback).length;
+  const structuralInputTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.inputTokens || 0), 0);
+  const structuralOutputTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.outputTokens || 0), 0);
+  const structuralReasoningTokens = structuralSuccess
+    .reduce((totalTokens, sample) => totalTokens + Number(sample.reasoningTokens || 0), 0);
+  const structuralQualityEvaluated = structuralSuccess
+    .filter((sample) => sample.structuralQualityApplicable);
+  const structuralQualityPassCount = structuralQualityEvaluated
+    .filter((sample) => sample.structuralQualityPassed).length;
+  const structuralQualityRepairCount = structuralQualityEvaluated
+    .filter((sample) => sample.structuralQualityRepaired).length;
+  const structuralQualityInitialTotal = structuralQualityEvaluated
+    .reduce((score, sample) => score + Number(sample.structuralQualityInitialScore || 0), 0);
+  const structuralQualityFinalTotal = structuralQualityEvaluated
+    .reduce((score, sample) => score + Number(sample.structuralQualityFinalScore || 0), 0);
+  const structuralRepairMsTotal = structuralQualityEvaluated
+    .reduce((elapsed, sample) => elapsed + Number(sample.structuralRepairMs || 0), 0);
+  const screenplay = summarizeTalkScreenplayMetrics(recent);
   return {
     windowMs: Math.max(1_000, Number(windowMs || TALK_METRICS_WINDOW_MS)),
     sampleCount: total,
@@ -3334,6 +5433,38 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
     p95TtsMs: percentileFromSorted(ttsMsSorted, 0.95),
     streamAudioRate: success.length > 0 ? streamAudioCount / success.length : 0,
     chatStreamRate: success.length > 0 ? chatStreamCount / success.length : 0,
+    modelRouting: {
+      structuralCount: structuralSuccess.length,
+      structuralRate: success.length > 0 ? structuralSuccess.length / success.length : 0,
+      fallbackCount: structuralFallbackCount,
+      fallbackRate: structuralSuccess.length > 0
+        ? structuralFallbackCount / structuralSuccess.length
+        : 0,
+      p50StructuralChatMs: percentileFromSorted(structuralChatMsSorted, 0.50),
+      p95StructuralChatMs: percentileFromSorted(structuralChatMsSorted, 0.95),
+      inputTokens: structuralInputTokens,
+      outputTokens: structuralOutputTokens,
+      reasoningTokens: structuralReasoningTokens,
+      qualityEvaluatedCount: structuralQualityEvaluated.length,
+      qualityPassCount: structuralQualityPassCount,
+      qualityPassRate: structuralQualityEvaluated.length > 0
+        ? structuralQualityPassCount / structuralQualityEvaluated.length
+        : 0,
+      qualityRepairCount: structuralQualityRepairCount,
+      qualityRepairRate: structuralQualityEvaluated.length > 0
+        ? structuralQualityRepairCount / structuralQualityEvaluated.length
+        : 0,
+      averageInitialQualityScore: structuralQualityEvaluated.length > 0
+        ? structuralQualityInitialTotal / structuralQualityEvaluated.length
+        : 0,
+      averageFinalQualityScore: structuralQualityEvaluated.length > 0
+        ? structuralQualityFinalTotal / structuralQualityEvaluated.length
+        : 0,
+      averageRepairMs: structuralQualityEvaluated.length > 0
+        ? structuralRepairMsTotal / structuralQualityEvaluated.length
+        : 0,
+    },
+    screenplay,
   };
 }
 
@@ -3405,7 +5536,29 @@ function storeTalkTurnMeta({
         target: normalizeSnippet(screenplayOutput.target, 24) || "voice_pin",
         format: normalizeSnippet(screenplayOutput.format, 24) || "note",
         source: normalizeSnippet(screenplayOutput.source, 32) || "unknown",
-        text: normalizeTalkMultilineSnippet(screenplayOutput.text, 8_000),
+        quality: screenplayOutput.quality && typeof screenplayOutput.quality === "object"
+          ? buildTalkScreenplayQualityEnvelope({
+            ok: Boolean(screenplayOutput.quality.ok),
+            reason: screenplayOutput.quality.reason,
+            source: screenplayOutput.quality.source || screenplayOutput.source,
+            quality: {
+              reason: screenplayOutput.quality.reason,
+              counts: screenplayOutput.quality.counts,
+              featureObligation: {
+                featureActKind: screenplayOutput.quality.feature_act,
+                matchedTokens: screenplayOutput.quality.matched_tokens,
+              },
+            },
+          })
+          : buildTalkScreenplayQualityEnvelope({
+            ok: String(screenplayOutput.target || "").trim().toLowerCase() === "page",
+            reason: String(screenplayOutput.target || "").trim().toLowerCase() === "page" ? "ok" : "unavailable",
+            source: screenplayOutput.source,
+          }),
+        text: normalizeTalkMultilineSnippet(
+          screenplayOutput.text,
+          TALK_TURN_META_SCREENPLAY_MAX_CHARS
+        ),
         lines: Array.isArray(screenplayOutput.lines)
           ? screenplayOutput.lines
             .filter((line) => line && typeof line === "object")
@@ -3507,7 +5660,12 @@ function stripTalkScreenplayMarkdown(line = "") {
     .trim();
 }
 
+function isTalkMarkdownFenceLine(line = "") {
+  return /^\s*```[A-Za-z0-9_-]*\s*$/.test(String(line || ""));
+}
+
 function stripTalkLeadInPrefix(line = "") {
+  if (isTalkMarkdownFenceLine(line)) return "";
   const cleaned = stripTalkScreenplayMarkdown(line);
   if (!cleaned) return "";
   return cleaned.replace(
@@ -3641,6 +5799,18 @@ function isTalkWrapperLeadInLine(line = "", nextNonEmpty = "", nextAfterNonEmpty
   if (/^you said:\s*["“].+["”]$/i.test(normalized)) {
     return true;
   }
+  if (/^(?:absolutely|sure|yes|yeah|okay|ok)\b.*\b(?:write|draft|try|take|play|scene|page|beat|like this|this way)\b/i.test(normalized)) {
+    return true;
+  }
+  if (/^i(?:'|’)d (?:write|draft|play|take|shape) (?:it|this) (?:like this|this way)$/i.test(normalized)) {
+    return true;
+  }
+  if (/^i would (?:write|draft|play|take|shape) (?:it|this) (?:like this|this way)$/i.test(normalized)) {
+    return true;
+  }
+  if (/^let(?:'|’)s (?:write|draft|try|take|play|shape) (?:it|this|the scene|the beat|the page)\b/i.test(normalized)) {
+    return true;
+  }
   return [
     "here's the scene",
     "heres the scene",
@@ -3660,7 +5830,29 @@ function isTalkWrapperLeadInLine(line = "", nextNonEmpty = "", nextAfterNonEmpty
     "try this",
     "action line",
     "use this",
+    "try it this way",
+    "i'd write it like this",
+    "i would write it like this",
   ].includes(normalized);
+}
+
+function isLikelyTalkScreenplayAfterwordLine(line = "") {
+  const cleaned = stripTalkScreenplayMarkdown(line);
+  if (!cleaned) return false;
+  const normalized = cleaned
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/[.:!?-–—]+$/g, "")
+    .trim();
+  return [
+    /^the (?:scene|beat|page|moment|exchange|dialogue|sequence) (?:needs|wants|should|must|can)\b/,
+    /^this (?:gives|keeps|lets|makes|should give|should keep)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
+    /^the (?:key|idea|move|pressure|subtext|turn) (?:is|here is)\b/,
+    /^i (?:kept|made|gave|added|cut|left|protected|preserved)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
+    /^if you want\b/,
+    /^you can (?:also|then|next|now)\b/,
+    /^that way\b/,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function stripTalkTrailingConversationalQuestion(line = "") {
@@ -3689,7 +5881,21 @@ function trimTrailingConversationalScreenplayLines(lines = []) {
     }
     if (trimmed.length <= 1) break;
     const lastLine = String(trimmed[trimmed.length - 1] || "").trim();
-    if (!lastLine || !isLikelyConversationalScreenplayLine(lastLine)) break;
+    const previousNonEmptyLine = [...trimmed.slice(0, -1)]
+      .reverse()
+      .map((line) => String(line || "").trim())
+      .find(Boolean) || "";
+    const followsDialogueCue = isTalkParentheticalLine(previousNonEmptyLine) ||
+      isTalkUppercaseCueCandidate(previousNonEmptyLine);
+    if (
+      !lastLine ||
+      (
+        !isTalkMarkdownFenceLine(lastLine) &&
+        !isLikelyConversationalScreenplayLine(lastLine) &&
+        !isLikelyTalkScreenplayAfterwordLine(lastLine)
+      )
+    ) break;
+    if (followsDialogueCue) break;
     trimmed.pop();
   }
   return trimmed;
@@ -3718,7 +5924,7 @@ function expandTalkInlineScreenplayParts(line = "") {
 }
 
 function normalizeTalkPageReply(text = "") {
-  const normalized = normalizeTalkScreenplayText(text);
+  const normalized = normalizeTalkScreenplayText(normalizeScreenplayOutputContractText(text));
   if (!normalized) return "";
 
   const rawLines = normalized.split("\n");
@@ -3843,7 +6049,369 @@ function decodeTalkEscapedScreenplayBlock(text = "") {
     .replace(/\\\\/g, "\\");
 }
 
-function buildTalkPromptBlockScreenplayOutput(transcript = "") {
+function resolveTalkScreenplayRequestedPageBatch({ transcript = "", studioMeta = null } = {}) {
+  const inferred = inferRequestedScreenplayPagesFromText(transcript);
+  if (inferred > 0) return inferred;
+  const explicitBatchPages = Math.max(
+    0,
+    Math.round(Number(
+      studioMeta?.screenplayRequestedPages ??
+      studioMeta?.screenplay_requested_pages ??
+      studioMeta?.screenplayPageBatch ??
+      studioMeta?.screenplay_page_batch ??
+      0
+    ) || 0)
+  );
+  if (explicitBatchPages > 0 && explicitBatchPages <= 30) return explicitBatchPages;
+  return 0;
+}
+
+function compactTalkScreenplayQualityCounts(counts = {}) {
+  if (!counts || typeof counts !== "object") return {};
+  return {
+    non_empty: Math.max(0, Number(counts.nonEmpty ?? counts.non_empty ?? 0)),
+    scene_heading: Math.max(0, Number(counts.sceneHeading ?? counts.scene_heading ?? 0)),
+    action: Math.max(0, Number(counts.action ?? 0)),
+    playable_action: Math.max(0, Number(counts.playableAction ?? counts.playable_action ?? 0)),
+    specific_action: Math.max(0, Number(counts.specificAction ?? counts.specific_action ?? 0)),
+    character: Math.max(0, Number(counts.character ?? 0)),
+    dialogue: Math.max(0, Number(counts.dialogue ?? 0)),
+    words: Math.max(0, Number(counts.words ?? 0)),
+    artifact: Math.max(0, Number(counts.artifact ?? 0)),
+    placeholder: Math.max(0, Number(counts.placeholder ?? 0)),
+    low_signal_action: Math.max(0, Number(counts.lowSignalAction ?? counts.low_signal_action ?? 0)),
+    low_subtext_dialogue: Math.max(0, Number(counts.lowSubtextDialogue ?? counts.low_subtext_dialogue ?? 0)),
+    summary_like_action: Math.max(0, Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0)),
+    turn_event_action: Math.max(0, Number(counts.turnEventAction ?? counts.turn_event_action ?? 0)),
+    max_dialogue_run: Math.max(0, Number(counts.maxDialogueRun ?? counts.max_dialogue_run ?? 0)),
+    dialogue_tactic_signal: Math.max(0, Number(counts.dialogueTacticSignal ?? counts.dialogue_tactic_signal ?? 0)),
+    dialogue_reversal_signal: Math.max(0, Number(counts.dialogueReversalSignal ?? counts.dialogue_reversal_signal ?? 0)),
+    expository_dialogue: Math.max(0, Number(counts.expositoryDialogue ?? counts.expository_dialogue ?? 0)),
+    generic_dialogue_voice: Math.max(0, Number(counts.genericDialogueVoice ?? counts.generic_dialogue_voice ?? 0)),
+    repeated_dialogue_start: Math.max(0, Number(counts.repeatedDialogueStart ?? counts.repeated_dialogue_start ?? 0)),
+    distinct_dialogue_characters: Math.max(0, Number(counts.distinctDialogueCharacters ?? counts.distinct_dialogue_characters ?? 0)),
+    playable_specificity: Math.max(0, Number(counts.playableSpecificity ?? counts.playable_specificity ?? 0)),
+    causal_advancement: Math.max(0, Number(counts.causalAdvancement ?? counts.causal_advancement ?? 0)),
+    character_cost: Math.max(0, Number(counts.characterCost ?? counts.character_cost ?? 0)),
+    act_progression: Math.max(0, Number(counts.actProgression ?? counts.act_progression ?? 0)),
+  };
+}
+
+function buildTalkScreenplayRepairDirectives({
+  reason = "",
+  authority = null,
+  quality = null,
+} = {}) {
+  const normalizedReason = normalizeSnippet(
+    reason || authority?.reason || quality?.reason || "",
+    80
+  );
+  const counts = quality?.counts || authority?.quality?.counts || {};
+  const minimumSpecificActions = Math.max(
+    0,
+    Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
+  );
+  const minimumSceneTurns = Math.max(
+    0,
+    Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
+  );
+  const canonContinuity = quality?.canonContinuity ||
+    authority?.canonContinuity ||
+    authority?.quality?.canonContinuity ||
+    null;
+  const directives = [];
+  switch (normalizedReason) {
+    case "accepted_canon_contradiction":
+      directives.push(...normalizeScreenplayStringList(
+        canonContinuity?.repairDirectives,
+        4,
+        280
+      ));
+      directives.push("Continue from the accepted changed condition. Never replay a known revelation, reset a changed relationship, erase a decision, or restore an irreversible loss.");
+      break;
+    case "weak_first_page_opening":
+      directives.push("Start the page run with a concrete pressure image or action that changes story state; avoid soft camera/setup prose.");
+      directives.push("Make the first beat carry objective, obstacle, or emotional cost before any atmosphere.");
+      break;
+    case "summary_like_page_batch":
+      directives.push("Replace synopsis/overview language with playable Fountain pages: slugline, action, character cues, dialogue, and visible scene turns.");
+      directives.push("Do not say what the scene shows, follows, establishes, or pays off; dramatize those facts as behavior and consequence.");
+      directives.push("Every 1-2 pages must change leverage, information, relationship, tactic, or emotional cost.");
+      break;
+    case "thin_scene_turn_batch":
+      directives.push(`Add visible scene turns: at least ${minimumSceneTurns || 2} concrete reversals, discoveries, blocked choices, costs, or power shifts.`);
+      directives.push("Each turn should change leverage, information, relationship, tactic, or emotional cost on the page.");
+      break;
+    case "dialogue_tactic_lock":
+      directives.push("Break the dialogue run with tactic shifts, interruptions, discoveries, and consequences.");
+      directives.push("Do not let characters argue the same point; make each exchange change leverage or force new behavior.");
+      break;
+    case "expository_dialogue_dump":
+      directives.push("Convert exposition into conflict: make information withheld, weaponized, interrupted, misused, or tied to a visible cost.");
+      directives.push("Each character should use the facts for a different tactic instead of explaining backstory.");
+      break;
+    case "interchangeable_dialogue_voice":
+      directives.push("Rewrite the exchange so each character's want, wound, false belief, and current tactic shape syntax, silence, and rhythm.");
+      directives.push("Remove repeated generic line starts; give each speaker a distinct pressure move.");
+      break;
+    case "flat_dialogue_no_tactics":
+      directives.push("Give each speaker a private tactic and a pressure target; every line should push, evade, corner, reveal, or force a choice.");
+      directives.push("Add a reversal, interruption, behavior beat, or cost so the exchange changes leverage.");
+      break;
+    case "missing_character_voice_fingerprint":
+      directives.push("Honor the supplied character voice fingerprint: use remembered tactics, silence pattern, or emotional tells in that character's dialogue.");
+      directives.push("Rewrite the character's lines so the stored voice shows up as playable pressure, not generic dialogue.");
+      break;
+    case "thin_long_page_batch":
+      directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);
+      directives.push("Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image.");
+      directives.push("Interleave dialogue with visible action, discovery, blocked options, and consequence.");
+      break;
+    case "static_dialogue_batch":
+      directives.push("Break the static conversation with visible tactics, discoveries, blocked exits, and consequences.");
+      directives.push("Every dialogue exchange should change leverage or reveal a hidden want; do not repeat the same tactic.");
+      break;
+    case "on_the_nose_dialogue":
+      directives.push("Rewrite dialogue as tactic and subtext; move direct feeling statements into behavior, interruption, or concealment.");
+      directives.push("Add concrete actions that put emotional pressure on the exchange.");
+      break;
+    case "underfilled_page_text":
+      directives.push("Expand the response into the requested playable page run instead of a sample or abbreviated beat.");
+      directives.push("Keep writing until the scene has launch pressure, complication, reversal/cost, and a handoff.");
+      break;
+    case "missing_screenplay_shape":
+    case "missing_batch_scene_anchor":
+    case "non_screenplay_output":
+      directives.push("Return clean screenplay/Fountain shape with a scene heading or anchored continuation, action lines, character cues, and dialogue.");
+      directives.push("Do not return notes, outline prose, markdown, or a strategy explanation.");
+      break;
+    case "outline_or_craft_artifact":
+      directives.push("Remove outline, beat-label, diagnosis, and craft-note language; convert the same intent into screenplay pages.");
+      break;
+    case "placeholder_page_text":
+      directives.push("Replace placeholders with specific character behavior, locations, objects, and pressure.");
+      break;
+    case "low_dramatic_density":
+      directives.push("Increase dramatic density with concrete behavior, a visible obstacle, a tactic shift, and a consequence.");
+      break;
+    case "empty_momentum_rescue":
+    case "underdeveloped_momentum_rescue":
+    case "generic_encouragement_only":
+      directives.push("Do not answer with encouragement alone; diagnose the story blockage and move the scene forward.");
+      directives.push("Give one strongest next beat before offering alternatives.");
+      directives.push("Include a tiny playable micro-beat in Fountain style when scene context exists.");
+      break;
+    case "missing_pressure_engine":
+      directives.push("Choose a pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, or image transformation.");
+      directives.push("Name the likely story problem as a craft issue: want, obstacle, tactic, consequence, pressure, or exit turn.");
+      break;
+    case "missing_decisive_next_beat":
+      directives.push("Replace the option menu with one decisive next beat that changes story state.");
+      directives.push("Make the next beat visible as a decision, reveal, cost, or image.");
+      break;
+    case "missing_playable_micro_beat":
+      directives.push("Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.");
+      directives.push("Include a tiny playable Fountain-style micro-beat.");
+      break;
+    case "vague_option_menu":
+      directives.push("Lead with the single strongest move; include at most two alternate forks after it.");
+      directives.push("Make each fork playable as a decision, reveal, cost, or image.");
+      break;
+    default:
+      if (normalizedReason.startsWith("missing_act_")) {
+        directives.push("Spend the supplied act obligation on the page through behavior, conflict, cost, and image pressure.");
+      } else if (normalizedReason === "missing_next_turn_continuation") {
+        directives.push("Use the first supplied next turn as the immediate page engine before inventing a new plot lane.");
+      } else if (normalizedReason === "missing_next_scene_assignment") {
+        directives.push("Spend the supplied next-scene assignment as the immediate page engine before adding new plot.");
+        directives.push("Make the assignment visible through action, dialogue pressure, or a changed decision.");
+      } else if (normalizedReason === "missing_next_scene_execution_brief") {
+        directives.push("Dramatize the supplied next-scene brief lanes: obstacle, character change, payoff/setup, visual motif, and exit handoff.");
+        directives.push("Use at least three of those lanes as playable page behavior, not notes or summary.");
+      } else if (normalizedReason === "missing_character_arc_memory") {
+        directives.push("Turn the supplied character want/need/false-belief/tactic into visible changed behavior.");
+      }
+      break;
+  }
+  if (Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0) > 0 && normalizedReason !== "summary_like_page_batch") {
+    directives.push("Replace any remaining summary-like action with present-tense playable behavior.");
+  }
+  return [...new Set(directives.map((directive) => normalizeSnippet(directive, 220)).filter(Boolean))].slice(0, 5);
+}
+
+function buildTalkScreenplayQualityEnvelope({
+  ok = false,
+  reason = "",
+  source = "",
+  authority = null,
+  quality = null,
+} = {}) {
+  const normalizedReason = normalizeSnippet(
+    reason || authority?.reason || quality?.reason || (ok ? "ok" : "unknown"),
+    80
+  ) || (ok ? "ok" : "unknown");
+  const sourceKey = normalizeSnippet(source, 48) || "unknown";
+  const featureObligation = quality?.featureObligation || authority?.quality?.featureObligation || null;
+  const featureActKind = normalizeSnippet(featureObligation?.featureActKind, 32);
+  const counts = compactTalkScreenplayQualityCounts(quality?.counts || authority?.quality?.counts || {});
+  const minimumSpecificActions = Math.max(
+    0,
+    Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
+  );
+  const minimumSceneTurns = Math.max(
+    0,
+    Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
+  );
+  const canonContinuity = quality?.canonContinuity ||
+    authority?.canonContinuity ||
+    authority?.quality?.canonContinuity ||
+    null;
+  const rawCanonViolations = Array.isArray(canonContinuity?.violations)
+    ? canonContinuity.violations
+    : (Array.isArray(quality?.canon_violations) ? quality.canon_violations : []);
+  const canonViolations = rawCanonViolations.slice(0, 3).map((item) => ({
+    type: normalizeSnippet(item?.type, 48),
+    kind: normalizeSnippet(item?.kind, 48),
+    fact: normalizeSnippet(item?.fact, 220),
+    excerpt: normalizeSnippet(item?.excerpt, 260),
+  })).filter((item) => item.type && item.fact);
+  const canonFactsChecked = Math.max(
+    0,
+    Math.round(Number(canonContinuity?.factsChecked ?? quality?.canon_facts_checked ?? 0))
+  );
+  const canonCorrectionOverride = Boolean(
+    canonContinuity?.correctionOverride ?? quality?.canon_correction_override
+  );
+  const repairDirectives = ok
+    ? []
+    : normalizeScreenplayStringList(
+      quality?.repairDirectives ?? quality?.repair_directives,
+      5,
+      220
+    );
+  const resolvedRepairDirectives = ok
+    ? []
+    : (repairDirectives.length ? repairDirectives : buildTalkScreenplayRepairDirectives({
+      reason: normalizedReason,
+      authority,
+      quality,
+    }));
+  const confidence = ok
+    ? (sourceKey.startsWith("repair_pass") || sourceKey.startsWith("repaired_") ? "repaired" : "authoritative")
+    : (sourceKey.startsWith("guard_") ? "needs_repair" : "blocked");
+  return {
+    ok: Boolean(ok),
+    reason: normalizedReason,
+    source: sourceKey,
+    confidence,
+    feature_act: featureActKind || null,
+    matched_tokens: Array.isArray(featureObligation?.matchedTokens)
+      ? featureObligation.matchedTokens.slice(0, 8).map((token) => normalizeSnippet(token, 48)).filter(Boolean)
+      : [],
+    counts,
+    minimum_specific_actions: minimumSpecificActions || null,
+    minimum_scene_turns: minimumSceneTurns || null,
+    repair_directives: resolvedRepairDirectives,
+    canon_facts_checked: canonFactsChecked,
+    canon_violation_count: canonViolations.length,
+    canon_violation_types: [...new Set(canonViolations.map((item) => item.type))],
+    canon_correction_override: canonCorrectionOverride,
+    canon_violations: canonViolations,
+  };
+}
+
+function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
+  studioMeta = null,
+  transcript = "",
+} = {}) {
+  if (!screenplayOutput || typeof screenplayOutput !== "object") {
+    return { ok: false, reason: "missing_screenplay_output", text: "", lines: [] };
+  }
+  if (String(screenplayOutput.target || "").trim().toLowerCase() !== "page") {
+    return { ok: false, reason: "not_page_target", text: "", lines: [] };
+  }
+  const text = normalizeTalkScreenplayText(screenplayOutput.text || "");
+  if (!text) {
+    return { ok: false, reason: "empty_page_text", text: "", lines: [] };
+  }
+  const lines = Array.isArray(screenplayOutput.lines) && screenplayOutput.lines.length
+    ? screenplayOutput.lines
+    : buildTalkScreenplayOutputLines(text);
+  if (!isRenderableTalkScreenplayOutput(lines)) {
+    return { ok: false, reason: "non_screenplay_output", text, lines };
+  }
+  const quality = evaluateScreenplayPageQuality({
+    text,
+    lines,
+    targetPages: resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }),
+    hasSceneAnchor: Boolean(normalizeTalkScreenplayAnchorSceneLabel(studioMeta)),
+    featureContext: {
+      act: studioMeta?.screenplayAct,
+      featureSequence: studioMeta?.screenplayFeatureSequence,
+      featureObligation: studioMeta?.screenplayFeatureObligation,
+      pageCount: studioMeta?.screenplayPageCount,
+      targetPages: studioMeta?.screenplayTargetPages,
+      sceneObjective: studioMeta?.screenplaySceneObjective,
+      currentBeat: studioMeta?.screenplayCurrentBeat,
+      logline: studioMeta?.screenplayLogline,
+      themeArgument: studioMeta?.screenplayThemeArgument,
+      centralQuestion: studioMeta?.screenplayCentralQuestion,
+      protagonistWant: studioMeta?.screenplayProtagonistWant,
+      protagonistNeed: studioMeta?.screenplayProtagonistNeed,
+      endingImage: studioMeta?.screenplayEndingImage,
+      actPressureState: studioMeta?.screenplayActPressureState,
+      characterArcState: studioMeta?.screenplayCharacterArcState,
+      characterArcMemory: studioMeta?.screenplayCharacterArcMemory,
+      characterVoiceMemory: studioMeta?.screenplayCharacterVoiceMemory,
+      characterVoiceMemories: studioMeta?.screenplayCharacterVoiceMemories,
+      nextScenePlan: studioMeta?.screenplayNextScenePlan,
+      nextSceneMoves: studioMeta?.screenplayNextSceneMoves,
+      nextThreeTurns: studioMeta?.screenplayNextThreeTurns,
+      actThreePayoffPath: studioMeta?.screenplayActThreePayoffPath,
+      unresolvedSetups: studioMeta?.screenplayUnresolvedSetups,
+      unresolvedStoryThreads: studioMeta?.screenplayUnresolvedStoryThreads,
+      characterArcTurns: studioMeta?.screenplayCharacterArcTurns,
+      imageMotifs: studioMeta?.screenplayImageMotifs,
+    },
+  });
+  if (!quality.ok) {
+    return { ok: false, reason: quality.reason || "low_page_quality", text, lines, quality };
+  }
+  const acceptedCausalFacts = normalizeAcceptedCausalFacts(
+    studioMeta?.screenplayAcceptedCausalFacts ??
+    studioMeta?.screenplay_accepted_causal_facts ??
+    studioMeta?.acceptedCausalFacts ??
+    studioMeta?.accepted_causal_facts ??
+    []
+  );
+  const canonContinuity = evaluateScreenplayCanonContinuity({
+    text,
+    acceptedCausalFacts,
+    writerRequest: transcript,
+  });
+  const qualityWithCanon = {
+    ...quality,
+    canonContinuity,
+    ...(!canonContinuity.ok ? { repairDirectives: canonContinuity.repairDirectives } : {}),
+  };
+  if (!canonContinuity.ok) {
+    return {
+      ok: false,
+      reason: canonContinuity.reason,
+      text,
+      lines,
+      quality: qualityWithCanon,
+      canonContinuity,
+    };
+  }
+  return { ok: true, reason: "ok", text, lines, quality: qualityWithCanon, canonContinuity };
+}
+
+function isAuthoritativeTalkScreenplayOutput(screenplayOutput = null, options = {}) {
+  return validateTalkAuthoritativeScreenplayOutput(screenplayOutput, options).ok;
+}
+
+function buildTalkPromptBlockScreenplayOutput(transcript = "", studioMeta = null) {
   if (!promptContainsExplicitTalkScreenplayBlock(transcript)) {
     return null;
   }
@@ -3862,17 +6430,32 @@ function buildTalkPromptBlockScreenplayOutput(transcript = "") {
     return null;
   }
 
-  return {
+  const output = {
     target: "page",
     format: "hollywood",
     source: "prompt_block_fallback",
     text: normalizedText,
     lines,
   };
+  const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript });
+  return authority.ok
+    ? {
+      ...output,
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: true,
+        reason: "ok",
+        source: output.source,
+        authority,
+      }),
+      text: authority.text,
+      lines: authority.lines,
+    }
+    : null;
 }
 
-function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
-  const normalizedText = normalizeTalkMultilineSnippet(transcript)
+function buildTalkDirectTranscriptScreenplayOutput(transcript = "", studioMeta = null) {
+  const contractedTranscript = normalizeScreenplayOutputContractText(transcript);
+  const normalizedText = (normalizeTalkPageReply(contractedTranscript) || normalizeTalkMultilineSnippet(contractedTranscript))
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!normalizedText) return null;
@@ -3882,12 +6465,91 @@ function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
     return null;
   }
 
-  return {
+  const output = {
     target: "page",
     format: "hollywood",
     source: "generation_transcript",
     text: normalizedText,
     lines,
+  };
+  const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript: "" });
+  return authority.ok
+    ? {
+      ...output,
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: true,
+        reason: "ok",
+        source: output.source,
+        authority,
+      }),
+      text: authority.text,
+      lines: authority.lines,
+    }
+    : null;
+}
+
+function normalizeTalkScreenplayAnchorSceneLabel(studioMeta = null) {
+  if (!studioMeta || typeof studioMeta !== "object") return "";
+  const candidates = [
+    studioMeta.screenplayAnchorSceneLabel,
+    studioMeta.screenplaySceneLabel,
+    studioMeta.sceneLabel,
+  ];
+  for (const candidate of candidates) {
+    const firstLine = normalizeTalkScreenplayText(candidate)
+      .split("\n")
+      .map((line) => stripTalkLeadInPrefix(line).replace(/\s+/g, " ").trim())
+      .find(Boolean) || "";
+    if (firstLine && isTalkSceneHeadingLine(firstLine)) {
+      return normalizeSnippet(firstLine, 160);
+    }
+  }
+  return "";
+}
+
+function hasTalkScreenplaySceneHeading(lines = []) {
+  return (Array.isArray(lines) ? lines : [])
+    .some((line) => String(line?.element || "") === "sceneHeading");
+}
+
+function hasTalkScreenplayAnchorRepairEvidence(lines = []) {
+  const nonEmpty = (Array.isArray(lines) ? lines : [])
+    .filter((line) => String(line?.text || "").trim());
+  if (!nonEmpty.length) return false;
+  if (nonEmpty.some((line) => ["transition", "character", "dialogue", "parenthetical"].includes(line.element))) {
+    return true;
+  }
+  if (nonEmpty.length < 2) return false;
+  if (nonEmpty.some((line) =>
+    isLikelyConversationalScreenplayLine(line.text) ||
+    isLikelyTalkScreenplayAfterwordLine(line.text)
+  )) {
+    return false;
+  }
+  const wordCount = nonEmpty
+    .map((line) => String(line?.text || "").trim().split(/\s+/).filter(Boolean).length)
+    .reduce((sum, count) => sum + count, 0);
+  return wordCount >= 8;
+}
+
+function repairTalkScreenplayOutputWithSceneAnchor({
+  normalizedText = "",
+  lines = [],
+  studioMeta = null,
+} = {}) {
+  if (!normalizedText || hasTalkScreenplaySceneHeading(lines)) return null;
+  if (!hasTalkScreenplayAnchorRepairEvidence(lines)) return null;
+  const sceneLabel = normalizeTalkScreenplayAnchorSceneLabel(studioMeta);
+  if (!sceneLabel) return null;
+  const repairedText = normalizeTalkScreenplayText(`${sceneLabel}\n\n${normalizedText}`);
+  const repairedLines = buildTalkScreenplayOutputLines(repairedText);
+  if (!hasTalkScreenplaySceneHeading(repairedLines) || !isRenderableTalkScreenplayOutput(repairedLines)) {
+    return null;
+  }
+  return {
+    text: repairedText,
+    lines: repairedLines,
+    source: "repaired_scene_anchor",
   };
 }
 
@@ -3951,45 +6613,7 @@ function isLikelyConversationalScreenplayLine(line = "") {
 
 function buildTalkScreenplayOutputLines(text = "") {
   const normalized = normalizeTalkScreenplayText(text);
-  if (!normalized) return [];
-  const rawLines = normalized.split("\n");
-  const classified = [];
-  let previousElement = "blank";
-
-  for (let index = 0; index < rawLines.length; index += 1) {
-    const rawLine = String(rawLines[index] || "");
-    const trimmed = rawLine.trim();
-    const nextNonEmpty = rawLines
-      .slice(index + 1)
-      .map((line) => String(line || "").trim())
-      .find(Boolean) || "";
-
-    let element = "action";
-    if (!trimmed) {
-      element = "blank";
-    } else if (isTalkSceneHeadingLine(trimmed)) {
-      element = "sceneHeading";
-    } else if (isTalkTransitionLine(trimmed)) {
-      element = "transition";
-    } else if (isTalkParentheticalLine(trimmed)) {
-      element = "parenthetical";
-    } else if (isTalkCharacterCueLine(trimmed, nextNonEmpty)) {
-      element = "character";
-    } else if (previousElement === "character" || previousElement === "parenthetical") {
-      element = "dialogue";
-    } else {
-      element = "action";
-    }
-
-    classified.push({
-      index,
-      text: trimmed ? rawLine.replace(/\s+$/g, "") : "",
-      element,
-    });
-    previousElement = element;
-  }
-
-  return classified;
+  return classifyScreenplayLines(normalized);
 }
 
 function isRenderableTalkScreenplayOutput(lines = []) {
@@ -4001,10 +6625,12 @@ function isRenderableTalkScreenplayOutput(lines = []) {
     return true;
   }
   if (nonEmpty.length === 1) {
-    return !isLikelyConversationalScreenplayLine(nonEmpty[0].text);
+    return !isLikelyConversationalScreenplayLine(nonEmpty[0].text) &&
+      !isLikelyTalkScreenplayAfterwordLine(nonEmpty[0].text);
   }
   const conversationalCount = nonEmpty.filter((line) => isLikelyConversationalScreenplayLine(line.text)).length;
-  return conversationalCount === 0;
+  const afterwordCount = nonEmpty.filter((line) => isLikelyTalkScreenplayAfterwordLine(line.text)).length;
+  return conversationalCount === 0 && afterwordCount === 0;
 }
 
 function estimateTalkSpeechDurationMs(text = "", speed = 1) {
@@ -4275,6 +6901,51 @@ function buildTalkRevealUnits({
   });
 }
 
+function normalizeTalkScreenplayInsertionMode(raw = "", {
+  anchorLine = 0,
+  anchorEndLine = 0,
+  replacementApplied = false,
+  replacedWriteId = "",
+  revisedBlockText = "",
+} = {}) {
+  const clean = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if ([
+    "replace",
+    "replacement",
+    "replace_selection",
+    "rewrite",
+    "rewrite_selection",
+    "selection",
+  ].includes(clean)) {
+    return "replace_selection";
+  }
+  if ([
+    "insert_after",
+    "insert_after_anchor",
+    "continue",
+    "continuation",
+    "append_after_anchor",
+    "append",
+  ].includes(clean)) {
+    return "insert_after_anchor";
+  }
+
+  const safeAnchorLine = Math.max(0, Number(anchorLine || 0));
+  const safeAnchorEndLine = Math.max(0, Number(anchorEndLine || 0));
+  if (
+    replacementApplied ||
+    String(replacedWriteId || "").trim() ||
+    String(revisedBlockText || "").trim() ||
+    (safeAnchorLine > 0 && safeAnchorEndLine > safeAnchorLine)
+  ) {
+    return "replace_selection";
+  }
+  return "insert_after_anchor";
+}
+
 function buildTalkDialogueTimelineRevision({
   turnId = "",
   requestId = "",
@@ -4300,10 +6971,23 @@ function buildTalkDialogueTimelineRevision({
   const normalizedTurnId = normalizeSnippet(turnId, 96) || revisionId;
   const projectId = normalizeSnippet(studioMeta?.screenplayProjectId, 96);
   const anchorLine = Math.max(1, Number(studioMeta?.screenplayAnchorLine || 1));
+  const anchorEndLine = Math.max(
+    anchorLine,
+    Number(studioMeta?.screenplayAnchorEndLine || 0) > 0
+      ? Number(studioMeta?.screenplayAnchorEndLine || 0)
+      : anchorLine
+  );
   const anchorDraftSceneId = normalizeSnippet(studioMeta?.screenplayAnchorDraftSceneId, 96);
   const anchorOutlineSceneId = normalizeSnippet(studioMeta?.screenplayAnchorOutlineSceneId, 96);
   const anchorBeatIds = normalizeScreenplayStringList(studioMeta?.screenplayAnchorOutlineBeatIds, 12, 96);
   const anchorScriptNodeId = normalizeSnippet(studioMeta?.screenplayAnchorScriptNodeId, 160);
+  const insertionMode = normalizeTalkScreenplayInsertionMode(studioMeta?.screenplayInsertionMode, {
+    anchorLine,
+    anchorEndLine,
+    replacementApplied: studioMeta?.screenplayReplacementApplied,
+    replacedWriteId: studioMeta?.screenplayReplacedWriteId,
+    revisedBlockText: studioMeta?.screenplayRevisedBlockText,
+  });
   const sceneLabel = normalizeSnippet(studioMeta?.screenplayAnchorSceneLabel, 120);
   const sceneId = anchorOutlineSceneId || anchorDraftSceneId || (sceneLabel
     ? `scene:${normalizeDialogueIdPart(sceneLabel)}`
@@ -4369,6 +7053,9 @@ function buildTalkDialogueTimelineRevision({
           page_index: null,
           range_start: Math.max(0, lineRange.start),
           range_end: Math.max(lineRange.start, lineRange.end),
+          anchor_line: absoluteLineNumber,
+          anchor_end_line: absoluteLineNumber,
+          insert_mode: insertionMode,
         },
         reveal_units: buildTalkRevealUnits({
           text: lineText,
@@ -4394,12 +7081,29 @@ function buildTalkDialogueTimelineRevision({
       page_index: null,
       range_start: 0,
       range_end: fullText.length,
+      anchor_line: anchorLine,
+      anchor_end_line: anchorEndLine,
+      insert_mode: insertionMode,
     },
     segments,
   };
 }
 
 function sanitizeTalkPageAnchor(anchor = {}, fallback = {}) {
+  const anchorLine = Math.max(
+    0,
+    Number(anchor.anchor_line ?? anchor.anchorLine ?? fallback.anchor_line ?? fallback.anchorLine ?? 0)
+  );
+  const anchorEndLineRaw = Number(
+    anchor.anchor_end_line ?? anchor.anchorEndLine ?? fallback.anchor_end_line ?? fallback.anchorEndLine ?? 0
+  );
+  const anchorEndLine = anchorEndLineRaw > 0
+    ? Math.max(anchorLine || 1, anchorEndLineRaw)
+    : 0;
+  const insertMode = normalizeTalkScreenplayInsertionMode(
+    anchor.insert_mode ?? anchor.insertMode ?? fallback.insert_mode ?? fallback.insertMode,
+    { anchorLine, anchorEndLine }
+  );
   return {
     project_id: normalizeSnippet(anchor.project_id ?? anchor.projectId ?? fallback.project_id ?? fallback.projectId, 96),
     scene_id: normalizeSnippet(anchor.scene_id ?? anchor.sceneId ?? fallback.scene_id ?? fallback.sceneId, 120),
@@ -4413,6 +7117,9 @@ function sanitizeTalkPageAnchor(anchor = {}, fallback = {}) {
       Math.max(0, Number(anchor.range_start ?? anchor.rangeStart ?? fallback.range_start ?? fallback.rangeStart ?? 0)),
       Number(anchor.range_end ?? anchor.rangeEnd ?? fallback.range_end ?? fallback.rangeEnd ?? 0)
     ),
+    anchor_line: anchorLine > 0 ? anchorLine : null,
+    anchor_end_line: anchorEndLine > 0 ? anchorEndLine : null,
+    insert_mode: insertMode,
   };
 }
 
@@ -4506,6 +7213,7 @@ async function synthesizeTalkScreenplayPageAudio({
   const cues = [];
   const remainderSegments = [];
   const providerLabels = [];
+  const voiceLabels = [];
   let firstSegmentBuffer = Buffer.alloc(0);
   let spokenSegmentCount = 0;
   let cursorMs = 0;
@@ -4559,11 +7267,13 @@ async function synthesizeTalkScreenplayPageAudio({
       remainderSegments.push(stripLeadingId3Tag(rawBuffer));
     }
     providerLabels.push(String(ttsResult?.provider || "openai"));
+    voiceLabels.push(String(ttsResult?.voice || ""));
     spokenSegmentCount += 1;
   }
 
   const remainderBuffer = remainderSegments.length ? Buffer.concat(remainderSegments) : Buffer.alloc(0);
   const uniqueProviders = [...new Set(providerLabels.filter(Boolean))];
+  const uniqueVoices = [...new Set(voiceLabels.filter(Boolean))];
   return {
     firstSegmentBuffer,
     remainderBuffer,
@@ -4573,6 +7283,9 @@ async function synthesizeTalkScreenplayPageAudio({
     providerLabel: uniqueProviders.length > 1
       ? uniqueProviders.join("+")
       : String(uniqueProviders[0] || "openai"),
+    voiceLabel: uniqueVoices.length > 1
+      ? uniqueVoices.join("+")
+      : String(uniqueVoices[0] || ""),
   };
 }
 
@@ -4581,22 +7294,54 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
   const target = String(studioMeta.screenplayTarget || "").trim().toLowerCase();
   if (!target) return null;
   if (target !== "page") {
+    const momentumQuality = evaluateMomentumRescueQuality({
+      reply,
+      transcript,
+      studioMeta,
+    });
+    if (momentumQuality?.applicable) {
+      const qualityOk = Boolean(momentumQuality.ok);
+      const source = qualityOk ? "studio_target" : "guard_momentum_rescue_quality";
+      return {
+        target: "voice_pin",
+        format: "note",
+        source,
+        quality: buildTalkScreenplayQualityEnvelope({
+          ok: qualityOk,
+          reason: momentumQuality.reason || (qualityOk ? "ok" : "low_momentum_rescue_quality"),
+          source,
+          quality: momentumQuality,
+        }),
+        text: "",
+        lines: [],
+      };
+    }
     return {
       target: "voice_pin",
       format: "note",
       source: "studio_target",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "voice_pin_target",
+        source: "studio_target",
+      }),
       text: "",
       lines: [],
     };
   }
 
-  const promptBlockFallback = buildTalkPromptBlockScreenplayOutput(transcript);
+  const promptBlockFallback = buildTalkPromptBlockScreenplayOutput(transcript, studioMeta);
   const normalizedText = normalizeTalkPageReply(reply);
   if (!normalizedText) {
     return promptBlockFallback || {
       target: "voice_pin",
       format: "note",
       source: "guard_invalid_page_format",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "empty_page_text",
+        source: "guard_invalid_page_format",
+      }),
       text: "",
       lines: [],
     };
@@ -4608,6 +7353,40 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       target: "voice_pin",
       format: "note",
       source: "guard_non_screenplay",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "non_screenplay_output",
+        source: "guard_non_screenplay",
+      }),
+      text: "",
+      lines: [],
+    };
+  }
+  const repaired = repairTalkScreenplayOutputWithSceneAnchor({
+    normalizedText,
+    lines,
+    studioMeta,
+  });
+  const outputText = repaired?.text || normalizedText;
+  const outputLines = repaired?.lines || lines;
+  const authority = validateTalkAuthoritativeScreenplayOutput({
+    target: "page",
+    format: "hollywood",
+    source: repaired?.source || "studio_target",
+    text: outputText,
+    lines: outputLines,
+  }, { studioMeta, transcript });
+  if (!authority.ok) {
+    return promptBlockFallback || {
+      target: "voice_pin",
+      format: "note",
+      source: "guard_low_page_quality",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: authority.reason || "low_page_quality",
+        source: "guard_low_page_quality",
+        authority,
+      }),
       text: "",
       lines: [],
     };
@@ -4616,9 +7395,59 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
   return {
     target: "page",
     format: "hollywood",
-    source: "studio_target",
-    text: normalizedText,
-    lines,
+    source: repaired?.source || "studio_target",
+    quality: buildTalkScreenplayQualityEnvelope({
+      ok: true,
+      reason: "ok",
+      source: repaired?.source || "studio_target",
+      authority,
+    }),
+    text: authority.text,
+    lines: authority.lines,
+  };
+}
+
+function applyTalkScreenplayRepairCandidate({
+  currentOutput = null,
+  candidateReply = "",
+  transcript = "",
+  studioMeta = null,
+} = {}) {
+  if (!studioMeta || typeof studioMeta !== "object") return null;
+  if (String(studioMeta.screenplayTarget || "").trim().toLowerCase() !== "page") return null;
+  const currentSource = String(currentOutput?.source || "").trim().toLowerCase();
+  const currentTarget = String(currentOutput?.target || "").trim().toLowerCase();
+  if (currentTarget === "page" && !currentSource.startsWith("guard_")) return null;
+  if (currentSource && !currentSource.startsWith("guard_")) return null;
+
+  const repaired = buildTalkScreenplayOutput({
+    reply: candidateReply,
+    transcript,
+    studioMeta,
+  });
+  if (String(repaired?.target || "").trim().toLowerCase() !== "page") return null;
+  const repairSource = repaired.source === "repaired_scene_anchor"
+    ? "repair_pass_scene_anchor"
+    : "repair_pass";
+  const carriedRepairDirectives = Array.isArray(currentOutput?.quality?.repair_directives)
+    ? currentOutput.quality.repair_directives
+      .map((item) => normalizeSnippet(item, 220))
+      .filter(Boolean)
+      .slice(0, 5)
+    : [];
+  const quality = buildTalkScreenplayQualityEnvelope({
+    ok: true,
+    reason: "ok",
+    source: repairSource,
+    quality: repaired.quality,
+  });
+  if (carriedRepairDirectives.length) {
+    quality.repair_directives = carriedRepairDirectives;
+  }
+  return {
+    ...repaired,
+    source: repairSource,
+    quality,
   };
 }
 
@@ -4679,6 +7508,8 @@ function storeSpeculativeTalkPrepared({
   reply = "",
   audioBuffer = Buffer.alloc(0),
   ttsProvider = "openai",
+  ttsVoice = "",
+  emotionLane = "curious_steady",
   preparedAt = Date.now(),
 } = {}) {
   const normalizedKey = normalizeSpeculativeKey(key);
@@ -4696,6 +7527,8 @@ function storeSpeculativeTalkPrepared({
     reply: normalizeSnippet(reply, 8_000),
     audioBuffer: audio,
     ttsProvider: normalizeSnippet(ttsProvider, 40) || "openai",
+    ttsVoice: normalizeSnippet(ttsVoice, 80),
+    emotionLane: normalizeSnippet(emotionLane, 64) || "curious_steady",
     preparedAt: now,
   });
 }
@@ -4808,10 +7641,23 @@ function buildOpsAlerts() {
       message: `Session lock pressure detected (${talkInFlightBySessionSize()} locks).`,
     });
   }
+  const screenplayAlert = buildTalkScreenplayQualityAlert(
+    deriveTalkScreenplayQualitySignal(runtime.metrics?.screenplay)
+  );
+  if (screenplayAlert) {
+    alerts.push(screenplayAlert);
+  }
   return {
     status: alerts.length ? "alerting" : "healthy",
     alerts,
     runtime,
+  };
+}
+
+function buildOpsHealthSignals() {
+  const metrics = summarizeTalkMetrics();
+  return {
+    screenplay_page_write: deriveTalkScreenplayQualitySignal(metrics.screenplay),
   };
 }
 
@@ -4830,51 +7676,6 @@ const NOTE_CAPTURE_TRIGGERS = Object.freeze([
   "take a note",
   "make a note",
   "jot this down",
-]);
-
-const EMAIL_SEND_TRIGGERS = Object.freeze([
-  "send email",
-  "send an email",
-  "send this email",
-  "email this",
-  "compose email",
-  "draft email",
-  "write an email",
-  "send a message to",
-]);
-
-const EMAIL_CANCEL_TRIGGERS = Object.freeze([
-  "cancel email",
-  "don't send email",
-  "dont send email",
-  "never mind email",
-  "forget email",
-  "stop email",
-]);
-
-const EMAIL_FOLLOWUP_BODY_HINTS = Object.freeze([
-  "body",
-  "message",
-  "it says",
-  "say",
-  "here is the message",
-  "here's the message",
-  "heres the message",
-]);
-
-const EMAIL_PENDING_FOLLOWUP_CONFIRM_TRIGGERS = Object.freeze([
-  "send it",
-  "send this",
-  "send that",
-  "go ahead and send",
-  "go ahead send",
-  "email it",
-  "email this",
-  "email that",
-  "use this message",
-  "use that message",
-  "that's the message",
-  "that is the message",
 ]);
 
 function normalizeEmailAddress(value) {
@@ -5249,169 +8050,7 @@ function buildTaskActionReply(result) {
   return "";
 }
 
-function parseCalendarRange(transcript, nowTs = Date.now()) {
-  const source = String(transcript || "").toLowerCase();
-  const now = new Date(nowTs);
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0);
-  if (source.includes("tomorrow")) {
-    base.setDate(base.getDate() + 1);
-  }
-
-  const rangeMatch = source.match(
-    /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/
-  );
-  if (!rangeMatch) {
-    return {
-      startAt: base.getTime(),
-      endAt: base.getTime() + (60 * 60 * 1000),
-    };
-  }
-
-  const parseHour = (hourRaw, minuteRaw, meridiemRaw, fallbackMeridiem = "") => {
-    let hour = Math.max(0, Math.min(23, Number(hourRaw || 9)));
-    const minute = Math.max(0, Math.min(59, Number(minuteRaw || 0)));
-    const meridiem = String(meridiemRaw || fallbackMeridiem || "").toLowerCase();
-    if (meridiem === "pm" && hour < 12) hour += 12;
-    if (meridiem === "am" && hour === 12) hour = 0;
-    return { hour, minute };
-  };
-
-  const startMeridiem = rangeMatch[3] || rangeMatch[6] || "";
-  const endMeridiem = rangeMatch[6] || rangeMatch[3] || "";
-  const startParts = parseHour(rangeMatch[1], rangeMatch[2], startMeridiem, endMeridiem);
-  const endParts = parseHour(rangeMatch[4], rangeMatch[5], endMeridiem, startMeridiem);
-
-  const start = new Date(base);
-  start.setHours(startParts.hour, startParts.minute, 0, 0);
-  const end = new Date(base);
-  end.setHours(endParts.hour, endParts.minute, 0, 0);
-  if (end.getTime() <= start.getTime()) {
-    end.setTime(start.getTime() + (60 * 60 * 1000));
-  }
-  return { startAt: start.getTime(), endAt: end.getTime() };
-}
-
-function extractCalendarIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-  }
-  const lower = source.toLowerCase();
-  const triggers = [
-    "schedule",
-    "calendar",
-    "block",
-    "set a meeting",
-    "create event",
-    "book time",
-  ];
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of triggers) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-  if (triggerIndex < 0) {
-    return { shouldCreate: false, title: "", startAt: 0, endAt: 0, trigger: "" };
-  }
-  const range = parseCalendarRange(source);
-  let title = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .replace(/\b(today|tomorrow|tonight)\b/gi, "")
-    .replace(/\b\d{1,2}(?::\d{2})?\s*(am|pm)?\s*(to|-|until)\s*\d{1,2}(?::\d{2})?\s*(am|pm)?\b/gi, "")
-    .trim();
-  title = normalizeSnippet(title, 120) || "Calendar block";
-  return {
-    shouldCreate: true,
-    title,
-    startAt: range.startAt,
-    endAt: range.endAt,
-    trigger,
-  };
-}
-
-function formatGoogleCalendarDate(ts) {
-  return new Date(ts).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-}
-
-function buildCalendarComposeUrl({ title, startAt, endAt, details = "", target = CALENDAR_COMPOSE_TARGET }) {
-  const safeTitle = normalizeSnippet(title, 120) || "Calendar block";
-  const safeDetails = normalizeSnippet(details, 400);
-  const normalizedTarget = parseOneOf(String(target || "google"), CALENDAR_COMPOSE_TARGETS, "google");
-  if (normalizedTarget === "outlook") {
-    const outlook = new URL("https://outlook.live.com/calendar/0/deeplink/compose");
-    outlook.searchParams.set("path", "/calendar/action/compose");
-    outlook.searchParams.set("rru", "addevent");
-    outlook.searchParams.set("subject", safeTitle);
-    outlook.searchParams.set("startdt", new Date(startAt).toISOString());
-    outlook.searchParams.set("enddt", new Date(endAt).toISOString());
-    if (safeDetails) outlook.searchParams.set("body", safeDetails);
-    return { url: outlook.toString(), target: "outlook", transport: "browser" };
-  }
-  if (normalizedTarget === "ics") {
-    const lines = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//CLEMENTINE//EN",
-      "BEGIN:VEVENT",
-      `UID:${randomUUID()}`,
-      `DTSTAMP:${formatGoogleCalendarDate(Date.now())}`,
-      `DTSTART:${formatGoogleCalendarDate(startAt)}`,
-      `DTEND:${formatGoogleCalendarDate(endAt)}`,
-      `SUMMARY:${safeTitle.replace(/\n/g, " ")}`,
-      `DESCRIPTION:${(safeDetails || "Created by CLEMENTINE").replace(/\n/g, "\\n")}`,
-      "END:VEVENT",
-      "END:VCALENDAR",
-    ].join("\r\n");
-    return {
-      url: `data:text/calendar;charset=utf-8,${encodeURIComponent(lines)}`,
-      target: "ics",
-      transport: "file",
-    };
-  }
-  const google = new URL("https://calendar.google.com/calendar/render");
-  google.searchParams.set("action", "TEMPLATE");
-  google.searchParams.set("text", safeTitle);
-  google.searchParams.set("dates", `${formatGoogleCalendarDate(startAt)}/${formatGoogleCalendarDate(endAt)}`);
-  if (safeDetails) google.searchParams.set("details", safeDetails);
-  return { url: google.toString(), target: "google", transport: "browser" };
-}
-
-function buildCalendarActionReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-  if (state.status === "composed") {
-    return [
-      "Done.",
-      "",
-      `I opened a calendar draft for "${state.title || "your block"}".`,
-    ].join("\n");
-  }
-  if (state.status === "failed") {
-    return [
-      "I could not open that calendar draft yet.",
-      "",
-      "Say the title and time again and I will retry.",
-    ].join("\n");
-  }
-  return "";
-}
-
-function classifyActionLane({ emailResult, noteResult, calendarResult, taskResult }) {
-  if (emailResult) {
-    return { lane: "email_draft", created: emailResult.status === "composed" };
-  }
-  if (calendarResult) {
-    return { lane: "calendar_block", created: calendarResult.status === "composed" };
-  }
+function classifyActionLane({ noteResult, taskResult }) {
   if (taskResult) {
     return {
       lane: "task",
@@ -5423,144 +8062,6 @@ function classifyActionLane({ emailResult, noteResult, calendarResult, taskResul
     return { lane: "note", created: noteResult.status === "saved" };
   }
   return { lane: "chat", created: false };
-}
-
-function buildCapturedEmailSubject(bodyText) {
-  const cleaned = String(bodyText || "")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
-    .trim();
-  if (!cleaned) return "Message from CLEMENTINE";
-  const sentence = cleaned.split(/[.!?]/)[0] || cleaned;
-  return trimToMax(sentence, 84);
-}
-
-function extractEmailSendIntent(transcript) {
-  const source = String(transcript || "").trim();
-  if (!source) {
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  }
-
-  const lower = source.toLowerCase();
-  let trigger = "";
-  let triggerIndex = -1;
-  for (const candidate of EMAIL_SEND_TRIGGERS) {
-    const idx = lower.indexOf(candidate);
-    if (idx >= 0 && (triggerIndex === -1 || idx < triggerIndex)) {
-      trigger = candidate;
-      triggerIndex = idx;
-    }
-  }
-
-  if (triggerIndex < 0) {
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  }
-
-  let working = source
-    .slice(triggerIndex + trigger.length)
-    .replace(/^[\s:,\-–—]+/, "")
-    .trim();
-
-  const emailMatch = (working.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ||
-    source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i));
-  const recipient = normalizeEmailAddress(emailMatch?.[0] || "");
-  if (recipient) {
-    working = working.replace(new RegExp(escapeRegex(emailMatch[0]), "i"), "").trim();
-  }
-
-  let subject = "";
-  let body = "";
-  const subjectMarker = working.match(/\bsubject\b[:\s-]*/i);
-  const bodyMarker = working.match(/\b(?:body|message|saying|that says)\b[:\s-]*/i);
-
-  if (subjectMarker) {
-    const subjectStart = subjectMarker.index + subjectMarker[0].length;
-    if (bodyMarker && bodyMarker.index > subjectStart) {
-      subject = working.slice(subjectStart, bodyMarker.index).trim();
-      body = working.slice(bodyMarker.index + bodyMarker[0].length).trim();
-    } else {
-      subject = working.slice(subjectStart).trim();
-    }
-  } else if (bodyMarker) {
-    body = working.slice(bodyMarker.index + bodyMarker[0].length).trim();
-  } else {
-    body = working;
-  }
-
-  body = String(body || "")
-    .replace(/^["“”'`]+|["“”'`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  subject = String(subject || "")
-    .replace(/^["“”'`]+|["“”'`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!subject) {
-    subject = buildCapturedEmailSubject(body);
-  }
-
-  return {
-    shouldSend: true,
-    needsRecipient: !recipient,
-    needsContent: !body || body.length < 3,
-    trigger,
-    recipient,
-    subject: trimToMax(subject, 120),
-    body,
-  };
-}
-
-function clearPendingEmailDraft(memory, nowTs = Date.now()) {
-  if (!memory || typeof memory !== "object") return;
-  memory.pendingEmailRecipient = "";
-  memory.pendingEmailSubject = "";
-  memory.pendingEmailAwaitingBody = false;
-  memory.pendingEmailUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
-}
-
-function setPendingEmailDraft(memory, { recipient, subject }, nowTs = Date.now()) {
-  if (!memory || typeof memory !== "object") return;
-  memory.pendingEmailRecipient = normalizeEmailAddress(recipient);
-  memory.pendingEmailSubject = trimToMax(String(subject || "").trim(), 120);
-  memory.pendingEmailAwaitingBody = Boolean(memory.pendingEmailRecipient);
-  memory.pendingEmailUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
-}
-
-function readPendingEmailDraft(memory) {
-  if (!memory || typeof memory !== "object") {
-    return {
-      recipient: "",
-      subject: "",
-      awaitingBody: false,
-      updatedAt: 0,
-    };
-  }
-  const recipient = normalizeEmailAddress(memory.pendingEmailRecipient);
-  const subject = trimToMax(String(memory.pendingEmailSubject || "").trim(), 120);
-  const updatedAt = Math.max(0, Number(memory.pendingEmailUpdatedAt || 0));
-  const awaitingBody = Boolean(memory.pendingEmailAwaitingBody) && Boolean(recipient);
-  return {
-    recipient,
-    subject,
-    awaitingBody,
-    updatedAt,
-  };
 }
 
 const LOCAL_ACTION_CONFIRM_TRIGGERS = Object.freeze([
@@ -5608,18 +8109,9 @@ function clearPendingLocalAction(memory, nowTs = Date.now()) {
 function buildPendingLocalActionSummary(type, payload = {}) {
   const actionType = normalizeLocalActionType(type);
   const body = payload && typeof payload === "object" ? payload : {};
-  if (actionType === "email_compose") {
-    const to = normalizeEmailAddress(body.recipient || body.to);
-    const subject = trimToMax(String(body.subject || "").trim(), 80);
-    return `Open email draft to ${to || "recipient"}${subject ? ` with subject "${subject}"` : ""}.`;
-  }
   if (actionType === "note_capture") {
     const noteText = normalizeSnippet(body.noteText, 120);
     return `Save note: "${noteText || "your note"}".`;
-  }
-  if (actionType === "calendar_compose") {
-    const title = normalizeSnippet(body.title, 96) || "Calendar block";
-    return `Open calendar draft "${title}".`;
   }
   if (actionType === "task_create") {
     const title = normalizeSnippet(body.title, 96) || "task";
@@ -5704,8 +8196,6 @@ function buildNoPendingLocalActionReply() {
 
 function selectExecutableLocalActionCandidate({
   noteCaptureIntent,
-  emailSendIntent,
-  calendarIntent,
   taskCreateIntent,
   taskCompleteIntent,
 } = {}) {
@@ -5715,33 +8205,6 @@ function selectExecutableLocalActionCandidate({
       payload: {
         noteText: normalizeSnippet(noteCaptureIntent.noteText, 1_600),
         trigger: normalizeSnippet(noteCaptureIntent.trigger, 64),
-      },
-    };
-  }
-  if (
-    emailSendIntent?.shouldSend &&
-    !emailSendIntent?.canceled &&
-    !emailSendIntent?.needsRecipient &&
-    !emailSendIntent?.needsContent
-  ) {
-    return {
-      type: "email_compose",
-      payload: {
-        recipient: normalizeEmailAddress(emailSendIntent.recipient),
-        subject: trimToMax(String(emailSendIntent.subject || "").trim(), 120),
-        body: normalizeSnippet(emailSendIntent.body, EMAIL_COMPOSE_BODY_MAX_CHARS),
-        trigger: normalizeSnippet(emailSendIntent.trigger, 64),
-      },
-    };
-  }
-  if (calendarIntent?.shouldCreate) {
-    return {
-      type: "calendar_compose",
-      payload: {
-        title: normalizeSnippet(calendarIntent.title, 120),
-        startAt: Math.max(0, Number(calendarIntent.startAt || 0)),
-        endAt: Math.max(0, Number(calendarIntent.endAt || 0)),
-        trigger: normalizeSnippet(calendarIntent.trigger, 64),
       },
     };
   }
@@ -5766,187 +8229,6 @@ function selectExecutableLocalActionCandidate({
     };
   }
   return null;
-}
-
-function normalizeEmailFollowupBody(text) {
-  let body = String(text || "").trim();
-  if (!body) return "";
-  const lowered = body.toLowerCase();
-  for (const hint of EMAIL_FOLLOWUP_BODY_HINTS) {
-    if (lowered.startsWith(`${hint}:`) || lowered.startsWith(`${hint} `)) {
-      body = body.slice(hint.length).replace(/^[:\s-]+/, "").trim();
-      break;
-    }
-  }
-  body = body.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
-  return body;
-}
-
-function looksLikeOpenQuestion(text) {
-  const source = String(text || "").trim().toLowerCase();
-  if (!source) return false;
-  if (source.endsWith("?")) return true;
-  return /^(how|what|why|when|where|who|can|could|would|should|do|does|did|is|are|am)\b/.test(source);
-}
-
-function resolveEmailSendIntentWithPending({
-  transcript,
-  baseIntent,
-  memory,
-  noteCaptureIntent,
-}) {
-  const base = baseIntent && typeof baseIntent === "object"
-    ? { ...baseIntent }
-    : {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "",
-      recipient: "",
-      subject: "",
-      body: "",
-    };
-  if (!SECRETARY_EMAIL_FOLLOWUP_ENABLED || !memory || typeof memory !== "object") {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const text = String(transcript || "").trim();
-  const lower = text.toLowerCase();
-  const nowTs = Date.now();
-  const pending = readPendingEmailDraft(memory);
-  const askedCancel = textContainsAny(lower, EMAIL_CANCEL_TRIGGERS);
-
-  if (askedCancel && pending.awaitingBody) {
-    clearPendingEmailDraft(memory, nowTs);
-    return {
-      shouldSend: false,
-      needsRecipient: false,
-      needsContent: false,
-      trigger: "cancel_email_pending",
-      recipient: "",
-      subject: "",
-      body: "",
-      fromPending: false,
-      canceled: true,
-    };
-  }
-
-  if (base.shouldSend) {
-    if (!base.needsRecipient && base.needsContent && base.recipient) {
-      setPendingEmailDraft(memory, {
-        recipient: base.recipient,
-        subject: base.subject,
-      }, nowTs);
-      return {
-        ...base,
-        fromPending: false,
-        canceled: false,
-      };
-    }
-
-    if (!base.needsRecipient && !base.needsContent) {
-      clearPendingEmailDraft(memory, nowTs);
-    }
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (!pending.awaitingBody) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const pendingAgeMs = Math.max(0, nowTs - pending.updatedAt);
-  if (pending.updatedAt && pendingAgeMs > 10 * 60 * 1000) {
-    clearPendingEmailDraft(memory, nowTs);
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (noteCaptureIntent?.shouldCapture) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  if (textContainsAny(lower, ["linkedin", "profile analysis", "analyze profile"])) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  const normalizedBody = normalizeEmailFollowupBody(text);
-  const bodyWordCount = normalizedBody.split(/\s+/).filter(Boolean).length;
-  const hintedBody = EMAIL_FOLLOWUP_BODY_HINTS.some((hint) => lower.startsWith(hint));
-  const explicitPendingConfirm = textContainsAny(lower, EMAIL_PENDING_FOLLOWUP_CONFIRM_TRIGGERS);
-  let followupBody = normalizedBody;
-  if (explicitPendingConfirm && !hintedBody) {
-    followupBody = followupBody
-      .replace(
-        /^(?:please\s+)?(?:go ahead(?: and)?\s+)?(?:send (?:it|this|that|now)|email (?:it|this|that)|use (?:this|that) message|that(?:'|’)s the message|that is the message)\b[:\s-]*/i,
-        ""
-      )
-      .trim();
-  }
-  const followupBodyWords = followupBody.split(/\s+/).filter(Boolean).length;
-  if (explicitPendingConfirm && followupBodyWords < 4) {
-    return {
-      shouldSend: true,
-      needsRecipient: false,
-      needsContent: true,
-      trigger: "pending_email_followup_confirmed",
-      recipient: pending.recipient,
-      subject: pending.subject || buildCapturedEmailSubject(""),
-      body: "",
-      fromPending: true,
-      canceled: false,
-    };
-  }
-  const safeToAssumeBody =
-    hintedBody ||
-    (
-      explicitPendingConfirm &&
-      !looksLikeOpenQuestion(followupBody) &&
-      followupBodyWords >= 4 &&
-      followupBodyWords <= 220
-    );
-
-  if (!safeToAssumeBody) {
-    return {
-      ...base,
-      fromPending: false,
-      canceled: false,
-    };
-  }
-
-  return {
-    shouldSend: true,
-    needsRecipient: false,
-    needsContent: !followupBody,
-    trigger: "pending_email_followup",
-    recipient: pending.recipient,
-    subject: pending.subject || buildCapturedEmailSubject(followupBody),
-    body: followupBody,
-    fromPending: true,
-    canceled: false,
-  };
 }
 
 function normalizeLocalActionType(value) {
@@ -6241,553 +8523,6 @@ function buildNoteCaptureReply(result) {
     "",
     "Say it one more time and I'll retry.",
   ].join("\n");
-}
-
-function buildEmailComposeUrl({ to, subject, body, target }) {
-  const safeTo = normalizeEmailAddress(to);
-  if (!safeTo) return { url: "", target: "none", transport: "none" };
-
-  const safeSubject = trimToMax(String(subject || "").trim(), 120);
-  const safeBody = trimToMax(String(body || "").trim(), EMAIL_COMPOSE_BODY_MAX_CHARS);
-  const normalizedTarget = parseOneOf(
-    String(target || EMAIL_SEND_TARGET || "mailto").toLowerCase(),
-    EMAIL_COMPOSE_TARGETS,
-    "mailto"
-  );
-
-  if (normalizedTarget === "gmail") {
-    const gmail = new URL("https://mail.google.com/mail/");
-    gmail.searchParams.set("view", "cm");
-    gmail.searchParams.set("fs", "1");
-    gmail.searchParams.set("to", safeTo);
-    if (safeSubject) gmail.searchParams.set("su", safeSubject);
-    if (safeBody) gmail.searchParams.set("body", safeBody);
-    return { url: gmail.toString(), target: "gmail", transport: "browser" };
-  }
-
-  if (normalizedTarget === "outlook") {
-    const outlook = new URL("https://outlook.live.com/mail/0/deeplink/compose");
-    outlook.searchParams.set("to", safeTo);
-    if (safeSubject) outlook.searchParams.set("subject", safeSubject);
-    if (safeBody) outlook.searchParams.set("body", safeBody);
-    return { url: outlook.toString(), target: "outlook", transport: "browser" };
-  }
-
-  if (normalizedTarget === "yahoo") {
-    const yahoo = new URL("https://compose.mail.yahoo.com/");
-    yahoo.searchParams.set("to", safeTo);
-    if (safeSubject) yahoo.searchParams.set("subject", safeSubject);
-    if (safeBody) yahoo.searchParams.set("body", safeBody);
-    return { url: yahoo.toString(), target: "yahoo", transport: "browser" };
-  }
-
-  const params = new URLSearchParams();
-  if (safeSubject) params.set("subject", safeSubject);
-  if (safeBody) params.set("body", safeBody);
-  const query = params.toString();
-  const mailtoUrl = `mailto:${encodeURIComponent(safeTo)}${query ? `?${query}` : ""}`;
-  return { url: mailtoUrl, target: "mailto", transport: "mail_app" };
-}
-
-async function sendLocalEmail({ recipient, subject, body, reqId }) {
-  const to = normalizeEmailAddress(recipient);
-  const cleanBody = String(body || "").replace(/\s+/g, " ").trim();
-  const cleanSubject = trimToMax(String(subject || "").trim(), 120);
-
-  if (!ENABLE_LOCAL_EMAIL_SEND) {
-    return {
-      status: "disabled",
-      action: "none",
-      target: "none",
-      transport: "none",
-      to,
-      subject: cleanSubject,
-      composeUrl: "",
-      error: "Local email compose disabled.",
-    };
-  }
-
-  if (!to) {
-    return {
-      status: "needs_recipient",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to: "",
-      subject: cleanSubject,
-      composeUrl: "",
-    };
-  }
-
-  if (!cleanBody || cleanBody.length < 3) {
-    return {
-      status: "needs_content",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to,
-      subject: cleanSubject || "Message from CLEMENTINE",
-      composeUrl: "",
-    };
-  }
-
-  const finalSubject = cleanSubject || buildCapturedEmailSubject(cleanBody);
-  const finalBody = `${cleanBody}\n\n---\nDrafted by CLEMENTINE at ${formatNoteTimestamp()}`;
-  try {
-    const compose = buildEmailComposeUrl({
-      to,
-      subject: finalSubject,
-      body: finalBody,
-      target: EMAIL_SEND_TARGET,
-    });
-    if (!compose.url) {
-      return {
-        status: "failed",
-        action: "none",
-        target: EMAIL_SEND_TARGET,
-        transport: "none",
-        to,
-        subject: finalSubject,
-        composeUrl: "",
-        error: "Could not build compose URL.",
-      };
-    }
-    return {
-      status: "composed",
-      action: "compose",
-      target: compose.target,
-      transport: compose.transport,
-      to,
-      subject: finalSubject,
-      composeUrl: compose.url,
-    };
-  } catch (error) {
-    console.log(
-      `[${reqId}] email_compose_failed=${String(error?.message || error)}`
-    );
-    return {
-      status: "failed",
-      action: "none",
-      target: EMAIL_SEND_TARGET,
-      transport: "none",
-      to,
-      subject: finalSubject,
-      composeUrl: "",
-      error: String(error?.message || error),
-    };
-  }
-}
-
-function buildEmailSendReply(result) {
-  const state = result && typeof result === "object" ? result : {};
-  const to = trimToMax(state.to || "recipient", 120);
-  const subject = trimToMax(state.subject || "your message", 120);
-
-  if (state.status === "needs_confirmation") {
-    return buildPendingLocalActionConfirmationReply({
-      summary: state.summary || "",
-    });
-  }
-
-  if (state.status === "canceled") {
-    return [
-      "Okay, canceled.",
-      "",
-      "I cleared the pending email.",
-    ].join("\n");
-  }
-
-  if (state.status === "needs_recipient") {
-    return [
-      "I can draft that.",
-      "",
-      "Tell me the recipient email and the message.",
-    ].join("\n");
-  }
-
-  if (state.status === "needs_content") {
-    return [
-      "I have the recipient.",
-      "",
-      `Now say the message body and I will open a draft to ${to}${subject ? ` with subject "${subject}"` : ""}.`,
-    ].join("\n");
-  }
-
-  if (state.status === "composed") {
-    return [
-      "Done.",
-      "",
-      `I opened a draft to ${to}${subject ? ` with subject "${subject}"` : ""}. Review and hit Send in your email app.`,
-    ].join("\n");
-  }
-
-  if (state.status === "duplicate") {
-    return [
-      "That draft is already queued.",
-      "",
-      "I skipped opening another duplicate compose window.",
-    ].join("\n");
-  }
-
-  if (state.status === "disabled") {
-    return [
-      "Email compose is disabled right now.",
-      "",
-      "Enable local email compose and try again.",
-    ].join("\n");
-  }
-
-  return [
-    "I could not prepare that draft right now.",
-    "",
-    "Say \"send email to\" plus recipient, subject, and message so I can retry cleanly.",
-  ].join("\n");
-}
-
-async function draftSecretaryEmailFromPrompt({
-  prompt,
-  context,
-  tone,
-  recipient,
-  rid = "secretary_email",
-}) {
-  const cleanPrompt = normalizeSnippet(prompt, 1600);
-  const cleanContext = normalizeSnippet(context, 2200);
-  const cleanTone = normalizeSnippet(tone, 120);
-  if (!cleanPrompt) {
-    return {
-      subject: "",
-      body: "",
-      mode: "empty_prompt",
-    };
-  }
-
-  if (!OPENAI_API_KEY) {
-    const fallbackBody = cleanContext
-      ? `${cleanPrompt}\n\nContext:\n${cleanContext}`
-      : cleanPrompt;
-    return {
-      subject: buildCapturedEmailSubject(cleanPrompt),
-      body: fallbackBody,
-      mode: "fallback_no_llm",
-    };
-  }
-
-  const system = [
-    "You draft concise professional emails for a personal secretary assistant.",
-    "Return strict JSON only with keys: subject, body.",
-    "Rules:",
-    "- subject <= 90 characters.",
-    "- body 70-220 words unless user asks very short.",
-    "- clear structure: opening, core message, concrete next step.",
-    "- no markdown, no bullet list unless requested.",
-    "- preserve sender intent and tone.",
-  ].join("\n");
-
-  const user = [
-    `recipient: ${normalizeEmailAddress(recipient) || "unspecified"}`,
-    `tone: ${cleanTone || "clear, warm, direct"}`,
-    `prompt: ${cleanPrompt}`,
-    cleanContext ? `context: ${cleanContext}` : "",
-  ].filter(Boolean).join("\n\n");
-
-  try {
-    const resp = await fetchWithTimeout(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-          "OpenAI-Beta": "realtime=v1",
-        },
-        body: JSON.stringify({
-          model: SECRETARY_EMAIL_DRAFT_MODEL || CHAT_MODEL_FAST,
-          temperature: 0.35,
-          max_tokens: 500,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-        }),
-      },
-      SECRETARY_EMAIL_DRAFT_TIMEOUT_MS
-    );
-    if (!resp.ok) {
-      const bodyText = await resp.text();
-      console.log(`[${rid}] secretary_email_draft_failed status=${resp.status} body=${trimToMax(bodyText, 220)}`);
-      return {
-        subject: buildCapturedEmailSubject(cleanPrompt),
-        body: cleanPrompt,
-        mode: "fallback_http_error",
-      };
-    }
-    const json = await resp.json();
-    const raw = String(json?.choices?.[0]?.message?.content || "").trim();
-    const parsed = extractJsonObject(raw);
-    const subject = trimToMax(
-      parsed && typeof parsed === "object"
-        ? String(parsed.subject || "")
-        : "",
-      90
-    );
-    const body = normalizeSnippet(
-      parsed && typeof parsed === "object"
-        ? String(parsed.body || "")
-        : "",
-      4000
-    );
-    if (!subject || !body) {
-      return {
-        subject: buildCapturedEmailSubject(cleanPrompt),
-        body: cleanPrompt,
-        mode: "fallback_parse",
-      };
-    }
-    return {
-      subject,
-      body,
-      mode: "llm_draft",
-    };
-  } catch (err) {
-    console.log(`[${rid}] secretary_email_draft_error=${String(err?.message || err)}`);
-    return {
-      subject: buildCapturedEmailSubject(cleanPrompt),
-      body: cleanPrompt,
-      mode: "fallback_exception",
-    };
-  }
-}
-
-function buildLinkedInProfileTextFromPayload(payload) {
-  const body = payload && typeof payload === "object" ? payload : {};
-  const parts = [];
-  const primary = normalizeSnippet(
-    body.profile_text ?? body.profileText ?? body.text ?? body.raw_profile ?? "",
-    LINKEDIN_ANALYSIS_MAX_CHARS
-  );
-  if (primary) parts.push(primary);
-
-  const headline = normalizeSnippet(body.headline, 220);
-  if (headline) parts.push(`Headline: ${headline}`);
-
-  const about = normalizeSnippet(body.about, 2400);
-  if (about) parts.push(`About: ${about}`);
-
-  const skills = Array.isArray(body.skills)
-    ? body.skills.map((item) => normalizeSnippet(item, 60)).filter(Boolean)
-    : String(body.skills || "").split(/[,\n|]/g).map((item) => normalizeSnippet(item, 60)).filter(Boolean);
-  if (skills.length) {
-    parts.push(`Skills: ${skills.slice(0, 80).join(", ")}`);
-  }
-
-  const experiences = Array.isArray(body.experiences)
-    ? body.experiences.map((item) => {
-      if (typeof item === "string") return normalizeSnippet(item, 360);
-      if (!item || typeof item !== "object") return "";
-      const title = normalizeSnippet(item.title, 120);
-      const company = normalizeSnippet(item.company, 120);
-      const summary = normalizeSnippet(item.summary ?? item.description, 360);
-      return [title, company, summary].filter(Boolean).join(" - ");
-    }).filter(Boolean)
-    : [];
-  if (experiences.length) {
-    parts.push(`Experience:\n- ${experiences.slice(0, 40).join("\n- ")}`);
-  }
-
-  const education = Array.isArray(body.education)
-    ? body.education.map((item) => normalizeSnippet(item, 180)).filter(Boolean)
-    : String(body.education || "").split(/[,\n|]/g).map((item) => normalizeSnippet(item, 180)).filter(Boolean);
-  if (education.length) {
-    parts.push(`Education: ${education.slice(0, 30).join(" | ")}`);
-  }
-
-  return normalizeSnippet(parts.join("\n\n"), LINKEDIN_ANALYSIS_MAX_CHARS);
-}
-
-function heuristicLinkedInAnalysis({
-  profileText,
-  targetRole,
-}) {
-  const text = String(profileText || "");
-  const lower = text.toLowerCase();
-  const lines = text.split(/\n+/).map((x) => x.trim()).filter(Boolean);
-  const hasHeadline = lines.length > 0 && lines[0].length >= 12;
-  const hasAbout = lower.includes("about:");
-  const metricMatches = text.match(/\b\d+(\.\d+)?\s*(%|x|k|m|\+)?\b/g) || [];
-  const hasMetrics = metricMatches.length >= 2;
-  const hasActionVerbs = textContainsAny(lower, [
-    "led", "built", "shipped", "grew", "scaled", "launched", "improved", "managed", "designed",
-  ]);
-  const hasKeywords = textContainsAny(lower, [
-    "product", "engineering", "marketing", "sales", "operations", "design", "founder", "strategy",
-  ]);
-  const hasContactCue = textContainsAny(lower, ["open to", "reach out", "contact", "email", "dm"]);
-
-  const strengths = [];
-  const weaknesses = [];
-  const actionPlan = [];
-
-  if (hasHeadline) strengths.push("Headline presence is clear enough to anchor first impression.");
-  else weaknesses.push("Headline is weak or missing; profile may feel generic in search results.");
-
-  if (hasMetrics) strengths.push("You use quantified evidence, which increases credibility quickly.");
-  else weaknesses.push("Few measurable outcomes; impact is hard for recruiters to verify.");
-
-  if (hasActionVerbs) strengths.push("Experience language uses strong action verbs.");
-  else weaknesses.push("Experience bullets are passive; they need stronger action framing.");
-
-  if (hasKeywords) strengths.push("Role-relevant keywords are present for discoverability.");
-  else weaknesses.push("Keyword coverage is low; profile may underperform in recruiter search.");
-
-  if (hasAbout) strengths.push("About section exists and supports personal narrative.");
-  else weaknesses.push("About section is missing or thin; story and positioning are unclear.");
-
-  if (!hasContactCue) {
-    weaknesses.push("No clear call-to-action for outreach or next step.");
-  }
-
-  actionPlan.push("Rewrite headline to role + specialty + measurable value.");
-  actionPlan.push("Add 3-5 quantified outcomes across recent roles (%, revenue, time saved, scope).");
-  actionPlan.push("Tighten About to 4-6 lines: identity, proof, domain focus, and CTA.");
-  if (targetRole) {
-    actionPlan.push(`Mirror top keywords for target role: ${targetRole}.`);
-  }
-
-  const scoreBase = 58 +
-    (hasHeadline ? 8 : -6) +
-    (hasMetrics ? 12 : -8) +
-    (hasActionVerbs ? 8 : -6) +
-    (hasKeywords ? 8 : -6) +
-    (hasAbout ? 6 : -4);
-  const profileScore = Math.max(25, Math.min(95, scoreBase));
-
-  const rewrittenHeadline = targetRole
-    ? `${targetRole} | Builds measurable outcomes through clear strategy and execution`
-    : "Outcome-focused professional | Turns strategy into measurable results";
-  const rewrittenAbout = [
-    "I build practical systems that create measurable outcomes.",
-    "My work focuses on clear execution, cross-functional collaboration, and continuous improvement.",
-    "I care about impact you can quantify, not just activity.",
-    "Open to conversations about roles where ownership and results matter.",
-  ].join(" ");
-
-  return {
-    summary: "Profile has a solid foundation, but it needs sharper positioning and more measurable proof.",
-    profileScore,
-    strengths: strengths.slice(0, 6),
-    weaknesses: weaknesses.slice(0, 6),
-    actionPlan: actionPlan.slice(0, 6),
-    rewrittenHeadline,
-    rewrittenAbout,
-    mode: "heuristic_fallback",
-  };
-}
-
-async function analyzeLinkedInProfilePayload({
-  profileText,
-  targetRole,
-  goals,
-  rid = "linkedin",
-}) {
-  const cleanProfile = normalizeSnippet(profileText, LINKEDIN_ANALYSIS_MAX_CHARS);
-  const cleanRole = normalizeSnippet(targetRole, 160);
-  const cleanGoals = normalizeSnippet(goals, 320);
-  if (!cleanProfile) {
-    return {
-      error: "empty_profile",
-      message: "Provide profile_text or structured fields like headline/about/experiences.",
-    };
-  }
-
-  const fallback = heuristicLinkedInAnalysis({
-    profileText: cleanProfile,
-    targetRole: cleanRole,
-  });
-
-  if (!LINKEDIN_ANALYSIS_ENABLED || !OPENAI_API_KEY) {
-    return fallback;
-  }
-
-  const system = [
-    "You are a senior LinkedIn profile strategist.",
-    "Analyze profile text for recruiter-readability, positioning clarity, credibility, and impact proof.",
-    "Return strict JSON only with keys:",
-    "summary, profileScore, strengths, weaknesses, actionPlan, rewrittenHeadline, rewrittenAbout, mode",
-    "Rules:",
-    "- strengths/weaknesses/actionPlan must each have 3-6 concise strings.",
-    "- weaknesses must be specific and evidence-based from the provided profile text.",
-    "- actionPlan must be practical and ordered by priority.",
-    "- rewrittenHeadline <= 180 chars.",
-    "- rewrittenAbout <= 1200 chars.",
-    "- no markdown, no extra keys.",
-  ].join("\n");
-
-  const userPrompt = [
-    `target_role: ${cleanRole || "not specified"}`,
-    `goals: ${cleanGoals || "improve clarity and conversion"}`,
-    "profile_text:",
-    cleanProfile,
-  ].join("\n\n");
-
-  try {
-    const resp = await fetchWithTimeout(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: LINKEDIN_ANALYSIS_MODEL || CHAT_MODEL_FAST,
-          temperature: 0.2,
-          max_tokens: 900,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: userPrompt },
-          ],
-        }),
-      },
-      LINKEDIN_ANALYSIS_TIMEOUT_MS
-    );
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.log(`[${rid}] linkedin_analyze_failed status=${resp.status} body=${trimToMax(text, 220)}`);
-      return fallback;
-    }
-    const json = await resp.json();
-    const raw = String(json?.choices?.[0]?.message?.content || "").trim();
-    const parsed = extractJsonObject(raw);
-    if (!parsed || typeof parsed !== "object") return fallback;
-
-    const strengths = Array.isArray(parsed.strengths)
-      ? parsed.strengths.map((x) => normalizeSnippet(x, 180)).filter(Boolean).slice(0, 6)
-      : [];
-    const weaknesses = Array.isArray(parsed.weaknesses)
-      ? parsed.weaknesses.map((x) => normalizeSnippet(x, 180)).filter(Boolean).slice(0, 6)
-      : [];
-    const actionPlan = Array.isArray(parsed.actionPlan)
-      ? parsed.actionPlan.map((x) => normalizeSnippet(x, 180)).filter(Boolean).slice(0, 6)
-      : [];
-    if (!strengths.length || !weaknesses.length || !actionPlan.length) {
-      return fallback;
-    }
-
-    return {
-      summary: normalizeSnippet(parsed.summary, 320) || fallback.summary,
-      profileScore: Math.max(0, Math.min(100, Number(parsed.profileScore || fallback.profileScore))),
-      strengths,
-      weaknesses,
-      actionPlan,
-      rewrittenHeadline: normalizeSnippet(parsed.rewrittenHeadline, 180) || fallback.rewrittenHeadline,
-      rewrittenAbout: normalizeSnippet(parsed.rewrittenAbout, 1200) || fallback.rewrittenAbout,
-      mode: "llm_analysis",
-    };
-  } catch (err) {
-    console.log(`[${rid}] linkedin_analyze_error=${String(err?.message || err)}`);
-    return fallback;
-  }
 }
 
 function normalizeAssistantSelfName(value) {
@@ -7819,8 +9554,15 @@ function normalizeScreenplayOwnerValue(value, prefix = "owner") {
 }
 
 function resolveScreenplayOwnerKey(req) {
-  const userId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
-  if (userId) return userId;
+  // Day 1 Backend Exposure Lock: derive ownership from server-attached
+  // identity only (req.authUser.id / req.userId). Never read X-User-Id
+  // from request headers — client-supplied identity is impersonation
+  // surface.
+  const authUserId = normalizeScreenplayOwnerValue(
+    req.authUser?.id || req.userId,
+    "user"
+  );
+  if (authUserId) return authUserId;
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
   if (clientToken) return `token:${clientToken}`;
   const ip = normalizeClientIp(clientIp(req));
@@ -7850,6 +9592,14 @@ function buildDraftExcerpt(draft, maxChars = 220) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, Math.max(32, maxChars));
+}
+
+function normalizeScreenplayMultilineSnippet(value, maxChars = 2400) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .slice(0, Math.max(0, Number(maxChars || 0)));
 }
 
 function scoreScreenplayDraft(draft) {
@@ -7898,6 +9648,7 @@ function scoreScreenplayDraft(draft) {
 
 function createEmptyScreenplayOutline() {
   return {
+    revision: 0,
     updatedAt: 0,
     acts: [],
     scenes: [],
@@ -7981,6 +9732,7 @@ function normalizeStoredScreenplayVersion(entry) {
     projectId: normalizeSnippet(entry.projectId, 64),
     phase: normalizeSnippet(entry.phase, 48) || "scene_draft",
     source: normalizeSnippet(entry.source, 48),
+    clientRequestId: normalizeSnippet(entry.clientRequestId ?? entry.client_request_id, 96),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
     prompt: normalizeSnippet(entry.prompt, 320),
@@ -8363,6 +10115,70 @@ function normalizeStoredScreenplayDiffAcknowledgementState(entry) {
   };
 }
 
+function normalizeStoredScreenplayStudioAskNoteExchange(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const id = normalizeSnippet(entry.id, 96);
+  const prompt = normalizeSnippet(entry.prompt, 1200);
+  const noteBody = normalizeScreenplayMultilineSnippet(entry.noteBody ?? entry.note_body, 2400);
+  const insertedText = normalizeScreenplayMultilineSnippet(entry.insertedText ?? entry.inserted_text, 2400);
+  const developmentText = normalizeScreenplayMultilineSnippet(entry.developmentText ?? entry.development_text, 2400);
+  if (!id || (!prompt && !noteBody && !insertedText && !developmentText)) return null;
+  const target = normalizeSnippet(entry.target, 32) || "voicePin";
+  const source = normalizeSnippet(entry.source, 32) || "typed";
+  return {
+    id,
+    backendThreadID: normalizeSnippet(entry.backendThreadID ?? entry.backendThreadId ?? entry.backend_thread_id, 120),
+    backendTurn: Number.isFinite(Number(entry.backendTurn ?? entry.backend_turn))
+      ? Math.max(0, Math.floor(Number(entry.backendTurn ?? entry.backend_turn)))
+      : null,
+    requestID: normalizeSnippet(entry.requestID ?? entry.requestId ?? entry.request_id, 120),
+    prompt,
+    target: ["page", "voicePin"].includes(target) ? target : "voicePin",
+    source: ["typed", "voice"].includes(source) ? source : "typed",
+    noteTitle: normalizeSnippet(entry.noteTitle ?? entry.note_title, 240) || "Clementine",
+    noteBody,
+    developmentText,
+    writeID: normalizeSnippet(entry.writeID ?? entry.writeId ?? entry.write_id, 96),
+    replacedWriteID: normalizeSnippet(entry.replacedWriteID ?? entry.replacedWriteId ?? entry.replaced_write_id, 96),
+    anchorLine: Number.isFinite(Number(entry.anchorLine ?? entry.anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorLine ?? entry.anchor_line)))
+      : null,
+    anchorEndLine: Number.isFinite(Number(entry.anchorEndLine ?? entry.anchor_end_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorEndLine ?? entry.anchor_end_line)))
+      : null,
+    anchorSceneLabel: normalizeSnippet(entry.anchorSceneLabel ?? entry.anchor_scene_label, 180),
+    anchorExcerpt: normalizeScreenplayMultilineSnippet(entry.anchorExcerpt ?? entry.anchor_excerpt, 1600),
+    insertedText,
+    replacementApplied: typeof (entry.replacementApplied ?? entry.replacement_applied) === "boolean"
+      ? Boolean(entry.replacementApplied ?? entry.replacement_applied)
+      : null,
+    revisedBlockText: normalizeScreenplayMultilineSnippet(entry.revisedBlockText ?? entry.revised_block_text, 2400),
+    resolvedAnchorExcerpt: normalizeScreenplayMultilineSnippet(entry.resolvedAnchorExcerpt ?? entry.resolved_anchor_excerpt, 1600),
+    packLabel: normalizeSnippet(entry.packLabel ?? entry.pack_label, 120),
+    phase: normalizeSnippet(entry.phase, 80),
+    sluglineAnchorLine: Number.isFinite(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line)))
+      : null,
+    memoryDomainRaw: normalizeSnippet(entry.memoryDomainRaw ?? entry.memory_domain_raw, 80),
+    companionModeRaw: normalizeSnippet(entry.companionModeRaw ?? entry.companion_mode_raw, 80),
+    timestamp: normalizeSnippet(entry.timestamp, 80) || new Date().toISOString(),
+  };
+}
+
+function normalizeStoredScreenplayStudioAskNoteHistory(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    const exchange = normalizeStoredScreenplayStudioAskNoteExchange(item);
+    if (!exchange || seen.has(exchange.id)) continue;
+    seen.add(exchange.id);
+    normalized.push(exchange);
+    if (normalized.length >= 24) break;
+  }
+  return normalized;
+}
+
 function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
   if (!entry || typeof entry !== "object") return null;
   const id = normalizeSnippet(entry.id, 64) || createScreenplayId("act");
@@ -8371,8 +10187,8 @@ function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
     id,
     title,
     summary: normalizeSnippet(entry.summary, 220),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
-    sceneIds: normalizeScreenplayStringList(entry.sceneIds, 128, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
+    sceneIds: normalizeScreenplayStringList(entry.sceneIds ?? entry.scene_ids, 128, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -8387,10 +10203,10 @@ function normalizeStoredScreenplayScene(entry, orderFallback = 0) {
     title: normalizeSnippet(entry.title, 140) || "Scene",
     objective: normalizeSnippet(entry.objective, 220),
     summary: normalizeSnippet(entry.summary, 320),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
-    beatIds: normalizeScreenplayStringList(entry.beatIds, 256, 64),
+    beatIds: normalizeScreenplayStringList(entry.beatIds ?? entry.beat_ids, 256, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -8403,9 +10219,9 @@ function normalizeStoredScreenplayBeat(entry, orderFallback = 0) {
     id,
     label: normalizeSnippet(entry.label, 140) || "Beat",
     summary: normalizeSnippet(entry.summary, 280),
-    sceneId: normalizeSnippet(entry.sceneId, 64),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    sceneId: normalizeSnippet(entry.sceneId ?? entry.scene_id, 64),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
@@ -8461,16 +10277,40 @@ function normalizeStoredScreenplayOutline(entry) {
   const acts = Array.isArray(raw.acts)
     ? raw.acts.map((item, index) => normalizeStoredScreenplayAct(item, index)).filter(Boolean)
     : [];
-  const scenes = Array.isArray(raw.scenes)
+  let scenes = Array.isArray(raw.scenes)
     ? raw.scenes.map((item, index) => normalizeStoredScreenplayScene(item, index)).filter(Boolean)
     : [];
-  const beats = Array.isArray(raw.beats)
+  let beats = Array.isArray(raw.beats)
     ? raw.beats.map((item, index) => normalizeStoredScreenplayBeat(item, index)).filter(Boolean)
     : [];
+  const actIds = new Set(acts.map((act) => act.id));
+  scenes = scenes.map((scene) => ({
+    ...scene,
+    actId: scene.actId && actIds.has(scene.actId) ? scene.actId : "",
+  }));
+  const sceneIds = new Set(scenes.map((scene) => scene.id));
+  beats = beats.map((beat) => ({
+    ...beat,
+    sceneId: beat.sceneId && sceneIds.has(beat.sceneId) ? beat.sceneId : "",
+    actId: beat.actId && actIds.has(beat.actId) ? beat.actId : "",
+  }));
+  const orderedScenes = [...scenes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const orderedBeats = [...beats].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   return {
+    revision: normalizeOutlineRevision(raw.revision ?? raw.outlineRevision ?? raw.outline_revision),
     updatedAt: Math.max(0, Number(raw.updatedAt || 0)),
-    acts,
-    scenes,
+    acts: acts.map((act) => ({
+      ...act,
+      sceneIds: orderedScenes
+        .filter((scene) => scene.actId === act.id)
+        .map((scene) => scene.id),
+    })),
+    scenes: scenes.map((scene) => ({
+      ...scene,
+      beatIds: orderedBeats
+        .filter((beat) => beat.sceneId === scene.id)
+        .map((beat) => beat.id),
+    })),
     beats,
   };
 }
@@ -8491,6 +10331,10 @@ function normalizeStoredScreenplayProject(entry) {
     }
   );
   const outline = normalizeStoredScreenplayOutline(entry.outline);
+  const outlineRevision = normalizeOutlineRevision(
+    entry.outlineRevision ?? entry.outline_revision ?? outline.revision
+  );
+  outline.revision = outlineRevision;
   const versions = Array.isArray(entry.versions)
     ? entry.versions.map(normalizeStoredScreenplayVersion).filter(Boolean)
     : [];
@@ -8500,6 +10344,12 @@ function normalizeStoredScreenplayProject(entry) {
   const comments = Array.isArray(entry.comments)
     ? entry.comments.map(normalizeStoredScreenplayComment).filter(Boolean)
     : [];
+  const studioAskNoteHistory = normalizeStoredScreenplayStudioAskNoteHistory(
+    entry.studioAskNoteHistory
+    || entry.studio_ask_note_history
+    || entry.studioExchangeHistory
+    || entry.studio_exchange_history
+  );
   return {
     id,
     title,
@@ -8509,6 +10359,18 @@ function normalizeStoredScreenplayProject(entry) {
     setting: normalizeSnippet(entry.setting, 120),
     tone: normalizeSnippet(entry.tone, 120),
     promptSeed: normalizeSnippet(entry.promptSeed, 240),
+    logline: normalizeSnippet(entry.logline, 500),
+    themeArgument: normalizeSnippet(entry.themeArgument ?? entry.theme_argument ?? entry.theme, 500),
+    centralQuestion: normalizeSnippet(
+      entry.centralQuestion ?? entry.central_question ?? entry.dramaticQuestion ?? entry.dramatic_question,
+      500
+    ),
+    protagonistWant: normalizeSnippet(entry.protagonistWant ?? entry.protagonist_want, 500),
+    protagonistNeed: normalizeSnippet(entry.protagonistNeed ?? entry.protagonist_need, 500),
+    antagonisticForce: normalizeSnippet(entry.antagonisticForce ?? entry.antagonistic_force, 500),
+    actPosition: normalizeSnippet(entry.actPosition ?? entry.act_position ?? entry.act, 80),
+    endingImage: normalizeSnippet(entry.endingImage ?? entry.ending_image ?? entry.finalImage ?? entry.final_image, 500),
+    unresolvedSetups: normalizeScreenplayStringList(entry.unresolvedSetups ?? entry.unresolved_setups, 24, 220),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
     lastPhase: normalizeSnippet(entry.lastPhase, 48) || "scene_draft",
@@ -8518,6 +10380,11 @@ function normalizeStoredScreenplayProject(entry) {
     studioThreadViewState: normalizeStoredScreenplayThreadViewState(entry.studioThreadViewState || entry.studio_thread_view_state),
     studioDiffAcknowledgedKeys: diffAcknowledged.keys,
     studioDiffAcknowledgedEntries: diffAcknowledged.entries,
+    studioAskNoteHistory,
+    outlineRevision,
+    outlineMutationReceipts: normalizeOutlineMutationReceipts(
+      entry.outlineMutationReceipts ?? entry.outline_mutation_receipts
+    ),
     outline,
     versions,
     collaborators,
@@ -8552,6 +10419,7 @@ function toScreenplayVersionPayload(version, { includeDraft = true } = {}) {
     project_id: version.projectId || "",
     phase: version.phase || "scene_draft",
     source: version.source || "",
+    client_request_id: version.clientRequestId || "",
     created_at: Math.max(0, Number(version.createdAt || 0)),
     updated_at: Math.max(0, Number(version.updatedAt || version.createdAt || 0)),
     prompt: version.prompt || "",
@@ -8594,7 +10462,7 @@ function toScreenplayActPayload(act) {
     id: act.id,
     title: act.title,
     summary: act.summary || "",
-    order: Math.max(0, Number(act.order || 0)),
+    order: normalizeOutlineRevision(act.order),
     scene_ids: Array.isArray(act.sceneIds) ? act.sceneIds : [],
     created_at: Math.max(0, Number(act.createdAt || 0)),
     updated_at: Math.max(0, Number(act.updatedAt || act.createdAt || 0)),
@@ -8609,7 +10477,7 @@ function toScreenplayScenePayload(scene) {
     objective: scene.objective || "",
     summary: scene.summary || "",
     act_id: scene.actId || "",
-    order: Math.max(0, Number(scene.order || 0)),
+    order: normalizeOutlineRevision(scene.order),
     status: scene.status || "open",
     beat_ids: Array.isArray(scene.beatIds) ? scene.beatIds : [],
     created_at: Math.max(0, Number(scene.createdAt || 0)),
@@ -8624,7 +10492,7 @@ function toScreenplayBeatPayload(beat) {
     summary: beat.summary || "",
     scene_id: beat.sceneId || "",
     act_id: beat.actId || "",
-    order: Math.max(0, Number(beat.order || 0)),
+    order: normalizeOutlineRevision(beat.order),
     status: beat.status || "open",
     created_at: Math.max(0, Number(beat.createdAt || 0)),
     updated_at: Math.max(0, Number(beat.updatedAt || beat.createdAt || 0)),
@@ -8634,6 +10502,7 @@ function toScreenplayBeatPayload(beat) {
 function toScreenplayOutlinePayload(outline) {
   const safeOutline = normalizeStoredScreenplayOutline(outline);
   return {
+    revision: normalizeOutlineRevision(safeOutline.revision),
     updated_at: Math.max(0, Number(safeOutline.updatedAt || 0)),
     act_count: safeOutline.acts.length,
     scene_count: safeOutline.scenes.length,
@@ -8686,6 +10555,39 @@ function toScreenplayCommentPayload(comment, actorEmail = "") {
   };
 }
 
+function toScreenplayStudioAskNoteExchangePayload(exchange) {
+  const safeExchange = normalizeStoredScreenplayStudioAskNoteExchange(exchange);
+  if (!safeExchange) return null;
+  return {
+    id: safeExchange.id,
+    backend_thread_id: safeExchange.backendThreadID || "",
+    backend_turn: safeExchange.backendTurn,
+    request_id: safeExchange.requestID || "",
+    prompt: safeExchange.prompt || "",
+    target: safeExchange.target || "voicePin",
+    source: safeExchange.source || "typed",
+    note_title: safeExchange.noteTitle || "",
+    note_body: safeExchange.noteBody || "",
+    development_text: safeExchange.developmentText || "",
+    write_id: safeExchange.writeID || "",
+    replaced_write_id: safeExchange.replacedWriteID || "",
+    anchor_line: safeExchange.anchorLine,
+    anchor_end_line: safeExchange.anchorEndLine,
+    anchor_scene_label: safeExchange.anchorSceneLabel || "",
+    anchor_excerpt: safeExchange.anchorExcerpt || "",
+    inserted_text: safeExchange.insertedText || "",
+    replacement_applied: safeExchange.replacementApplied,
+    revised_block_text: safeExchange.revisedBlockText || "",
+    resolved_anchor_excerpt: safeExchange.resolvedAnchorExcerpt || "",
+    pack_label: safeExchange.packLabel || "",
+    phase: safeExchange.phase || "",
+    slugline_anchor_line: safeExchange.sluglineAnchorLine,
+    memory_domain_raw: safeExchange.memoryDomainRaw || "",
+    companion_mode_raw: safeExchange.companionModeRaw || "",
+    timestamp: safeExchange.timestamp || "",
+  };
+}
+
 function toScreenplayThreadViewStatePayload(state) {
   const safeState = normalizeStoredScreenplayThreadViewState(state);
   if (!safeState) return null;
@@ -8721,11 +10623,17 @@ function toScreenplayProjectPayload(project, options = {}) {
   const includeDrafts = Boolean(options.includeDrafts);
   const versionLimit = Math.max(1, Number(options.versionLimit || 24));
   const safeProject = recalculateScreenplayProject(project);
+  const sortedVersions = [...(safeProject.versions || [])]
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+  const versionsForPayload = sortedVersions.slice(0, versionLimit);
+  if (includeVersions && safeProject.activeVersionId) {
+    const activeVersion = sortedVersions.find((item) => item.id === safeProject.activeVersionId);
+    if (activeVersion && !versionsForPayload.some((item) => item.id === activeVersion.id)) {
+      versionsForPayload.push(activeVersion);
+    }
+  }
   const versions = includeVersions
-    ? [...(safeProject.versions || [])]
-        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
-        .slice(0, versionLimit)
-        .map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
+    ? versionsForPayload.map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
     : undefined;
   return {
     id: safeProject.id,
@@ -8736,6 +10644,15 @@ function toScreenplayProjectPayload(project, options = {}) {
     setting: safeProject.setting || "",
     tone: safeProject.tone || "",
     prompt_seed: safeProject.promptSeed || "",
+    logline: safeProject.logline || "",
+    theme_argument: safeProject.themeArgument || "",
+    central_question: safeProject.centralQuestion || "",
+    protagonist_want: safeProject.protagonistWant || "",
+    protagonist_need: safeProject.protagonistNeed || "",
+    antagonistic_force: safeProject.antagonisticForce || "",
+    act_position: safeProject.actPosition || "",
+    ending_image: safeProject.endingImage || "",
+    unresolved_setups: Array.isArray(safeProject.unresolvedSetups) ? safeProject.unresolvedSetups : [],
     created_at: Math.max(0, Number(safeProject.createdAt || 0)),
     updated_at: Math.max(0, Number(safeProject.updatedAt || 0)),
     version_count: Math.max(0, Number(safeProject.versionCount || 0)),
@@ -8750,6 +10667,7 @@ function toScreenplayProjectPayload(project, options = {}) {
     act_count: Math.max(0, Number(safeProject.actCount || 0)),
     scene_count: Math.max(0, Number(safeProject.sceneCount || 0)),
     beat_count: Math.max(0, Number(safeProject.beatCount || 0)),
+    outline_revision: normalizeOutlineRevision(safeProject.outlineRevision),
     outline_updated_at: Math.max(0, Number(safeProject.outlineUpdatedAt || 0)),
     collaborator_count: Math.max(0, Number(safeProject.collaboratorCount || 0)),
     approved_emails: safeProject.approvedEmails || [],
@@ -8760,6 +10678,12 @@ function toScreenplayProjectPayload(project, options = {}) {
       safeProject.studioDiffAcknowledgedEntries,
       safeProject.studioDiffAcknowledgedKeys
     ),
+    studio_ask_note_history: Array.isArray(safeProject.studioAskNoteHistory)
+      ? safeProject.studioAskNoteHistory
+          .slice(0, 24)
+          .map(toScreenplayStudioAskNoteExchangePayload)
+          .filter(Boolean)
+      : [],
     collaborators: Array.isArray(safeProject.collaborators)
       ? safeProject.collaborators.map(toScreenplayCollaboratorPayload)
       : [],
@@ -8785,6 +10709,9 @@ function buildScreenplayStateVersion(ownerRecord) {
           versionCount: Array.isArray(project.versions) ? project.versions.length : 0,
           commentCount: Array.isArray(project.comments) ? project.comments.length : 0,
           collaboratorCount: Array.isArray(project.collaborators) ? project.collaborators.length : 0,
+          outlineRevision: normalizeOutlineRevision(
+            project.outlineRevision ?? project.outline?.revision
+          ),
         }))
       : [],
   };
@@ -8895,6 +10822,8 @@ function createEmptyEmotionMemory() {
     recentAssistantTurns: [],
     recentQAPairs: [],
     turnHistory: [],
+    screenplayProjectMemory: [],
+    screenplayProjectMemoryUpdatedAt: 0,
     listeningFacts: [],
     recentEmotionShifts: [],
     activeThemes: [],
@@ -9035,10 +10964,6 @@ function createEmptyEmotionMemory() {
     continuationHoldCount: 0,
     lastContinuationHoldAt: 0,
     lastContinuationReason: "",
-    pendingEmailRecipient: "",
-    pendingEmailSubject: "",
-    pendingEmailAwaitingBody: false,
-    pendingEmailUpdatedAt: 0,
     pendingLocalActionType: "",
     pendingLocalActionPayload: "",
     pendingLocalActionSummary: "",
@@ -9127,7 +11052,9 @@ function sanitizeTurnHistoryItems(items) {
   for (const item of source) {
     if (!item || typeof item !== "object") continue;
     const role = normalizeHistoryRole(item.role);
-    const content = normalizeSnippet(item.content, 280);
+    const studio = sanitizeStudioTurnMetadata(item.studio || item);
+    const isStudioVoicePin = role === "assistant" && studio?.screenplayTarget === "voice_pin";
+    const content = normalizeSnippet(item.content, isStudioVoicePin ? 6000 : 280);
     if (!content) continue;
     out.push({
       role,
@@ -9135,7 +11062,7 @@ function sanitizeTurnHistoryItems(items) {
       turn: Math.max(0, Number(item.turn || 0)),
       ts: Math.max(0, Number(item.ts || 0)),
       requestId: normalizeSnippet(item.requestId ?? item.request_id ?? "", 120),
-      studio: sanitizeStudioTurnMetadata(item.studio || item),
+      studio,
     });
   }
   if (out.length > TURN_HISTORY_MAX_ENTRIES) {
@@ -9150,18 +11077,15 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayProjectId ?? input.screenplay_project_id ?? input.projectId ?? input.project_id ?? "",
     96
   );
+  const screenplayProjectTitle = normalizeSnippet(
+    input.screenplayProjectTitle ?? input.screenplay_project_title ?? input.projectTitle ?? input.project_title ?? "",
+    160
+  );
   const screenplayDocumentRevisionId = normalizeSnippet(
     input.screenplayDocumentRevisionId ?? input.screenplay_document_revision_id ?? input.documentRevisionId ?? input.document_revision_id ?? "",
     96
   );
-  const screenplayTargetRaw = String(
-    input.screenplayTarget ?? input.screenplay_target ?? input.target ?? ""
-  ).trim().toLowerCase();
-  const screenplayTarget = screenplayTargetRaw === "page"
-    ? "page"
-    : screenplayTargetRaw === "voicepin" || screenplayTargetRaw === "voice_pin"
-      ? "voice_pin"
-      : "";
+  const screenplayTarget = resolveScreenplayTargetFromRequest(input);
   const screenplayPromptSourceRaw = String(
     input.screenplayPromptSource ?? input.screenplay_prompt_source ?? input.promptSource ?? ""
   ).trim().toLowerCase();
@@ -9247,13 +11171,193 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayRevisedBlockText ?? input.screenplay_revised_block_text ?? input.revisedBlockText ?? input.revised_block_text ?? "",
     6000
   );
+  const screenplayInsertionModeRaw = input.screenplayInsertionMode
+    ?? input.screenplay_insertion_mode
+    ?? input.screenplayInsertMode
+    ?? input.screenplay_insert_mode
+    ?? input.insertMode
+    ?? input.insert_mode
+    ?? "";
+  const hasScreenplayInsertionModeHint = Boolean(
+    String(screenplayInsertionModeRaw || "").trim() ||
+    screenplayReplacementApplied ||
+    screenplayReplacedWriteId ||
+    screenplayRevisedBlockText ||
+    (screenplayAnchorLine > 0 && screenplayAnchorEndLine > screenplayAnchorLine)
+  );
+  const screenplayInsertionMode = hasScreenplayInsertionModeHint
+    ? normalizeTalkScreenplayInsertionMode(screenplayInsertionModeRaw, {
+      anchorLine: screenplayAnchorLine,
+      anchorEndLine: screenplayAnchorEndLine,
+      replacementApplied: screenplayReplacementApplied,
+      replacedWriteId: screenplayReplacedWriteId,
+      revisedBlockText: screenplayRevisedBlockText,
+    })
+    : "";
   const screenplayResolvedAnchorExcerpt = normalizeSnippet(
     input.screenplayResolvedAnchorExcerpt ?? input.screenplay_resolved_anchor_excerpt ?? input.resolvedAnchorExcerpt ?? input.resolved_anchor_excerpt ?? "",
     280
   );
+  const screenplayDraftExcerpt = normalizeTalkMultilineSnippet(
+    input.screenplayDraftExcerpt ?? input.screenplay_draft_excerpt ?? input.draftExcerpt ?? input.draft_excerpt ?? "",
+    6_000
+  );
+  const screenplayAct = normalizeSnippet(input.screenplayAct ?? input.screenplay_act ?? input.act ?? "", 120);
+  const screenplaySceneObjective = normalizeSnippet(
+    input.screenplaySceneObjective ?? input.screenplay_scene_objective ?? input.sceneObjective ?? input.scene_objective ?? "",
+    280
+  );
+  const screenplaySceneSummary = normalizeSnippet(
+    input.screenplaySceneSummary ?? input.screenplay_scene_summary ?? input.sceneSummary ?? input.scene_summary ?? "",
+    280
+  );
+  const screenplayCurrentBeat = normalizeSnippet(
+    input.screenplayCurrentBeat ?? input.screenplay_current_beat ?? input.currentBeat ?? input.current_beat ?? "",
+    220
+  );
+  const screenplayLogline = normalizeSnippet(input.screenplayLogline ?? input.screenplay_logline ?? input.logline ?? "", 280);
+  const screenplayThemeArgument = normalizeSnippet(
+    input.screenplayThemeArgument ?? input.screenplay_theme_argument ?? input.themeArgument ?? input.theme_argument ?? "",
+    280
+  );
+  const screenplayCentralQuestion = normalizeSnippet(
+    input.screenplayCentralQuestion ?? input.screenplay_central_question ?? input.centralQuestion ?? input.central_question ?? "",
+    280
+  );
+  const screenplayProtagonistWant = normalizeSnippet(
+    input.screenplayProtagonistWant ?? input.screenplay_protagonist_want ?? input.protagonistWant ?? input.protagonist_want ?? "",
+    240
+  );
+  const screenplayProtagonistNeed = normalizeSnippet(
+    input.screenplayProtagonistNeed ?? input.screenplay_protagonist_need ?? input.protagonistNeed ?? input.protagonist_need ?? "",
+    240
+  );
+  const screenplayAntagonisticForce = normalizeSnippet(
+    input.screenplayAntagonisticForce ?? input.screenplay_antagonistic_force ?? input.antagonisticForce ?? input.antagonistic_force ?? "",
+    260
+  );
+  const screenplayEndingImage = normalizeSnippet(
+    input.screenplayEndingImage ?? input.screenplay_ending_image ?? input.endingImage ?? input.ending_image ?? "",
+    240
+  );
+  const screenplayFeatureSequence = normalizeSnippet(
+    input.screenplayFeatureSequence ?? input.screenplay_feature_sequence ?? input.featureSequence ?? input.feature_sequence ?? "",
+    220
+  );
+  const screenplayFeatureObligation = normalizeSnippet(
+    input.screenplayFeatureObligation ?? input.screenplay_feature_obligation ?? input.featureObligation ?? input.feature_obligation ?? "",
+    280
+  );
+  const screenplayActPressureState = normalizeSnippet(
+    input.screenplayActPressureState ?? input.screenplay_act_pressure_state ?? input.actPressureState ?? input.act_pressure_state ?? "",
+    280
+  );
+  const screenplayCharacterArcState = normalizeSnippet(
+    input.screenplayCharacterArcState ?? input.screenplay_character_arc_state ?? input.characterArcState ?? input.character_arc_state ?? "",
+    280
+  );
+  const screenplayCharacterArcMemoryInput =
+    input.screenplayCharacterArcMemories ??
+      input.screenplay_character_arc_memories ??
+      input.screenplayCharacterArcMemory ??
+      input.screenplay_character_arc_memory ??
+      input.characterArcMemory ??
+      input.character_arc_memory ??
+      input.characterBibles ??
+      input.character_bibles ??
+      null;
+  const screenplayCharacterArcMemories = parseTalkScreenplayCharacterArcMemoryItems(
+    screenplayCharacterArcMemoryInput,
+    8
+  );
+  const screenplayCharacterArcMemory = screenplayCharacterArcMemories[0] || null;
+  const screenplayCharacterVoiceMemoryInput =
+    input.screenplayCharacterVoiceMemories ??
+      input.screenplay_character_voice_memories ??
+      input.screenplayCharacterVoiceMemory ??
+      input.screenplay_character_voice_memory ??
+      input.characterVoiceMemory ??
+      input.character_voice_memory ??
+      input.characterVoiceFingerprints ??
+      input.character_voice_fingerprints ??
+      null;
+  const screenplayCharacterVoiceMemories = parseTalkScreenplayCharacterVoiceMemoryItems(
+    screenplayCharacterVoiceMemoryInput,
+    8
+  );
+  const screenplayCharacterVoiceMemory = screenplayCharacterVoiceMemories[0] || null;
+  const screenplayLastSceneOutcome = normalizeSnippet(
+    input.screenplayLastSceneOutcome ?? input.screenplay_last_scene_outcome ?? input.lastSceneOutcome ?? input.last_scene_outcome ?? "",
+    240
+  );
+  const screenplayNextScenePlan = normalizeSnippet(
+    input.screenplayNextScenePlan ?? input.screenplay_next_scene_plan ?? input.nextScenePlan ?? input.next_scene_plan ?? "",
+    340
+  );
+  const screenplayNextSceneMoves = parseTalkScreenplayContextList(
+    input.screenplayNextSceneMoves ?? input.screenplay_next_scene_moves ?? input.nextSceneMoves ?? input.next_scene_moves,
+    5,
+    180
+  );
+  const screenplayNextThreeTurns = parseTalkScreenplayContextList(
+    input.screenplayNextThreeTurns ?? input.screenplay_next_three_turns ?? input.nextThreeTurns ?? input.next_three_turns,
+    3,
+    180
+  );
+  const screenplayActThreePayoffPath = parseTalkScreenplayContextList(
+    input.screenplayActThreePayoffPath ?? input.screenplay_act_three_payoff_path ?? input.actThreePayoffPath ?? input.act_three_payoff_path ?? input.payoffPath ?? input.payoff_path,
+    5,
+    200
+  );
+  const screenplayBeatSequence = parseTalkScreenplayContextList(
+    input.screenplayBeatSequence ?? input.screenplay_beat_sequence ?? input.beatSequence ?? input.beat_sequence,
+    8,
+    180
+  );
+  const screenplayCharacterFocus = parseTalkScreenplayContextList(
+    input.screenplayCharacterFocus ?? input.screenplay_character_focus ?? input.characterFocus ?? input.character_focus,
+    8,
+    120
+  );
+  const screenplayUnresolvedSetups = parseTalkScreenplayContextList(
+    input.screenplayUnresolvedSetups ?? input.screenplay_unresolved_setups ?? input.unresolvedSetups ?? input.unresolved_setups,
+    8,
+    220
+  );
+  const screenplayUnresolvedStoryThreads = parseTalkScreenplayContextList(
+    input.screenplayUnresolvedStoryThreads ?? input.screenplay_unresolved_story_threads ?? input.unresolvedStoryThreads ?? input.unresolved_story_threads,
+    8,
+    220
+  );
+  const screenplayCharacterArcTurns = parseTalkScreenplayContextList(
+    input.screenplayCharacterArcTurns ?? input.screenplay_character_arc_turns ?? input.characterArcTurns ?? input.character_arc_turns,
+    6,
+    180
+  );
+  const screenplayImageMotifs = parseTalkScreenplayContextList(
+    input.screenplayImageMotifs ?? input.screenplay_image_motifs ?? input.imageMotifs ?? input.image_motifs ?? input.visualMotifs ?? input.visual_motifs,
+    6,
+    140
+  );
+  const screenplayContinuityNotes = parseTalkScreenplayContextList(
+    input.screenplayContinuityNotes ?? input.screenplay_continuity_notes ?? input.continuityNotes ?? input.continuity_notes,
+    8,
+    220
+  );
+  const screenplayEmotionalContinuity = normalizeSnippet(
+    input.screenplayEmotionalContinuity ?? input.screenplay_emotional_continuity ?? input.emotionalContinuity ?? input.emotional_continuity ?? "",
+    280
+  );
+  const screenplayPageCount = positiveTalkContextInteger(
+    input.screenplayPageCount ?? input.screenplay_page_count ?? input.pageCount ?? input.page_count
+  );
+  const screenplayTargetPages = positiveTalkContextInteger(
+    input.screenplayTargetPages ?? input.screenplay_target_pages ?? input.targetPages ?? input.target_pages
+  );
 
   if (
     !screenplayProjectId &&
+    !screenplayProjectTitle &&
     !screenplayDocumentRevisionId &&
     !screenplayTarget &&
     !screenplayPromptSource &&
@@ -9271,13 +11375,48 @@ function sanitizeStudioTurnMetadata(input) {
     !screenplayReplacementApplied &&
     !screenplayReplacedWriteId &&
     !screenplayRevisedBlockText &&
-    !screenplayResolvedAnchorExcerpt
+    !screenplayInsertionMode &&
+    !screenplayResolvedAnchorExcerpt &&
+    !screenplayDraftExcerpt &&
+    !screenplayAct &&
+    !screenplaySceneObjective &&
+    !screenplaySceneSummary &&
+    !screenplayCurrentBeat &&
+    !screenplayLogline &&
+    !screenplayThemeArgument &&
+    !screenplayCentralQuestion &&
+    !screenplayProtagonistWant &&
+    !screenplayProtagonistNeed &&
+    !screenplayAntagonisticForce &&
+    !screenplayEndingImage &&
+    !screenplayFeatureSequence &&
+    !screenplayFeatureObligation &&
+    !screenplayActPressureState &&
+    !screenplayCharacterArcState &&
+    screenplayCharacterArcMemories.length < 1 &&
+    screenplayCharacterVoiceMemories.length < 1 &&
+    !screenplayLastSceneOutcome &&
+    !screenplayNextScenePlan &&
+    screenplayNextSceneMoves.length < 1 &&
+    screenplayNextThreeTurns.length < 1 &&
+    screenplayActThreePayoffPath.length < 1 &&
+    screenplayBeatSequence.length < 1 &&
+    screenplayCharacterFocus.length < 1 &&
+    screenplayUnresolvedSetups.length < 1 &&
+    screenplayUnresolvedStoryThreads.length < 1 &&
+    screenplayCharacterArcTurns.length < 1 &&
+    screenplayImageMotifs.length < 1 &&
+    screenplayContinuityNotes.length < 1 &&
+    !screenplayEmotionalContinuity &&
+    screenplayPageCount <= 0 &&
+    screenplayTargetPages <= 0
   ) {
     return null;
   }
 
   return {
     screenplayProjectId,
+    screenplayProjectTitle,
     screenplayDocumentRevisionId,
     screenplayTarget,
     screenplayPromptSource,
@@ -9295,16 +11434,53 @@ function sanitizeStudioTurnMetadata(input) {
     screenplayReplacementApplied,
     screenplayReplacedWriteId,
     screenplayRevisedBlockText,
+    screenplayInsertionMode,
     screenplayResolvedAnchorExcerpt,
+    screenplayDraftExcerpt,
+    screenplayAct,
+    screenplaySceneObjective,
+    screenplaySceneSummary,
+    screenplayCurrentBeat,
+    screenplayLogline,
+    screenplayThemeArgument,
+    screenplayCentralQuestion,
+    screenplayProtagonistWant,
+    screenplayProtagonistNeed,
+    screenplayAntagonisticForce,
+    screenplayEndingImage,
+    screenplayFeatureSequence,
+    screenplayFeatureObligation,
+    screenplayActPressureState,
+    screenplayCharacterArcState,
+    screenplayCharacterArcMemory,
+    screenplayCharacterArcMemories,
+    screenplayCharacterVoiceMemory,
+    screenplayCharacterVoiceMemories,
+    screenplayLastSceneOutcome,
+    screenplayNextScenePlan,
+    screenplayNextSceneMoves,
+    screenplayNextThreeTurns,
+    screenplayActThreePayoffPath,
+    screenplayBeatSequence,
+    screenplayCharacterFocus,
+    screenplayUnresolvedSetups,
+    screenplayUnresolvedStoryThreads,
+    screenplayCharacterArcTurns,
+    screenplayImageMotifs,
+    screenplayContinuityNotes,
+    screenplayEmotionalContinuity,
+    screenplayPageCount,
+    screenplayTargetPages,
   };
 }
 
 function pushTurnHistory(items, { role, content, turn, ts, studio }, maxEntries = TURN_HISTORY_MAX_ENTRIES) {
   const history = sanitizeTurnHistoryItems(items);
   const nextRole = normalizeHistoryRole(role);
-  const nextContent = normalizeSnippet(content, 280);
-  if (!nextContent) return history;
   const nextStudio = sanitizeStudioTurnMetadata(studio);
+  const isStudioVoicePin = nextRole === "assistant" && nextStudio?.screenplayTarget === "voice_pin";
+  const nextContent = normalizeSnippet(content, isStudioVoicePin ? 6000 : 280);
+  if (!nextContent) return history;
 
   const entry = {
     role: nextRole,
@@ -13158,6 +15334,1782 @@ function buildLastConversationRecap(memory, userSnippet, assistantSnippet) {
   return normalizeSnippet(parts.join(" "), 220);
 }
 
+const SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS = [
+  ["projectId", 96],
+  ["projectTitle", 160],
+  ["documentRevisionId", 96],
+  ["act", 120],
+  ["sceneLabel", 120],
+  ["sceneObjective", 280],
+  ["sceneSummary", 280],
+  ["currentBeat", 220],
+  ["logline", 280],
+  ["themeArgument", 280],
+  ["centralQuestion", 280],
+  ["protagonistWant", 240],
+  ["protagonistNeed", 240],
+  ["antagonisticForce", 260],
+  ["endingImage", 240],
+  ["featureSequence", 220],
+  ["featureObligation", 280],
+  ["actPressureState", 280],
+  ["characterArcState", 280],
+  ["lastSceneOutcome", 240],
+  ["nextScenePlan", 340],
+  ["emotionalContinuity", 280],
+  ["lastTarget", 48],
+  ["lastPromptSource", 48],
+  ["lastWriteId", 72],
+  ["lastInsertionMode", 48],
+  ["lastAnchorExcerpt", 280],
+  ["lastUserIntent", 180],
+  ["lastAssistantReply", 220],
+];
+
+const SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS = [
+  ["nextSceneMoves", 5, 180],
+  ["nextThreeTurns", 3, 180],
+  ["actThreePayoffPath", 5, 200],
+  ["beatSequence", 8, 180],
+  ["characterFocus", 8, 120],
+  ["unresolvedSetups", 8, 220],
+  ["unresolvedStoryThreads", 8, 220],
+  ["characterArcTurns", 6, 180],
+  ["imageMotifs", 6, 140],
+  ["continuityNotes", 8, 220],
+  ["correctedTerms", 8, 120],
+  ["correctionReplacements", 8, 160],
+];
+
+function normalizeScreenplayMemoryInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
+function inferScreenplayMemoryPosition({ pageCount = 0, targetPages = 0 } = {}) {
+  const currentPage = normalizeScreenplayMemoryInteger(pageCount);
+  if (currentPage <= 0) {
+    return {
+      act: "",
+      featureSequence: "",
+      featureObligation: "",
+    };
+  }
+  const target = normalizeScreenplayMemoryInteger(targetPages) || DEFAULT_FEATURE_TARGET_PAGES;
+  const sequence = findSequenceForPage(currentPage, target);
+  return {
+    act: normalizeSnippet(sequence?.act || "", 120),
+    featureSequence: sequence
+      ? normalizeSnippet(`${sequence.act} - ${sequence.label}`, 220)
+      : "",
+    featureObligation: normalizeSnippet(sequence?.obligation || "", 280),
+  };
+}
+
+function normalizeScreenplayActKey(value = "") {
+  const text = normalizeSnippet(value, 120).toLowerCase();
+  if (!text) return "";
+  if (/\b(?:act\s*)?(?:iii|3|three)\b/.test(text) || /\bact3\b/.test(text)) return "act3";
+  if (/\b(?:act\s*)?(?:ii|2|two)\b/.test(text) || /\bact2\b/.test(text)) return "act2";
+  if (/\b(?:act\s*)?(?:i|1|one)\b/.test(text) || /\bact1\b/.test(text)) return "act1";
+  return "";
+}
+
+function normalizeScreenplayActStatus(value = "") {
+  const text = normalizeSnippet(value, 32).toLowerCase();
+  if (["complete", "completed", "done", "closed"].includes(text)) return "complete";
+  if (["active", "current", "in_progress", "in progress", "working"].includes(text)) return "active";
+  if (["pending", "upcoming", "not_started", "not started"].includes(text)) return "pending";
+  return "";
+}
+
+function screenplayActStatusFor(currentActKey, actKey, pageCount = 0, targetPages = 0) {
+  if (!currentActKey || !actKey) return "";
+  if (actKey === "act1") {
+    if (currentActKey === "act1") return "active";
+    return ["act2", "act3"].includes(currentActKey) ? "complete" : "pending";
+  }
+  if (actKey === "act2") {
+    if (currentActKey === "act2") return "active";
+    if (currentActKey === "act3") return "complete";
+    return "pending";
+  }
+  if (actKey === "act3") {
+    if (currentActKey !== "act3") return "pending";
+    const page = normalizeScreenplayMemoryInteger(pageCount);
+    const target = normalizeScreenplayMemoryInteger(targetPages);
+    return target > 0 && page >= target ? "complete" : "active";
+  }
+  return "";
+}
+
+function screenplayActProgressBridge(currentActKey = "") {
+  switch (currentActKey) {
+    case "act1":
+      return "Bridge Act I into Act II by forcing a choice that makes the old life impossible.";
+    case "act2":
+      return "Turn the active Act II tactic into a cost that points directly toward Act III.";
+    case "act3":
+      return "Pay off earlier setup through changed behavior and protect the final image.";
+    default:
+      return "";
+  }
+}
+
+function screenplayActProgressFocus(currentActKey = "", fallback = {}) {
+  const firstRunway = normalizeSnippet(
+    Array.isArray(fallback.nextThreeTurns) ? fallback.nextThreeTurns[0] : "",
+    180
+  ) || normalizeSnippet(
+    Array.isArray(fallback.nextSceneMoves) ? fallback.nextSceneMoves[0] : "",
+    180
+  ) || normalizeSnippet(fallback.nextScenePlan, 180);
+  if (firstRunway) return `Spend next remembered turn first: ${firstRunway}`;
+  switch (currentActKey) {
+    case "act1":
+      return "Clarify wound, want, catalyst pressure, and the choice that launches Act II.";
+    case "act2":
+      return "Escalate tactic failure, midpoint consequence, relationship cost, and all-is-lost pressure.";
+    case "act3":
+      return "Resolve the need through visible changed behavior, setup payoff, and final image.";
+    default:
+      return "";
+  }
+}
+
+function sanitizeScreenplayActProgress(value = null, fallback = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const pageCount = normalizeScreenplayMemoryInteger(
+    source.pageCount ?? source.page_count ?? fallback.pageCount
+  );
+  const targetPages = normalizeScreenplayMemoryInteger(
+    source.targetPages ?? source.target_pages ?? fallback.targetPages
+  );
+  const inferred = inferScreenplayMemoryPosition({ pageCount, targetPages });
+  const currentAct = normalizeSnippet(
+    source.currentAct ??
+      source.current_act ??
+      fallback.act ??
+      inferred.act,
+    120
+  );
+  const currentSequence = normalizeSnippet(
+    source.currentSequence ??
+      source.current_sequence ??
+      fallback.featureSequence ??
+      inferred.featureSequence,
+    220
+  );
+  const currentObligation = normalizeSnippet(
+    source.currentObligation ??
+      source.current_obligation ??
+      fallback.featureObligation ??
+      inferred.featureObligation,
+    280
+  );
+  const currentActKey = normalizeScreenplayActKey(
+    source.currentActKey ??
+      source.current_act_key ??
+      currentAct ??
+      currentSequence
+  );
+  const pageProgress = normalizeSnippet(
+    source.pageProgress ??
+      source.page_progress ??
+      ((pageCount > 0 || targetPages > 0) ? `${pageCount || "?"}/${targetPages || "?"}` : ""),
+    40
+  );
+  const actOneStatus = normalizeScreenplayActStatus(source.actOneStatus ?? source.act_one_status ?? source.act_i) ||
+    screenplayActStatusFor(currentActKey, "act1", pageCount, targetPages);
+  const actTwoStatus = normalizeScreenplayActStatus(source.actTwoStatus ?? source.act_two_status ?? source.act_ii) ||
+    screenplayActStatusFor(currentActKey, "act2", pageCount, targetPages);
+  const actThreeStatus = normalizeScreenplayActStatus(source.actThreeStatus ?? source.act_three_status ?? source.act_iii) ||
+    screenplayActStatusFor(currentActKey, "act3", pageCount, targetPages);
+  const nextActBridge = normalizeSnippet(
+    source.nextActBridge ??
+      source.next_act_bridge ??
+      screenplayActProgressBridge(currentActKey),
+    240
+  );
+  const completionFocus = normalizeSnippet(
+    source.completionFocus ??
+      source.completion_focus ??
+      screenplayActProgressFocus(currentActKey, fallback),
+    260
+  );
+
+  const hasProgress = Boolean(
+    currentAct ||
+      currentActKey ||
+      currentSequence ||
+      currentObligation ||
+      pageProgress ||
+      pageCount > 0 ||
+      targetPages > 0
+  );
+  if (!hasProgress) return null;
+
+  const progress = {
+    schemaVersion: 1,
+    currentAct,
+    currentActKey,
+    currentSequence,
+    currentObligation,
+    pageProgress,
+    actOneStatus,
+    actTwoStatus,
+    actThreeStatus,
+    nextActBridge,
+    completionFocus,
+  };
+  if (pageCount > 0) progress.pageCount = pageCount;
+  if (targetPages > 0) progress.targetPages = targetPages;
+  return Object.fromEntries(
+    Object.entries(progress).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+}
+
+function screenplayActProgressToApi(progress = null) {
+  if (!progress || typeof progress !== "object") return null;
+  const pageCount = normalizeScreenplayMemoryInteger(progress.pageCount);
+  const targetPages = normalizeScreenplayMemoryInteger(progress.targetPages);
+  const out = {
+    schema_version: 1,
+    current_act: normalizeSnippet(progress.currentAct, 120),
+    current_act_key: normalizeScreenplayActKey(progress.currentActKey || progress.currentAct),
+    current_sequence: normalizeSnippet(progress.currentSequence, 220),
+    current_obligation: normalizeSnippet(progress.currentObligation, 280),
+    page_progress: normalizeSnippet(progress.pageProgress, 40),
+    act_i: normalizeScreenplayActStatus(progress.actOneStatus),
+    act_ii: normalizeScreenplayActStatus(progress.actTwoStatus),
+    act_iii: normalizeScreenplayActStatus(progress.actThreeStatus),
+    next_act_bridge: normalizeSnippet(progress.nextActBridge, 240),
+    completion_focus: normalizeSnippet(progress.completionFocus, 260),
+  };
+  if (pageCount > 0) out.page_count = pageCount;
+  if (targetPages > 0) out.target_pages = targetPages;
+  return Object.fromEntries(
+    Object.entries(out).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+}
+
+function formatScreenplayActProgressForPrompt(progress = null) {
+  if (!progress || typeof progress !== "object") return "";
+  const lines = [
+    progress.currentAct ? `current_act:${progress.currentAct}` : "",
+    progress.currentSequence ? `current_sequence:${progress.currentSequence}` : "",
+    progress.currentObligation ? `current_obligation:${progress.currentObligation}` : "",
+    progress.pageProgress ? `page_progress:${progress.pageProgress}` : "",
+    progress.actOneStatus ? `act_i:${progress.actOneStatus}` : "",
+    progress.actTwoStatus ? `act_ii:${progress.actTwoStatus}` : "",
+    progress.actThreeStatus ? `act_iii:${progress.actThreeStatus}` : "",
+    progress.nextActBridge ? `next_act_bridge:${progress.nextActBridge}` : "",
+    progress.completionFocus ? `completion_focus:${progress.completionFocus}` : "",
+  ].filter(Boolean);
+  return lines.length ? ` act_progress:${lines.join(" / ")}` : "";
+}
+
+function mergeScreenplayProjectMemoryList(existingItems, incomingItems, maxItems = 8, maxChars = 180) {
+  const out = [];
+  const seen = new Set();
+  for (const source of [incomingItems, existingItems]) {
+    for (const item of Array.isArray(source) ? source : []) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) return out;
+    }
+  }
+  return out;
+}
+
+function collectScreenplayCharacterArcMemories(studio = null) {
+  if (!studio || typeof studio !== "object") return [];
+  if (Array.isArray(studio.screenplayCharacterArcMemories) && studio.screenplayCharacterArcMemories.length) {
+    return studio.screenplayCharacterArcMemories
+      .map((item) => parseTalkScreenplayCharacterArcMemory(item))
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+  const single = parseTalkScreenplayCharacterArcMemory(studio.screenplayCharacterArcMemory);
+  return single ? [single] : [];
+}
+
+function buildScreenplayCharacterArcMemoryContinuity(arcMemories = []) {
+  const memories = (Array.isArray(arcMemories) ? arcMemories : [])
+    .map((item) => parseTalkScreenplayCharacterArcMemory(item))
+    .filter(Boolean)
+    .slice(0, 8);
+  const characterFocus = [];
+  const characterArcTurns = [];
+  const unresolvedStoryThreads = [];
+  const nextSceneMoves = [];
+  const nextThreeTurns = [];
+  const continuityNotes = [];
+  let protagonistWant = "";
+  let protagonistNeed = "";
+  let characterArcState = "";
+  let actPressureState = "";
+  let nextScenePlan = "";
+
+  const push = (target, value, maxItems, maxChars) => {
+    const clean = normalizeSnippet(value, maxChars);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (target.some((item) => item.toLowerCase() === key)) return;
+    target.push(clean);
+    if (target.length > maxItems) target.length = maxItems;
+  };
+
+  for (const arc of memories) {
+    const name = normalizeSnippet(arc.character || "Protagonist", 80);
+    if (arc.character) push(characterFocus, arc.character, 8, 120);
+    if (!protagonistWant && arc.want) protagonistWant = normalizeSnippet(arc.want, 240);
+    if (!protagonistNeed && arc.need) protagonistNeed = normalizeSnippet(arc.need, 240);
+
+    const parts = [
+      arc.want ? `want=${arc.want}` : "",
+      arc.need ? `need=${arc.need}` : "",
+      arc.wound ? `wound=${arc.wound}` : "",
+      arc.falseBelief ? `false belief=${arc.falseBelief}` : "",
+      arc.currentTactic ? `tactic=${arc.currentTactic}` : "",
+      arc.nextEmotionalTurn ? `next turn=${arc.nextEmotionalTurn}` : "",
+    ].filter(Boolean);
+    if (parts.length) {
+      const line = `${name}: ${parts.join("; ")}`;
+      push(characterArcTurns, line, 6, 180);
+      push(continuityNotes, `Character bible: ${line}`, 8, 220);
+      if (!characterArcState) characterArcState = normalizeSnippet(line, 280);
+    }
+    if (arc.want) {
+      push(nextSceneMoves, `Pressure ${name}'s want: ${arc.want}.`, 5, 180);
+    }
+    if (arc.currentTactic) {
+      push(nextSceneMoves, `Make ${name}'s current tactic fail or cost more: ${arc.currentTactic}.`, 5, 180);
+    }
+    if (arc.nextEmotionalTurn) {
+      push(nextThreeTurns, `${name}'s next emotional turn: ${arc.nextEmotionalTurn}.`, 3, 180);
+      if (!nextScenePlan) {
+        nextScenePlan = normalizeSnippet(
+          `Move ${name} toward the next emotional turn: ${arc.nextEmotionalTurn}.`,
+          340
+        );
+      }
+    }
+    if (arc.falseBelief) {
+      push(unresolvedStoryThreads, `Test ${name}'s false belief: ${arc.falseBelief}.`, 8, 220);
+      if (!actPressureState) {
+        actPressureState = normalizeSnippet(`Test ${name}'s false belief under act pressure: ${arc.falseBelief}.`, 280);
+      }
+    }
+    if (arc.wound) {
+      push(unresolvedStoryThreads, `Re-open ${name}'s wound: ${arc.wound}.`, 8, 220);
+    }
+    if (arc.relationshipPressure) {
+      push(unresolvedStoryThreads, `Escalate ${name}'s relationship pressure: ${arc.relationshipPressure}.`, 8, 220);
+    }
+  }
+
+  return {
+    hasSignal: Boolean(
+      characterFocus.length ||
+        protagonistWant ||
+        protagonistNeed ||
+        characterArcState ||
+        actPressureState ||
+        nextScenePlan ||
+        nextSceneMoves.length ||
+        nextThreeTurns.length ||
+        unresolvedStoryThreads.length ||
+        characterArcTurns.length ||
+        continuityNotes.length
+    ),
+    characterFocus,
+    protagonistWant,
+    protagonistNeed,
+    characterArcState,
+    actPressureState,
+    nextScenePlan,
+    nextSceneMoves,
+    nextThreeTurns,
+    unresolvedStoryThreads,
+    characterArcTurns,
+    continuityNotes,
+  };
+}
+
+const SCREENPLAY_MEMORY_ADVANCE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "because",
+  "before",
+  "being",
+  "from",
+  "into",
+  "must",
+  "next",
+  "only",
+  "page",
+  "scene",
+  "that",
+  "their",
+  "there",
+  "they",
+  "this",
+  "turn",
+  "under",
+  "with",
+]);
+
+function screenplayMemoryAdvanceTokenSet(value = "") {
+  const tokens = String(value || "")
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/'s\b/g, "")
+    .match(/[a-z0-9][a-z0-9-]{2,}/g);
+  if (!Array.isArray(tokens)) return new Set();
+  return new Set(tokens.filter((token) => token.length >= 4 && !SCREENPLAY_MEMORY_ADVANCE_STOPWORDS.has(token)));
+}
+
+function screenplayMemoryTextCoversPlannedTurn(text = "", plannedTurn = "") {
+  const plannedTokens = screenplayMemoryAdvanceTokenSet(plannedTurn);
+  if (plannedTokens.size < 2) return false;
+  const textTokens = screenplayMemoryAdvanceTokenSet(text);
+  const matched = [...plannedTokens].filter((token) => textTokens.has(token));
+  const minimumMatches = plannedTokens.size >= 4 ? 3 : Math.min(2, plannedTokens.size);
+  return matched.length >= minimumMatches;
+}
+
+function filterCoveredScreenplayRunwayItems(items = [], text = "") {
+  return (Array.isArray(items) ? items : []).filter((item) => (
+    !screenplayMemoryTextCoversPlannedTurn(text, item)
+  ));
+}
+
+function advanceScreenplayRunwayAfterAcceptedWrite({
+  plannedItems = [],
+  distilledItems = [],
+  acceptedText = "",
+  maxItems = 3,
+  maxChars = 180,
+} = {}) {
+  const planned = parseTalkScreenplayContextList(plannedItems, maxItems, maxChars);
+  const distilled = parseTalkScreenplayContextList(distilledItems, maxItems, maxChars);
+  if (!planned.length) return distilled;
+  const firstWasSpent = screenplayMemoryTextCoversPlannedTurn(acceptedText, planned[0]);
+  if (!firstWasSpent) return planned;
+  return mergeScreenplayProjectMemoryList(
+    distilled,
+    planned.slice(1),
+    maxItems,
+    maxChars
+  );
+}
+
+const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually(?:,?\s*no)?|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
+
+function normalizeScreenplayCorrectionTerm(value = "", maxChars = 120) {
+  return normalizeSnippet(value, maxChars)
+    .replace(/^(?:a|an|the|that|this)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseScreenplayCorrectionReplacement(value = "") {
+  const clean = normalizeSnippet(value, 180);
+  const parts = clean.split(/\s*->\s*/);
+  if (parts.length !== 2) return null;
+  const from = normalizeScreenplayCorrectionTerm(parts[0], 90);
+  const to = normalizeScreenplayCorrectionTerm(parts[1], 120);
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
+  return { from, to };
+}
+
+function collectScreenplayCorrectionItems(items = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const clean = normalizeScreenplayCorrectionTerm(item, 120);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function extractScreenplayReplacementTermBeforeNot(text = "", notIndex = -1) {
+  const beforeNot = String(text || "").slice(0, Math.max(0, notIndex));
+  const latestClause = beforeNot.split(/[.!?;]/).at(-1)?.trim() || "";
+  const explicitValue = latestClause.match(
+    /\b(?:is|should\s+be|=)\s+(?:a|an|the)?\s*([^,]{2,140}?)\s*,?$/i
+  );
+  if (explicitValue?.[1]) {
+    const candidate = normalizeScreenplayCorrectionTerm(explicitValue[1], 120);
+    if (candidate) return candidate;
+  }
+  const articlePattern = /\b(?:a|an|the)\s+([A-Za-z0-9][A-Za-z0-9'-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){0,3})/gi;
+  const matches = [...beforeNot.matchAll(articlePattern)];
+  for (const match of matches.reverse()) {
+    const candidate = normalizeScreenplayCorrectionTerm(
+      String(match[1] || "").replace(/\s+(?:under|inside|behind|before|after|with|to|from)\b.*$/i, ""),
+      120
+    );
+    if (candidate && !/\b(?:scene|act|page|story|character|truth)\b/i.test(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function extractScreenplayMemoryCorrection(transcript = "") {
+  const raw = normalizeSnippet(transcript, 1_200);
+  if (!raw || !SCREENPLAY_MEMORY_CORRECTION_PATTERN.test(raw)) return null;
+  let correctedFact = raw
+    .replace(/^\s*(?:actually(?:,?\s*no)?,?|no,?|correction:?|scratch that,?|retcon:?|not that,?)\s*/i, "")
+    .trim();
+  if (!correctedFact) correctedFact = raw;
+
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  const addTerm = (value) => {
+    const clean = normalizeScreenplayCorrectionTerm(value, 120);
+    if (!clean) return;
+    if (!correctedTerms.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+      correctedTerms.push(clean);
+    }
+  };
+  const addReplacement = (fromValue, toValue) => {
+    const from = normalizeScreenplayCorrectionTerm(fromValue, 90);
+    const to = normalizeScreenplayCorrectionTerm(toValue, 120);
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) return;
+    addTerm(from);
+    const replacement = `${from} -> ${to}`;
+    if (!correctionReplacements.some((item) => item.toLowerCase() === replacement.toLowerCase())) {
+      correctionReplacements.push(replacement);
+    }
+  };
+
+  const changeMatch = raw.match(/\bchange\s+(.{1,90}?)\s+to\s+(.{1,160}?)(?:[.;]|$)/i);
+  if (changeMatch) {
+    addReplacement(changeMatch[1], changeMatch[2]);
+    correctedFact = `Change ${normalizeScreenplayCorrectionTerm(changeMatch[1], 90)} to ${normalizeScreenplayCorrectionTerm(changeMatch[2], 160)}.`;
+  }
+
+  const notPattern = /\bnot\s+(?:a|an|the|that|this)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  for (const match of raw.matchAll(notPattern)) {
+    const removed = normalizeScreenplayCorrectionTerm(match[1], 90);
+    if (!removed) continue;
+    const replacement = extractScreenplayReplacementTermBeforeNot(raw, match.index || 0);
+    if (replacement) {
+      addReplacement(removed, replacement);
+    } else {
+      addTerm(removed);
+    }
+  }
+
+  const insteadMatch = raw.match(/\binstead[:,]?\s*(.{1,220}?)(?:[.;]|$)/i);
+  if (insteadMatch && !correctedFact.toLowerCase().includes(insteadMatch[1].trim().toLowerCase())) {
+    correctedFact = `${correctedFact} Instead: ${normalizeSnippet(insteadMatch[1], 220)}`;
+  }
+
+  let authoritativeFact = correctedFact;
+  for (const term of correctedTerms) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    authoritativeFact = authoritativeFact.replace(
+      new RegExp(`\\s*,?\\s*\\bnot\\s+(?:a|an|the|that|this)?\\s*${escaped}\\b(?:\\s+anymore)?`, "ig"),
+      ""
+    );
+  }
+  authoritativeFact = normalizeSnippet(authoritativeFact, 420) || correctedFact;
+
+  return {
+    correctedFact: authoritativeFact,
+    correctionNote: normalizeSnippet(correctedFact, 420),
+    correctedTerms: collectScreenplayCorrectionItems(correctedTerms),
+    correctionReplacements: collectScreenplayCorrectionItems(correctionReplacements),
+  };
+}
+
+function textContainsScreenplayCorrectionTerm(value = "", terms = []) {
+  const text = normalizeSnippet(value, 1_000).toLowerCase();
+  if (!text) return false;
+  return collectScreenplayCorrectionItems(terms).some((term) => {
+    const lower = term.toLowerCase();
+    return lower && text.includes(lower);
+  });
+}
+
+function applyScreenplayCorrectionReplacements(value = "", replacements = [], maxChars = 1_000) {
+  let out = normalizeSnippet(value, maxChars);
+  if (!out) return "";
+  for (const item of Array.isArray(replacements) ? replacements : []) {
+    const parsed = parseScreenplayCorrectionReplacement(item);
+    if (!parsed) continue;
+    const escaped = parsed.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`\\b${escaped}\\b`, "gi"), parsed.to);
+  }
+  return normalizeSnippet(out, maxChars);
+}
+
+function filterScreenplayCorrectionList(items = [], correction = null) {
+  const terms = collectScreenplayCorrectionItems(correction?.correctedTerms || []);
+  const replacements = correction?.correctionReplacements || [];
+  const out = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const replaced = applyScreenplayCorrectionReplacements(item, replacements, 240);
+    if (!replaced) continue;
+    if (textContainsScreenplayCorrectionTerm(replaced, terms)) continue;
+    out.push(replaced);
+  }
+  return out;
+}
+
+function repairScreenplayProjectMemoryForPrompt(project = null) {
+  const item = sanitizeScreenplayProjectMemoryItems([project], 1)[0] || null;
+  if (!item) return null;
+  const correction = {
+    correctedTerms: collectScreenplayCorrectionItems(item.correctedTerms || []),
+    correctionReplacements: collectScreenplayCorrectionItems(item.correctionReplacements || []),
+  };
+  if (!correction.correctedTerms.length && !correction.correctionReplacements.length) {
+    return item;
+  }
+
+  const repaired = { ...item };
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    if (!repaired[field] || ["projectId", "projectTitle", "documentRevisionId"].includes(field)) continue;
+    const value = applyScreenplayCorrectionReplacements(
+      repaired[field],
+      correction.correctionReplacements,
+      maxChars
+    );
+    repaired[field] = textContainsScreenplayCorrectionTerm(value, correction.correctedTerms)
+      ? ""
+      : value;
+  }
+  if (repaired.lastWritePreview) {
+    const value = applyScreenplayCorrectionReplacements(
+      repaired.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+    repaired.lastWritePreview = textContainsScreenplayCorrectionTerm(value, correction.correctedTerms)
+      ? ""
+      : value;
+  }
+  for (const [field] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    if (["continuityNotes", "correctedTerms", "correctionReplacements"].includes(field)) continue;
+    repaired[field] = filterScreenplayCorrectionList(repaired[field], correction);
+  }
+  return sanitizeScreenplayProjectMemoryItems([repaired], 1)[0] || item;
+}
+
+function resolveScreenplayMemoryInput(item, camelKey, snakeKey = "") {
+  if (!item || typeof item !== "object") return undefined;
+  const screenKey = `screenplay${camelKey.charAt(0).toUpperCase()}${camelKey.slice(1)}`;
+  const screenSnakeKey = snakeKey ? `screenplay_${snakeKey}` : "";
+  return item[camelKey] ??
+    (snakeKey ? item[snakeKey] : undefined) ??
+    item[screenKey] ??
+    (screenSnakeKey ? item[screenSnakeKey] : undefined);
+}
+
+function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJECT_MEMORY_MAX) {
+  const source = Array.isArray(items) ? items : [];
+  const cappedMax = Math.max(1, Number(maxItems || SCREENPLAY_PROJECT_MEMORY_MAX));
+  const byKey = new Map();
+
+  for (const item of source) {
+    if (!item || typeof item !== "object") continue;
+    const record = {
+      schemaVersion: 1,
+    };
+
+    for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+      const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+      record[field] = normalizeSnippet(
+        resolveScreenplayMemoryInput(item, field, snakeKey) ?? "",
+        maxChars
+      );
+    }
+
+    record.lastWritePreview = normalizeTalkMultilineSnippet(
+      item.lastWritePreview ??
+        item.last_write_preview ??
+        item.screenplayLastWritePreview ??
+        item.screenplay_last_write_preview ??
+        item.screenplayInsertedText ??
+        item.screenplay_inserted_text ??
+        item.screenplayRevisedBlockText ??
+        item.screenplay_revised_block_text ??
+        "",
+      900
+    );
+
+    for (const [field, maxListItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+      const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+      record[field] = parseTalkScreenplayContextList(
+        resolveScreenplayMemoryInput(item, field, snakeKey),
+        maxListItems,
+        maxChars
+      );
+    }
+
+    record.pageCount = normalizeScreenplayMemoryInteger(
+      item.pageCount ?? item.page_count ?? item.screenplayPageCount ?? item.screenplay_page_count
+    );
+    record.targetPages = normalizeScreenplayMemoryInteger(
+      item.targetPages ?? item.target_pages ?? item.screenplayTargetPages ?? item.screenplay_target_pages
+    );
+    record.lastAnchorLine = normalizeScreenplayMemoryInteger(
+      item.lastAnchorLine ?? item.last_anchor_line ?? item.screenplayAnchorLine ?? item.screenplay_anchor_line
+    );
+    record.lastAnchorEndLine = normalizeScreenplayMemoryInteger(
+      item.lastAnchorEndLine ?? item.last_anchor_end_line ?? item.screenplayAnchorEndLine ?? item.screenplay_anchor_end_line
+    );
+    record.writeCount = normalizeScreenplayMemoryInteger(item.writeCount ?? item.write_count);
+    record.interactionCount = normalizeScreenplayMemoryInteger(
+      item.interactionCount ?? item.interaction_count
+    );
+    record.createdAt = Math.max(
+      0,
+      Number(item.createdAt ?? item.created_at ?? item.rememberedAt ?? item.remembered_at ?? 0)
+    );
+    record.updatedAt = Math.max(
+      record.createdAt,
+      Number(item.updatedAt ?? item.updated_at ?? item.lastUpdatedAt ?? item.last_updated_at ?? 0)
+    );
+
+    const hasProjectMemory = Boolean(
+      record.projectId ||
+      record.documentRevisionId ||
+      record.act ||
+      record.sceneLabel ||
+      record.sceneObjective ||
+      record.sceneSummary ||
+      record.currentBeat ||
+      record.logline ||
+      record.themeArgument ||
+      record.centralQuestion ||
+      record.protagonistWant ||
+      record.protagonistNeed ||
+      record.antagonisticForce ||
+      record.endingImage ||
+      record.featureSequence ||
+      record.featureObligation ||
+      record.actPressureState ||
+      record.characterArcState ||
+      record.lastSceneOutcome ||
+      record.nextScenePlan ||
+      record.emotionalContinuity ||
+      record.lastWritePreview ||
+      record.nextSceneMoves.length ||
+      record.nextThreeTurns.length ||
+      record.actThreePayoffPath.length ||
+      record.beatSequence.length ||
+      record.characterFocus.length ||
+      record.unresolvedSetups.length ||
+      record.unresolvedStoryThreads.length ||
+      record.characterArcTurns.length ||
+      record.imageMotifs.length ||
+      record.continuityNotes.length ||
+      record.correctedTerms.length ||
+      record.correctionReplacements.length ||
+      record.pageCount > 0 ||
+      record.targetPages > 0
+    );
+    if (!hasProjectMemory) continue;
+    record.actProgress = sanitizeScreenplayActProgress(
+      resolveScreenplayMemoryInput(item, "actProgress", "act_progress"),
+      record
+    );
+
+    const key = record.projectId ||
+      record.documentRevisionId ||
+      [record.sceneLabel, record.act].filter(Boolean).join("|") ||
+      `idx-${byKey.size}`;
+    const existing = byKey.get(key);
+    if (!existing || Number(record.updatedAt || 0) >= Number(existing.updatedAt || 0)) {
+      byKey.set(key, record);
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, cappedMax);
+}
+
+const SCREENPLAY_MEMORY_GENERIC_CUES = new Set([
+  "CHARACTER",
+  "CHARACTER A",
+  "CHARACTER B",
+  "PROTAGONIST",
+  "ANTAGONIST",
+  "HERO",
+  "VILLAIN",
+  "LEAD",
+  "MAIN CHARACTER",
+]);
+
+const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
+  "A",
+  "An",
+  "The",
+  "She",
+  "He",
+  "They",
+  "It",
+  "This",
+  "That",
+  "Rain",
+  "Wind",
+  "Light",
+  "Lights",
+  "Silence",
+]);
+
+const SCREENPLAY_MEMORY_MOTIF_PATTERN = /\b(?:(?:missing|sealed|forged|burned|rain-swollen|blank|flickering|broken|empty|final|lost|public|private)\s+)?(?:receipt|cassette|key|envelope|reel|photograph|photo|tape|microphone|pool|screen|light|lights|rain|glass|door|window|mirror|gun|knife|car|phone|voicemail|affidavit|report|evidence|docket|bench|vent|elevator|courthouse)\b/gi;
+const SCREENPLAY_MEMORY_SETUP_PATTERN = /\b(?:hide|hides|hidden|pocket|pockets|keeps?|missing|sealed|forged|unopened|buried|evidence|receipt|cassette|affidavit|voicemail|report|docket|key|envelope|reel)\b/i;
+
+function countScreenplayMemoryWords(text = "") {
+  const matches = normalizeSnippet(text, 500).match(/[A-Za-z0-9'][A-Za-z0-9'-]*/g);
+  return Array.isArray(matches) ? matches.length : 0;
+}
+
+function normalizeScreenplayMemoryCharacterCue(line = "") {
+  const cue = normalizeSnippet(
+    String(line || "")
+      .replace(/\s+\([^()\n]{1,40}\)\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    80
+  );
+  if (!cue || cue.length > 42 || cue !== cue.toUpperCase() || !/[A-Z]/.test(cue)) return "";
+  if (SCREENPLAY_MEMORY_GENERIC_CUES.has(cue)) return "";
+  if (/^(?:FADE IN|FADE OUT|CUT TO|SMASH CUT|DISSOLVE TO|THE END|END)$/.test(cue)) return "";
+  return cue
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
+    .replace(/\bTv\b/g, "TV")
+    .replace(/\bFbi\b/g, "FBI")
+    .replace(/\bCia\b/g, "CIA");
+}
+
+function isScreenplayMemoryActionLine(line = "") {
+  const text = normalizeSnippet(line, 260);
+  if (!text || countScreenplayMemoryWords(text) < 4) return false;
+  if (isTalkSceneHeadingLine(text) || isTalkTransitionLine(text)) return false;
+  if (isLikelyConversationalScreenplayLine(text) || isLikelyTalkScreenplayAfterwordLine(text)) return false;
+  if (/^(?:beat|act|sequence|outline|note|analysis|diagnosis|strategy)\s*(?:\d+)?\s*:/i.test(text)) return false;
+  if (/^(?:the|this) (?:scene|sequence|act|page|moment|exchange|dialogue) (?:should|needs|wants|must|can)\b/i.test(text)) return false;
+  return /[A-Za-z]/.test(text);
+}
+
+function normalizeScreenplayMemoryMotif(value = "") {
+  return normalizeSnippet(value, 140)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:the|a|an)\s+/, "");
+}
+
+function titleCaseScreenplayMemoryPhrase(value = "") {
+  const clean = normalizeScreenplayMemoryMotif(value);
+  if (!clean) return "";
+  return clean.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function collectScreenplayMemoryMotifs(lines = [], maxItems = 6) {
+  const out = [];
+  const seen = new Set();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const text = normalizeSnippet(line, 260);
+    if (!text) continue;
+    const matches = text.match(SCREENPLAY_MEMORY_MOTIF_PATTERN) || [];
+    for (const match of matches) {
+      const motif = normalizeScreenplayMemoryMotif(match);
+      if (!motif || seen.has(motif)) continue;
+      seen.add(motif);
+      out.push(motif);
+      if (out.length >= maxItems) return out;
+    }
+  }
+  return out;
+}
+
+function collectScreenplayMemorySetups(lines = [], maxItems = 5) {
+  const out = [];
+  const seen = new Set();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const clean = normalizeSnippet(line, 220);
+    if (!clean || countScreenplayMemoryWords(clean) < 4) continue;
+    if (!SCREENPLAY_MEMORY_SETUP_PATTERN.test(clean)) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function inferScreenplayMemoryPrimaryActionName(actionLines = []) {
+  for (const line of Array.isArray(actionLines) ? actionLines : []) {
+    const match = normalizeSnippet(line, 180).match(/^([A-Z][a-zA-Z]{2,})\b/);
+    const name = match?.[1] || "";
+    if (name && !SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST.has(name)) return name;
+  }
+  return "";
+}
+
+function buildDistilledScreenplayNextTurns({
+  currentBeat = "",
+  primaryCharacter = "",
+  motifs = [],
+  unresolvedSetups = [],
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 180);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const pressureObject = normalizeSnippet(motifs[0] || unresolvedSetups[0], 90);
+  if (currentBeat) push(`Force the consequence of: ${currentBeat}`);
+  if (primaryCharacter && pressureObject) {
+    push(`Make ${primaryCharacter} choose a new tactic under pressure from ${pressureObject}.`);
+  } else if (primaryCharacter) {
+    push(`Make ${primaryCharacter} choose a new tactic under pressure.`);
+  }
+  if (pressureObject) {
+    push(`Complicate or pay off ${pressureObject} so it changes the next scene.`);
+  }
+  return out.slice(0, 3);
+}
+
+function buildDistilledScreenplayPayoffPath({
+  motifs = [],
+  unresolvedSetups = [],
+  primaryCharacter = "",
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 200);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const payoffSources = mergeScreenplayProjectMemoryList(
+    unresolvedSetups,
+    motifs,
+    5,
+    120
+  );
+  for (const item of payoffSources.slice(0, 3)) {
+    const label = titleCaseScreenplayMemoryPhrase(item);
+    if (label) push(`${label} returns as proof or cost in Act III.`);
+  }
+  if (primaryCharacter && payoffSources.length > 0) {
+    push(`${primaryCharacter}'s next public choice must pay off the private pressure planted here.`);
+  }
+  return out.slice(0, 5);
+}
+
+function buildDistilledScreenplayCharacterArcTurns({
+  currentBeat = "",
+  primaryCharacter = "",
+  motifs = [],
+  dialogueLines = [],
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 180);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const pressureObject = normalizeSnippet(motifs[0], 90);
+  const combinedDialogue = normalizeSnippet(dialogueLines.join(" "), 500).toLowerCase();
+  if (primaryCharacter && /\b(public|truth|aloud|testimony|witness|proof)\b/.test(combinedDialogue)) {
+    push(`${primaryCharacter} is being pushed from private control toward public truth.`);
+  }
+  if (primaryCharacter && currentBeat) {
+    push(`${primaryCharacter} must change tactics after: ${currentBeat}`);
+  }
+  if (primaryCharacter && pressureObject) {
+    push(`${primaryCharacter} must decide what ${pressureObject} costs them.`);
+  }
+  return out.slice(0, 6);
+}
+
+function buildDistilledScreenplayStoryThreads({
+  motifs = [],
+  actionLines = [],
+  dialogueLines = [],
+} = {}) {
+  const lines = [...(Array.isArray(actionLines) ? actionLines : []), ...(Array.isArray(dialogueLines) ? dialogueLines : [])];
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 220);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const primaryMotif = normalizeSnippet(motifs[0], 80);
+  for (const line of lines) {
+    const lower = normalizeSnippet(line, 220).toLowerCase();
+    if (!lower) continue;
+    if (primaryMotif && /\b(?:nobody else knew|somebody does|who else|someone else knows)\b/.test(lower)) {
+      push(`Who else knows about ${primaryMotif}?`);
+    }
+    if (primaryMotif && /\bmissing\b/.test(lower)) {
+      push(`What happened to ${primaryMotif}?`);
+    }
+    if (/\b(?:forged|sealed|buried|evidence|affidavit|report)\b/.test(lower)) {
+      push(`Who controls the ${primaryMotif || "evidence"}?`);
+    }
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+function distillScreenplayProjectMemoryFromText(text = "") {
+  const normalized = normalizeTalkMultilineSnippet(text, 12_000);
+  if (!normalized) {
+    return {
+      sceneLabel: "",
+      sceneSummary: "",
+      currentBeat: "",
+      beatSequence: [],
+      characterFocus: [],
+      actPressureState: "",
+      characterArcState: "",
+      lastSceneOutcome: "",
+      nextScenePlan: "",
+      nextSceneMoves: [],
+      nextThreeTurns: [],
+      actThreePayoffPath: [],
+      unresolvedSetups: [],
+      unresolvedStoryThreads: [],
+      characterArcTurns: [],
+      imageMotifs: [],
+      hasScreenplayShape: false,
+    };
+  }
+
+  const lines = buildTalkScreenplayOutputLines(normalized);
+  const sceneHeadings = [];
+  const characterFocus = [];
+  const actionLines = [];
+  const dialogueLines = [];
+
+  for (const line of lines) {
+    const clean = normalizeSnippet(line?.text, 260);
+    if (!clean) continue;
+    if (line.element === "sceneHeading") {
+      sceneHeadings.push(clean);
+    } else if (line.element === "character") {
+      const cue = normalizeScreenplayMemoryCharacterCue(clean);
+      const key = cue.toLowerCase();
+      if (cue && !characterFocus.some((item) => item.toLowerCase() === key)) {
+        characterFocus.push(cue);
+      }
+    } else if (line.element === "dialogue") {
+      if (countScreenplayMemoryWords(clean) >= 3) dialogueLines.push(clean);
+    } else if (line.element === "action" && isScreenplayMemoryActionLine(clean)) {
+      actionLines.push(clean);
+    }
+  }
+
+  const sceneLabel = sceneHeadings[sceneHeadings.length - 1] || "";
+  const lastAction = actionLines[actionLines.length - 1] || "";
+  const firstAction = actionLines[0] || "";
+  const lastDialogue = dialogueLines[dialogueLines.length - 1] || "";
+  const currentBeat = lastAction || (lastDialogue ? `Last exchange: ${lastDialogue}` : "");
+  const summaryMoment = firstAction || currentBeat;
+  const sceneSummary = sceneLabel && summaryMoment
+    ? `${sceneLabel}: ${summaryMoment}`
+    : summaryMoment;
+  const primaryActionCharacter = inferScreenplayMemoryPrimaryActionName(actionLines);
+  const primaryCharacter = primaryActionCharacter || characterFocus[0] || "";
+  const imageMotifs = collectScreenplayMemoryMotifs(
+    [...actionLines, ...dialogueLines, ...sceneHeadings],
+    6
+  );
+  const unresolvedSetups = collectScreenplayMemorySetups(
+    [...actionLines, ...dialogueLines],
+    5
+  );
+  const unresolvedStoryThreads = buildDistilledScreenplayStoryThreads({
+    motifs: imageMotifs,
+    actionLines,
+    dialogueLines,
+  });
+  const lastSceneOutcome = currentBeat;
+  const characterArcState = primaryCharacter && currentBeat
+    ? `${primaryCharacter} is under pressure from: ${currentBeat}`
+    : "";
+  const nextScenePlan = currentBeat
+    ? `Continue from "${currentBeat}" with a visible consequence.`
+    : "";
+  const nextSceneMoves = buildDistilledScreenplayNextTurns({
+    currentBeat,
+    primaryCharacter,
+    motifs: imageMotifs,
+    unresolvedSetups,
+  });
+  const actThreePayoffPath = buildDistilledScreenplayPayoffPath({
+    motifs: imageMotifs,
+    unresolvedSetups,
+    primaryCharacter,
+  });
+  const characterArcTurns = buildDistilledScreenplayCharacterArcTurns({
+    currentBeat,
+    primaryCharacter,
+    motifs: imageMotifs,
+    dialogueLines,
+  });
+  if (!characterArcTurns.length && characterArcState) {
+    characterArcTurns.push(characterArcState);
+  }
+  const beatSequence = mergeScreenplayProjectMemoryList(
+    [],
+    actionLines.slice(-4),
+    4,
+    180
+  );
+  const hasScreenplayShape = Boolean(
+    sceneLabel ||
+    characterFocus.length ||
+    actionLines.length >= 2 ||
+    dialogueLines.length >= 2
+  );
+
+  return {
+    sceneLabel: normalizeSnippet(sceneLabel, 120),
+    sceneSummary: normalizeSnippet(sceneSummary, 280),
+    currentBeat: normalizeSnippet(currentBeat, 220),
+    beatSequence,
+    characterFocus: characterFocus.slice(0, 8),
+    actPressureState: "",
+    characterArcState: normalizeSnippet(characterArcState, 280),
+    lastSceneOutcome: normalizeSnippet(lastSceneOutcome, 240),
+    nextScenePlan: normalizeSnippet(nextScenePlan, 340),
+    nextSceneMoves: nextSceneMoves.slice(0, 5),
+    nextThreeTurns: nextSceneMoves.slice(0, 3),
+    actThreePayoffPath,
+    unresolvedSetups,
+    unresolvedStoryThreads,
+    characterArcTurns,
+    imageMotifs,
+    hasScreenplayShape,
+  };
+}
+
+function buildScreenplayProjectMemoryRecordFromStudioMeta(
+  studioMeta,
+  { transcript = "", reply = "", nowTs = Date.now() } = {}
+) {
+  const studio = sanitizeStudioTurnMetadata(studioMeta);
+  if (!studio) return null;
+  const screenplayTextForMemory = [
+    studio.screenplayDraftExcerpt,
+    studio.screenplayResolvedAnchorExcerpt,
+    studio.screenplayInsertedText,
+    studio.screenplayRevisedBlockText,
+    studio.screenplayTarget === "page" ? reply : "",
+  ].filter(Boolean).join("\n\n");
+  const distilled = distillScreenplayProjectMemoryFromText(screenplayTextForMemory);
+  const position = inferScreenplayMemoryPosition({
+    pageCount: studio.screenplayPageCount,
+    targetPages: studio.screenplayTargetPages,
+  });
+  const correction = extractScreenplayMemoryCorrection(transcript);
+  const correctionStructuredTargets = correction?.correctedFact
+    ? extractWriterCanonStructuredTargets({
+      correctionText: transcript,
+      knownCharacterNames: studio.screenplayCharacterFocus,
+    })
+    : [];
+  const projectCorrectionTargets = correctionStructuredTargets
+    .filter((target) => target.scope === "project");
+  const correctionTargetValue = (field) => (
+    projectCorrectionTargets.find((target) => target.field === field)?.value || ""
+  );
+  const characterArcContinuity = buildScreenplayCharacterArcMemoryContinuity(
+    collectScreenplayCharacterArcMemories(studio)
+  );
+  const hasScreenplayMemorySignal = Boolean(
+    studio.screenplayProjectId ||
+    studio.screenplayDocumentRevisionId ||
+    studio.screenplayTarget ||
+    studio.screenplayAnchorSceneLabel ||
+    studio.screenplayAct ||
+    studio.screenplaySceneObjective ||
+    studio.screenplaySceneSummary ||
+    studio.screenplayCurrentBeat ||
+    studio.screenplayLogline ||
+    studio.screenplayThemeArgument ||
+    studio.screenplayCentralQuestion ||
+    studio.screenplayProtagonistWant ||
+    studio.screenplayProtagonistNeed ||
+    studio.screenplayAntagonisticForce ||
+    studio.screenplayEndingImage ||
+    studio.screenplayFeatureSequence ||
+    studio.screenplayFeatureObligation ||
+    studio.screenplayActPressureState ||
+    studio.screenplayCharacterArcState ||
+    characterArcContinuity.hasSignal ||
+    studio.screenplayLastSceneOutcome ||
+    studio.screenplayNextScenePlan ||
+    studio.screenplayNextSceneMoves?.length ||
+    studio.screenplayNextThreeTurns?.length ||
+    studio.screenplayActThreePayoffPath?.length ||
+    studio.screenplayBeatSequence?.length ||
+    studio.screenplayCharacterFocus?.length ||
+    studio.screenplayUnresolvedSetups?.length ||
+    studio.screenplayUnresolvedStoryThreads?.length ||
+    studio.screenplayCharacterArcTurns?.length ||
+    studio.screenplayImageMotifs?.length ||
+    studio.screenplayContinuityNotes?.length ||
+    studio.screenplayEmotionalContinuity ||
+    studio.screenplayPageCount > 0 ||
+    studio.screenplayTargetPages > 0 ||
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText ||
+    studio.screenplayDraftExcerpt ||
+    correction?.correctedFact ||
+    distilled.hasScreenplayShape
+  );
+  if (!hasScreenplayMemorySignal) return null;
+
+  const pageReplyPreview = studio.screenplayTarget === "page" ? reply : "";
+  const writePreviewSource =
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText ||
+    pageReplyPreview ||
+    studio.screenplayDraftExcerpt ||
+    studio.screenplayResolvedAnchorExcerpt ||
+    reply ||
+    "";
+  const wroteScreenplayText = Boolean(
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText ||
+    studio.screenplayTarget === "page"
+  );
+  const acceptedPageTextAdvancedRunway = Boolean(
+    studio.screenplayTarget === "page" &&
+    distilled.hasScreenplayShape &&
+    (
+      screenplayMemoryTextCoversPlannedTurn(screenplayTextForMemory, studio.screenplayNextThreeTurns?.[0]) ||
+      screenplayMemoryTextCoversPlannedTurn(screenplayTextForMemory, studio.screenplayNextSceneMoves?.[0])
+    )
+  );
+  const resolvedCurrentBeat = acceptedPageTextAdvancedRunway && distilled.currentBeat
+    ? distilled.currentBeat
+    : (studio.screenplayCurrentBeat || distilled.currentBeat);
+  const resolvedLastSceneOutcome = acceptedPageTextAdvancedRunway && distilled.lastSceneOutcome
+    ? distilled.lastSceneOutcome
+    : (studio.screenplayLastSceneOutcome || distilled.lastSceneOutcome);
+  const resolvedNextScenePlan = acceptedPageTextAdvancedRunway && distilled.nextScenePlan
+    ? distilled.nextScenePlan
+    : (studio.screenplayNextScenePlan || characterArcContinuity.nextScenePlan || distilled.nextScenePlan);
+  const resolvedNextSceneMoves = acceptedPageTextAdvancedRunway
+    ? advanceScreenplayRunwayAfterAcceptedWrite({
+      plannedItems: studio.screenplayNextSceneMoves,
+      distilledItems: distilled.nextSceneMoves,
+      acceptedText: screenplayTextForMemory,
+      maxItems: 5,
+      maxChars: 180,
+    })
+    : (studio.screenplayNextSceneMoves.length ? studio.screenplayNextSceneMoves : distilled.nextSceneMoves);
+  const resolvedNextThreeTurns = acceptedPageTextAdvancedRunway
+    ? advanceScreenplayRunwayAfterAcceptedWrite({
+      plannedItems: studio.screenplayNextThreeTurns,
+      distilledItems: distilled.nextThreeTurns,
+      acceptedText: screenplayTextForMemory,
+      maxItems: 3,
+      maxChars: 180,
+    })
+    : (studio.screenplayNextThreeTurns.length ? studio.screenplayNextThreeTurns : distilled.nextThreeTurns);
+  const resolvedActThreePayoffPath = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      studio.screenplayActThreePayoffPath,
+      distilled.actThreePayoffPath,
+      5,
+      200
+    )
+    : (studio.screenplayActThreePayoffPath.length ? studio.screenplayActThreePayoffPath : distilled.actThreePayoffPath);
+  const resolvedBeatSequence = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayBeatSequence, distilled.beatSequence, 8, 180)
+    : (studio.screenplayBeatSequence.length ? studio.screenplayBeatSequence : distilled.beatSequence);
+  const resolvedCharacterFocus = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      mergeScreenplayProjectMemoryList(characterArcContinuity.characterFocus, studio.screenplayCharacterFocus, 8, 120),
+      distilled.characterFocus,
+      8,
+      120
+    )
+    : (
+      studio.screenplayCharacterFocus.length || characterArcContinuity.characterFocus.length
+        ? mergeScreenplayProjectMemoryList(characterArcContinuity.characterFocus, studio.screenplayCharacterFocus, 8, 120)
+        : distilled.characterFocus
+    );
+  const resolvedUnresolvedSetups = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayUnresolvedSetups, distilled.unresolvedSetups, 8, 220)
+    : (studio.screenplayUnresolvedSetups.length ? studio.screenplayUnresolvedSetups : distilled.unresolvedSetups);
+  const resolvedUnresolvedStoryThreads = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      mergeScreenplayProjectMemoryList(
+        characterArcContinuity.unresolvedStoryThreads,
+        studio.screenplayUnresolvedStoryThreads,
+        8,
+        220
+      ),
+      distilled.unresolvedStoryThreads,
+      8,
+      220
+    )
+    : (
+      studio.screenplayUnresolvedStoryThreads.length || characterArcContinuity.unresolvedStoryThreads.length
+        ? mergeScreenplayProjectMemoryList(
+          characterArcContinuity.unresolvedStoryThreads,
+          studio.screenplayUnresolvedStoryThreads,
+          8,
+          220
+        )
+        : distilled.unresolvedStoryThreads
+    );
+  const resolvedCharacterArcTurns = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      mergeScreenplayProjectMemoryList(characterArcContinuity.characterArcTurns, studio.screenplayCharacterArcTurns, 6, 180),
+      distilled.characterArcTurns,
+      6,
+      180
+    )
+    : (
+      studio.screenplayCharacterArcTurns.length || characterArcContinuity.characterArcTurns.length
+        ? mergeScreenplayProjectMemoryList(
+          characterArcContinuity.characterArcTurns,
+          studio.screenplayCharacterArcTurns,
+          6,
+          180
+        )
+        : distilled.characterArcTurns
+    );
+  const resolvedImageMotifs = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayImageMotifs, distilled.imageMotifs, 6, 140)
+    : (studio.screenplayImageMotifs.length ? studio.screenplayImageMotifs : distilled.imageMotifs);
+  const correctionMotifs = correction?.correctedFact
+    ? filterScreenplayCorrectionList(
+      collectScreenplayMemoryMotifs([correction.correctedFact], 6),
+      correction
+    )
+    : [];
+  const correctionSetups = correction?.correctedFact
+    ? filterScreenplayCorrectionList(
+      collectScreenplayMemorySetups([correction.correctedFact], 5),
+      correction
+    )
+    : [];
+  const explicitCorrectionSetups = projectCorrectionTargets
+    .filter((target) => target.field === "unresolvedSetups")
+    .map((target) => target.value);
+  const explicitCorrectionThreads = projectCorrectionTargets
+    .filter((target) => target.field === "unresolvedStoryThreads")
+    .map((target) => target.value);
+  const explicitCorrectionPayoffs = projectCorrectionTargets
+    .filter((target) => target.field === "actThreePayoffPath")
+    .map((target) => target.value);
+  const structuredCorrectionNotes = projectCorrectionTargets.map((target) => (
+    `Authoritative writer correction [${target.field}]: ${target.value}`
+  ));
+  const correctionRecord = correction?.correctedFact
+    ? {
+      projectId: studio.screenplayProjectId,
+      projectTitle: studio.screenplayProjectTitle,
+      documentRevisionId: studio.screenplayDocumentRevisionId,
+      act: studio.screenplayAct || position.act,
+      sceneLabel: studio.screenplayAnchorSceneLabel,
+      sceneObjective: "",
+      sceneSummary: correction.correctedFact,
+      currentBeat: correction.correctedFact,
+      themeArgument: correctionTargetValue("themeArgument"),
+      centralQuestion: correctionTargetValue("centralQuestion"),
+      protagonistWant: correctionTargetValue("protagonistWant"),
+      protagonistNeed: correctionTargetValue("protagonistNeed"),
+      endingImage: correctionTargetValue("endingImage"),
+      featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
+      featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
+      actPressureState: correction.correctedFact,
+      characterArcState: correction.correctedFact,
+      lastSceneOutcome: correction.correctedFact,
+      nextScenePlan: `Honor the user's correction before continuing: ${correction.correctedFact}`,
+      nextSceneMoves: [`Honor correction: ${correction.correctedFact}`],
+      nextThreeTurns: [`Honor correction: ${correction.correctedFact}`],
+      actThreePayoffPath: explicitCorrectionPayoffs,
+      unresolvedSetups: explicitCorrectionSetups.length
+        ? explicitCorrectionSetups
+        : correctionSetups,
+      unresolvedStoryThreads: explicitCorrectionThreads.length
+        ? explicitCorrectionThreads
+        : (correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : []),
+      characterArcTurns: correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : [],
+      imageMotifs: correctionMotifs,
+      continuityNotes: mergeScreenplayProjectMemoryList(
+        [`Authoritative user correction: ${correction.correctionNote || correction.correctedFact}`],
+        structuredCorrectionNotes,
+        8,
+        220
+      ),
+      correctedTerms: correction.correctedTerms,
+      correctionReplacements: correction.correctionReplacements,
+      emotionalContinuity: correction.correctedFact,
+      pageCount: studio.screenplayPageCount,
+      targetPages: studio.screenplayTargetPages,
+      lastTarget: studio.screenplayTarget,
+      lastPromptSource: studio.screenplayPromptSource,
+      lastWriteId: studio.screenplayWriteId,
+      lastInsertionMode: studio.screenplayInsertionMode,
+      lastAnchorLine: studio.screenplayAnchorLine,
+      lastAnchorEndLine: studio.screenplayAnchorEndLine,
+      lastAnchorExcerpt: studio.screenplayResolvedAnchorExcerpt,
+      lastUserIntent: transcript,
+      lastAssistantReply: reply,
+      lastWritePreview: correction.correctedFact,
+      writeCount: 0,
+      interactionCount: 1,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    }
+    : null;
+  const [record = null] = sanitizeScreenplayProjectMemoryItems([
+    correctionRecord || {
+      projectId: studio.screenplayProjectId,
+      projectTitle: studio.screenplayProjectTitle,
+      documentRevisionId: studio.screenplayDocumentRevisionId,
+      act: studio.screenplayAct || position.act,
+      sceneLabel: studio.screenplayAnchorSceneLabel || distilled.sceneLabel,
+      sceneObjective: studio.screenplaySceneObjective,
+      sceneSummary: studio.screenplaySceneSummary || distilled.sceneSummary,
+      currentBeat: resolvedCurrentBeat,
+      logline: studio.screenplayLogline,
+      themeArgument: studio.screenplayThemeArgument,
+      centralQuestion: studio.screenplayCentralQuestion,
+      protagonistWant: studio.screenplayProtagonistWant || characterArcContinuity.protagonistWant,
+      protagonistNeed: studio.screenplayProtagonistNeed || characterArcContinuity.protagonistNeed,
+      antagonisticForce: studio.screenplayAntagonisticForce,
+      endingImage: studio.screenplayEndingImage,
+      featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
+      featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
+      actPressureState: studio.screenplayActPressureState ||
+        characterArcContinuity.actPressureState ||
+        distilled.actPressureState ||
+        (position.featureObligation ? `Current sequence obligation: ${position.featureObligation}` : ""),
+      characterArcState: studio.screenplayCharacterArcState ||
+        characterArcContinuity.characterArcState ||
+        distilled.characterArcState,
+      lastSceneOutcome: resolvedLastSceneOutcome,
+      nextScenePlan: resolvedNextScenePlan,
+      nextSceneMoves: mergeScreenplayProjectMemoryList(
+        resolvedNextSceneMoves,
+        characterArcContinuity.nextSceneMoves,
+        5,
+        180
+      ),
+      nextThreeTurns: mergeScreenplayProjectMemoryList(
+        resolvedNextThreeTurns,
+        characterArcContinuity.nextThreeTurns,
+        3,
+        180
+      ),
+      actThreePayoffPath: resolvedActThreePayoffPath,
+      beatSequence: resolvedBeatSequence,
+      characterFocus: resolvedCharacterFocus,
+      unresolvedSetups: resolvedUnresolvedSetups,
+      unresolvedStoryThreads: resolvedUnresolvedStoryThreads,
+      characterArcTurns: resolvedCharacterArcTurns,
+      imageMotifs: resolvedImageMotifs,
+      continuityNotes: mergeScreenplayProjectMemoryList(
+        studio.screenplayContinuityNotes,
+        characterArcContinuity.continuityNotes,
+        8,
+        220
+      ),
+      correctedTerms: [],
+      correctionReplacements: [],
+      emotionalContinuity: studio.screenplayEmotionalContinuity,
+      pageCount: studio.screenplayPageCount,
+      targetPages: studio.screenplayTargetPages,
+      lastTarget: studio.screenplayTarget,
+      lastPromptSource: studio.screenplayPromptSource,
+      lastWriteId: studio.screenplayWriteId,
+      lastInsertionMode: studio.screenplayInsertionMode,
+      lastAnchorLine: studio.screenplayAnchorLine,
+      lastAnchorEndLine: studio.screenplayAnchorEndLine,
+      lastAnchorExcerpt: studio.screenplayResolvedAnchorExcerpt,
+      lastUserIntent: transcript,
+      lastAssistantReply: reply,
+      lastWritePreview: writePreviewSource,
+      writeCount: wroteScreenplayText ? 1 : 0,
+      interactionCount: 1,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    },
+  ], 1);
+  return record;
+}
+
+function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, nowTs = Date.now()) {
+  const existing = sanitizeScreenplayProjectMemoryItems([existingRecord], 1)[0] || {};
+  const incoming = sanitizeScreenplayProjectMemoryItems([incomingRecord], 1)[0] || null;
+  if (!incoming) return existing;
+  const correction = {
+    correctedTerms: collectScreenplayCorrectionItems(incoming.correctedTerms || []),
+    correctionReplacements: collectScreenplayCorrectionItems(incoming.correctionReplacements || []),
+  };
+  const isCorrectionMerge = Boolean(
+    correction.correctedTerms.length ||
+    correction.correctionReplacements.length ||
+    (incoming.continuityNotes || []).some((note) => /\bauthoritative user correction\b/i.test(note))
+  );
+  const merged = {
+    ...existing,
+    schemaVersion: 1,
+  };
+
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    if (incoming[field]) {
+      merged[field] = applyScreenplayCorrectionReplacements(incoming[field], correction.correctionReplacements, maxChars);
+      continue;
+    }
+    if (
+      isCorrectionMerge &&
+      !["projectId", "documentRevisionId"].includes(field) &&
+      merged[field]
+    ) {
+      const repaired = applyScreenplayCorrectionReplacements(merged[field], correction.correctionReplacements, maxChars);
+      merged[field] = textContainsScreenplayCorrectionTerm(repaired, correction.correctedTerms)
+        ? ""
+        : repaired;
+    }
+  }
+  if (incoming.lastWritePreview) {
+    merged.lastWritePreview = applyScreenplayCorrectionReplacements(
+      incoming.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+  } else if (isCorrectionMerge && merged.lastWritePreview) {
+    const repaired = applyScreenplayCorrectionReplacements(
+      merged.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+    merged.lastWritePreview = textContainsScreenplayCorrectionTerm(repaired, correction.correctedTerms)
+      ? ""
+      : repaired;
+  }
+
+  for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    const authoritativeFieldCorrection = (incoming.continuityNotes || []).some((note) => (
+      note.includes(`Authoritative writer correction [${field}]`)
+    ));
+    let existingItems = authoritativeFieldCorrection
+      ? []
+      : isCorrectionMerge
+      && !["correctedTerms", "correctionReplacements"].includes(field)
+      ? filterScreenplayCorrectionList(existing[field], correction)
+      : existing[field];
+    if (["nextSceneMoves", "nextThreeTurns"].includes(field)) {
+      const acceptedWriteText = [
+        incoming.lastWritePreview,
+        incoming.currentBeat,
+        incoming.lastSceneOutcome,
+      ].filter(Boolean).join("\n");
+      if (acceptedWriteText) {
+        existingItems = filterCoveredScreenplayRunwayItems(existingItems, acceptedWriteText);
+      }
+    }
+    merged[field] = mergeScreenplayProjectMemoryList(
+      existingItems,
+      incoming[field],
+      maxItems,
+      maxChars
+    );
+  }
+
+  for (const field of ["pageCount", "targetPages", "lastAnchorLine", "lastAnchorEndLine"]) {
+    if (Number(incoming[field] || 0) > 0) {
+      merged[field] = incoming[field];
+    }
+  }
+
+  merged.writeCount = Math.max(0, Number(existing.writeCount || 0)) +
+    Math.max(0, Number(incoming.writeCount || 0));
+  merged.interactionCount = Math.max(0, Number(existing.interactionCount || 0)) +
+    Math.max(1, Number(incoming.interactionCount || 1));
+  merged.createdAt = Math.max(
+    0,
+    Number(existing.createdAt || incoming.createdAt || nowTs)
+  );
+  merged.updatedAt = Math.max(
+    nowTs,
+    Number(existing.updatedAt || 0),
+    Number(incoming.updatedAt || 0)
+  );
+
+  return sanitizeScreenplayProjectMemoryItems([merged], 1)[0] || incoming;
+}
+
+function upsertScreenplayProjectMemory(memory, studioMeta, options = {}) {
+  if (!memory || typeof memory !== "object") return memory;
+  const nowTs = Math.max(0, Number(options.nowTs || Date.now()));
+  const incoming = buildScreenplayProjectMemoryRecordFromStudioMeta(studioMeta, {
+    transcript: options.transcript,
+    reply: options.reply,
+    nowTs,
+  });
+  if (!incoming) {
+    memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+      memory.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    );
+    memory.screenplayProjectMemoryUpdatedAt = Math.max(
+      0,
+      Number(memory.screenplayProjectMemoryUpdatedAt || 0)
+    );
+    return memory;
+  }
+
+  const current = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  let matchIndex = current.findIndex((item) => (
+    (incoming.projectId && item.projectId === incoming.projectId) ||
+    (incoming.documentRevisionId && item.documentRevisionId === incoming.documentRevisionId)
+  ));
+  const isCorrectionIncoming = Boolean(
+    incoming.correctedTerms?.length ||
+    incoming.correctionReplacements?.length ||
+    (incoming.continuityNotes || []).some((note) => /\bauthoritative user correction\b/i.test(note))
+  );
+  if (matchIndex < 0 && isCorrectionIncoming && current.length === 1) {
+    matchIndex = 0;
+  }
+  const next = matchIndex >= 0 ? [...current] : [incoming, ...current];
+  if (matchIndex >= 0) {
+    next[matchIndex] = mergeScreenplayProjectMemoryRecords(current[matchIndex], incoming, nowTs);
+  }
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    next,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  memory.screenplayProjectMemoryUpdatedAt = Math.max(
+    nowTs,
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0)
+  );
+  return memory;
+}
+
+function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX) {
+  const items = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    Math.max(1, maxItems)
+  );
+  if (!items.length) return "none";
+  return items.slice(0, Math.max(1, maxItems)).map((rawItem) => {
+    const item = repairScreenplayProjectMemoryForPrompt(rawItem) || rawItem;
+    const correctionContract = buildScreenplayProjectCorrectionContract(item);
+    const pages = item.pageCount > 0 || item.targetPages > 0
+      ? ` pages:${item.pageCount || "?"}/${item.targetPages || "?"}`
+      : "";
+    const characters = item.characterFocus.length
+      ? ` characters:${item.characterFocus.join(", ")}`
+      : "";
+    const setups = item.unresolvedSetups.length
+      ? ` open_setups:${item.unresolvedSetups.slice(0, 3).join(" / ")}`
+      : "";
+    const storyThreads = item.unresolvedStoryThreads.length
+      ? ` story_threads:${item.unresolvedStoryThreads.slice(0, 3).join(" / ")}`
+      : "";
+    const nextTurns = item.nextThreeTurns.length
+      ? ` next_three_turns:${item.nextThreeTurns.slice(0, 3).join(" / ")}`
+      : "";
+    const actProgress = formatScreenplayActProgressForPrompt(item.actProgress);
+    const payoffPath = item.actThreePayoffPath.length
+      ? ` act3_payoff_path:${item.actThreePayoffPath.slice(0, 3).join(" / ")}`
+      : "";
+    const arcTurns = item.characterArcTurns.length
+      ? ` arc_turns:${item.characterArcTurns.slice(0, 3).join(" / ")}`
+      : "";
+    const motifs = item.imageMotifs.length
+      ? ` image_motifs:${item.imageMotifs.slice(0, 3).join(" / ")}`
+      : "";
+    const notes = item.continuityNotes.length
+      ? ` continuity_notes:${item.continuityNotes.slice(0, 3).join(" / ")}`
+      : "";
+    const corrections = item.correctedTerms.length || item.correctionReplacements.length
+      ? ` corrected_terms:${[
+        ...item.correctionReplacements.slice(0, 3),
+        ...item.correctedTerms.slice(0, 3),
+      ].slice(0, 4).join(" / ")}`
+      : "";
+    return normalizeSnippet(
+      [
+        `project:${item.projectId || "unknown"}`,
+        correctionContract,
+        corrections.trim(),
+        item.act ? `act:${item.act}` : "",
+        item.logline ? `logline:${item.logline}` : "",
+        item.themeArgument ? `theme:${item.themeArgument}` : "",
+        item.centralQuestion ? `central_question:${item.centralQuestion}` : "",
+        item.protagonistWant ? `want:${item.protagonistWant}` : "",
+        item.protagonistNeed ? `need:${item.protagonistNeed}` : "",
+        item.antagonisticForce ? `opposition:${item.antagonisticForce}` : "",
+        item.endingImage ? `ending_image:${item.endingImage}` : "",
+        payoffPath.trim(),
+        setups.trim(),
+        storyThreads.trim(),
+        item.sceneLabel ? `scene:${item.sceneLabel}` : "",
+        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
+        characters.trim(),
+        nextTurns.trim(),
+        actProgress.trim(),
+        arcTurns.trim(),
+        motifs.trim(),
+        item.sceneObjective ? `objective:${item.sceneObjective}` : "",
+        item.sceneSummary ? `scene_summary:${item.sceneSummary}` : "",
+        item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
+        item.featureSequence ? `sequence:${item.featureSequence}` : "",
+        item.featureObligation ? `obligation:${item.featureObligation}` : "",
+        item.actPressureState ? `act_pressure:${item.actPressureState}` : "",
+        item.characterArcState ? `character_arc:${item.characterArcState}` : "",
+        item.lastSceneOutcome ? `last_scene_outcome:${item.lastSceneOutcome}` : "",
+        item.nextScenePlan ? `next:${item.nextScenePlan}` : "",
+        item.lastWritePreview ? `last_write:${normalizeSnippet(item.lastWritePreview, 180)}` : "",
+        pages.trim(),
+        notes.trim(),
+      ].filter(Boolean).join("; "),
+      1800
+    );
+  }).join(" || ");
+}
+
 function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener, studioMeta = null) {
   const base = memory && typeof memory === "object" ? memory : createEmptyEmotionMemory();
   const userSnippet = normalizeSnippet(transcript, 130);
@@ -13165,6 +17117,7 @@ function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener,
   const qaPair = normalizeSnippet(`U: ${userSnippet} | A: ${assistantSnippet}`, 260);
   const turnNumber = Math.max(1, Number(base.turns || 1));
   const nowTs = Date.now();
+  const sanitizedStudioMeta = sanitizeStudioTurnMetadata(studioMeta);
 
   base.lastAssistantReply = assistantSnippet || base.lastAssistantReply;
   base.lastConversationRecap = buildLastConversationRecap(base, userSnippet, assistantSnippet);
@@ -13176,14 +17129,19 @@ function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener,
   base.recentQAPairs = pushBoundedUnique(base.recentQAPairs, qaPair, 8);
   base.turnHistory = pushTurnHistory(
     base.turnHistory,
-    { role: "user", content: transcript, turn: turnNumber, ts: nowTs - 1, studio: studioMeta },
+    { role: "user", content: transcript, turn: turnNumber, ts: nowTs - 1, studio: sanitizedStudioMeta },
     TURN_HISTORY_MAX_ENTRIES
   );
   base.turnHistory = pushTurnHistory(
     base.turnHistory,
-    { role: "assistant", content: reply, turn: turnNumber, ts: nowTs, studio: studioMeta },
+    { role: "assistant", content: reply, turn: turnNumber, ts: nowTs, studio: sanitizedStudioMeta },
     TURN_HISTORY_MAX_ENTRIES
   );
+  upsertScreenplayProjectMemory(base, sanitizedStudioMeta, {
+    transcript,
+    reply,
+    nowTs,
+  });
 
   if (didUseCheckInOpener) {
     base.checkInPromptsUsed = Math.max(0, Number(base.checkInPromptsUsed || 0)) + 1;
@@ -13450,6 +17408,16 @@ function buildMemoryAddendum(memory) {
   const turnHistoryCount = Array.isArray(memory.turnHistory)
     ? sanitizeTurnHistoryItems(memory.turnHistory).length
     : 0;
+  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const screenplayProjectMemoryPrompt = formatScreenplayProjectMemoryForPrompt(memory);
+  const screenplayProjectMemoryUpdatedAt = Math.max(
+    0,
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0),
+    ...screenplayProjectMemory.map((item) => Number(item.updatedAt || 0))
+  );
   const shortTermMessages = buildShortTermContextMessages(memory, SHORT_TERM_CONTEXT_TURNS);
   const activeThemes = formatActiveThemesForPrompt(memory);
   const sessionThreadCount = sanitizeActiveThemes(
@@ -13520,6 +17488,7 @@ SUBTLE MEMORY:
 - user_identity=primary_name:${userPrimaryName || "unknown"} primary_name_updated_at:${userPrimaryNameUpdatedAt || "n/a"} remembered_people:${rememberedPeoplePreview}
 - continuity_anchor=last_conversation_at:${lastConversationAt || "n/a"} last_conversation_recap:${lastConversationRecap}
 - continuity_snapshot=v${lastConversationSummaryVersion} at:${lastConversationSnapshotAt || "n/a"} summary:${lastConversationSnapshot}
+- screenplay_project_memory=count:${screenplayProjectMemory.length}/${SCREENPLAY_PROJECT_MEMORY_MAX} updated_at:${screenplayProjectMemoryUpdatedAt || "n/a"} ${screenplayProjectMemoryPrompt}
 - boundary_edge_state=count:${boundaryEdgeCount} last_turn:${lastBoundaryEdgeTurn} last_reason:${lastBoundaryEdgeReason}
 - depth_components=behaviorDepthScore:${behaviorDepthSessionScore.toFixed(2)}/10 sessionLengthScore:${sessionLengthScore.toFixed(2)}/5 returnConsistencyScore:${returnConsistencyScore.toFixed(2)}/5 reflectiveAnswerScore:${reflectiveAnswerScore.toFixed(2)}/5 formula=(b*0.4)+(s*0.2)+(r*0.2)+(q*0.2)
 - over_attachment_signals=dep_signals_14d:${dependencySignals14d} dep_signal_total:${dependencySignalCount} high_behavior_streak:${veryHighBehaviorTurnStreak} high_behavior_7d:${veryHighBehaviorTurns7d}
@@ -13556,7 +17525,6 @@ SUBTLE MEMORY:
 - social_spark_memory=count:${socialSparkMoments.length} last_event:${socialSparkLastEvent} last_detail:${socialSparkLastDetail} last_affect:${socialSparkLastAffect} last_turn:${socialSparkLastTurn} last_ref_turn:${socialSparkLastReferenceTurn} last_question:${socialSparkLastQuestion}
 - social_spark_yass_state=count:${socialSparkYassCount}/${SOCIAL_SPARK_YASS_MAX_PER_SESSION} last_turn:${socialSparkLastYassTurn}
 - social_spark_recent=${socialSparkPreview}
-- secretary_email_state=awaiting_body:${memory.pendingEmailAwaitingBody ? "1" : "0"} to:${normalizeEmailAddress(memory.pendingEmailRecipient) || "none"} subject:${trimToMax(memory.pendingEmailSubject || "", 90) || "none"} updated_at:${Math.max(0, Number(memory.pendingEmailUpdatedAt || 0)) || "n/a"}
 - checkins_used=${checkIns}
 - Use memory as secondary context only.
 - Primary rule: answer the user's current message directly first, then use one relevant memory detail if helpful.
@@ -14100,6 +18068,61 @@ function markRecentCheckInForIp(ip, now = Date.now()) {
   checkInCooldownByIp.set(key, now + CHECKIN_COOLDOWN_MS);
 }
 
+function normalizeAuthenticatedUserId(value) {
+  return String(value || "").trim();
+}
+
+function resolveAuthenticatedUserId(req) {
+  return normalizeAuthenticatedUserId(req?.authUser?.id || req?.userId || req?.user?.id || "");
+}
+
+function legacyAuthMemoryIp(userId) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  return normalizedUserId ? normalizeClientIp(`authuser:${normalizedUserId}`) : "";
+}
+
+function getPersistedUserMemoryForAccount(userId, now = Date.now()) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  if (!normalizedUserId) return null;
+  return (
+    getPersistedUserMemoryForUserId(normalizedUserId, now) ||
+    getPersistedUserMemoryForIp(legacyAuthMemoryIp(normalizedUserId), now)
+  );
+}
+
+function setPersistedUserMemoryForAccount(userId, memory, now = Date.now(), options = {}) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  if (!normalizedUserId) {
+    return sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
+  }
+  const persisted = setPersistedUserMemoryForUserId(normalizedUserId, memory, now, options);
+  const legacyIp = legacyAuthMemoryIp(normalizedUserId);
+  if (legacyIp) {
+    setPersistedUserMemoryForIp(legacyIp, persisted, now, options);
+  }
+  return persisted;
+}
+
+function initializeSessionMemoryState(memory, now, assistantSelfName) {
+  const nextMemory = sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
+  nextMemory.assistantSelfName = assistantSelfName;
+  nextMemory.assistantSelfNameUpdatedAt = now;
+  nextMemory.sessionStartedAt = now;
+  nextMemory.checkInPromptsUsed = 0;
+  nextMemory.lastCheckInAt = 0;
+  nextMemory.continuationHoldCount = 0;
+  nextMemory.lastContinuationReason = "";
+  nextMemory.socialSparkYassCount = 0;
+  nextMemory.lastSocialSparkYassTurn = 0;
+  nextMemory.lastSocialSparkYassAt = 0;
+  if (!(Number(nextMemory.relationshipDepthDailyGain || 0) >= 0)) {
+    nextMemory.relationshipDepthDailyGain = 0;
+  }
+  nextMemory.relationshipDepthDailyStamp = formatLocalDateStamp(now);
+  nextMemory.lastUpdatedAt = now;
+  return nextMemory;
+}
+
 function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const now = Date.now();
   cleanupExpiredSessions(now);
@@ -14115,34 +18138,27 @@ function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const token = createSessionToken();
   const expiresAt = now + SESSION_TTL_MS;
   const previousToken = normalizeClientToken(previousClientToken);
-  const normalizedUserId = String(userId || "").trim();
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
   const shouldReusePreviousMemory = !normalizedUserId;
+  const legacyUserIp = legacyAuthMemoryIp(normalizedUserId) || normalizeClientIp(ip);
   const persistedMemory = shouldReusePreviousMemory
     ? (getPersistedUserMemoryForClientToken(previousToken, now) || getPersistedUserMemoryForIp(ip, now))
-    : getPersistedUserMemoryForIp(ip, now);
-  const memory = persistedMemory
+    : (getPersistedUserMemoryForAccount(normalizedUserId, now) || getPersistedUserMemoryForIp(legacyUserIp, now));
+  let memory = persistedMemory
     ? sanitizePersistedSessionMemory(persistedMemory)
     : createEmptyEmotionMemory();
   const assistantSelfName = getAssistantSelfNameForIp(ip);
-  memory.assistantSelfName = assistantSelfName;
-  memory.assistantSelfNameUpdatedAt = now;
-  memory.sessionStartedAt = now;
-  memory.checkInPromptsUsed = 0;
-  memory.lastCheckInAt = 0;
-  memory.continuationHoldCount = 0;
-  memory.lastContinuationReason = "";
-  memory.socialSparkYassCount = 0;
-  memory.lastSocialSparkYassTurn = 0;
-  memory.lastSocialSparkYassAt = 0;
-  if (!(Number(memory.relationshipDepthDailyGain || 0) >= 0)) {
-    memory.relationshipDepthDailyGain = 0;
-  }
-  memory.relationshipDepthDailyStamp = formatLocalDateStamp(now);
-  memory.lastUpdatedAt = now;
-  clientSessions.set(token, { expiresAt, ip, memory, userId: normalizedUserId });
-  setPersistedUserMemoryForIp(ip, memory, now, {
-    clientTokenAliases: shouldReusePreviousMemory ? [token, previousToken] : [token],
-  });
+  memory = initializeSessionMemoryState(memory, now, assistantSelfName);
+  const sessionIp = normalizedUserId ? legacyUserIp : normalizeClientIp(ip);
+  const persisted = normalizedUserId
+    ? setPersistedUserMemoryForAccount(normalizedUserId, memory, now, {
+        clientTokenAliases: [token],
+        skipPersistenceWrite: true,
+      })
+    : setPersistedUserMemoryForIp(sessionIp, memory, now, {
+      clientTokenAliases: shouldReusePreviousMemory ? [token, previousToken] : [token],
+    });
+  clientSessions.set(token, { expiresAt, ip: sessionIp, memory: persisted, userId: normalizedUserId });
   return { token, expiresAt };
 }
 
@@ -14159,7 +18175,21 @@ function getValidSession(token) {
 // talkRateLimitGuard moved into backend/lib/talk_state.js (Phase 7a).
 // Created via createTalkRateLimitGuard(...) below.
 
+function requestHasReusableSessionToken(req) {
+  const requestedClientToken = normalizeClientToken(req.get("X-Client-Token"));
+  if (!requestedClientToken) return false;
+  const existingSession = getValidSession(requestedClientToken);
+  if (!existingSession) return false;
+  const authUserId = String(req.authUser?.id || "").trim();
+  const existingUserId = String(existingSession.userId || "").trim();
+  return !authUserId || existingUserId === authUserId;
+}
+
 function sessionRateLimitGuard(req, res, next) {
+  if (requestHasReusableSessionToken(req)) {
+    return next();
+  }
+
   const now = Date.now();
   cleanupSessionRateBuckets(now);
 
@@ -14861,6 +18891,16 @@ function buildRealtimeSessionConfig({
     instructions: cleanInstructions,
     output_modalities: ["audio"],
     audio: {
+      input: {
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.45,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 360,
+          create_response: true,
+          interrupt_response: true,
+        },
+      },
       output: {
         voice: realtimeVoice,
       },
@@ -14868,10 +18908,8 @@ function buildRealtimeSessionConfig({
   };
 
   if (OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL) {
-    session.audio.input = {
-      transcription: {
-        model: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
-      },
+    session.audio.input.transcription = {
+      model: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
     };
   }
 
@@ -14910,11 +18948,51 @@ function renderRealtimeBridgeHtml() {
         pc: null,
         dc: null,
         stream: null,
+        remoteStream: null,
+        audioContext: null,
+        analyser: null,
+        vadFrame: 0,
+        statsTimer: null,
+        localNoiseFloor: 0.006,
+        localLoudFrames: 0,
         assistantTranscript: '',
         assistantText: '',
         assistantSpeaking: false,
+        assistantResponseActive: false,
+        assistantItemID: '',
+        assistantAudioStartedAt: 0,
         responseOrdinal: 0,
         activeResponseOrdinal: 0,
+        turnCounter: 0,
+        turnID: '',
+        turnStartedAt: 0,
+        firstTextReported: false,
+        firstAudioReported: false,
+        interruptionStartedAt: 0,
+        interruptionTurnID: '',
+        interruptionResponseOrdinal: 0,
+        userSpeechActive: false,
+        networkClass: 'balanced',
+        connectionGeneration: 0,
+        connectedReported: false,
+        intentionalStop: false,
+        transportLossReported: false,
+        userTranscript: '',
+        userTranscriptIsFinal: false,
+        pendingGroundingRevision: '',
+        pendingGroundingEventID: '',
+        pendingGroundingEventIDs: [],
+        pendingGroundingInstructions: '',
+        pendingGroundingAttempt: 0,
+        pendingGroundingStartedAt: 0,
+        pendingGroundingAckTimer: null,
+        groundingEventCounter: 0,
+        queuedGroundingUpdate: null,
+        groundingSpeechAtRisk: false,
+        groundingResponseDeferred: false,
+        groundingResponseCancelTimer: null,
+        groundingReadyToResume: false,
+        lastAppliedGroundingRevision: '',
       };
 
       function post(type, payload) {
@@ -14933,7 +19011,274 @@ function renderRealtimeBridgeHtml() {
         });
       }
 
-      function resetConnection() {
+      function nowMilliseconds() {
+        return typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      }
+
+      function sendClientEvent(event) {
+        if (!state.dc || state.dc.readyState !== 'open') return false;
+        try {
+          state.dc.send(JSON.stringify(event));
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function currentTurnID() {
+        return state.turnID || ('realtime-pending-' + String(state.turnCounter + 1));
+      }
+
+      function beginLatencyTurn(source) {
+        state.turnCounter += 1;
+        state.turnID = 'realtime-' + String(Date.now()) + '-' + String(state.turnCounter);
+        state.turnStartedAt = nowMilliseconds();
+        state.firstTextReported = false;
+        state.firstAudioReported = false;
+        post('latency_turn_started', {
+          turnID: state.turnID,
+          source: source || 'unknown',
+          networkClass: state.networkClass,
+        });
+      }
+
+      function ensureLatencyTurn(source) {
+        if (!state.turnStartedAt || !state.turnID) {
+          beginLatencyTurn(source);
+        }
+      }
+
+      function reportFirstLatency(kind) {
+        ensureLatencyTurn('response_fallback');
+        const elapsedMs = Math.max(0, nowMilliseconds() - state.turnStartedAt);
+        if (kind === 'text') {
+          if (state.firstTextReported) return;
+          state.firstTextReported = true;
+          post('latency_first_text', {
+            turnID: state.turnID,
+            elapsedMs: elapsedMs,
+            networkClass: state.networkClass,
+          });
+          return;
+        }
+        if (state.firstAudioReported) return;
+        state.firstAudioReported = true;
+        post('latency_first_audio', {
+          turnID: state.turnID,
+          elapsedMs: elapsedMs,
+          networkClass: state.networkClass,
+        });
+      }
+
+      function resumeRemoteAudio() {
+        if (!remoteAudio) return;
+        remoteAudio.muted = false;
+        if (state.remoteStream && remoteAudio.srcObject !== state.remoteStream) {
+          remoteAudio.srcObject = state.remoteStream;
+        }
+        const playAttempt = remoteAudio.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+          playAttempt.catch(() => {});
+        }
+      }
+
+      function cutRemoteAudioLocally() {
+        if (!remoteAudio) return;
+        remoteAudio.muted = true;
+        try {
+          remoteAudio.pause();
+        } catch (_) {}
+      }
+
+      function acknowledgeInterruption(source) {
+        if (!state.interruptionStartedAt) return;
+        const elapsedMs = Math.max(0, nowMilliseconds() - state.interruptionStartedAt);
+        const turnID = state.interruptionTurnID || currentTurnID();
+        const responseOrdinal = Number(state.interruptionResponseOrdinal || activeResponseOrdinal() || 0);
+        state.interruptionStartedAt = 0;
+        state.interruptionTurnID = '';
+        state.interruptionResponseOrdinal = 0;
+        post('latency_barge_in_ack', {
+          turnID: turnID,
+          elapsedMs: elapsedMs,
+          source: source || 'provider',
+        });
+        post('assistant_interrupted', {
+          responseOrdinal: responseOrdinal,
+          turnID: turnID,
+        });
+      }
+
+      function startInterruption(source, force) {
+        const hasActiveAssistant = state.assistantSpeaking || state.assistantResponseActive;
+        if (!hasActiveAssistant && !force) return;
+        if (state.interruptionStartedAt) return;
+
+        const responseOrdinal = activeResponseOrdinal();
+        const turnID = currentTurnID();
+        state.interruptionStartedAt = nowMilliseconds();
+        state.interruptionTurnID = turnID;
+        state.interruptionResponseOrdinal = responseOrdinal;
+        post('user_speech_started', {
+          turnID: turnID,
+          source: source || 'unknown',
+        });
+        post('latency_barge_in_started', {
+          turnID: turnID,
+          source: source || 'unknown',
+        });
+
+        cutRemoteAudioLocally();
+        setAssistantSpeaking(false, responseOrdinal);
+        sendClientEvent({ type: 'output_audio_buffer.clear' });
+        sendClientEvent({ type: 'response.cancel' });
+        if (state.assistantItemID && state.assistantAudioStartedAt) {
+          sendClientEvent({
+            type: 'conversation.item.truncate',
+            item_id: state.assistantItemID,
+            content_index: 0,
+            audio_end_ms: Math.max(0, Math.floor(nowMilliseconds() - state.assistantAudioStartedAt)),
+          });
+        }
+      }
+
+      function setupLocalVoiceActivityDetection(stream) {
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextConstructor || !stream) return;
+        try {
+          const audioContext = new AudioContextConstructor();
+          const source = audioContext.createMediaStreamSource(stream);
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0.2;
+          source.connect(analyser);
+          state.audioContext = audioContext;
+          state.analyser = analyser;
+          const samples = new Float32Array(analyser.fftSize);
+
+          const inspect = () => {
+            if (!state.analyser) return;
+            state.analyser.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (let index = 0; index < samples.length; index += 1) {
+              sum += samples[index] * samples[index];
+            }
+            const rms = Math.sqrt(sum / samples.length);
+            if (!state.assistantSpeaking && !state.assistantResponseActive) {
+              if (rms < Math.max(0.02, state.localNoiseFloor * 1.8)) {
+                state.localNoiseFloor = (state.localNoiseFloor * 0.94) + (rms * 0.06);
+              }
+              state.localLoudFrames = 0;
+            } else {
+              const threshold = Math.max(0.012, state.localNoiseFloor * 3.2);
+              state.localLoudFrames = rms >= threshold ? state.localLoudFrames + 1 : 0;
+              if (state.localLoudFrames >= 2) {
+                state.localLoudFrames = 0;
+                startInterruption('local_vad', false);
+              }
+            }
+            state.vadFrame = window.requestAnimationFrame(inspect);
+          };
+          state.vadFrame = window.requestAnimationFrame(inspect);
+        } catch (_) {}
+      }
+
+      async function sampleNetworkProfile() {
+        if (!state.pc || typeof state.pc.getStats !== 'function') return;
+        try {
+          const reports = await state.pc.getStats();
+          let roundTripSeconds = null;
+          reports.forEach((report) => {
+            if (report.type === 'candidate-pair' &&
+                report.state === 'succeeded' &&
+                typeof report.currentRoundTripTime === 'number') {
+              roundTripSeconds = report.currentRoundTripTime;
+            }
+          });
+          if (roundTripSeconds === null) return;
+          const nextClass = roundTripSeconds <= 0.12
+            ? 'fast'
+            : (roundTripSeconds <= 0.30 ? 'balanced' : 'constrained');
+          if (nextClass === state.networkClass) return;
+          state.networkClass = nextClass;
+          if (state.turnID) {
+            post('network_profile', {
+              turnID: state.turnID,
+              networkClass: nextClass,
+              roundTripMs: Math.round(roundTripSeconds * 1000),
+            });
+          }
+        } catch (_) {}
+      }
+
+      function transportSnapshot() {
+        return {
+          connectionGeneration: state.connectionGeneration,
+          turnID: state.turnID,
+          userTranscript: safeText(state.userTranscript),
+          transcriptIsFinal: Boolean(state.userTranscriptIsFinal),
+          userSpeechActive: Boolean(state.userSpeechActive),
+          assistantResponseActive: Boolean(
+            state.assistantResponseActive ||
+            state.assistantSpeaking ||
+            state.assistantTranscript ||
+            state.assistantText
+          ),
+          assistantSpeaking: Boolean(state.assistantSpeaking),
+          responseOrdinal: activeResponseOrdinal(),
+        };
+      }
+
+      function reportTransportLoss(cause, message, options) {
+        const details = options && typeof options === 'object' ? options : {};
+        const generation = Number(details.connectionGeneration || state.connectionGeneration || 0);
+        if (generation !== state.connectionGeneration) return false;
+        if (state.intentionalStop || state.transportLossReported) return false;
+        state.transportLossReported = true;
+        post('transport_lost', Object.assign(transportSnapshot(), {
+          cause: safeText(cause) || 'unknown',
+          message: safeText(message) || 'Realtime connection was interrupted.',
+          connectionState: safeText(details.connectionState),
+          recoverable: details.recoverable !== false,
+          credentialRefreshRecommended: details.credentialRefreshRecommended !== false,
+        }));
+        resetConnection({ intentional: true });
+        return true;
+      }
+
+      function reportConnectedWhenReady(connectionGeneration) {
+        if (connectionGeneration !== state.connectionGeneration) return false;
+        if (state.intentionalStop || state.connectedReported) return false;
+        if (!state.pc || safeText(state.pc.connectionState) !== 'connected') return false;
+        if (!state.dc || safeText(state.dc.readyState) !== 'open') return false;
+        state.connectedReported = true;
+        post('connected');
+        return true;
+      }
+
+      function resetConnection(options) {
+        const details = options && typeof options === 'object' ? options : {};
+        state.connectionGeneration += 1;
+        state.connectedReported = false;
+        state.intentionalStop = details.intentional === true;
+        state.transportLossReported = false;
+        if (state.statsTimer) {
+          clearInterval(state.statsTimer);
+          state.statsTimer = null;
+        }
+        if (state.vadFrame) {
+          window.cancelAnimationFrame(state.vadFrame);
+          state.vadFrame = 0;
+        }
+        if (state.audioContext) {
+          try {
+            state.audioContext.close();
+          } catch (_) {}
+          state.audioContext = null;
+          state.analyser = null;
+        }
         if (state.dc) {
           try {
             state.dc.close();
@@ -14955,16 +19300,45 @@ function renderRealtimeBridgeHtml() {
         }
         stopTracks(state.stream);
         state.stream = null;
+        state.remoteStream = null;
         state.assistantTranscript = '';
         state.assistantText = '';
         state.assistantSpeaking = false;
+        state.assistantResponseActive = false;
+        state.assistantItemID = '';
+        state.assistantAudioStartedAt = 0;
         state.responseOrdinal = 0;
         state.activeResponseOrdinal = 0;
+        state.turnID = '';
+        state.turnStartedAt = 0;
+        state.firstTextReported = false;
+        state.firstAudioReported = false;
+        state.interruptionStartedAt = 0;
+        state.interruptionTurnID = '';
+        state.interruptionResponseOrdinal = 0;
+        state.userSpeechActive = false;
+        state.localLoudFrames = 0;
+        state.userTranscript = '';
+        state.userTranscriptIsFinal = false;
+        clearGroundingAckTimer();
+        state.pendingGroundingRevision = '';
+        state.pendingGroundingEventID = '';
+        state.pendingGroundingEventIDs = [];
+        state.pendingGroundingInstructions = '';
+        state.pendingGroundingAttempt = 0;
+        state.pendingGroundingStartedAt = 0;
+        state.queuedGroundingUpdate = null;
+        state.groundingSpeechAtRisk = false;
+        state.groundingResponseDeferred = false;
+        clearGroundingResponseCancelTimer();
+        state.groundingReadyToResume = false;
+        state.lastAppliedGroundingRevision = '';
         if (remoteAudio) {
           try {
-            remoteAudio.pause();
+          remoteAudio.pause();
           } catch (_) {}
           remoteAudio.srcObject = null;
+          remoteAudio.muted = false;
         }
       }
 
@@ -14983,7 +19357,8 @@ function renderRealtimeBridgeHtml() {
 
       if (remoteAudio) {
         remoteAudio.addEventListener('playing', () => {
-          setAssistantSpeaking(true, activeResponseOrdinal());
+          // Provider output_audio_buffer events are the authoritative playback clock.
+          // A MediaStream can enter "playing" while it still contains silence.
         });
         remoteAudio.addEventListener('pause', () => {
           setAssistantSpeaking(false, activeResponseOrdinal());
@@ -14995,6 +19370,239 @@ function renderRealtimeBridgeHtml() {
 
       function safeText(value) {
         return typeof value === 'string' ? value.trim() : '';
+      }
+
+      function groundingAckTimeoutMilliseconds() {
+        if (state.networkClass === 'fast') return 1500;
+        if (state.networkClass === 'constrained') return 3500;
+        return 2200;
+      }
+
+      function groundingElapsedMilliseconds() {
+        if (!state.pendingGroundingStartedAt) return 0;
+        return Math.max(0, nowMilliseconds() - state.pendingGroundingStartedAt);
+      }
+
+      function clearGroundingAckTimer() {
+        if (!state.pendingGroundingAckTimer) return;
+        clearTimeout(state.pendingGroundingAckTimer);
+        state.pendingGroundingAckTimer = null;
+      }
+
+      function clearGroundingResponseCancelTimer() {
+        if (!state.groundingResponseCancelTimer) return;
+        clearTimeout(state.groundingResponseCancelTimer);
+        state.groundingResponseCancelTimer = null;
+      }
+
+      function armGroundingResponseCancelTimer() {
+        clearGroundingResponseCancelTimer();
+        const connectionGeneration = state.connectionGeneration;
+        const deadlineMs = (groundingAckTimeoutMilliseconds() * 3) + 1000;
+        state.groundingResponseCancelTimer = setTimeout(() => {
+          if (
+            connectionGeneration !== state.connectionGeneration ||
+            !state.groundingResponseDeferred ||
+            !state.assistantResponseActive
+          ) {
+            return;
+          }
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime could not confirm cancellation of a stale grounded response.',
+            {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            }
+          );
+        }, deadlineMs);
+      }
+
+      function clearPendingGroundingTransaction() {
+        clearGroundingAckTimer();
+        state.pendingGroundingRevision = '';
+        state.pendingGroundingEventID = '';
+        state.pendingGroundingEventIDs = [];
+        state.pendingGroundingInstructions = '';
+        state.pendingGroundingAttempt = 0;
+        state.pendingGroundingStartedAt = 0;
+      }
+
+      function maybeResumeGroundingDeferredResponse() {
+        if (!state.groundingResponseDeferred ||
+            !state.groundingReadyToResume ||
+            state.pendingGroundingRevision ||
+            state.queuedGroundingUpdate ||
+            state.assistantResponseActive) {
+          return false;
+        }
+        const turnID = currentTurnID();
+        if (!sendClientEvent({ type: 'response.create' })) {
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime could not resume the grounded response.',
+            {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            }
+          );
+          return false;
+        }
+        state.groundingResponseDeferred = false;
+        state.groundingReadyToResume = false;
+        state.groundingSpeechAtRisk = false;
+        post('project_grounding_response_resumed', {
+          revision: state.lastAppliedGroundingRevision,
+          turnID: turnID,
+        });
+        return true;
+      }
+
+      function beginQueuedGroundingUpdate() {
+        if (state.pendingGroundingRevision || !state.queuedGroundingUpdate) return false;
+        const queued = state.queuedGroundingUpdate;
+        state.queuedGroundingUpdate = null;
+        state.pendingGroundingRevision = queued.revision;
+        state.pendingGroundingInstructions = queued.instructions;
+        state.pendingGroundingStartedAt = nowMilliseconds();
+        return sendPendingGroundingAttempt('queued');
+      }
+
+      function failPendingGroundingUpdate(message, reason) {
+        const revision = state.pendingGroundingRevision;
+        const attempt = state.pendingGroundingAttempt;
+        const elapsedMs = groundingElapsedMilliseconds();
+        const responseDeferred = state.groundingResponseDeferred;
+        const turnAtRisk = responseDeferred || state.groundingSpeechAtRisk;
+        clearPendingGroundingTransaction();
+        post('project_grounding_update_failed', {
+          revision: revision,
+          message: safeText(message) || 'Realtime project memory refresh failed.',
+          reason: safeText(reason) || 'unknown',
+          attempt: attempt,
+          elapsedMs: elapsedMs,
+          responseDeferred: responseDeferred,
+          turnID: currentTurnID(),
+        });
+        if (turnAtRisk) {
+          state.queuedGroundingUpdate = null;
+          reportTransportLoss(
+            'project_grounding_update_failed',
+            'Realtime project memory could not be confirmed before the next response.',
+            {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: false,
+            }
+          );
+          return false;
+        }
+        return beginQueuedGroundingUpdate();
+      }
+
+      function retryPendingGroundingUpdate(reason, message) {
+        if (!state.pendingGroundingRevision) return false;
+        clearGroundingAckTimer();
+        if (state.pendingGroundingAttempt >= 3) {
+          return failPendingGroundingUpdate(message, reason);
+        }
+        post('project_grounding_update_retrying', {
+          revision: state.pendingGroundingRevision,
+          attempt: state.pendingGroundingAttempt + 1,
+          reason: safeText(reason) || 'ack_timeout',
+          elapsedMs: groundingElapsedMilliseconds(),
+          turnID: currentTurnID(),
+        });
+        return sendPendingGroundingAttempt(reason);
+      }
+
+      function sendPendingGroundingAttempt(reason) {
+        if (!state.pendingGroundingRevision || !state.pendingGroundingInstructions) return false;
+        if (!state.dc || state.dc.readyState !== 'open') {
+          return failPendingGroundingUpdate(
+            'Realtime project grounding could not reach the event channel.',
+            reason || 'event_channel_closed'
+          );
+        }
+
+        state.pendingGroundingAttempt += 1;
+        state.groundingEventCounter += 1;
+        const attempt = state.pendingGroundingAttempt;
+        const eventID = [
+          'grounding',
+          String(Date.now()),
+          String(state.connectionGeneration),
+          String(state.groundingEventCounter),
+        ].join('-');
+        state.pendingGroundingEventID = eventID;
+        state.pendingGroundingEventIDs.push(eventID);
+        const sent = sendClientEvent({
+          event_id: eventID,
+          type: 'session.update',
+          session: {
+            type: 'realtime',
+            instructions: state.pendingGroundingInstructions,
+          },
+        });
+        if (!sent) {
+          return retryPendingGroundingUpdate(
+            'send_failed',
+            'Realtime project grounding could not be sent.'
+          );
+        }
+
+        post('project_grounding_update_submitted', {
+          revision: state.pendingGroundingRevision,
+          attempt: attempt,
+          reason: safeText(reason) || 'memory_changed',
+          ackDeadlineMs: groundingAckTimeoutMilliseconds(),
+        });
+        const expectedEventID = eventID;
+        state.pendingGroundingAckTimer = setTimeout(() => {
+          if (state.pendingGroundingEventID !== expectedEventID) return;
+          retryPendingGroundingUpdate(
+            'ack_timeout',
+            'Realtime project memory acknowledgement timed out.'
+          );
+        }, groundingAckTimeoutMilliseconds());
+        return true;
+      }
+
+      function completePendingGroundingUpdate(event) {
+        if (!state.pendingGroundingRevision) return false;
+        const appliedInstructions = safeText(event && event.session && event.session.instructions);
+        if (!appliedInstructions ||
+            appliedInstructions !== state.pendingGroundingInstructions) {
+          post('project_grounding_update_ack_ignored', {
+            revision: state.pendingGroundingRevision,
+            attempt: state.pendingGroundingAttempt,
+            reason: appliedInstructions ? 'superseded_instructions' : 'missing_instructions',
+            elapsedMs: groundingElapsedMilliseconds(),
+          });
+          return false;
+        }
+        const revision = state.pendingGroundingRevision;
+        const attempt = state.pendingGroundingAttempt;
+        const elapsedMs = groundingElapsedMilliseconds();
+        const responseDeferred = state.groundingResponseDeferred;
+        clearPendingGroundingTransaction();
+        state.lastAppliedGroundingRevision = revision;
+        post('project_grounding_updated', {
+          revision: revision,
+          attempt: attempt,
+          elapsedMs: elapsedMs,
+          responseDeferred: responseDeferred,
+          turnID: currentTurnID(),
+        });
+        if (beginQueuedGroundingUpdate()) return true;
+        state.groundingReadyToResume = responseDeferred;
+        if (!responseDeferred) {
+          state.groundingSpeechAtRisk = false;
+        }
+        maybeResumeGroundingDeferredResponse();
+        return true;
       }
 
       function waitForIceGatheringComplete(pc) {
@@ -15063,22 +19671,92 @@ function renderRealtimeBridgeHtml() {
         if (!type) return;
 
         switch (type) {
+          case 'session.updated': {
+            completePendingGroundingUpdate(event);
+            break;
+          }
+          case 'input_audio_buffer.speech_started':
+            state.userSpeechActive = true;
+            state.userTranscript = '';
+            state.userTranscriptIsFinal = false;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+            }
+            if (state.assistantSpeaking || state.assistantResponseActive) {
+              startInterruption('server_vad', false);
+            } else {
+              post('user_speech_started', {
+                turnID: currentTurnID(),
+                source: 'server_vad',
+              });
+            }
+            break;
+          case 'input_audio_buffer.speech_stopped':
+            state.userSpeechActive = false;
+            state.localLoudFrames = 0;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+            }
+            beginLatencyTurn('server_vad_speech_stopped');
+            break;
+          case 'input_audio_buffer.committed':
+            state.userSpeechActive = false;
+            ensureLatencyTurn('input_committed');
+            break;
           case 'response.created':
+            ensureLatencyTurn('response_created');
             state.responseOrdinal += 1;
             state.activeResponseOrdinal = state.responseOrdinal;
             state.assistantTranscript = '';
             state.assistantText = '';
+            state.assistantResponseActive = true;
+            state.assistantItemID = '';
+            state.assistantAudioStartedAt = 0;
+            if (state.pendingGroundingRevision || state.queuedGroundingUpdate) {
+              state.groundingSpeechAtRisk = true;
+              state.groundingResponseDeferred = true;
+              state.groundingReadyToResume = false;
+              cutRemoteAudioLocally();
+              if (!sendClientEvent({ type: 'response.cancel' })) {
+                reportTransportLoss(
+                  'project_grounding_update_failed',
+                  'Realtime could not defer a response while project memory refreshed.',
+                  {
+                    connectionGeneration: state.connectionGeneration,
+                    recoverable: true,
+                    credentialRefreshRecommended: true,
+                  }
+                );
+                break;
+              }
+              armGroundingResponseCancelTimer();
+              post('project_grounding_response_deferred', {
+                revision: state.pendingGroundingRevision,
+                turnID: currentTurnID(),
+                responseOrdinal: state.activeResponseOrdinal,
+              });
+              break;
+            }
+            resumeRemoteAudio();
             setAssistantSpeaking(false, state.activeResponseOrdinal);
             post('assistant_thinking', { responseOrdinal: state.activeResponseOrdinal });
             break;
+          case 'response.output_item.added':
+            if (state.groundingResponseDeferred) break;
+            if (event.item && event.item.role === 'assistant') {
+              state.assistantItemID = safeText(event.item.id);
+            }
+            break;
           case 'response.output_text.delta': {
+            if (state.groundingResponseDeferred) break;
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantText += delta;
-            setAssistantSpeaking(true, state.activeResponseOrdinal);
+            reportFirstLatency('text');
             break;
           }
           case 'response.output_text.done': {
+            if (state.groundingResponseDeferred) break;
             const text = (typeof event.text === 'string' ? event.text : '') || state.assistantText;
             state.assistantText = '';
             if (text) {
@@ -15090,13 +19768,15 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.output_audio_transcript.delta': {
+            if (state.groundingResponseDeferred) break;
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantTranscript += delta;
-            setAssistantSpeaking(true, state.activeResponseOrdinal);
+            reportFirstLatency('text');
             break;
           }
           case 'response.output_audio_transcript.done': {
+            if (state.groundingResponseDeferred) break;
             const transcript = safeText(event.transcript) || safeText(state.assistantTranscript);
             state.assistantTranscript = '';
             if (transcript) {
@@ -15108,6 +19788,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.text.done': {
+            if (state.groundingResponseDeferred) break;
             const transcript = safeText(event.text);
             if (transcript) {
               post('assistant_transcript_final', {
@@ -15118,32 +19799,70 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.done': {
-            const text = extractTextFromResponse(event.response);
-            if (text) {
-              state.assistantText = '';
-              post('assistant_text_final', {
-                text: text,
-                responseOrdinal: activeResponseOrdinal(),
-              });
+            const wasGroundingDeferred = state.groundingResponseDeferred;
+            state.assistantResponseActive = false;
+            clearGroundingResponseCancelTimer();
+            if (!wasGroundingDeferred) {
+              const text = extractTextFromResponse(event.response);
+              if (text) {
+                state.assistantText = '';
+                post('assistant_text_final', {
+                  text: text,
+                  responseOrdinal: activeResponseOrdinal(),
+                });
+              }
             }
+            if (event.response && event.response.status === 'cancelled') {
+              setAssistantSpeaking(false, activeResponseOrdinal());
+              acknowledgeInterruption('response_cancelled');
+            }
+            maybeResumeGroundingDeferredResponse();
             break;
           }
+          case 'output_audio_buffer.started':
+            if (state.groundingResponseDeferred) {
+              cutRemoteAudioLocally();
+              sendClientEvent({ type: 'output_audio_buffer.clear' });
+              break;
+            }
+            state.assistantAudioStartedAt = state.assistantAudioStartedAt || nowMilliseconds();
+            resumeRemoteAudio();
+            reportFirstLatency('audio');
+            setAssistantSpeaking(true, activeResponseOrdinal());
+            break;
+          case 'output_audio_buffer.stopped':
+            setAssistantSpeaking(false, activeResponseOrdinal());
+            break;
+          case 'output_audio_buffer.cleared':
+            setAssistantSpeaking(false, activeResponseOrdinal());
+            acknowledgeInterruption('output_audio_cleared');
+            break;
           case 'conversation.item.input_audio_transcription.delta': {
-            const partial = safeText(event.delta) || safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            const delta = typeof event.delta === 'string' ? event.delta : '';
+            const cumulative = safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            if (delta) {
+              state.userTranscript += delta;
+            } else if (cumulative) {
+              state.userTranscript = cumulative;
+            }
+            const partial = safeText(state.userTranscript);
             if (partial) {
               post('user_transcript_partial', { text: partial });
             }
             break;
           }
           case 'conversation.item.input_audio_transcription.completed': {
-            const transcript = safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            const transcript = safeText(event.transcript) || extractTranscriptFromItem(event.item) || safeText(state.userTranscript);
             if (transcript) {
+              state.userTranscript = transcript;
+              state.userTranscriptIsFinal = true;
               post('user_transcript_final', { text: transcript });
             }
             break;
           }
           case 'conversation.item.done': {
             if (event.item && event.item.role === 'assistant') {
+              if (state.groundingResponseDeferred) break;
               const text = extractTextFromItem(event.item);
               if (text) {
                 post('assistant_text_final', {
@@ -15163,11 +19882,47 @@ function renderRealtimeBridgeHtml() {
           }
           case 'error': {
             setAssistantSpeaking(false, activeResponseOrdinal());
+            const code = safeText(event.error && event.error.code).toLowerCase();
             const message =
               safeText(event.error && event.error.message) ||
               safeText(event.message) ||
               'Realtime event error.';
-            post('error', { message: message });
+            const failedEventID =
+              safeText(event.event_id) ||
+              safeText(event.error && event.error.event_id);
+            if (failedEventID && state.pendingGroundingEventIDs.includes(failedEventID)) {
+              if (failedEventID === state.pendingGroundingEventID) {
+                retryPendingGroundingUpdate('provider_error', message);
+              }
+              break;
+            }
+            const cancellationLikeError = (
+              code.includes('cancel') ||
+              code.includes('not_active') ||
+              code.includes('buffer') ||
+              message.toLowerCase().includes('active response')
+            );
+            if (state.groundingResponseDeferred && cancellationLikeError) {
+              state.assistantResponseActive = false;
+              clearGroundingResponseCancelTimer();
+              maybeResumeGroundingDeferredResponse();
+              break;
+            }
+            const cancellationRace = state.interruptionStartedAt && cancellationLikeError;
+            if (cancellationRace) {
+              acknowledgeInterruption('provider_cancel_race');
+              break;
+            }
+            const credentialFailure =
+              code.includes('auth') ||
+              code.includes('token') ||
+              code.includes('expired') ||
+              code.includes('unauthorized');
+            reportTransportLoss('provider_error', message, {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: credentialFailure,
+            });
             break;
           }
           default:
@@ -15177,11 +19932,18 @@ function renderRealtimeBridgeHtml() {
 
       async function start(config) {
         if (!config || !config.clientSecret || !config.session) {
-          post('error', { message: 'Realtime config was incomplete.' });
+          state.intentionalStop = false;
+          reportTransportLoss('invalid_configuration', 'Realtime config was incomplete.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: false,
+            credentialRefreshRecommended: true,
+          });
           return;
         }
 
-        resetConnection();
+        resetConnection({ intentional: true });
+        state.intentionalStop = false;
+        const connectionGeneration = state.connectionGeneration;
         post('connecting');
 
         try {
@@ -15191,33 +19953,77 @@ function renderRealtimeBridgeHtml() {
           pc.addEventListener('track', (event) => {
             const stream = event.streams && event.streams[0] ? event.streams[0] : null;
             if (!stream || !remoteAudio) return;
+            state.remoteStream = stream;
             remoteAudio.srcObject = stream;
-            const playAttempt = remoteAudio.play();
-            if (playAttempt && typeof playAttempt.catch === 'function') {
-              playAttempt.catch(() => {});
-            }
+            resumeRemoteAudio();
           });
 
           pc.addEventListener('connectionstatechange', () => {
+            if (connectionGeneration !== state.connectionGeneration) return;
             const current = safeText(pc.connectionState);
             if (current === 'connected') {
-              post('connected');
-            } else if (current === 'failed' || current === 'disconnected' || current === 'closed') {
-              post('disconnected');
+              reportConnectedWhenReady(connectionGeneration);
+            } else if (current === 'failed' || current === 'disconnected') {
+              reportTransportLoss(
+                current === 'failed' ? 'peer_connection_failed' : 'peer_connection_disconnected',
+                current === 'failed'
+                  ? 'Realtime peer connection failed.'
+                  : 'Realtime peer connection disconnected.',
+                {
+                  connectionGeneration: connectionGeneration,
+                  connectionState: current,
+                  recoverable: true,
+                  credentialRefreshRecommended: true,
+                }
+              );
+            } else if (current === 'closed' && !state.intentionalStop) {
+              reportTransportLoss('peer_connection_disconnected', 'Realtime peer connection closed.', {
+                connectionGeneration: connectionGeneration,
+                connectionState: current,
+                recoverable: true,
+                credentialRefreshRecommended: true,
+              });
             }
           });
 
           const dc = pc.createDataChannel('oai-events');
           state.dc = dc;
+          dc.addEventListener('open', () => {
+            reportConnectedWhenReady(connectionGeneration);
+          });
           dc.addEventListener('message', (event) => {
             try {
               handleRealtimeEvent(JSON.parse(event.data));
             } catch (_) {}
           });
+          dc.addEventListener('close', () => {
+            reportTransportLoss('data_channel_closed', 'Realtime event channel closed.', {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            });
+          });
+          dc.addEventListener('error', () => {
+            reportTransportLoss('data_channel_error', 'Realtime event channel failed.', {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            });
+          });
 
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
           state.stream = stream;
+          setupLocalVoiceActivityDetection(stream);
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+          state.statsTimer = setInterval(() => {
+            void sampleNetworkProfile();
+          }, 2000);
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
@@ -15238,7 +20044,9 @@ function renderRealtimeBridgeHtml() {
 
           const answer = await response.text();
           if (!response.ok) {
-            throw new Error(answer || 'Realtime negotiation failed.');
+            const negotiationError = new Error(answer || 'Realtime negotiation failed.');
+            negotiationError.status = Number(response.status || 0);
+            throw negotiationError;
           }
 
           await pc.setRemoteDescription({
@@ -15246,36 +20054,128 @@ function renderRealtimeBridgeHtml() {
             sdp: answer,
           });
         } catch (error) {
-          resetConnection();
+          if (connectionGeneration !== state.connectionGeneration) return;
           const message = error && error.message ? String(error.message) : 'Realtime bridge startup failed.';
-          post('error', { message: message });
+          const status = Number(error && error.status ? error.status : 0);
+          const permissionDenied =
+            (error && safeText(error.name).toLowerCase() === 'notallowederror') ||
+            message.toLowerCase().includes('permission denied');
+          reportTransportLoss(
+            permissionDenied ? 'microphone_permission_denied' : 'negotiation_failed',
+            message,
+            {
+              connectionGeneration: connectionGeneration,
+              connectionState: safeText(state.pc && state.pc.connectionState),
+              recoverable: !permissionDenied,
+              credentialRefreshRecommended: status === 401 || status === 403 || !permissionDenied,
+            }
+          );
         }
       }
 
       function interrupt() {
-        const responseOrdinal = activeResponseOrdinal();
-        if (state.dc && state.dc.readyState === 'open') {
-          try {
-            state.dc.send(JSON.stringify({ type: 'response.cancel' }));
-          } catch (_) {}
+        startInterruption('swift_fallback', true);
+      }
+
+      function resumeTurn(repair) {
+        const details = repair && typeof repair === 'object' ? repair : {};
+        const userTranscript = safeText(details.userTranscript);
+        if (!userTranscript) return false;
+        if (!state.dc || state.dc.readyState !== 'open') {
+          reportTransportLoss('data_channel_closed', 'Realtime turn repair could not reach the event channel.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: true,
+            credentialRefreshRecommended: true,
+          });
+          return false;
         }
-        if (remoteAudio) {
-          try {
-            remoteAudio.pause();
-          } catch (_) {}
+
+        state.userTranscript = userTranscript;
+        state.userTranscriptIsFinal = true;
+        beginLatencyTurn('swift_turn_repair');
+        const requestedTurnID = safeText(details.turnID);
+        if (requestedTurnID) {
+          state.turnID = requestedTurnID;
         }
-        setAssistantSpeaking(false, responseOrdinal);
-        post('assistant_interrupted', { responseOrdinal: responseOrdinal });
+        const itemSent = sendClientEvent({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: userTranscript }],
+          },
+        });
+        const responseSent = itemSent && sendClientEvent({ type: 'response.create' });
+        if (!responseSent) {
+          reportTransportLoss('data_channel_error', 'Realtime turn repair could not resume the response.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: true,
+            credentialRefreshRecommended: true,
+          });
+          return false;
+        }
+        post('turn_repair_submitted', {
+          turnID: state.turnID,
+          userTranscript: userTranscript,
+        });
+        return true;
+      }
+
+      function updateInstructions(update) {
+        const details = update && typeof update === 'object' ? update : {};
+        const instructions = safeText(details.instructions);
+        const revision = safeText(details.revision);
+        if (!instructions) {
+          post('project_grounding_update_failed', {
+            revision: revision,
+            message: 'Realtime project grounding was empty.',
+          });
+          return false;
+        }
+        if (!state.dc || state.dc.readyState !== 'open') {
+          post('project_grounding_update_failed', {
+            revision: revision,
+            message: 'Realtime project grounding could not reach the event channel.',
+          });
+          return false;
+        }
+        if (state.pendingGroundingRevision) {
+          if (
+            state.pendingGroundingRevision === revision &&
+            state.pendingGroundingInstructions === instructions
+          ) {
+            return true;
+          }
+          state.queuedGroundingUpdate = {
+            revision: revision,
+            instructions: instructions,
+          };
+          post('project_grounding_update_queued', {
+            revision: revision,
+            pendingRevision: state.pendingGroundingRevision,
+          });
+          return true;
+        }
+        state.pendingGroundingRevision = revision;
+        state.pendingGroundingInstructions = instructions;
+        state.pendingGroundingStartedAt = nowMilliseconds();
+        return sendPendingGroundingAttempt('memory_changed');
       }
 
       function stop() {
-        resetConnection();
-        post('disconnected');
+        resetConnection({ intentional: true });
+        post('disconnected', {
+          intentional: true,
+          recoverable: false,
+          connectionGeneration: state.connectionGeneration,
+        });
       }
 
       window.clementineRealtime = {
         start: start,
         interrupt: interrupt,
+        resumeTurn: resumeTurn,
+        updateInstructions: updateInstructions,
         stop: stop,
       };
 
@@ -15386,9 +20286,34 @@ async function summarizeVisualContextFromImage({
   };
 }
 
+function resolveStudioTextModelPolicy(modelTier = "fast") {
+  const tier = String(modelTier || "fast").trim().toLowerCase();
+  const structural = CHAT_STRUCTURAL_REASONING_ENABLED && tier.startsWith("structural");
+  if (structural) {
+    return {
+      model: CHAT_MODEL_STRUCTURAL,
+      apiMode: "responses",
+      reasoningEffort: tier === "structural_repair"
+        ? CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT
+        : CHAT_STRUCTURAL_REASONING_EFFORT,
+      fallbackModel: CHAT_MODEL_STRUCTURAL_FALLBACK,
+      timeoutMs: CHAT_STRUCTURAL_TIMEOUT_MS,
+    };
+  }
+  return {
+    model: tier === "rich" ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST) : CHAT_MODEL_FAST,
+    apiMode: "chat_completions",
+    reasoningEffort: "",
+    fallbackModel: "",
+    timeoutMs: CHAT_TIMEOUT_MS,
+  };
+}
+
 async function renderStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
+  modelTier = "fast",
+  maxTokens = 0,
 }) {
   const cleanSystemPrompt =
     normalizeSnippet(systemPrompt, 16_000) ||
@@ -15400,27 +20325,32 @@ async function renderStudioRealtimeText({
     err.status = 400;
     throw err;
   }
+  if (STUDIO_RENDER_TEST_REPLY) {
+    return STUDIO_RENDER_TEST_REPLY;
+  }
 
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: CHAT_MODEL_FAST,
-        temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.max(220, Number(CHAT_MAX_TOKENS || 900)),
-        messages: [
-          { role: "system", content: cleanSystemPrompt },
-          { role: "user", content: cleanTranscript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const policy = resolveStudioTextModelPolicy(modelTier);
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    ...policy,
+    messages: [
+      { role: "system", content: cleanSystemPrompt },
+      { role: "user", content: cleanTranscript },
+    ],
+    temperature: CHAT_TEMPERATURE,
+    maxTokens: Math.min(
+      8_000,
+      Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+    ),
+    fetchWithTimeout,
+    timeoutMs: policy.timeoutMs,
+  });
+  if (requestResult.fallbackUsed) {
+    console.warn(
+      `[studio_render] structural_model_fallback model=${requestResult.model} mode=${requestResult.apiMode}`
+    );
+  }
+  const resp = requestResult.response;
 
   const raw = await resp.text();
   if (!resp.ok) {
@@ -15432,12 +20362,15 @@ async function renderStudioRealtimeText({
 
   let payload = null;
   try {
-    payload = raw ? JSON.parse(raw) : null;
+    const normalizedRaw = normalizeOpenAITextResponseRaw(raw, requestResult.apiMode, {
+      model: requestResult.model,
+    });
+    payload = normalizedRaw ? JSON.parse(normalizedRaw) : null;
   } catch {
     payload = null;
   }
 
-  const reply = normalizeSnippet(
+  const reply = normalizeStudioTextOutput(
     payload?.choices?.[0]?.message?.content ||
     payload?.output_text ||
     "",
@@ -15447,6 +20380,17 @@ async function renderStudioRealtimeText({
     const err = new Error("Studio render response was empty.");
     err.stage = "studio_render";
     err.status = 502;
+    const responsePayload = payload?.response && typeof payload.response === "object"
+      ? payload.response
+      : payload;
+    const incompleteReason = String(responsePayload?.incomplete_details?.reason || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "_")
+      .slice(0, 64);
+    err.code = incompleteReason
+      ? `studio_render_${incompleteReason}`
+      : "studio_render_empty_response";
     throw err;
   }
 
@@ -15456,6 +20400,8 @@ async function renderStudioRealtimeText({
 async function streamStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
+  modelTier = "fast",
+  maxTokens = 0,
   onDelta,
 }) {
   const cleanSystemPrompt =
@@ -15468,28 +20414,36 @@ async function streamStudioRealtimeText({
     err.status = 400;
     throw err;
   }
+  if (STUDIO_RENDER_TEST_REPLY) {
+    if (typeof onDelta === "function") {
+      await onDelta(STUDIO_RENDER_TEST_REPLY, STUDIO_RENDER_TEST_REPLY);
+    }
+    return STUDIO_RENDER_TEST_REPLY;
+  }
 
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: CHAT_MODEL_FAST,
-        temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.max(220, Number(CHAT_MAX_TOKENS || 900)),
-        stream: true,
-        messages: [
-          { role: "system", content: cleanSystemPrompt },
-          { role: "user", content: cleanTranscript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const policy = resolveStudioTextModelPolicy(modelTier);
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    ...policy,
+    messages: [
+      { role: "system", content: cleanSystemPrompt },
+      { role: "user", content: cleanTranscript },
+    ],
+    temperature: CHAT_TEMPERATURE,
+    maxTokens: Math.min(
+      8_000,
+      Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+    ),
+    stream: true,
+    fetchWithTimeout,
+    timeoutMs: policy.timeoutMs,
+  });
+  if (requestResult.fallbackUsed) {
+    console.warn(
+      `[studio_render_stream] structural_model_fallback model=${requestResult.model} mode=${requestResult.apiMode}`
+    );
+  }
+  const resp = requestResult.response;
 
   if (!resp.ok) {
     const raw = await resp.text();
@@ -15518,24 +20472,21 @@ async function streamStudioRealtimeText({
     if (!trimmed.startsWith("data:")) return false;
     const payload = trimmed.slice(5).trim();
     if (!payload) return false;
-    if (payload === "[DONE]") {
-      sawDoneToken = true;
-      return true;
+    const event = parseOpenAITextStreamLine(trimmed, requestResult.apiMode);
+    if (event.error) {
+      const err = new Error(event.error);
+      err.stage = "studio_render";
+      err.status = 502;
+      throw err;
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(payload);
-    } catch (_) {
-      return false;
-    }
-    const delta = parsed?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) {
-      fullReply += delta;
+    if (event.delta) {
+      fullReply += event.delta;
       if (typeof onDelta === "function") {
-        await onDelta(delta, fullReply);
+        await onDelta(event.delta, fullReply);
       }
     }
-    return false;
+    if (event.done) sawDoneToken = true;
+    return event.done;
   };
 
   try {
@@ -15562,7 +20513,7 @@ async function streamStudioRealtimeText({
     reader.releaseLock();
   }
 
-  const reply = normalizeSnippet(fullReply, 32_000);
+  const reply = normalizeStudioTextOutput(fullReply, 32_000);
   if (!reply) {
     const err = new Error("Studio render stream response was empty.");
     err.stage = "studio_render";
@@ -15706,11 +20657,13 @@ ASSISTANT SELF-NAME:
     reply,
     audioBuffer,
     ttsProvider: String(ttsResult?.provider || "openai"),
+    ttsVoice: String(ttsResult?.voice || interactiveVoiceProfile?.openaiVoice || ""),
+    emotionLane: String(ttsResult?.emotionLane || interactiveVoiceProfile?.emotionLane || "curious_steady"),
     promptHash: computeSpeculativePromptHash(baseSystem),
   };
 }
 
-async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
+async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice, instructions = "" }) {
   let ttsResp;
   try {
     ttsResp = await fetchWithTimeout(
@@ -15727,6 +20680,9 @@ async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
           format: "mp3",
           speed,
           input: inputText,
+          ...(String(instructions || "").trim()
+            ? { instructions: String(instructions).trim() }
+            : {}),
         }),
       },
       TTS_TIMEOUT_MS
@@ -15753,7 +20709,12 @@ async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
   return { buffer: mp3Buffer, provider: "openai" };
 }
 
-async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
+async function synthesizeSpeechMp3ElevenLabs({
+  inputText,
+  voiceId,
+  modelId,
+  voiceSettings = {},
+}) {
   const effectiveVoiceId = normalizeElevenLabsVoiceId(voiceId, ELEVENLABS_DEFAULT_VOICE_ID);
   const effectiveModelId = String(modelId || ELEVENLABS_MODEL_ID).trim() || ELEVENLABS_MODEL_ID;
   const url =
@@ -15775,10 +20736,27 @@ async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
           text: inputText,
           model_id: effectiveModelId,
           voice_settings: {
-            stability: ELEVENLABS_STABILITY,
-            similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
-            style: ELEVENLABS_STYLE,
-            use_speaker_boost: ELEVENLABS_SPEAKER_BOOST,
+            stability: parseNumberInRange(
+              voiceSettings.stability,
+              0,
+              1,
+              ELEVENLABS_STABILITY,
+            ),
+            similarity_boost: parseNumberInRange(
+              voiceSettings.similarityBoost,
+              0,
+              1,
+              ELEVENLABS_SIMILARITY_BOOST,
+            ),
+            style: parseNumberInRange(
+              voiceSettings.style,
+              0,
+              1,
+              ELEVENLABS_STYLE,
+            ),
+            use_speaker_boost: voiceSettings.useSpeakerBoost == null
+              ? ELEVENLABS_SPEAKER_BOOST
+              : Boolean(voiceSettings.useSpeakerBoost),
           },
         }),
       },
@@ -15833,6 +20811,8 @@ async function synthesizeSpeechMp3({
       "openai"
     ),
     openaiVoice: parseOneOf(voiceProfile?.openaiVoice, ALLOWED_TTS_VOICES, CLEMENTINE_PROFILE.voice.openaiVoice),
+    openaiInstructions: normalizeSnippet(voiceProfile?.openaiInstructions, 600),
+    emotionLane: normalizeSnippet(voiceProfile?.emotionLane, 64) || "curious_steady",
     elevenlabsVoiceId: normalizeElevenLabsVoiceId(
       voiceProfile?.elevenlabsVoiceId || CLEMENTINE_PROFILE.voice.elevenlabsVoiceId,
       ELEVENLABS_DEFAULT_VOICE_ID
@@ -15840,6 +20820,7 @@ async function synthesizeSpeechMp3({
     elevenlabsModelId: String(
       voiceProfile?.elevenlabsModelId || CLEMENTINE_PROFILE.voice.elevenlabsModelId || ELEVENLABS_MODEL_ID
     ).trim() || ELEVENLABS_MODEL_ID,
+    elevenlabsSettings: voiceProfile?.elevenlabsSettings || {},
   };
   const providerPlan = resolveTtsProviderPlan(effectiveVoiceProfile);
   if (providerPlan.invalid) {
@@ -15860,6 +20841,7 @@ async function synthesizeSpeechMp3({
         inputText,
         voiceId: providerPlan.elevenlabsVoiceId || effectiveVoiceProfile.elevenlabsVoiceId,
         modelId: effectiveVoiceProfile.elevenlabsModelId,
+        voiceSettings: effectiveVoiceProfile.elevenlabsSettings,
       });
     } catch (err) {
       const errMsg = String(err?.message || err || "");
@@ -15895,6 +20877,7 @@ async function synthesizeSpeechMp3({
           inputText,
           speed,
           voice: effectiveVoiceProfile.openaiVoice,
+          instructions: effectiveVoiceProfile.openaiInstructions,
         });
       } else {
         throw err;
@@ -15905,6 +20888,7 @@ async function synthesizeSpeechMp3({
       inputText,
       speed,
       voice: effectiveVoiceProfile.openaiVoice,
+      instructions: effectiveVoiceProfile.openaiInstructions,
     });
   }
 
@@ -15935,6 +20919,10 @@ async function synthesizeSpeechMp3({
     elapsedMs,
     text: inputText,
     provider,
+    voice: provider === "openai"
+      ? effectiveVoiceProfile.openaiVoice
+      : effectiveVoiceProfile.elevenlabsVoiceId,
+    emotionLane: effectiveVoiceProfile.emotionLane,
   };
 }
 
@@ -15947,29 +20935,28 @@ async function streamChatReplyWithFirstSentence({
   model = CHAT_MODEL_FAST,
   temperature = CHAT_TEMPERATURE,
   maxTokens = CHAT_MAX_TOKENS,
+  apiMode = "chat_completions",
+  reasoningEffort = "",
+  fallbackModel = "",
 }) {
-  const resp = await fetchWithTimeout(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: String(model || CHAT_MODEL_FAST),
-        temperature,
-        max_tokens: Math.max(64, Number(maxTokens || CHAT_MAX_TOKENS)),
-        stream: true,
-        messages: [
-          { role: "system", content: system },
-          ...shortTermContextMessages,
-          { role: "user", content: transcript },
-        ],
-      }),
-    },
-    CHAT_TIMEOUT_MS
-  );
+  const requestResult = await requestOpenAIText({
+    apiKey: OPENAI_API_KEY,
+    apiMode,
+    model: String(model || CHAT_MODEL_FAST),
+    temperature,
+    maxTokens: Math.max(64, Number(maxTokens || CHAT_MAX_TOKENS)),
+    reasoningEffort,
+    fallbackModel,
+    stream: true,
+    messages: [
+      { role: "system", content: system },
+      ...shortTermContextMessages,
+      { role: "user", content: transcript },
+    ],
+    fetchWithTimeout,
+    timeoutMs: CHAT_TIMEOUT_MS,
+  });
+  const resp = requestResult.response;
 
   if (!resp.ok) {
     const text = await resp.text();
@@ -15992,6 +20979,7 @@ async function streamChatReplyWithFirstSentence({
   let fullReply = "";
   let firstSentence = "";
   let sawDoneToken = false;
+  let usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
 
   const processDataLine = (line) => {
     const trimmed = String(line || "").trim();
@@ -15999,19 +20987,15 @@ async function streamChatReplyWithFirstSentence({
     if (!trimmed.startsWith("data:")) return false;
     const payload = trimmed.slice(5).trim();
     if (!payload) return false;
-    if (payload === "[DONE]") {
-      sawDoneToken = true;
-      return true;
+    const event = parseOpenAITextStreamLine(trimmed, requestResult.apiMode);
+    if (event.error) {
+      const err = new Error(event.error);
+      err.stage = "chat";
+      err.status = 502;
+      throw err;
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(payload);
-    } catch (_) {
-      return false;
-    }
-    const delta = parsed?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) {
-      fullReply += delta;
+    if (event.delta) {
+      fullReply += event.delta;
       if (!firstSentence) {
         const candidate = extractFirstSentenceCandidate(fullReply);
         if (candidate && countWords(candidate) >= 3) {
@@ -16024,7 +21008,9 @@ async function streamChatReplyWithFirstSentence({
         }
       }
     }
-    return false;
+    if (event.usage) usage = event.usage;
+    if (event.done) sawDoneToken = true;
+    return event.done;
   };
 
   try {
@@ -16062,13 +21048,11 @@ async function streamChatReplyWithFirstSentence({
   return {
     reply: finalReply,
     firstSentence: String(firstSentence || "").trim(),
-  };
-}
-
-function methodNotAllowed(allow) {
-  return (req, res) => {
-    res.setHeader("Allow", allow);
-    return res.status(405).json({ stage: "method", error: `Method ${req.method} not allowed.` });
+    model: requestResult.model,
+    apiMode: requestResult.apiMode,
+    reasoningEffort: requestResult.reasoningEffort,
+    fallbackUsed: requestResult.fallbackUsed,
+    usage,
   };
 }
 
@@ -16131,41 +21115,13 @@ ${meta.join("\n")}
 }
 
 
-function fitSystemPromptForTurnLatency(
-  systemPrompt,
-  { turnPlanner, flags, routingLane, chatModelPlan } = {}
-) {
-  const normalized = String(systemPrompt || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-  if (!normalized) return "";
-
-  const lane = String(routingLane || "normal_rotation");
-  const tier = String(chatModelPlan?.tier || "fast");
-  const needsRichBudget =
-    tier === "rich" ||
-    Boolean(turnPlanner?.requiresSubstantiveAnswer) ||
-    Boolean(flags?.therapeuticDepth) ||
-    Boolean(flags?.isVulnerable) ||
-    Boolean(flags?.isVenting) ||
-    Boolean(flags?.socialSpark) ||
-    lane === "high_distress_safety" ||
-    lane === "therapeutic_depth" ||
-    lane === "philosophical" ||
-    lane === "creative";
-
-  const budget = needsRichBudget
-    ? RICH_TURN_SYSTEM_PROMPT_MAX_CHARS
-    : FAST_TURN_SYSTEM_PROMPT_MAX_CHARS;
-  if (normalized.length <= budget) return normalized;
-
-  const headBudget = Math.max(900, Math.floor(budget * 0.58));
-  const tailBudget = Math.max(800, budget - headBudget - 5);
-  const head = normalized.slice(0, headBudget).trimEnd();
-  const tail = normalized.slice(Math.max(0, normalized.length - tailBudget)).trimStart();
-  return `${head}\n...\n${tail}`.slice(0, budget).trim();
+function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
+  return fitSystemPromptForTurnLatencyBase(systemPrompt, {
+    ...args,
+    fastMaxChars: FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    structuralMaxChars: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS,
+  });
 }
 
 const TEXT_CONTAINS_MATCHER_CACHE = new Map();
@@ -19886,9 +24842,9 @@ function buildTurnPlanner({
   else if (lane === "knowledge" || asksKnowledge || explicitKnowledgeAsk) intent = "knowledge_answer";
   else if (needsTherapeuticDepth) intent = "therapeutic_depth_processing";
   else if (Boolean(flags?.socialSpark)) intent = "social_spark_story";
+  else if (Boolean(flags?.isPlayful)) intent = "playful_banter";
   else if (motivationMode) intent = "motivation_coaching";
   else if (Boolean(flags?.isVenting)) intent = "vent_container";
-  else if (Boolean(flags?.isPlayful)) intent = "playful_banter";
   else if ((asksPractical || Boolean(flags?.isDirect)) && !adviceOptOut) intent = "practical_action";
   else if (
     (lane === "creative" && ideaDevelopmentSignal.active) ||
@@ -19919,6 +24875,7 @@ function buildTurnPlanner({
   else if (intent === "idea_development") questionPolicy = "exactly_one";
   else if (needsTherapeuticDepth) questionPolicy = "one_or_none_deep";
   else if (motivationMode) questionPolicy = "one_or_none";
+  else if (intent === "playful_banter") questionPolicy = "none";
   else if ((Boolean(flags?.isDirect) || asksPractical || asksKnowledge) && !adviceOptOut) {
     questionPolicy = "none_or_one_if_needed";
   }
@@ -19936,7 +24893,7 @@ function buildTurnPlanner({
     nextBestMove = "acknowledge_drag_then_confidence_reframe_then_one_tiny_action";
   }
   else if (intent === "social_spark_story") nextBestMove = "mirror_excitement_then_one_vivid_story_door";
-  else if (intent === "playful_banter") nextBestMove = "gentle_witty_mirror_then_one_warm_reframe_then_light_turn_back";
+  else if (intent === "playful_banter") nextBestMove = "witty_playful_turn_back";
   else if (intent === "vent_container") nextBestMove = "mirror_then_one_open_door_before_advice";
   else if (intent === "practical_action") nextBestMove = "direct_answer_then_one_precise_next_step";
   else if (intent === "knowledge_answer") nextBestMove = "baseline_fact_then_one_deeper_layer_then_concrete_example";
@@ -20038,15 +24995,57 @@ function buildTurnPlanner({
   };
 }
 
+function buildChatModelPlan({
+  model,
+  tier,
+  reason,
+  screenplayTaskIntent = "",
+  loadShed = false,
+  loadShedCause = "",
+} = {}) {
+  const structural = CHAT_STRUCTURAL_REASONING_ENABLED && tier === "structural";
+  const structuralRepair = CHAT_STRUCTURAL_REASONING_ENABLED && Boolean(CHAT_MODEL_STRUCTURAL);
+  return {
+    model: String(model || CHAT_MODEL_FAST),
+    tier,
+    reason,
+    screenplayTaskIntent: String(screenplayTaskIntent || ""),
+    apiMode: structural ? "responses" : "chat_completions",
+    reasoningEffort: structural ? CHAT_STRUCTURAL_REASONING_EFFORT : "",
+    fallbackModel: structural ? CHAT_MODEL_STRUCTURAL_FALLBACK : "",
+    repairModel: structuralRepair ? CHAT_MODEL_STRUCTURAL : (CHAT_MODEL_RICH || CHAT_MODEL_FAST),
+    repairApiMode: structuralRepair ? "responses" : "chat_completions",
+    repairReasoningEffort: structuralRepair ? CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT : "",
+    repairFallbackModel: structuralRepair ? CHAT_MODEL_STRUCTURAL_FALLBACK : "",
+    loadShed: Boolean(loadShed),
+    loadShedCause: String(loadShedCause || ""),
+  };
+}
+
 function selectChatModelForTurn({
   transcript,
   turnPlanner,
   flags,
   routingLane,
   runtimeStatus = null,
+  screenplayPageWrite = false,
+  screenplayContextActive = false,
 }) {
   const t = String(transcript || "").toLowerCase();
   const words = countWords(t);
+  const screenplayTask = inferScreenplayTask(transcript);
+  const screenplayTaskIntent = String(screenplayTask?.intent || "").trim();
+  const explicitScreenplayContext = Boolean(
+    screenplayPageWrite ||
+    screenplayContextActive ||
+    /\b(screenplay|script|scene|feature(?:[- ]film)?|movie|film|act\s*(?:i{1,3}|[123]|one|two|three)|beat sheet|fountain|dialogue|character arc|story structure|writer'?s block|writers block|creative block)\b/.test(t)
+  );
+  const structuralTaskReason = explicitScreenplayContext
+    ? structuralScreenplayModelReasonForTask(screenplayTask) || (
+        screenplayTaskIntent === "momentum_rescue" ? "screenplay_momentum_rescue" : ""
+      )
+    : "";
+  const structuralScreenplayTask = Boolean(structuralTaskReason);
   const intent = String(turnPlanner?.intent || "reflective_checkin");
   const lane = String(routingLane || "normal_rotation");
   const explicitKnowledgeAsk = textContainsAny(t, [
@@ -20160,6 +25159,7 @@ function selectChatModelForTurn({
     (words >= 8 || vulnerable || venting || substantial);
   const substantiveNeed = substantial && words >= 16 && !directSimple;
   const richRequired =
+    screenplayPageWrite ||
     distress ||
     therapeutic ||
     motivationalDepthNeed ||
@@ -20188,9 +25188,11 @@ function selectChatModelForTurn({
   if (richRequired) {
     model = CHAT_MODEL_RICH || CHAT_MODEL_FAST;
     tier = "rich";
-    reason = distress
-      ? "distress_safety"
-      : therapeutic
+    reason = screenplayPageWrite
+      ? "screenplay_page_write"
+      : distress
+        ? "distress_safety"
+        : therapeutic
         ? "therapeutic_depth"
         : philosophical
           ? "philosophical_depth"
@@ -20221,6 +25223,16 @@ function selectChatModelForTurn({
     }
   }
 
+  if (screenplayPageWrite && CHAT_STRUCTURAL_REASONING_ENABLED && CHAT_MODEL_STRUCTURAL) {
+    model = CHAT_MODEL_STRUCTURAL;
+    tier = "structural";
+    reason = "screenplay_page_write";
+  } else if (structuralScreenplayTask && CHAT_STRUCTURAL_REASONING_ENABLED && CHAT_MODEL_STRUCTURAL) {
+    model = CHAT_MODEL_STRUCTURAL;
+    tier = "structural";
+    reason = structuralTaskReason;
+  }
+
   const runtime = runtimeStatus && typeof runtimeStatus === "object"
     ? runtimeStatus
     : deriveBackendRuntimeStatus();
@@ -20235,13 +25247,19 @@ function selectChatModelForTurn({
     ) ||
     String(runtime?.status || "up") === "degraded";
   const criticalTurn =
+    screenplayPageWrite ||
+    structuralScreenplayTask ||
     distress ||
     therapeutic ||
     motivationMode ||
     ideaDevelopmentMode ||
     Boolean(flags?.therapeuticDepth) ||
     lane === "high_distress_safety";
-  const shouldShed = loadPressure && (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
+  const shouldShed =
+    loadPressure &&
+    !screenplayPageWrite &&
+    !structuralScreenplayTask &&
+    (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
 
   if (shouldShed) {
     const shedCause = readTalkInFlight() >= CHAT_LOAD_SHED_IN_FLIGHT
@@ -20250,22 +25268,24 @@ function selectChatModelForTurn({
     model = CHAT_MODEL_FAST;
     tier = "fast";
     reason = `load_shed_${shedCause}`;
-    return {
-      model: String(model || CHAT_MODEL_FAST),
+    return buildChatModelPlan({
+      model,
       tier,
       reason,
+      screenplayTaskIntent,
       loadShed: true,
       loadShedCause: shedCause,
-    };
+    });
   }
 
-  return {
-    model: String(model || CHAT_MODEL_FAST),
+  return buildChatModelPlan({
+    model,
     tier,
     reason,
+    screenplayTaskIntent,
     loadShed: false,
     loadShedCause: "",
-  };
+  });
 }
 
 function selectChatTemperatureForTurn({ chatModelPlan, flags, turnPlanner }) {
@@ -20288,12 +25308,84 @@ function selectChatTemperatureForTurn({ chatModelPlan, flags, turnPlanner }) {
   return Math.max(0.20, Math.min(1.2, CHAT_TEMPERATURE));
 }
 
+const SCREENPLAY_PAGE_COUNT_WORDS = Object.freeze({
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+});
+
+function screenplayPageCountFromToken(token) {
+  const clean = String(token || "").trim().toLowerCase().replace(/-/g, " ");
+  if (!clean) return 0;
+  if (/^\d+$/.test(clean)) return Math.max(0, Math.round(Number(clean)));
+  return SCREENPLAY_PAGE_COUNT_WORDS[clean] || 0;
+}
+
+function inferRequestedScreenplayPagesFromText(text = "") {
+  const lower = String(text || "").toLowerCase();
+  if (!lower) return 0;
+  const token = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+  const rangePattern = new RegExp(`\\b(${token})\\s*(?:-|to|\\u2013|\\u2014)\\s*(${token})\\s+pages?\\b`);
+  const rangeMatch = lower.match(rangePattern);
+  const rangeEnd = screenplayPageCountFromToken(rangeMatch?.[2]);
+  if (rangeEnd > 0 && rangeEnd <= 30) return rangeEnd;
+
+  const patterns = [
+    new RegExp(`\\brequested\\s+page\\s+batch\\s*:\\s*(${token})\\s+pages?\\b`),
+    new RegExp(`\\b(?:next|another|first|final|last)\\s+(${token})\\s+pages?\\b`),
+    new RegExp(`\\b(?:write|draft|continue|generate|give me|do|finish|complete)\\b[\\s\\S]{0,80}\\b(${token})\\s+pages?\\b`),
+  ];
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    const count = screenplayPageCountFromToken(match?.[1]);
+    if (count > 0 && count <= 30) return count;
+  }
+  return 0;
+}
+
+function screenplayPageWriteTokenFloor({ transcript = "", requestedPages = 0 } = {}) {
+  const pages = Math.max(
+    0,
+    Math.min(
+      30,
+      Math.round(Number(requestedPages || inferRequestedScreenplayPagesFromText(transcript) || 0))
+    )
+  );
+  if (pages >= 15) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3200);
+  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3200);
+  if (pages >= 10) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3000);
+  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2600);
+  if (pages >= 5) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1750);
+  if (pages >= 3) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1350);
+  if (pages >= 2) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1100);
+  return CHAT_SCREENPLAY_PAGE_MAX_TOKENS;
+}
+
 function computeChatMaxTokensForTurn({
   transcript,
   turnPlanner,
   flags,
   routingLane,
   chatModelPlan,
+  screenplayPageWrite = false,
+  screenplayRequestedPages = 0,
 }) {
   const t = String(transcript || "").toLowerCase();
   const words = countWords(t);
@@ -20302,6 +25394,7 @@ function computeChatMaxTokensForTurn({
   const substantial = Boolean(turnPlanner?.requiresSubstantiveAnswer);
   const minAnswerWords = Math.max(16, Number(turnPlanner?.minAnswerWords || 28));
   const tier = String(chatModelPlan?.tier || "fast");
+  const modelReason = String(chatModelPlan?.reason || "");
   const loadShedActive = Boolean(chatModelPlan?.loadShed);
   const relationalKnowledge = intent === "knowledge_answer" && textContainsAny(t, [
     "compatibility",
@@ -20314,6 +25407,12 @@ function computeChatMaxTokensForTurn({
   ]);
 
   let maxTokens = CHAT_MAX_TOKENS;
+  const screenplayFloor = screenplayPageWrite
+    ? screenplayPageWriteTokenFloor({
+      transcript: t,
+      requestedPages: screenplayRequestedPages,
+    })
+    : 0;
 
   if (intent === "gratitude_acknowledgment") {
     return Math.max(96, Math.min(140, maxTokens));
@@ -20363,6 +25462,22 @@ function computeChatMaxTokensForTurn({
   if (tier === "rich") {
     maxTokens = Math.max(maxTokens, substantial ? 340 : 270);
   }
+  const structuralVisibleTokenFloor = tier === "structural"
+    ? modelReason === "screenplay_feature_architecture"
+      ? 2_400
+      : modelReason === "screenplay_scene_doctor"
+        ? 700
+        : modelReason === "screenplay_momentum_rescue"
+          ? 720
+          : 0
+    : 0;
+  if (structuralVisibleTokenFloor > 0) {
+    maxTokens = Math.max(maxTokens, structuralVisibleTokenFloor);
+  }
+
+  if (screenplayPageWrite) {
+    maxTokens = Math.max(maxTokens, screenplayFloor);
+  }
 
   if (
     tier === "fast" &&
@@ -20370,7 +25485,8 @@ function computeChatMaxTokensForTurn({
     intent !== "motivation_coaching" &&
     intent !== "idea_development" &&
     !Boolean(flags?.isVulnerable) &&
-    !Boolean(flags?.isVenting)
+    !Boolean(flags?.isVenting) &&
+    !screenplayPageWrite
   ) {
     maxTokens = Math.min(maxTokens, 190);
   }
@@ -20379,7 +25495,8 @@ function computeChatMaxTokensForTurn({
     loadShedActive &&
     lane !== "high_distress_safety" &&
     lane !== "therapeutic_depth" &&
-    !Boolean(flags?.therapeuticDepth)
+    !Boolean(flags?.therapeuticDepth) &&
+    !screenplayPageWrite
   ) {
     if (intent === "idea_development") {
       maxTokens = Math.min(maxTokens, 260);
@@ -20388,9 +25505,25 @@ function computeChatMaxTokensForTurn({
     }
   }
 
-  const brevityScale = intent === "idea_development" ? 0.94 : (substantial ? 0.90 : 0.82);
+  const brevityScale = screenplayPageWrite
+    ? 1
+    : tier === "structural"
+      ? 1
+    : intent === "idea_development"
+      ? 0.94
+      : (substantial ? 0.90 : 0.82);
   maxTokens = maxTokens * brevityScale;
-  return Math.max(88, Math.min(420, Math.round(maxTokens)));
+  const hardCap = screenplayPageWrite
+    ? Math.max(1200, Math.min(3600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
+    : tier === "structural"
+      ? modelReason === "screenplay_feature_architecture" ? 2_600 : 1_200
+      : 420;
+  const minimum = screenplayPageWrite
+    ? Math.min(900, screenplayFloor || 900)
+    : tier === "structural"
+      ? Math.min(1_200, structuralVisibleTokenFloor || 320)
+      : 88;
+  return Math.max(minimum, Math.min(hardCap, Math.round(maxTokens)));
 }
 
 function inferSocialSparkEventLabel(text) {
@@ -22765,18 +27898,18 @@ function knowledgeDomainFallbackTriplet(domain = "general") {
     case "art_history":
       return {
         baseline:
-          "Renaissance art aims for balanced clarity through perspective and proportion, while Baroque art pushes movement, contrast, and emotional force.",
+          "Renaissance art uses perspective and proportion for balanced clarity; Baroque art uses movement, contrast, and emotional force.",
         deeper:
-          "The shift tracks social context: Counter-Reformation messaging, court spectacle, and a new demand for art that moves the viewer, not just instructs.",
+          "Why it matters: Baroque art was built to move viewers, not just instruct them.",
         example:
-          "Concrete example: compare Raphael's calm geometry with Caravaggio's theatrical light and moral tension.",
+          "Concrete example: Raphael feels measured; Caravaggio feels theatrical.",
       };
     case "philosophy":
       return {
         baseline:
           "Stoicism in plain English: focus on what you can control, and train your response to what you cannot.",
         deeper:
-          "A serious criticism is that strict Stoic detachment can underweight social injustice or flatten emotions that carry real moral information.",
+          "One deeper philosophical criticism is that strict Stoic detachment can underweight social injustice or flatten emotions that carry real moral information.",
         example:
           "Concrete example: after rejection, Stoicism says regulate your reaction first, then act on values instead of impulse.",
       };
@@ -22846,9 +27979,9 @@ function knowledgeDomainFallbackTriplet(domain = "general") {
     case "learning":
       return {
         baseline:
-          "Fast, sustainable learning uses deliberate practice on one subskill at a time with clear feedback loops.",
+          "The fastest evidence-based way to learn a hard skill is deliberate practice on one subskill at a time with clear feedback.",
         deeper:
-          "Retention improves when you combine retrieval practice and spaced repetition instead of long cramming blocks.",
+          "Burnout drops when you combine retrieval practice, spaced repetition, rest, and small feedback loops instead of long cramming blocks.",
         example:
           "Concrete example: run 3 x 20-minute focused reps this week, then do a next-day recall check and log one correction each rep.",
       };
@@ -23083,48 +28216,6 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
   const source = normalizeWhitespace(String(text || ""));
   if (!source) return source;
   const transcriptLower = String(transcript || "").toLowerCase();
-  if (
-    textContainsAny(transcriptLower, ["stoicism", "stoic"]) &&
-    textContainsAny(transcriptLower, ["high school", "deeper philosophical criticism", "philosophical criticism"])
-  ) {
-    let out = [
-      "Baseline: Stoicism is high school emotional discipline: control your response, not fate.",
-      "Deeper layer: the philosophical criticism is that Stoicism can make acceptance sound wiser than changing injustice.",
-    ].join("\n\n");
-    out = enforceQuestionRange(out, 0);
-    out = enforceExclamationRange(out, 0);
-    out = enforceCompleteThought(out);
-    out = clampToLineCount(out, 2, 2);
-    return normalizeWhitespace(out);
-  }
-  if (
-    textContainsAny(transcriptLower, ["renaissance art", "baroque art"]) &&
-    textContainsAny(transcriptLower, ["why does it matter", "matter"])
-  ) {
-    let out = [
-      "Baseline: Renaissance art favors balance, proportion, and calm human order.",
-      "Deeper layer: Baroque art turns toward drama, motion, light, and persuasion, which matters because art becomes emotional power.",
-    ].join("\n\n");
-    out = enforceQuestionRange(out, 0);
-    out = enforceExclamationRange(out, 0);
-    out = enforceCompleteThought(out);
-    out = clampToLineCount(out, 2, 2);
-    return normalizeWhitespace(out);
-  }
-  if (
-    textContainsAny(transcriptLower, ["evidence-based", "evidence based"]) &&
-    textContainsAny(transcriptLower, ["learn a hard skill", "hard skill", "burning out", "burnout"])
-  ) {
-    let out = [
-      "Baseline: the fastest evidence-based way to learn a hard skill is short deliberate practice, feedback, spaced repetition, and sleep.",
-      "Deeper layer: burnout drops when effort alternates with recovery and review.",
-    ].join("\n\n");
-    out = enforceQuestionRange(out, 0);
-    out = enforceExclamationRange(out, 0);
-    out = enforceCompleteThought(out);
-    out = clampToLineCount(out, 2, 2);
-    return normalizeWhitespace(out);
-  }
   if (/\bjealousy\b/.test(transcriptLower) && /\benvy\b/.test(transcriptLower)) {
     let out = [
       "Quick version: the difference between jealousy and envy is this.",
@@ -23157,7 +28248,15 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
     .map((chunk) => stripKnowledgeHeadingPrefix(chunk))
     .filter((chunk) => countWords(chunk) >= 4);
 
-  if (!looksLikeMetaScaffold && usableChunks.length) {
+  const sourceLower = cleanedSource.toLowerCase();
+  const sourceWordCount = countWords(cleanedSource);
+  const shouldUseFallback =
+    sourceWordCount < 24 ||
+    (domain === "philosophy" && !textContainsAny(sourceLower, ["philosophical criticism", "serious criticism", "critique"])) ||
+    (domain === "learning" && !textContainsAny(sourceLower, ["evidence-based", "evidence based"]) && !textContainsAny(sourceLower, ["burnout", "burning out"])) ||
+    (domain === "art_history" && !textContainsAny(sourceLower, ["why", "context", "matters", "counter-reformation", "caravaggio"]));
+
+  if (!looksLikeMetaScaffold && usableChunks.length && !shouldUseFallback) {
     let out = usableChunks.slice(0, 3).join("\n\n");
     out = enforceQuestionRange(out, 0);
     out = enforceExclamationRange(out, 0);
@@ -23339,15 +28438,10 @@ function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   let tease = `You are making ${anchor} do a lot of emotional labor.`;
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    if (textContainsAny(t, ["risky text", "overthinking", "overthinking everything"])) {
-      opener = "You sent one risky text and your brain opened a courtroom.";
-      tease = "The gentle roast: overthinking everything lol is not a strategy; it is anxiety wearing reading glasses.";
-    } else {
-      opener = "Heh. Rereading one text five times before sending is not proofreading.";
-      tease = "It is emotional tax law for punctuation.";
-    }
+    opener = "That risky text has you overthinking everything lol, which is painfully human.";
+    tease = "Rereading one text five times before sending is not proofreading; it is emotional tax law for punctuation.";
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
-    opener = "Heh. That is a very human spiral.";
+    opener = "That risky text has you overthinking everything lol, which is painfully human.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";
   }
 
@@ -24631,309 +29725,51 @@ function parseTurnIdToNumber(value) {
   return parsed;
 }
 
-function deriveMemoryLastUpdatedAt(memory) {
-  return Math.max(
-    0,
-    Number(
-      memory?.lastUpdatedAt ||
-      memory?.lastConversationAt ||
-      memory?.lastConversationSnapshotAt ||
-      0
-    )
-  );
-}
-
-function deriveHistoryUpdatedAt(memory) {
-  const history = sanitizeTurnHistoryItems(memory?.turnHistory);
-  let historyTs = 0;
-  for (const item of history) {
-    historyTs = Math.max(historyTs, Number(item?.ts || 0));
-  }
-  return Math.max(
-    historyTs,
-    Number(memory?.lastConversationAt || 0),
-    Number(memory?.lastConversationSnapshotAt || 0),
-    Number(memory?.historyClearedAt || 0),
-    0
-  );
-}
-
-function deriveMemoriesUpdatedAt(memory) {
-  const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
-    ? memory.sessionThreads
-    : memory?.activeThemes;
-  const themes = sanitizeActiveThemes(sourceThemes, Number(memory?.turns || 0));
-  let themeTs = 0;
-  for (const theme of themes) {
-    themeTs = Math.max(themeTs, Number(theme?.lastMentionedAt || 0));
-  }
-  return Math.max(
-    themeTs,
-    Number(memory?.taskLastUpdatedAt || 0),
-    Number(memory?.lastUpdatedAt || 0),
-    Number(memory?.lastConversationSnapshotAt || 0),
-    0
-  );
-}
-
-function computeMemoryTurnNumber(memory) {
-  return Math.max(
-    0,
-    Number(memory?.turns || memory?.conversationCount || 0)
-  );
-}
-
-function buildMemoryStateVersion(memory) {
-  const turnNumber = computeMemoryTurnNumber(memory);
-  const lastUpdatedAt = deriveMemoryLastUpdatedAt(memory);
-  const cycleIndex = Math.max(0, Number(memory?.cycleIndex || 0));
-  const season = Math.max(1, Number(memory?.season || 1));
-  const taskItems = sanitizeTaskItems(memory?.tasks, TASKS_MAX_STORED);
-  const openTaskCount = taskItems.filter((item) => item.status === "open").length;
-  const taskUpdatedAt = Math.max(0, Number(memory?.taskLastUpdatedAt || 0));
-  const forgottenMemoryCardIds = sanitizeMemoryCardIdList(memory?.forgottenMemoryCardIds, 768);
-  const activeThemeCount = sanitizeActiveThemes(
-    Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
-      ? memory.sessionThreads
-      : memory?.activeThemes,
-    turnNumber
-  ).length;
-  const historyCount = sanitizeTurnHistoryItems(memory?.turnHistory).length;
-  const raw = [
-    `schema:${API_SCHEMA_VERSION}`,
-    `turn:${turnNumber}`,
-    `updated:${lastUpdatedAt}`,
-    `cycle:${cycleIndex}`,
-    `season:${season}`,
-    `themes:${activeThemeCount}`,
-    `history:${historyCount}`,
-    `tasks:${taskItems.length}`,
-    `tasks_open:${openTaskCount}`,
-    `tasks_updated:${taskUpdatedAt}`,
-    `mem_hidden:${forgottenMemoryCardIds.length}`,
-  ].join("|");
-  return createHash("sha1").update(raw).digest("hex").slice(0, 24);
-}
-
-function buildStateEtag(stateVersion) {
-  return `W/"${String(stateVersion || "none")}"`;
-}
-
-function parseIfNoneMatchValues(rawHeader) {
-  const raw = String(rawHeader || "").trim();
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-function ifNoneMatchStateHit(req, etag, stateVersion) {
-  const candidates = parseIfNoneMatchValues(req.get("If-None-Match"));
-  if (!candidates.length) return false;
-  const etagLower = String(etag || "").toLowerCase();
-  const stateLower = String(stateVersion || "").toLowerCase();
-  return candidates.some((candidate) => {
-    const normalized = candidate.toLowerCase();
-    return normalized === etagLower ||
-      normalized === stateLower ||
-      normalized.replace(/^w\//, "") === etagLower.replace(/^w\//, "") ||
-      normalized.replace(/^w\//, "").replace(/^"|"$/g, "") === stateLower.replace(/^"|"$/g, "");
-  });
-}
-
-function resolveSessionIdForRead(req, selectedIp = "") {
-  const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  if (clientToken) {
-    const validSession = getValidSession(clientToken);
-    if (validSession) return clientToken;
-    const mappedIp = getPersistedIpForClientToken(clientToken, Date.now());
-    if (mappedIp && mappedIp === normalizeClientIp(selectedIp)) return clientToken;
-  }
-  const normalizedIp = normalizeClientIp(selectedIp);
-  return normalizedIp ? `ip:${normalizedIp}` : "unknown";
-}
-
-function buildReadStateMeta(req, memory, selectedIp = "") {
-  const lastUpdatedAt = deriveMemoryLastUpdatedAt(memory);
-  const historyUpdatedAt = deriveHistoryUpdatedAt(memory);
-  const memoryUpdatedAt = deriveMemoriesUpdatedAt(memory);
-  const turnNumber = computeMemoryTurnNumber(memory);
-  const lastTurnId = turnNumber > 0 ? `turn-${turnNumber}` : "";
-  const stateVersion = buildMemoryStateVersion(memory);
-  const etag = buildStateEtag(stateVersion);
-  return {
-    sessionId: resolveSessionIdForRead(req, selectedIp),
-    stateVersion,
-    etag,
-    lastUpdatedAt,
-    historyUpdatedAt,
-    memoryUpdatedAt,
-    lastTurnId,
-    schemaVersion: API_SCHEMA_VERSION,
-    backendBuild: BACKEND_BUILD,
-    backendBootId: BACKEND_BOOT_ID,
-  };
-}
-
-function applyReadStateHeaders(res, meta) {
-  const safeMeta = meta && typeof meta === "object" ? meta : {};
-  const etag = String(safeMeta.etag || "").trim();
-  if (etag) res.setHeader("ETag", etag);
-  res.setHeader("x-session-id", String(safeMeta.sessionId || "unknown"));
-  res.setHeader("x-state-version", String(safeMeta.stateVersion || "none"));
-  res.setHeader("x-last-updated-at", String(Math.max(0, Number(safeMeta.lastUpdatedAt || 0))));
-  res.setHeader("x-history-updated-at", String(Math.max(0, Number(safeMeta.historyUpdatedAt || 0))));
-  res.setHeader("x-memory-updated-at", String(Math.max(0, Number(safeMeta.memoryUpdatedAt || 0))));
-  res.setHeader("x-last-turn-id", String(safeMeta.lastTurnId || ""));
-  res.setHeader("x-schema-version", String(Math.max(1, Number(safeMeta.schemaVersion || API_SCHEMA_VERSION))));
-  res.setHeader("x-backend-build", String(safeMeta.backendBuild || BACKEND_BUILD));
-  res.setHeader("x-backend-boot-id", String(safeMeta.backendBootId || BACKEND_BOOT_ID));
-}
-
-function selectMemoryRecordForRead(req, now = Date.now()) {
-  cleanupUserMemoryStore(now);
-  const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  if (clientToken) {
-    const session = getValidSession(clientToken);
-    if (session?.memory && typeof session.memory === "object") {
-      return {
-        ip: normalizeClientIp(session.ip) || "unknown",
-        source: "session",
-        memory: sanitizePersistedSessionMemory(session.memory),
-      };
-    }
-    const aliasedIp = getPersistedIpForClientToken(clientToken, now);
-    const tokenMemory = getPersistedUserMemoryForClientToken(clientToken, now);
-    if (tokenMemory) {
-      return {
-        ip: aliasedIp || "unknown",
-        source: "client_token",
-        memory: sanitizePersistedSessionMemory(tokenMemory),
-      };
-    }
-  }
-
-  const requesterIp = normalizeClientIp(clientIp(req));
-  const directMemory = getPersistedUserMemoryForIp(requesterIp, now);
-  if (directMemory) {
-    return {
-      ip: requesterIp || "unknown",
-      source: "ip",
-      memory: sanitizePersistedSessionMemory(directMemory),
-    };
-  }
-
-  return {
-    ip: requesterIp || "unknown",
-    source: "empty",
-    memory: createEmptyEmotionMemory(),
-  };
-}
-
-function buildConversationHistoryThreads(memory, limit = 60, options = {}) {
-  const history = sanitizeTurnHistoryItems(memory?.turnHistory);
-  if (!history.length) return [];
-  const screenplayProjectId = normalizeSnippet(
-    options.screenplayProjectId ?? options.screenplay_project_id ?? "",
-    96
-  );
-
-  const grouped = new Map();
-  for (let idx = 0; idx < history.length; idx += 1) {
-    const item = history[idx];
-    const turn = Math.max(0, Number(item.turn || 0));
-    const key = turn > 0 ? `turn-${turn}` : `idx-${idx}`;
-    const current = grouped.get(key) || {
-      id: key,
-      turn,
-      user: "",
-      assistant: "",
-      updatedAt: 0,
-      requestId: "",
-      screenplayProjectId: "",
-      screenplayTarget: "",
-      screenplayPromptSource: "",
-      screenplayWriteId: "",
-      screenplayAnchorLine: 0,
-      screenplayAnchorEndLine: 0,
-      screenplayAnchorSceneLabel: "",
-      screenplayNoteTitle: "",
-      screenplayNoteBody: "",
-      screenplayInsertedText: "",
-      screenplayReplacementApplied: false,
-      screenplayReplacedWriteId: "",
-      screenplayRevisedBlockText: "",
-      screenplayResolvedAnchorExcerpt: "",
-    };
-    if (item.role === "assistant") {
-      current.assistant = normalizeSnippet(item.content, 280);
-    } else {
-      current.user = normalizeSnippet(item.content, 280);
-    }
-    current.requestId = item.requestId || current.requestId;
-    const studio = sanitizeStudioTurnMetadata(item.studio);
-    if (studio) {
-      current.screenplayProjectId = studio.screenplayProjectId || current.screenplayProjectId;
-      current.screenplayTarget = studio.screenplayTarget || current.screenplayTarget;
-      current.screenplayPromptSource = studio.screenplayPromptSource || current.screenplayPromptSource;
-      current.screenplayWriteId = studio.screenplayWriteId || current.screenplayWriteId;
-      current.screenplayAnchorLine = Math.max(current.screenplayAnchorLine, Number(studio.screenplayAnchorLine || 0));
-      current.screenplayAnchorEndLine = Math.max(current.screenplayAnchorEndLine, Number(studio.screenplayAnchorEndLine || 0));
-      current.screenplayAnchorSceneLabel = studio.screenplayAnchorSceneLabel || current.screenplayAnchorSceneLabel;
-      current.screenplayNoteTitle = studio.screenplayNoteTitle || current.screenplayNoteTitle;
-      current.screenplayNoteBody = studio.screenplayNoteBody || current.screenplayNoteBody;
-      current.screenplayInsertedText = studio.screenplayInsertedText || current.screenplayInsertedText;
-      current.screenplayReplacementApplied = Boolean(
-        current.screenplayReplacementApplied || studio.screenplayReplacementApplied
-      );
-      current.screenplayReplacedWriteId = studio.screenplayReplacedWriteId || current.screenplayReplacedWriteId;
-      current.screenplayRevisedBlockText = studio.screenplayRevisedBlockText || current.screenplayRevisedBlockText;
-      current.screenplayResolvedAnchorExcerpt =
-        studio.screenplayResolvedAnchorExcerpt || current.screenplayResolvedAnchorExcerpt;
-    }
-    current.updatedAt = Math.max(current.updatedAt, Number(item.ts || 0));
-    grouped.set(key, current);
-  }
-
-  return [...grouped.values()]
-    .filter((item) => !screenplayProjectId || item.screenplayProjectId === screenplayProjectId)
-    .filter((item) => item.user || item.assistant)
-    .sort((a, b) => {
-      const byTime = Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
-      if (byTime !== 0) return byTime;
-      return Number(b.turn || 0) - Number(a.turn || 0);
-    })
-    .slice(0, Math.max(1, limit))
-    .map((item, index) => {
-      const titleSource = item.user || item.assistant || "Conversation";
-      const previewSource = item.assistant || item.user || "Conversation";
-      return {
-        id: String(item.id || `history-${index}`),
-        turn: Math.max(0, Number(item.turn || 0)),
-        title: normalizeSnippet(titleSource, 120),
-        preview: normalizeSnippet(previewSource, 170),
-        user: normalizeSnippet(item.user, 280),
-        assistant: normalizeSnippet(item.assistant, 280),
-        updatedAt: Math.max(0, Number(item.updatedAt || 0)),
-        request_id: item.requestId || null,
-        screenplay_project_id: item.screenplayProjectId || null,
-        screenplay_target: item.screenplayTarget || null,
-        screenplay_prompt_source: item.screenplayPromptSource || null,
-        screenplay_write_id: item.screenplayWriteId || null,
-        screenplay_anchor_line: item.screenplayAnchorLine > 0 ? item.screenplayAnchorLine : null,
-        screenplay_anchor_end_line: item.screenplayAnchorEndLine > 0 ? item.screenplayAnchorEndLine : null,
-        screenplay_anchor_scene_label: item.screenplayAnchorSceneLabel || null,
-        screenplay_note_title: item.screenplayNoteTitle || null,
-        screenplay_note_body: item.screenplayNoteBody || null,
-        screenplay_inserted_text: item.screenplayInsertedText || null,
-        screenplay_replacement_applied: item.screenplayReplacementApplied ? true : null,
-        screenplay_replaced_write_id: item.screenplayReplacedWriteId || null,
-        screenplay_revised_block_text: item.screenplayRevisedBlockText || null,
-        screenplay_resolved_anchor_excerpt: item.screenplayResolvedAnchorExcerpt || null,
-      };
-    });
-}
+const {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildDailyRecapPayload,
+  buildMemoryStateVersion,
+  buildReadStateMeta,
+  buildStateEtag,
+  computeMemoryTurnNumber,
+  deriveHistoryUpdatedAt,
+  deriveMemoriesUpdatedAt,
+  deriveMemoryLastUpdatedAt,
+  ifNoneMatchStateHit,
+  resolveSessionIdForRead,
+  selectMemoryRecordForRead,
+} = createReadStateHelpers({
+  apiSchemaVersion: API_SCHEMA_VERSION,
+  backendBootId: BACKEND_BOOT_ID,
+  backendBuild: BACKEND_BUILD,
+  taskMaxStored: TASKS_MAX_STORED,
+  screenplayProjectMemoryMax: SCREENPLAY_PROJECT_MEMORY_MAX,
+  buildTaskSnapshot,
+  cleanupUserMemoryStore,
+  clientIp,
+  createEmptyEmotionMemory,
+  formatLocalDateStamp,
+  getLocalDayStartTs,
+  getPersistedIpForClientToken,
+  getPersistedUserMemoryForClientToken,
+  getPersistedUserMemoryForIp,
+  getPersistedUserMemoryForUserId,
+  getValidSession,
+  legacyAuthMemoryIp,
+  normalizeClientIp,
+  normalizeClientToken,
+  normalizeSnippet,
+  parseOneOf,
+  resolveAuthenticatedUserId,
+  sanitizeActiveThemes,
+  sanitizeMemoryCardIdList,
+  sanitizePersistedSessionMemory,
+  sanitizeScreenplayProjectMemoryItems,
+  sanitizeStudioTurnMetadata,
+  sanitizeTaskItems,
+  sanitizeTurnHistoryItems,
+});
 
 function buildBackfilledThemesFromHistory(memory, historyThreads = [], nowTs = Date.now()) {
   const baseMemory = sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
@@ -25274,7 +30110,625 @@ function promoteMemoryCardToThemeInMemory(
   };
 }
 
-function buildMemoryCards(memory, historyThreads = [], limit = 24) {
+function normalizeCharacterBibleCardList(items = [], maxItems = 5, maxChars = 180) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of items) {
+    const clean = normalizeSnippet(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function normalizeCharacterBibleCardArc(arc = null) {
+  if (!arc || typeof arc !== "object" || Array.isArray(arc)) return {};
+  const out = {};
+  const fields = [
+    ["act", arc.act ?? arc.currentAct ?? arc.current_act, 80],
+    ["want", arc.want ?? arc.consciousWant ?? arc.conscious_want, 180],
+    ["need", arc.need ?? arc.unconsciousNeed ?? arc.unconscious_need, 180],
+    ["wound", arc.wound, 180],
+    ["false_belief", arc.falseBelief ?? arc.false_belief, 180],
+    ["relationship_pressure", arc.relationshipPressure ?? arc.relationship_pressure, 180],
+    ["current_tactic", arc.currentTactic ?? arc.current_tactic, 180],
+    ["next_emotional_turn", arc.nextEmotionalTurn ?? arc.next_emotional_turn, 180],
+  ];
+  for (const [key, value, maxChars] of fields) {
+    const clean = normalizeSnippet(value, maxChars);
+    if (clean) out[key] = clean;
+  }
+  return out;
+}
+
+function learnedFieldProvenanceToApi(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((item) => {
+      const field = normalizeSnippet(item?.field, 64);
+      const value = normalizeSnippet(item?.value, 240);
+      if (!field || !value) return null;
+      return {
+        id: normalizeSnippet(item?.id, 96),
+        field,
+        value,
+        learned_value: normalizeSnippet(item?.learnedValue ?? item?.learned_value, 240),
+        source: normalizeSnippet(item?.source, 64),
+        status: normalizeSnippet(item?.status, 32) || "current",
+        question_id: normalizeSnippet(item?.questionId ?? item?.question_id, 120),
+        question: normalizeSnippet(item?.question, 260),
+        target_label: normalizeSnippet(item?.targetLabel ?? item?.target_label, 120),
+        source_correction_id: normalizeSnippet(
+          item?.sourceCorrectionId ?? item?.source_correction_id,
+          96
+        ),
+        correction_text: normalizeSnippet(item?.correctionText ?? item?.correction_text, 600),
+        learned_at: Math.max(0, Number(item?.learnedAt ?? item?.learned_at ?? 0)),
+        updated_at: Math.max(0, Number(item?.updatedAt ?? item?.updated_at ?? 0)),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 16);
+}
+
+function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now()) {
+  const characters = Array.isArray(creativeMemory?.characters)
+    ? creativeMemory.characters
+    : [];
+  const cards = [];
+  for (const character of characters) {
+    const name = normalizeSnippet(character?.name, 72);
+    if (!name) continue;
+    const bible = character?.bible && typeof character.bible === "object" && !Array.isArray(character.bible)
+      ? character.bible
+      : null;
+    const traits = character?.traits && typeof character.traits === "object" && !Array.isArray(character.traits)
+      ? character.traits
+      : null;
+    const canon = normalizeCharacterBibleCardList(bible?.canon ?? bible?.facts, 5, 220);
+    const corrections = normalizeCharacterBibleCardList(bible?.corrections, 4, 260);
+    const correctedTerms = normalizeCharacterBibleCardList(bible?.correctedTerms, 5, 120);
+    const correctionReplacements = normalizeCharacterBibleCardList(bible?.correctionReplacements, 5, 180);
+    const authoritativeFields = (Array.isArray(bible?.authoritativeFields)
+      ? bible.authoritativeFields
+      : [])
+      .map((item) => {
+        const field = normalizeSnippet(item?.field, 48);
+        const value = normalizeSnippet(item?.value, 180);
+        if (!field || !value) return null;
+        return {
+          id: normalizeSnippet(item?.id, 96),
+          field,
+          value,
+          source: normalizeSnippet(item?.source, 48),
+          source_correction_id: normalizeSnippet(
+            item?.sourceCorrectionId ?? item?.source_correction_id,
+            96
+          ),
+          correction_text: normalizeSnippet(
+            item?.correctionText ?? item?.correction_text,
+            600
+          ),
+          replaces_facts: normalizeCharacterBibleCardList(
+            item?.replacesFacts ?? item?.replaces_facts,
+            8,
+            220
+          ),
+          created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+    const fieldProvenance = learnedFieldProvenanceToApi(
+      buildCharacterFieldProvenance(bible)
+    );
+    const arc = normalizeCharacterBibleCardArc(bible?.arc);
+    const voice = normalizeSnippet(character?.voice, 140);
+    const tags = normalizeCharacterBibleCardList(character?.tags, 8, 48);
+    const traitKeywords = normalizeCharacterBibleCardList(traits?.keywords, 5, 80);
+    const hasArc = Object.keys(arc).length > 0;
+    const hasSignal = canon.length || corrections.length || correctedTerms.length ||
+      correctionReplacements.length || authoritativeFields.length || fieldProvenance.length ||
+      hasArc || voice || traitKeywords.length;
+    if (!hasSignal) continue;
+
+    const summaryParts = [
+      arc.want ? `Want: ${arc.want}` : "",
+      arc.need ? `Need: ${arc.need}` : "",
+      arc.next_emotional_turn ? `Next turn: ${arc.next_emotional_turn}` : "",
+      canon[0] ? `Canon: ${canon[0]}` : "",
+      voice ? `Voice: ${voice}` : "",
+    ].filter(Boolean);
+    const lastReferenced = Math.max(0, Number(character?.last_referenced || character?.lastReferenced || 0));
+    const firstSeen = Math.max(0, Number(character?.first_seen || character?.firstSeen || 0));
+    const updatedAt = Math.max(lastReferenced, firstSeen, Number(creativeMemory?.updatedAt || 0));
+    const idKey = normalizeMemoryCardId(name) || `character-${cards.length + 1}`;
+    cards.push({
+      id: `character-${idKey}`,
+      key: `character:${name}`,
+      title: `${name} Character Memory`,
+      summary: normalizeSnippet(
+        summaryParts.join(" | ") || `${name}'s durable character bible and arc memory.`,
+        280
+      ),
+      reason: "Captured from screenplay character memory and corrections.",
+      emotionalTone: voice,
+      salience: 0.86,
+      confidence: corrections.length || correctionReplacements.length ? 0.88 : 0.80,
+      rememberedAt: updatedAt || nowTs,
+      lastUsedAt: lastReferenced || updatedAt || 0,
+      qualityScore: corrections.length || correctionReplacements.length ? 0.84 : 0.76,
+      qualityHitCount: 0,
+      qualityCorrectionCount: corrections.length + correctionReplacements.length,
+      qualityLastFeedbackAt: lastReferenced || updatedAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: lastReferenced || updatedAt || nowTs },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays(
+          { lastMentionedAt: lastReferenced || updatedAt || nowTs },
+          nowTs
+        )
+      ),
+      editable: true,
+      snippets: [
+        ...authoritativeFields.map((item) => `Authoritative ${item.field}: ${item.value}`),
+        ...corrections,
+        ...canon,
+        ...traitKeywords.map((item) => `Trait: ${item}`),
+      ].slice(0, 4),
+      referenceHint: normalizeSnippet(arc.next_emotional_turn || arc.current_tactic || canon[0] || "", 140),
+      source: "character_bible",
+      projectId: normalizeSnippet(character?.metadata?.projectId ?? character?.metadata?.project_id, 96),
+      projectTitle: normalizeSnippet(
+        character?.metadata?.projectTitle ?? character?.metadata?.project_title,
+        160
+      ),
+      character_bible: {
+        character: name,
+        canon,
+        corrections,
+        corrected_terms: correctedTerms,
+        correction_replacements: correctionReplacements,
+        authoritative_fields: authoritativeFields,
+        field_provenance: fieldProvenance,
+        arc,
+        voice,
+        tags,
+      },
+    });
+  }
+  return cards;
+}
+
+function stableMemoryCardHash(value = "") {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.now()) {
+  const receipts = Array.isArray(creativeMemory?.canonCorrectionReceipts)
+    ? creativeMemory.canonCorrectionReceipts
+    : [];
+  return receipts.map((receipt, index) => {
+    const id = normalizeSnippet(receipt?.id, 96);
+    const status = String(receipt?.status || "active").trim().toLowerCase() === "undone"
+      ? "undone"
+      : "active";
+    const projectId = normalizeSnippet(receipt?.projectId ?? receipt?.project_id, 96);
+    const projectTitle = normalizeSnippet(receipt?.projectTitle ?? receipt?.project_title, 160);
+    const correctionText = normalizeSnippet(
+      receipt?.correctionText ?? receipt?.correction_text,
+      600
+    );
+    const matchedFacts = normalizeCharacterBibleCardList(
+      receipt?.matchedFacts ?? receipt?.matched_facts,
+      8,
+      220
+    );
+    const replacementFacts = normalizeCharacterBibleCardList(
+      receipt?.replacementFacts ?? receipt?.replacement_facts,
+      8,
+      220
+    );
+    const replacementFactIds = normalizeCharacterBibleCardList(
+      receipt?.replacementFactIds ?? receipt?.replacement_fact_ids,
+      8,
+      96
+    );
+    const structuredUpdates = normalizeCharacterBibleCardList(
+      receipt?.structuredUpdates ?? receipt?.structured_updates,
+      16,
+      260
+    );
+    const correctionMemoryId = normalizeSnippet(
+      receipt?.correctionMemoryId ?? receipt?.correction_memory_id,
+      80
+    );
+    const createdAt = Math.max(0, Number(receipt?.createdAt ?? receipt?.created_at ?? 0));
+    const undoneAt = Math.max(0, Number(receipt?.undoneAt ?? receipt?.undone_at ?? 0));
+    const subject = projectTitle || projectId || "Screenplay";
+    const cardId = normalizeMemoryCardId(id || `canon-correction-${index + 1}`);
+    return {
+      id: `correction-${cardId || index + 1}`,
+      key: `correction:${id || cardId}`,
+      title: normalizeSnippet(`${subject} Canon Correction`, 84),
+      summary: correctionText || `Accepted canon changed: ${matchedFacts[0] || "screenplay fact"}`,
+      reason: status === "undone"
+        ? "This correction was undone and is preserved as an audit receipt."
+        : "Authoritative writer correction applied to accepted screenplay canon.",
+      emotionalTone: "",
+      salience: status === "undone" ? 0.36 : 0.92,
+      confidence: status === "undone" ? 0.72 : 0.96,
+      rememberedAt: undoneAt || createdAt || nowTs,
+      lastUsedAt: undoneAt || createdAt || 0,
+      qualityScore: status === "undone" ? 0.68 : 0.92,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 1,
+      qualityLastFeedbackAt: undoneAt || createdAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: undoneAt || createdAt || nowTs },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays({ lastMentionedAt: undoneAt || createdAt || nowTs }, nowTs)
+      ),
+      editable: false,
+      snippets: [
+        matchedFacts.length ? `Changed canon: ${matchedFacts.join(" / ")}` : "",
+        replacementFacts.length ? `Authoritative now: ${replacementFacts.join(" / ")}` : "",
+        structuredUpdates.length ? `Updated story bible: ${structuredUpdates.join(" / ")}` : "",
+        correctionText ? `Writer correction: ${correctionText}` : "",
+      ].filter(Boolean),
+      referenceHint: replacementFacts[0] || matchedFacts[0] || correctionText,
+      source: status === "undone" ? "canon_correction_undone" : "canon_correction",
+      project_id: projectId,
+      project_title: projectTitle,
+      tags: ["screenplay", "correction", status],
+      is_correction_memory: true,
+      correction_receipt: {
+        id: id || cardId,
+        status,
+        project_id: projectId,
+        project_title: projectTitle,
+        correction_text: correctionText,
+        matched_facts: matchedFacts,
+        replacement_facts: replacementFacts,
+        replacement_fact_ids: replacementFactIds,
+        structured_updates: structuredUpdates,
+        correction_memory_id: correctionMemoryId,
+        created_at: createdAt,
+        undone_at: undoneAt || null,
+      },
+    };
+  }).filter((card) => card.correction_receipt.id && card.correction_receipt.matched_facts.length);
+}
+
+function buildCanonCorrectionAmbiguityCards(creativeMemory = null, nowTs = Date.now()) {
+  const ambiguities = Array.isArray(creativeMemory?.canonCorrectionAmbiguities)
+    ? creativeMemory.canonCorrectionAmbiguities
+    : [];
+  return ambiguities.map((ambiguity, index) => {
+    const id = normalizeSnippet(ambiguity?.id, 96);
+    const status = String(ambiguity?.status || "pending").trim().toLowerCase();
+    if (status !== "pending") return null;
+    const projectId = normalizeSnippet(ambiguity?.projectId ?? ambiguity?.project_id, 96);
+    const projectTitle = normalizeSnippet(ambiguity?.projectTitle ?? ambiguity?.project_title, 160);
+    const correctionText = normalizeSnippet(
+      ambiguity?.correctionText ?? ambiguity?.correction_text,
+      600
+    );
+    const candidateFacts = normalizeCharacterBibleCardList(
+      ambiguity?.candidateFacts ?? ambiguity?.candidate_facts,
+      8,
+      220
+    );
+    const correctionMemoryId = normalizeSnippet(
+      ambiguity?.correctionMemoryId ?? ambiguity?.correction_memory_id,
+      80
+    );
+    const createdAt = Math.max(0, Number(ambiguity?.createdAt ?? ambiguity?.created_at ?? 0));
+    const subject = projectTitle || projectId || "Screenplay";
+    const cardId = normalizeMemoryCardId(id || `canon-ambiguity-${index + 1}`);
+    return {
+      id: `correction-choice-${cardId || index + 1}`,
+      key: `correction-ambiguity:${id || cardId}`,
+      title: normalizeSnippet(`${subject} Needs Clarification`, 84),
+      summary: correctionText || "Choose every accepted screenplay fact this correction replaces.",
+      reason: "Several accepted canon facts matched. Clementine preserved all of them until the writer chooses.",
+      emotionalTone: "",
+      salience: 0.98,
+      confidence: 0.52,
+      rememberedAt: createdAt || nowTs,
+      lastUsedAt: createdAt || 0,
+      qualityScore: 0.74,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 1,
+      qualityLastFeedbackAt: createdAt || 0,
+      stalenessDays: computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs)
+      ),
+      editable: false,
+      snippets: candidateFacts.map((fact) => `Possible canon: ${fact}`),
+      referenceHint: candidateFacts[0] || correctionText,
+      source: "canon_correction_ambiguous",
+      project_id: projectId,
+      project_title: projectTitle,
+      tags: ["screenplay", "correction", "needs-clarification"],
+      is_correction_memory: true,
+      correction_ambiguity: {
+        id: id || cardId,
+        status: "pending",
+        project_id: projectId,
+        project_title: projectTitle,
+        correction_text: correctionText,
+        candidate_facts: candidateFacts,
+        correction_memory_id: correctionMemoryId,
+        selected_facts: [],
+        created_at: createdAt,
+      },
+    };
+  }).filter((card) => card?.correction_ambiguity?.id && card.correction_ambiguity.candidate_facts.length > 1);
+}
+
+function buildEpisodicMemoryCards(
+  creativeMemory = null,
+  nowTs = Date.now(),
+  excludedMemoryIds = new Set()
+) {
+  const episodes = Array.isArray(creativeMemory?.episodicMemories)
+    ? creativeMemory.episodicMemories
+    : [];
+  const cards = [];
+  for (const episode of episodes) {
+    const memoryId = normalizeSnippet(episode?.id, 80);
+    if (memoryId && excludedMemoryIds.has(memoryId)) continue;
+    const summary = normalizeSnippet(episode?.summary, 280);
+    const excerpt = normalizeSnippet(episode?.excerpt, 420);
+    const tags = normalizeCharacterBibleCardList(episode?.tags, 8, 48)
+      .map((tag) => String(tag || "").toLowerCase())
+      .filter(Boolean);
+    const characters = normalizeCharacterBibleCardList(
+      episode?.characterNames ?? episode?.characters,
+      8,
+      48
+    );
+    const projectTitle = normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 120);
+    const projectId = normalizeSnippet(episode?.projectId ?? episode?.project_id, 96);
+    const createdAt = Math.max(0, Number(episode?.createdAt ?? episode?.created_at ?? 0));
+    const updatedAt = Math.max(createdAt, Number(episode?.updatedAt ?? episode?.updated_at ?? createdAt));
+    const lastReferencedAt = Math.max(0, Number(
+      episode?.lastReferencedAt ?? episode?.last_referenced_at ?? updatedAt
+    ));
+    const referenceCount = Math.max(0, Number(episode?.referenceCount ?? episode?.reference_count ?? 0));
+    const supersededAt = Math.max(0, Number(episode?.supersededAt ?? episode?.superseded_at ?? 0));
+    const isCorrection = tags.includes("correction");
+    const isSuperseded = supersededAt > 0 || tags.includes("superseded");
+    if (!summary && !excerpt && !characters.length && !projectTitle) continue;
+
+    const subject = characters.length
+      ? characters.slice(0, 2).join(", ")
+      : (projectTitle || "Story");
+    const title = isSuperseded
+      ? `${subject} Superseded Memory`
+      : isCorrection
+        ? `${subject} Correction Memory`
+        : `${subject} Story Memory`;
+    const qualityScore = isSuperseded ? 0.32 : (isCorrection ? 0.86 : 0.74);
+    const rememberedAt = updatedAt || createdAt || nowTs;
+    const snippets = [
+      isSuperseded
+        ? normalizeSnippet(episode?.supersededReason ?? episode?.superseded_reason, 220)
+        : "",
+      excerpt,
+      projectTitle ? `Project: ${projectTitle}` : "",
+      tags.length ? `Tags: ${tags.join(", ")}` : "",
+    ].filter(Boolean).slice(0, 4);
+    const normalizedId = normalizeMemoryCardId(memoryId || stableMemoryCardHash([
+      summary,
+      excerpt,
+      projectId,
+      projectTitle,
+      characters.join("|"),
+    ].join("|")));
+
+    cards.push({
+      id: `episode-${normalizedId || cards.length + 1}`,
+      key: memoryId ? `episode:${memoryId}` : `episode:${normalizedId || cards.length + 1}`,
+      title: normalizeSnippet(title, 72),
+      summary: normalizeSnippet(summary || excerpt || `${subject} screenplay memory.`, 280),
+      reason: isSuperseded
+        ? "Kept for audit history, but no longer used in prompts after a later correction."
+        : isCorrection
+          ? "Authoritative correction used before older conflicting screenplay memory."
+          : "Captured from episodic screenplay memory and available for continuity.",
+      emotionalTone: "",
+      salience: isSuperseded ? 0.18 : (isCorrection ? 0.88 : 0.72),
+      confidence: isSuperseded ? 0.36 : (isCorrection ? 0.88 : 0.76),
+      rememberedAt,
+      lastUsedAt: lastReferencedAt || updatedAt || 0,
+      qualityScore,
+      qualityHitCount: referenceCount,
+      qualityCorrectionCount: isCorrection ? 1 : 0,
+      qualityLastFeedbackAt: lastReferencedAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
+        nowTs
+      ),
+      stalenessBand: isSuperseded
+        ? "stale"
+        : classifyThemeStalenessBand(
+          computeThemeStalenessDays(
+            { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
+            nowTs
+          )
+        ),
+      editable: false,
+      snippets,
+      referenceHint: normalizeSnippet(excerpt || summary, 120),
+      source: isSuperseded
+        ? "episodic_superseded"
+        : isCorrection
+          ? "episodic_correction"
+          : "episodic_memory",
+      episodic_id: memoryId,
+      project_id: projectId,
+      project_title: projectTitle,
+      character_names: characters,
+      tags,
+      is_correction_memory: isCorrection,
+      is_superseded: isSuperseded,
+      superseded_at: supersededAt || null,
+      superseded_by_memory_id: normalizeSnippet(
+        episode?.supersededByMemoryId ?? episode?.superseded_by_memory_id,
+        80
+      ),
+      superseded_reason: normalizeSnippet(
+        episode?.supersededReason ?? episode?.superseded_reason,
+        220
+      ),
+      superseded_terms: normalizeCharacterBibleCardList(
+        episode?.supersededTerms ?? episode?.superseded_terms,
+        8,
+        120
+      ),
+      reference_count: referenceCount,
+    });
+  }
+  return cards;
+}
+
+function buildScreenplayProjectMemoryCardId(item = {}, fallback = "") {
+  const key = [
+    "screenplay-project",
+    item?.projectId || item?.documentRevisionId || item?.sceneLabel || item?.updatedAt || fallback,
+  ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-");
+  return normalizeMemoryCardId(key);
+}
+
+function normalizeStoryObligationChangeForApi(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const status = normalizeSnippet(value.status, 32)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const kind = normalizeSnippet(value.kind, 48)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const obligation = normalizeSnippet(value.obligation, 220);
+  const result = normalizeSnippet(value.result ?? value.fact, 240);
+  const evidence = normalizeSnippet(value.evidence, 320);
+  if (
+    !obligation ||
+    !result ||
+    !evidence ||
+    !["advanced", "complicated", "transformed", "paid_off"].includes(status)
+  ) return null;
+  return Object.fromEntries(Object.entries({
+    id: normalizeSnippet(value.id, 96),
+    kind: ["setup", "promised_payoff", "accepted_consequence"].includes(kind)
+      ? kind
+      : "setup",
+    obligation,
+    status,
+    result,
+    evidence,
+    source_scene_heading: normalizeSnippet(
+      value.sourceSceneHeading ?? value.source_scene_heading,
+      140
+    ),
+    source_act: normalizeSnippet(value.sourceAct ?? value.source_act, 80),
+    source_position: Math.max(0, Math.round(Number(
+      value.sourcePosition ?? value.source_position ?? 0
+    ))),
+    accepted_at: Math.max(0, Number(value.acceptedAt ?? value.accepted_at ?? 0)),
+  }).filter(([, item]) => typeof item === "number" ? item > 0 : Boolean(item)));
+}
+
+function normalizeStoryObligationLedgerForApi(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const normalized = normalizeStoryObligationChangeForApi(item);
+    const key = normalizeSnippet(normalized?.obligation, 220).toLowerCase();
+    if (!normalized || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function normalizeStoryObligationCorrectionsForApi(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obligation = normalizeSnippet(item.obligation, 220);
+    const action = normalizeSnippet(item.action, 32).toLowerCase().replace(/[\s-]+/g, "_");
+    const correctedAt = Math.max(0, Number(item.correctedAt ?? item.corrected_at ?? 0));
+    const key = obligation.toLowerCase();
+    if (!obligation || !["keep_open", "retire"].includes(action) || !correctedAt || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(Object.fromEntries(Object.entries({
+      id: normalizeSnippet(item.id, 96),
+      obligation,
+      action,
+      note: normalizeSnippet(item.note, 240),
+      source_change_id: normalizeSnippet(item.sourceChangeId ?? item.source_change_id, 96),
+      source_status: normalizeSnippet(item.sourceStatus ?? item.source_status, 32),
+      corrected_at: correctedAt,
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))));
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+
+function filterRetiredStoryObligationsForApi(values = [], corrections = []) {
+  const retired = new Set(
+    normalizeStoryObligationCorrectionsForApi(corrections)
+      .filter((item) => item.action === "retire")
+      .map((item) => item.obligation.toLowerCase())
+  );
+  return normalizeScreenplayStringList(values, 8, 220)
+    .filter((item) => !retired.has(item.toLowerCase()));
+}
+
+function storyObligationStateForCreativeProject(project = null) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) {
+    return { ledger: [], current: null, corrections: [] };
+  }
+  const graph = buildFeatureStoryGraph({
+    projectContinuity: project,
+    acceptedScenes: Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [],
+  });
+  const ledger = normalizeStoryObligationLedgerForApi(graph?.storyObligationLedger);
+  return {
+    ledger,
+    current: normalizeStoryObligationChangeForApi(
+      graph?.currentStoryObligationChange ?? ledger[0]
+    ),
+    corrections: normalizeStoryObligationCorrectionsForApi(
+      graph?.storyObligationCorrections
+    ),
+  };
+}
+
+function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemory = null) {
   const nowTs = Date.now();
   const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
     ? memory.sessionThreads
@@ -25291,6 +30745,217 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24) {
   const hasPostClearConversation = recentHistoryThreads.length > 0 ||
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
+  cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
+  const correctionAmbiguities = buildCanonCorrectionAmbiguityCards(creativeMemory, nowTs);
+  const correctionReceipts = buildCanonCorrectionReceiptCards(creativeMemory, nowTs);
+  const controlledCorrectionMemoryIds = new Set(
+    [
+      ...(Array.isArray(creativeMemory?.canonCorrectionAmbiguities)
+        ? creativeMemory.canonCorrectionAmbiguities
+        : []),
+      ...(Array.isArray(creativeMemory?.canonCorrectionReceipts)
+        ? creativeMemory.canonCorrectionReceipts
+        : []),
+    ]
+      .map((item) => String(item?.correctionMemoryId ?? item?.correction_memory_id ?? "").trim())
+      .filter(Boolean)
+  );
+  cards.push(...correctionAmbiguities);
+  cards.push(...correctionReceipts);
+  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs, controlledCorrectionMemoryIds));
+
+  let screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  ).filter((item) => (
+    !hasClearMarker ||
+    Math.max(0, Number(item?.updatedAt || 0)) > memoriesClearedAt
+  ));
+
+  const creativeProjects = (Array.isArray(creativeMemory?.projects)
+    ? creativeMemory.projects
+    : [])
+    .filter((project) => (
+      !hasClearMarker || Math.max(0, Number(project?.updatedAt || 0)) > memoriesClearedAt
+    ));
+  const matchedCreativeProjects = new Set();
+  screenplayProjectMemory = screenplayProjectMemory.map((item) => {
+    const projectId = normalizeSnippet(item?.projectId, 96).toLowerCase();
+    const projectTitle = normalizeSnippet(item?.projectTitle, 160).toLowerCase();
+    const creativeIndex = creativeProjects.findIndex((project) => {
+      const candidateId = normalizeSnippet(project?.projectId ?? project?.project_id, 96).toLowerCase();
+      const candidateTitle = normalizeSnippet(
+        project?.projectTitle ?? project?.project_title,
+        160
+      ).toLowerCase();
+      if (projectId && candidateId) return projectId === candidateId;
+      return !projectId && projectTitle && candidateTitle === projectTitle;
+    });
+    if (creativeIndex < 0) return item;
+    matchedCreativeProjects.add(creativeIndex);
+    const project = creativeProjects[creativeIndex];
+    const fieldProvenance = buildProjectFieldProvenance(project);
+    const obligationState = storyObligationStateForCreativeProject(project);
+    const merged = {
+      ...item,
+      _fieldProvenance: fieldProvenance,
+      _storyObligationLedger: obligationState.ledger,
+      _currentStoryObligationChange: obligationState.current,
+      _storyObligationCorrections: obligationState.corrections,
+    };
+    for (const row of fieldProvenance) {
+      const projectValue = project?.[row.field];
+      merged[row.field] = Array.isArray(projectValue) ? projectValue : row.value;
+    }
+    merged.updatedAt = Math.max(
+      Number(item?.updatedAt || 0),
+      Number(project?.updatedAt || 0)
+    );
+    return merged;
+  });
+  for (const [index, project] of creativeProjects.entries()) {
+    if (matchedCreativeProjects.has(index)) continue;
+    const projected = sanitizeScreenplayProjectMemoryItems([project], 1)[0];
+    if (!projected) continue;
+    const obligationState = storyObligationStateForCreativeProject(project);
+    screenplayProjectMemory.push({
+      ...projected,
+      _fieldProvenance: buildProjectFieldProvenance(project),
+      _storyObligationLedger: obligationState.ledger,
+      _currentStoryObligationChange: obligationState.current,
+      _storyObligationCorrections: obligationState.corrections,
+    });
+  }
+  screenplayProjectMemory = screenplayProjectMemory
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, SCREENPLAY_PROJECT_MEMORY_MAX);
+
+  for (const item of screenplayProjectMemory) {
+    const projectKey = buildScreenplayProjectMemoryCardId(item, cards.length + 1);
+    const title = normalizeSnippet(
+      item.projectTitle ||
+        item.sceneLabel ||
+        item.featureSequence ||
+        item.act ||
+        "Screenplay Project",
+      72
+    );
+    const summaryParts = [
+      item.act ? `Act: ${item.act}` : "",
+      item.currentBeat ? `Beat: ${item.currentBeat}` : "",
+      item.sceneObjective ? `Objective: ${item.sceneObjective}` : "",
+      item.emotionalContinuity ? `Emotional continuity: ${item.emotionalContinuity}` : "",
+      item.nextScenePlan ? `Next: ${item.nextScenePlan}` : "",
+    ].filter(Boolean);
+    const snippets = [
+      item.lastWritePreview,
+      item.featureObligation,
+      filterRetiredStoryObligationsForApi(
+        item.unresolvedSetups,
+        item._storyObligationCorrections
+      ).slice(0, 2).join(" / "),
+      item.continuityNotes.slice(0, 2).join(" / "),
+    ].map((value) => normalizeSnippet(value, 180)).filter(Boolean);
+    cards.push({
+      id: projectKey || `screenplay-project-${cards.length + 1}`,
+      key: item.projectId || item.documentRevisionId || projectKey,
+      title,
+      summary: normalizeSnippet(
+        summaryParts.join(" | ") ||
+          item.lastWritePreview ||
+          "Durable screenplay continuity captured from Studio writing turns.",
+        260
+      ),
+      reason: "Captured from screenplay Studio continuity.",
+      emotionalTone: normalizeSnippet(item.emotionalContinuity, 72),
+      salience: 0.84,
+      confidence: 0.78,
+      rememberedAt: Math.max(0, Number(item.updatedAt || 0)),
+      lastUsedAt: Math.max(0, Number(item.updatedAt || 0)),
+      qualityScore: 0.78,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 0,
+      qualityLastFeedbackAt: 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays(
+          { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
+          nowTs
+        )
+      ),
+      editable: true,
+      snippets: snippets.slice(0, 3),
+      referenceHint: normalizeSnippet(item.nextScenePlan, 120),
+      source: "screenplay_project",
+      projectId: normalizeSnippet(item.projectId, 96),
+      projectTitle: normalizeSnippet(item.projectTitle || item.projectId, 160),
+      characterNames: normalizeScreenplayStringList(item.characterFocus, 8, 80),
+      tags: normalizeScreenplayStringList(
+        ["screenplay", "story_spine", item.act, item.featureSequence],
+        6,
+        80
+      ),
+      storySpine: {
+        projectId: normalizeSnippet(item.projectId, 96),
+        projectTitle: normalizeSnippet(item.projectTitle || item.projectId, 160),
+        act: normalizeSnippet(item.act, 120),
+        featureSequence: normalizeSnippet(item.featureSequence, 220),
+        featureObligation: normalizeSnippet(item.featureObligation, 280),
+        actProgress: screenplayActProgressToApi(item.actProgress),
+        sceneLabel: normalizeSnippet(item.sceneLabel, 120),
+        sceneObjective: normalizeSnippet(item.sceneObjective, 280),
+        sceneSummary: normalizeSnippet(item.sceneSummary, 280),
+        currentBeat: normalizeSnippet(item.currentBeat, 220),
+        logline: normalizeSnippet(item.logline, 280),
+        themeArgument: normalizeSnippet(item.themeArgument, 280),
+        centralQuestion: normalizeSnippet(item.centralQuestion, 280),
+        protagonistWant: normalizeSnippet(item.protagonistWant, 240),
+        protagonistNeed: normalizeSnippet(item.protagonistNeed, 240),
+        antagonisticForce: normalizeSnippet(item.antagonisticForce, 260),
+        endingImage: normalizeSnippet(item.endingImage, 240),
+        actPressureState: normalizeSnippet(item.actPressureState, 280),
+        characterArcState: normalizeSnippet(item.characterArcState, 280),
+        lastSceneOutcome: normalizeSnippet(item.lastSceneOutcome, 240),
+        nextScenePlan: normalizeSnippet(item.nextScenePlan, 340),
+        nextSceneMoves: normalizeScreenplayStringList(item.nextSceneMoves, 5, 180),
+        nextThreeTurns: normalizeScreenplayStringList(item.nextThreeTurns, 3, 180),
+        actThreePayoffPath: filterRetiredStoryObligationsForApi(
+          item.actThreePayoffPath,
+          item._storyObligationCorrections
+        ).slice(0, 5),
+        beatSequence: normalizeScreenplayStringList(item.beatSequence, 8, 180),
+        characterFocus: normalizeScreenplayStringList(item.characterFocus, 8, 120),
+        unresolvedSetups: filterRetiredStoryObligationsForApi(
+          item.unresolvedSetups,
+          item._storyObligationCorrections
+        ),
+        unresolvedStoryThreads: filterRetiredStoryObligationsForApi(
+          item.unresolvedStoryThreads,
+          item._storyObligationCorrections
+        ),
+        characterArcTurns: normalizeScreenplayStringList(item.characterArcTurns, 6, 180),
+        imageMotifs: normalizeScreenplayStringList(item.imageMotifs, 6, 140),
+        continuityNotes: normalizeScreenplayStringList(item.continuityNotes, 8, 220),
+        emotionalContinuity: normalizeSnippet(item.emotionalContinuity, 280),
+        pageCount: normalizeScreenplayMemoryInteger(item.pageCount),
+        targetPages: normalizeScreenplayMemoryInteger(item.targetPages),
+        updatedAt: Math.max(0, Number(item.updatedAt || 0)),
+        field_provenance: learnedFieldProvenanceToApi(item._fieldProvenance),
+        story_obligation_ledger: normalizeStoryObligationLedgerForApi(
+          item._storyObligationLedger
+        ),
+        current_story_obligation_change: normalizeStoryObligationChangeForApi(
+          item._currentStoryObligationChange
+        ),
+        story_obligation_corrections: normalizeStoryObligationCorrectionsForApi(
+          item._storyObligationCorrections
+        ),
+      },
+    });
+  }
 
   for (const theme of themes) {
     const title = normalizeThemeLabel(theme?.label, "Memory");
@@ -25620,17 +31285,168 @@ function markThemeMemoryUsage(memory, themeKey = "", nowTs = Date.now()) {
   return Boolean(result?.ok);
 }
 
+function readStorySpinePatchField(source = {}, field = "") {
+  if (!source || typeof source !== "object" || !field) return undefined;
+  const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+  return source[field] ?? source[snakeKey];
+}
+
+function normalizeStorySpinePatchForProjectMemory(
+  storySpine = null,
+  {
+    existing = null,
+    key = "",
+    title = "",
+    summary = "",
+    reason = "",
+    nowTs = Date.now(),
+  } = {}
+) {
+  const source = storySpine && typeof storySpine === "object" && !Array.isArray(storySpine)
+    ? storySpine
+    : {};
+  const patch = {};
+
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    const raw = readStorySpinePatchField(source, field);
+    const clean = normalizeSnippet(raw ?? "", maxChars);
+    if (clean) patch[field] = clean;
+  }
+
+  patch.projectId ||= normalizeSnippet(existing?.projectId || key, 96);
+  patch.projectTitle ||= normalizeSnippet(title || existing?.projectTitle || existing?.projectId || key, 160);
+  patch.documentRevisionId ||= normalizeSnippet(existing?.documentRevisionId, 96);
+  if (summary) {
+    patch.sceneSummary ||= normalizeSnippet(summary, 280);
+    patch.currentBeat ||= normalizeSnippet(summary, 220);
+  }
+
+  for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    const raw = readStorySpinePatchField(source, field);
+    const items = normalizeScreenplayStringList(raw, maxItems, maxChars);
+    if (items.length) patch[field] = items;
+  }
+
+  const correctionNote = normalizeSnippet(reason, 220);
+  if (correctionNote) {
+    patch.continuityNotes = mergeScreenplayProjectMemoryList(
+      [],
+      [
+        ...(Array.isArray(patch.continuityNotes) ? patch.continuityNotes : []),
+        `User corrected Story Spine memory: ${correctionNote}`,
+      ],
+      8,
+      220
+    );
+  }
+
+  patch.pageCount = normalizeScreenplayMemoryInteger(
+    readStorySpinePatchField(source, "pageCount") || existing?.pageCount
+  );
+  patch.targetPages = normalizeScreenplayMemoryInteger(
+    readStorySpinePatchField(source, "targetPages") || existing?.targetPages
+  );
+  patch.lastUserIntent = normalizeSnippet(reason || summary || title, 180);
+  patch.lastWritePreview = normalizeTalkMultilineSnippet(
+    [patch.sceneSummary, patch.currentBeat, patch.nextScenePlan].filter(Boolean).join("\n"),
+    900
+  );
+  patch.interactionCount = 1;
+  patch.writeCount = 0;
+  patch.createdAt = Math.max(0, Number(existing?.createdAt || nowTs));
+  patch.updatedAt = Math.max(0, Number(nowTs || Date.now()));
+
+  return sanitizeScreenplayProjectMemoryItems([patch], 1)[0] || null;
+}
+
+function updateScreenplayProjectMemoryCardInMemory(memory, {
+  cardId = "",
+  key = "",
+  title = "",
+  summary = "",
+  reason = "",
+  storySpine = null,
+} = {}, nowTs = Date.now()) {
+  if (!memory || typeof memory !== "object") {
+    return { ok: false, status: "missing_memory", message: "Memory context not found." };
+  }
+  const normalizedCardId = normalizeMemoryCardId(cardId);
+  const normalizedKey = String(key || "").trim();
+  const current = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const matchIndex = current.findIndex((item, index) => {
+    const itemCardId = buildScreenplayProjectMemoryCardId(item, index + 1);
+    return (
+      (normalizedCardId && itemCardId === normalizedCardId) ||
+      (normalizedKey && (
+        normalizedKey === item.projectId ||
+        normalizedKey === item.documentRevisionId ||
+        normalizedKey === itemCardId
+      ))
+    );
+  });
+  if (matchIndex < 0) {
+    return { ok: false, status: "not_found", message: "Screenplay project memory card not found." };
+  }
+
+  const incoming = normalizeStorySpinePatchForProjectMemory(storySpine, {
+    existing: current[matchIndex],
+    key: normalizedKey,
+    title,
+    summary,
+    reason,
+    nowTs,
+  });
+  if (!incoming) {
+    return { ok: false, status: "invalid_story_spine", message: "Story Spine correction is empty." };
+  }
+
+  const next = [...current];
+  next[matchIndex] = mergeScreenplayProjectMemoryRecords(current[matchIndex], incoming, nowTs);
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    next,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  memory.screenplayProjectMemoryUpdatedAt = Math.max(
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0),
+    Number(nowTs || Date.now())
+  );
+  const updatedCardId = buildScreenplayProjectMemoryCardId(memory.screenplayProjectMemory[0], 1);
+  removeForgottenMemoryCardId(memory, normalizedCardId || updatedCardId);
+  memory.lastUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
+
+  return {
+    ok: true,
+    status: "updated",
+    cardId: updatedCardId || normalizedCardId,
+    projectId: memory.screenplayProjectMemory[0]?.projectId || normalizedKey,
+  };
+}
+
 function updateMemoryCardInMemory(memory, {
   cardId = "",
   key = "",
   title = "",
   summary = "",
   reason = "",
+  storySpine = null,
 } = {}, nowTs = Date.now()) {
   if (!memory || typeof memory !== "object") {
     return { ok: false, status: "missing_memory", message: "Memory context not found." };
   }
   const normalizedCardId = normalizeMemoryCardId(cardId);
+  if (
+    normalizedCardId.startsWith("screenplay-project-") ||
+    (storySpine && typeof storySpine === "object" && !Array.isArray(storySpine))
+  ) {
+    return updateScreenplayProjectMemoryCardInMemory(
+      memory,
+      { cardId, key, title, summary, reason, storySpine },
+      nowTs
+    );
+  }
   if (normalizedCardId && !normalizedCardId.startsWith("theme-")) {
     return { ok: false, status: "not_editable", message: "Only theme memories are editable." };
   }
@@ -25834,132 +31650,36 @@ function getLocalDayStartTs(nowTs = Date.now()) {
   ).getTime();
 }
 
-const RECAP_WINDOWS = new Set(["today", "yesterday", "last_7_days"]);
-
-function getLocalDayStartWithOffsetTs(nowTs = Date.now(), dayOffset = 0) {
-  const dayStart = getLocalDayStartTs(nowTs);
-  return dayStart + (Math.trunc(dayOffset) * 24 * 60 * 60 * 1000);
-}
-
-function resolveRecapWindowRange(windowKey, nowTs = Date.now()) {
-  const normalizedWindow = parseOneOf(
-    String(windowKey || "today").trim().toLowerCase(),
-    RECAP_WINDOWS,
-    "today"
-  );
-  const dayMs = 24 * 60 * 60 * 1000;
-  const todayStartTs = getLocalDayStartTs(nowTs);
-  if (normalizedWindow === "yesterday") {
-    const startAt = todayStartTs - dayMs;
-    const endAt = todayStartTs;
-    return {
-      window: normalizedWindow,
-      startAt,
-      endAt,
-      label: formatLocalDateStamp(startAt),
-    };
-  }
-  if (normalizedWindow === "last_7_days") {
-    const startAt = todayStartTs - (6 * dayMs);
-    const endAt = todayStartTs + dayMs;
-    return {
-      window: normalizedWindow,
-      startAt,
-      endAt,
-      label: `${formatLocalDateStamp(startAt)} to ${formatLocalDateStamp(nowTs)}`,
-    };
-  }
-  return {
-    window: "today",
-    startAt: todayStartTs,
-    endAt: todayStartTs + dayMs,
-    label: formatLocalDateStamp(nowTs),
-  };
-}
-
-function buildDailyRecapPayload(memory, historyThreads = [], nowTs = Date.now(), windowKey = "today") {
-  const windowRange = resolveRecapWindowRange(windowKey, nowTs);
-  const dayStamp = formatLocalDateStamp(nowTs);
-  const threads = Array.isArray(historyThreads) ? historyThreads : [];
-  const windowThreads = threads
-    .filter((thread) => {
-      const ts = Math.max(0, Number(thread?.updatedAt || 0));
-      return ts >= windowRange.startAt && ts < windowRange.endAt;
-    })
-    .slice(0, 12);
-  const taskSnapshot = buildTaskSnapshot(memory, {
-    status: "all",
-    limit: TASKS_MAX_STORED,
-  });
-  const completedInWindow = taskSnapshot.tasks.filter(
-    (task) => {
-      const completedAt = Math.max(0, Number(task.completedAt || 0));
-      return task.status === "completed" &&
-        completedAt >= windowRange.startAt &&
-        completedAt < windowRange.endAt;
-    }
-  );
-  const openTasks = taskSnapshot.tasks.filter((task) => task.status === "open");
-  const recapLine =
-    normalizeSnippet(windowThreads[0]?.assistant || windowThreads[0]?.preview || "", 220) ||
-    normalizeSnippet(memory?.lastConversationRecap, 220) ||
-    (windowRange.window === "today"
-      ? "No major recap yet today."
-      : `No major recap found for ${windowRange.label}.`);
-  const highlights = windowThreads
-    .slice(0, 3)
-    .map((thread) => normalizeSnippet(thread?.preview || thread?.assistant || thread?.title || "", 170))
-    .filter(Boolean);
-  const outcomes = completedInWindow
-    .slice(0, 4)
-    .map((task) => normalizeSnippet(task.title, 140))
-    .filter(Boolean);
-  const nextActions = openTasks
-    .slice(0, 4)
-    .map((task) => normalizeSnippet(task.title, 140))
-    .filter(Boolean);
-
-  return {
-    window: windowRange.window,
-    windowLabel: windowRange.label,
-    windowStartAt: windowRange.startAt,
-    windowEndAt: windowRange.endAt,
-    localDay: dayStamp,
-    generatedAt: nowTs,
-    recap: recapLine,
-    highlights,
-    outcomes,
-    nextActions,
-    openTasks: openTasks.slice(0, 8),
-    completedToday: completedInWindow.slice(0, 8),
-    stats: {
-      turnsToday: windowThreads.length,
-      windowTurns: windowThreads.length,
-      openTasks: openTasks.length,
-      completedToday: completedInWindow.length,
-      windowCompleted: completedInWindow.length,
-      totalTasks: taskSnapshot.totalCount,
-      windowStartAt: windowRange.startAt,
-      windowEndAt: windowRange.endAt,
-    },
-  };
-}
-
 function resolveWritableMemoryContext(req, nowTs = Date.now()) {
   const requesterIp = normalizeClientIp(clientIp(req));
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  const activeSession = clientToken ? getValidSession(clientToken) : null;
+  const authenticatedUserId = resolveAuthenticatedUserId(req);
+  const activeSessionCandidate = clientToken ? getValidSession(clientToken) : null;
+  const activeSession = activeSessionCandidate && (
+    !authenticatedUserId ||
+    String(activeSessionCandidate.userId || "").trim() === authenticatedUserId
+  )
+    ? activeSessionCandidate
+    : null;
   const tokenIp = clientToken ? getPersistedIpForClientToken(clientToken, nowTs) : "";
-  const sessionIp = normalizeClientIp(activeSession?.ip || tokenIp || requesterIp);
-  const persistedMemory = clientToken
-    ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
-    : getPersistedUserMemoryForIp(sessionIp, nowTs);
+  const authMemoryKey = authenticatedUserId ? legacyAuthMemoryIp(authenticatedUserId) : "";
+  const sessionIp = authenticatedUserId
+    ? authMemoryKey
+    : normalizeClientIp(activeSession?.ip || tokenIp || requesterIp);
+  const persistedMemory = authenticatedUserId
+    ? (getPersistedUserMemoryForAccount(authenticatedUserId, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
+    : (clientToken
+      ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
+      : getPersistedUserMemoryForIp(sessionIp, nowTs));
   const candidateMemory = activeSession?.memory && typeof activeSession.memory === "object"
-    ? activeSession.memory
+    ? (authenticatedUserId
+      ? selectFreshestSessionMemory(activeSession.memory, persistedMemory)
+      : activeSession.memory)
     : persistedMemory;
   return {
     requesterIp: sessionIp,
     clientToken,
+    authenticatedUserId,
     activeSession,
     memory: sanitizePersistedSessionMemory(candidateMemory || createEmptyEmotionMemory()),
   };
@@ -25973,6 +31693,12 @@ function persistWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
   if (safeContext.activeSession && typeof safeContext.activeSession === "object") {
     safeContext.activeSession.memory = memory;
   }
+  const authenticatedUserId = normalizeAuthenticatedUserId(safeContext.authenticatedUserId);
+  if (authenticatedUserId) {
+    return setPersistedUserMemoryForAccount(authenticatedUserId, memory, nowTs, {
+      clientTokenAliases: [normalizeClientToken(safeContext.clientToken)],
+    });
+  }
   if (ip && ip !== "unknown") {
     setPersistedUserMemoryForIp(ip, memory, nowTs, {
       clientTokenAliases: [normalizeClientToken(safeContext.clientToken)],
@@ -25981,6 +31707,84 @@ function persistWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
     saveUserMemoryStore(nowTs);
   }
   return memory;
+}
+
+const accountMemoryCAS = createAccountMemoryCAS({
+  persistence: sharedPersistence,
+  sanitizeMemory: sanitizePersistedSessionMemory,
+  cacheMemory: ({ userId, memory, now, clientTokenAliases }) => {
+    setPersistedUserMemoryForAccount(userId, memory, now, {
+      clientTokenAliases,
+      skipPersistenceWrite: true,
+    });
+  },
+});
+
+async function resolveCanonicalWritableMemoryContext(req, nowTs = Date.now()) {
+  const localContext = resolveWritableMemoryContext(req, nowTs);
+  const userId = normalizeAuthenticatedUserId(localContext.authenticatedUserId);
+  if (!userId) {
+    return {
+      ...localContext,
+      canonical: false,
+      canonicalRecord: null,
+    };
+  }
+  const canonical = await accountMemoryCAS.read({
+    userId,
+    fallbackMemory: localContext.memory,
+  });
+  return {
+    ...localContext,
+    canonical: true,
+    canonicalRecord: canonical.record,
+    memory: canonical.memory,
+  };
+}
+
+async function persistCanonicalWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
+  const safeContext = context && typeof context === "object" ? context : {};
+  const userId = normalizeAuthenticatedUserId(safeContext.authenticatedUserId);
+  if (!userId || !safeContext.canonical) {
+    const memory = persistWritableMemoryContext(safeContext, nextMemory, nowTs);
+    return {
+      ok: true,
+      status: "legacy_committed",
+      record: null,
+      memory,
+    };
+  }
+  const result = await accountMemoryCAS.commit({
+    userId,
+    expectedRecord: safeContext.canonicalRecord || null,
+    memory: nextMemory,
+    now: nowTs,
+    clientTokenAliases: [normalizeClientToken(safeContext.clientToken)],
+  });
+  if (result.ok && safeContext.activeSession && typeof safeContext.activeSession === "object") {
+    safeContext.activeSession.memory = result.memory;
+  }
+  if (result.ok) {
+    safeContext.memory = result.memory;
+    if (result.record) safeContext.canonicalRecord = result.record;
+  }
+  return result;
+}
+
+function createTalkMemoryCommitter(context) {
+  return createAccountMemoryTurnCommitter({
+    context,
+    persistMemory: persistCanonicalWritableMemoryContext,
+    sanitizeMemory: sanitizePersistedSessionMemory,
+  });
+}
+
+function createCanonicalMemoryMutationCommitter(context) {
+  return createAccountMemoryMutationCommitter({
+    context,
+    persistMemory: persistCanonicalWritableMemoryContext,
+    sanitizeMemory: sanitizePersistedSessionMemory,
+  });
 }
 
 function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
@@ -26017,6 +31821,7 @@ function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
   base.pendingLocalActionPayload = "";
   base.pendingLocalActionSummary = "";
   base.pendingLocalActionUpdatedAt = 0;
+  base.pendingScreenplayLearningQuestions = [];
   base.lastRememberPromptTurn = 0;
   base.lastCycleMemoryTurn = 0;
   base.lastBackReferenceTurn = 0;
@@ -26040,6 +31845,9 @@ function clearAllMemoriesMemory(memory, nowTs = Date.now()) {
   base.sessionThreads = [];
   base.listeningFacts = [];
   base.recentEmotionShifts = [];
+  base.screenplayProjectMemory = [];
+  base.screenplayProjectMemoryUpdatedAt = nowTs;
+  base.pendingScreenplayLearningQuestions = [];
   base.lastTheme = "";
   base.lastFeelingHint = "";
   base.lastNeedHint = "";
@@ -26070,10 +31878,6 @@ function clearAllMemoriesMemory(memory, nowTs = Date.now()) {
   base.backReferenceRateLast = 0;
   base.tasks = [];
   base.taskLastUpdatedAt = nowTs;
-  base.pendingEmailRecipient = "";
-  base.pendingEmailSubject = "";
-  base.pendingEmailAwaitingBody = false;
-  base.pendingEmailUpdatedAt = nowTs;
   base.pendingLocalActionType = "";
   base.pendingLocalActionPayload = "";
   base.pendingLocalActionSummary = "";
@@ -26109,31 +31913,43 @@ function normalizeScreenplayPhaseValue(value) {
 
 function reconcileScreenplayOutline(outline, now = Date.now()) {
   const safeOutline = outline && typeof outline === "object" ? outline : createEmptyScreenplayOutline();
+  safeOutline.revision = normalizeOutlineRevision(safeOutline.revision);
   safeOutline.acts = (Array.isArray(safeOutline.acts) ? safeOutline.acts : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((act, index) => ({
       ...act,
-      order: Math.max(0, Number(act.order ?? index)),
+      order: normalizeOutlineRevision(act.order, index),
       updatedAt: Math.max(0, Number(act.updatedAt || act.createdAt || now)),
       createdAt: Math.max(0, Number(act.createdAt || act.updatedAt || now)),
     }));
   safeOutline.scenes = (Array.isArray(safeOutline.scenes) ? safeOutline.scenes : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((scene, index) => ({
       ...scene,
-      order: Math.max(0, Number(scene.order ?? index)),
+      order: normalizeOutlineRevision(scene.order, index),
       beatIds: Array.isArray(scene.beatIds) ? scene.beatIds : [],
       updatedAt: Math.max(0, Number(scene.updatedAt || scene.createdAt || now)),
       createdAt: Math.max(0, Number(scene.createdAt || scene.updatedAt || now)),
     }));
   safeOutline.beats = (Array.isArray(safeOutline.beats) ? safeOutline.beats : [])
-    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .sort((a, b) => normalizeOutlineRevision(a.order) - normalizeOutlineRevision(b.order))
     .map((beat, index) => ({
       ...beat,
-      order: Math.max(0, Number(beat.order ?? index)),
+      order: normalizeOutlineRevision(beat.order, index),
       updatedAt: Math.max(0, Number(beat.updatedAt || beat.createdAt || now)),
       createdAt: Math.max(0, Number(beat.createdAt || beat.updatedAt || now)),
     }));
+  const actIds = new Set(safeOutline.acts.map((act) => act.id));
+  safeOutline.scenes = safeOutline.scenes.map((scene) => ({
+    ...scene,
+    actId: scene.actId && actIds.has(scene.actId) ? scene.actId : "",
+  }));
+  const sceneIds = new Set(safeOutline.scenes.map((scene) => scene.id));
+  safeOutline.beats = safeOutline.beats.map((beat) => ({
+    ...beat,
+    sceneId: beat.sceneId && sceneIds.has(beat.sceneId) ? beat.sceneId : "",
+    actId: beat.actId && actIds.has(beat.actId) ? beat.actId : "",
+  }));
   safeOutline.acts = safeOutline.acts.map((act) => ({
     ...act,
     sceneIds: safeOutline.scenes
@@ -26172,6 +31988,7 @@ function parseScreenplayOutlineInput(body, now = Date.now()) {
 
 function upsertScreenplaySceneRecord(project, sceneInput, now = Date.now()) {
   const outline = ensureScreenplayOutline(project);
+  const currentRevision = normalizeOutlineRevision(project.outlineRevision ?? outline.revision);
   const normalized = normalizeStoredScreenplayScene(
     {
       ...sceneInput,
@@ -26195,12 +32012,15 @@ function upsertScreenplaySceneRecord(project, sceneInput, now = Date.now()) {
   }
   outline.updatedAt = now;
   project.outline = reconcileScreenplayOutline(outline, now);
+  project.outline.revision = Math.min(Number.MAX_SAFE_INTEGER, currentRevision + 1);
+  project.outlineRevision = project.outline.revision;
   project.updatedAt = now;
   return project.outline.scenes.find((scene) => scene.id === normalized.id) || normalized;
 }
 
 function upsertScreenplayBeatRecord(project, beatInput, now = Date.now()) {
   const outline = ensureScreenplayOutline(project);
+  const currentRevision = normalizeOutlineRevision(project.outlineRevision ?? outline.revision);
   const normalized = normalizeStoredScreenplayBeat(
     {
       ...beatInput,
@@ -26224,6 +32044,8 @@ function upsertScreenplayBeatRecord(project, beatInput, now = Date.now()) {
   }
   outline.updatedAt = now;
   project.outline = reconcileScreenplayOutline(outline, now);
+  project.outline.revision = Math.min(Number.MAX_SAFE_INTEGER, currentRevision + 1);
+  project.outlineRevision = project.outline.revision;
   project.updatedAt = now;
   return project.outline.beats.find((beat) => beat.id === normalized.id) || normalized;
 }
@@ -26305,13 +32127,16 @@ function escapeXmlText(value) {
 // T-decompose-phase2-screenplay-projects: all 12 /screenplay/projects/*
 // routes (5 GET + 7 write) are now in lib/screenplay_projects_routes.js.
 // Phase 2a (PR #192) extracted the GETs. Phase 2b extracts the writes
-// (POST + version). Behavior is byte-identical with the previous
-// inline handlers. Helpers are passed as deps so the route file is
-// independently testable. See docs/specs/T-decompose-backend-index.md.
+// (POST + version). Routes now enforce trusted auth at the extracted
+// boundary because project content is per-user private data. Helpers
+// are passed as deps so the route file is independently testable.
+// See docs/specs/T-decompose-backend-index.md.
 mountScreenplayProjectsRoutes(app, {
+  commitScreenplayOwnerMutation,
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,
   markScreenplayOwnerDirty,
+  refreshScreenplayOwnerRecord,
   createScreenplayId,
   createEmptyScreenplayOutline,
   parseScreenplayOutlineInput,
@@ -26340,6 +32165,7 @@ mountScreenplayProjectsRoutes(app, {
   normalizeScreenplayPhaseValue,
   normalizeStoredScreenplayThreadViewState,
   normalizeStoredScreenplayDiffAcknowledgementState,
+  normalizeStoredScreenplayStudioAskNoteHistory,
   normalizeStoredScreenplayWriteAnchors,
   normalizeStoredScreenplayBindings,
 });
@@ -26353,6 +32179,7 @@ mountScreenplayProjectsRoutes(app, {
 mountScreenplayCompanionRoutes(app, {
   getOrCreateScreenplayOwnerRecord,
   markScreenplayOwnerDirty,
+  refreshScreenplayOwnerRecord,
   normalizeStoredScreenplayCompanionState,
   toScreenplayCompanionStatePayload,
   buildScreenplayEnvelope,
@@ -26467,6 +32294,25 @@ mountHealthRoutes(app, {
   BACKEND_BOOT_ID,
 });
 
+// Dependency-free /api/version. Safe for high-frequency client polling;
+// no DB, no memory, no supplier reachability checks. Clients use it to
+// detect schema_version bumps and backend_boot_id transitions.
+mountApiVersionRoute(app, {
+  API_SCHEMA_VERSION,
+  BACKEND_BUILD,
+  BACKEND_BOOT_ID,
+});
+
+// /healthz — orchestrator readiness probe. Pings the persistence
+// layer (SELECT 1 in Postgres mode; directory write-access check in
+// JSON dev mode). Returns 503 if persistence is unreachable so
+// Render/Fly/Kubernetes can pull the instance out of the rotation
+// before traffic lands on a half-broken backend.
+mountHealthzRoute(app, {
+  pingPersistence: () => sharedPersistence.ping(),
+  timeoutMs: 1500,
+});
+
 // T-decompose-phase1-ops-routes: /ops/metrics + /ops/alerts moved
 // into lib/ops_metrics_route.js + lib/ops_alerts_route.js. Both
 // extractions are byte-identical with the previous inline handlers
@@ -26494,9 +32340,10 @@ mountOpsAlertsRoute(app, {
   scaleBackplaneStatus: () => scaleBackplane.status(),
 });
 
-// Phase 6.1a: /outbox/*, /state, /data/* extracted to lib/. Mount calls
-// preserve the exact original registration order of these 5 routes. The
-// method-not-allowed (405) app.all guards remain inline below, untouched.
+// GET /outbox + POST /outbox/retry extracted to lib/outbox_routes.js
+// (Phase 6.1a module, now wired). Mounted in place to preserve Express
+// registration order; handler bodies are byte-identical, including the
+// route-local express.json({limit:"256kb"}) parser on /outbox/retry.
 mountOutboxRoutes(app, {
   OUTBOX_WORKER_BATCH_SIZE,
   createRequestId,
@@ -26505,6 +32352,10 @@ mountOutboxRoutes(app, {
   processSingleOutboxItemById,
   scaleBackplane,
 });
+
+// GET /state extracted to lib/state_route.js. Authenticated restore reads and
+// read-side theme backfills use canonical account persistence so relaunches stay
+// current across backend instances, iPhone, and macOS.
 mountStateRoute(app, {
   applyReadStateHeaders,
   buildConversationHistoryThreads,
@@ -26514,137 +32365,56 @@ mountStateRoute(app, {
   normalizeClientToken,
   parseQueryLimit,
   parseTurnIdToNumber,
+  persistCanonicalWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
   selectMemoryRecordForRead,
   setPersistedUserMemoryForIp,
+  creativeMemoryStore,
+  buildSessionContinuitySnapshot,
+  logger: console,
 });
+
+// POST /data/history/clear + /data/memories/clear extracted to
+// lib/data_routes.js (Phase 6.1a module, now wired). Mounted in place to
+// preserve Express registration order. The memory-clear route also erases
+// the authenticated account's durable creative memory before reporting success.
 mountDataRoutes(app, {
   applyReadStateHeaders,
   buildReadStateMeta,
   clearAllMemoriesMemory,
   clearConversationHistoryMemory,
   createRequestId,
-  persistWritableMemoryContext,
-  resolveWritableMemoryContext,
+  creativeMemoryStore,
+  persistCanonicalWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
 });
 
-app.get("/history", (req, res) => {
-  const limit = parseQueryLimit(req.query?.limit, 60, 240);
-  const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
-  const screenplayProjectId = normalizeSnippet(req.query?.screenplayProjectId ?? "", 96);
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const fullThreads = buildConversationHistoryThreads(
-    memory,
-    Math.max(limit, 260),
-    screenplayProjectId ? { screenplayProjectId } : {}
-  );
-  const threads = sinceTurnNumber > 0
-    ? fullThreads.filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber).slice(0, limit)
-    : fullThreads.slice(0, limit);
-  const rememberedPeople = sanitizeRememberedPeople(
-    memory?.rememberedPeople,
-    USER_MEMORY_REMEMBERED_PEOPLE_MAX
-  ).map((person) => ({
-    name: person.name,
-    relation: String(person.relation || ""),
-  }));
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    assistant_name:
-      normalizeAssistantSelfName(memory?.assistantSelfName) || getAssistantSelfNameForIp(selected.ip),
-    user_name: normalizeUserPersonName(memory?.userPrimaryName),
-    remembered_names: rememberedPeople,
-    conversation_count: Math.max(0, Number(memory?.conversationCount || 0)),
-    last_conversation_recap: normalizeSnippet(memory?.lastConversationRecap, 220),
-    last_conversation_at: Math.max(0, Number(memory?.lastConversationAt || 0)) || null,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    is_delta: sinceTurnNumber > 0,
-    since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-    threads,
-  });
-});
-
-app.post("/history/annotate_turn", express.json({ limit: "256kb" }), (req, res) => {
-  const nowTs = Date.now();
-  const turnNumber = parseTurnIdToNumber(req.body?.turn_id ?? req.body?.turnId);
-  const studioMeta = sanitizeStudioTurnMetadata(req.body?.studio || req.body || null);
-  if (turnNumber <= 0) {
-    return res.status(400).json({
-      stage: "history_annotate_turn",
-      error: "valid_turn_id_required",
-    });
-  }
-  if (!studioMeta) {
-    return res.status(400).json({
-      stage: "history_annotate_turn",
-      error: "studio_metadata_required",
-    });
-  }
-
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const nextMemory = sanitizePersistedSessionMemory(context.memory);
-  const history = sanitizeTurnHistoryItems(nextMemory.turnHistory);
-  let touched = 0;
-  nextMemory.turnHistory = history.map((item) => {
-    if (Math.max(0, Number(item?.turn || 0)) !== turnNumber) {
-      return item;
-    }
-    touched += 1;
-    const mergedStudio = sanitizeStudioTurnMetadata({
-      ...(item?.studio && typeof item.studio === "object" ? item.studio : {}),
-      ...studioMeta,
-    });
-    return {
-      ...item,
-      studio: mergedStudio,
-    };
-  });
-
-  if (touched < 1) {
-    return res.status(404).json({
-      stage: "history_annotate_turn",
-      error: "turn_not_found",
-    });
-  }
-
-  const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-turn-id", `turn-${turnNumber}`);
-  res.setHeader("x-turn-meta-available", "1");
-  return res.status(200).json({
-    ok: true,
-    action: "annotate_turn",
-    status: "updated",
-    turn_id: `turn-${turnNumber}`,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-  });
+// GET /history + POST /history/annotate_turn extracted to lib/history_routes.js.
+// Mounted in place to preserve Express registration order and response contracts.
+// Authenticated reads use canonical account state, and annotation writes use
+// canonical CAS, so history remains current across backend instances and devices.
+mountHistoryRoutes(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildReadStateMeta,
+  getAssistantSelfNameForIp,
+  ifNoneMatchStateHit,
+  normalizeAssistantSelfName,
+  normalizeSnippet,
+  normalizeUserPersonName,
+  parseQueryLimit,
+  parseTurnIdToNumber,
+  createCanonicalMemoryMutationCommitter,
+  resolveCanonicalWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  sanitizeRememberedPeople,
+  sanitizeStudioTurnMetadata,
+  sanitizeTurnHistoryItems,
+  selectMemoryRecordForRead,
+  upsertScreenplayProjectMemory,
+  logger: console,
+  USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
 // T-decompose-phase6-memories: 6 /memories/* routes moved to
@@ -26658,11 +32428,9 @@ mountMemoriesRoutes(app, {
   normalizeSnippet,
   clampUnit,
   selectMemoryRecordForRead,
-  resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
-  persistWritableMemoryContext,
-  setPersistedUserMemoryForIp,
-  normalizeClientToken,
+  persistCanonicalWritableMemoryContext,
   buildReadStateMeta,
   applyReadStateHeaders,
   ifNoneMatchStateHit,
@@ -26684,389 +32452,72 @@ mountMemoriesRoutes(app, {
   resolveThemeKeyFromMemoryCard,
   normalizeMemoryQualitySignal,
   incrementThemeQualitySignal,
+  creativeMemoryStore,
   logger: console,
   TASKS_MAX_STORED,
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
-app.get("/tasks", (req, res) => {
-  const limit = parseQueryLimit(req.query?.limit, TASKS_LIST_DEFAULT_LIMIT, TASKS_MAX_STORED);
-  const status = parseOneOf(
-    String(req.query?.status || "all").trim().toLowerCase(),
-    TASK_STATUS_FILTERS,
-    "all"
-  );
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const snapshot = buildTaskSnapshot(memory, { status, limit });
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    status_filter: snapshot.status,
-    task_last_updated_at: snapshot.taskLastUpdatedAt || null,
-    total_count: snapshot.totalCount,
-    open_count: snapshot.openCount,
-    completed_count: snapshot.completedCount,
-    tasks: snapshot.tasks,
-  });
+mountScreenplayQuestionRoutes(app, {
+  createRequestId,
+  normalizeSnippet,
+  resolveCanonicalWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  createCanonicalMemoryMutationCommitter,
+  recordCreativeMemoryTriggersForRequest,
+  buildReadStateMeta,
+  applyReadStateHeaders,
+  logger: console,
 });
 
-app.post("/tasks/update", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const action = parseOneOf(
-    String(req.body?.action || "complete").trim().toLowerCase(),
-    TASK_UPDATE_ACTIONS,
-    "complete"
-  );
-  const title = normalizeSnippet(req.body?.title ?? req.body?.text ?? "", 160);
-  const query = normalizeSnippet(
-    req.body?.query ?? req.body?.task_id ?? req.body?.taskId ?? title,
-    160
-  );
-  const dueAt = Math.max(0, Number(req.body?.due_at ?? req.body?.dueAt ?? 0));
-  const priority = normalizeTaskPriority(req.body?.priority);
-  let status = "ok";
-  let message = "";
-  let task = null;
-  let removedCount = 0;
-
-  if (action === "add") {
-    if (!title) {
-      status = "failed";
-      message = "Missing task title.";
-    } else {
-      task = createTaskInMemory(memory, {
-        title,
-        dueAt,
-        priority,
-        source: "api",
-      }, nowTs);
-      if (!task) {
-        status = "failed";
-        message = "Task was not created.";
-      } else if (task.duplicate) {
-        status = "duplicate";
-      } else {
-        status = "created";
-      }
-    }
-  } else if (action === "complete") {
-    task = completeTaskInMemory(memory, query, nowTs);
-    status = task ? "completed" : "none";
-  } else if (action === "reopen") {
-    task = reopenTaskInMemory(memory, query, nowTs);
-    status = task ? "reopened" : "none";
-  } else if (action === "delete") {
-    task = deleteTaskInMemory(memory, query, nowTs);
-    status = task ? "deleted" : "none";
-  } else if (action === "clear_completed") {
-    removedCount = clearCompletedTasksInMemory(memory, nowTs);
-    status = removedCount > 0 ? "cleared_completed" : "none";
-  }
-
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const snapshot = buildTaskSnapshot(persisted, { status: "all", limit: TASKS_LIST_DEFAULT_LIMIT });
-  const payloadTask = toTaskPayload(task);
-  const ok = status !== "failed";
-  const statusCode = ok ? 200 : 400;
-  console.log(
-    `[${rid}] tasks_update action=${action} status=${status} removed=${removedCount} title="${trimToMax(String(payloadTask?.title || title || ""), 96)}"`
-  );
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  return res.status(statusCode).json({
-    ok,
-    action,
-    status,
-    message: message || null,
-    task: payloadTask,
-    removed_count: removedCount,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    task_last_updated_at: snapshot.taskLastUpdatedAt || null,
-    total_count: snapshot.totalCount,
-    open_count: snapshot.openCount,
-    completed_count: snapshot.completedCount,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
+// GET /tasks + POST /tasks/update extracted to lib/tasks_routes.js.
+// Mounted in place to preserve Express registration order and response contracts.
+mountTasksRoutes(app, {
+  applyReadStateHeaders,
+  buildReadStateMeta,
+  buildTaskSnapshot,
+  clearCompletedTasksInMemory,
+  completeTaskInMemory,
+  createCanonicalMemoryMutationCommitter,
+  createRequestId,
+  createTaskInMemory,
+  deleteTaskInMemory,
+  ifNoneMatchStateHit,
+  normalizeSnippet,
+  normalizeTaskPriority,
+  parseOneOf,
+  parseQueryLimit,
+  reopenTaskInMemory,
+  resolveCanonicalWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
+  toTaskPayload,
+  logger: console,
+  TASKS_LIST_DEFAULT_LIMIT,
+  TASKS_MAX_STORED,
+  TASK_STATUS_FILTERS,
+  TASK_UPDATE_ACTIONS,
 });
 
-function sendRecapResponse(req, res, windowKey = "today") {
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const historyThreads = buildConversationHistoryThreads(memory, 140);
-  const recap = buildDailyRecapPayload(memory, historyThreads, Date.now(), windowKey);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    window: recap.window,
-    window_label: recap.windowLabel,
-    window_start_at: recap.windowStartAt,
-    window_end_at: recap.windowEndAt,
-    local_day: recap.localDay,
-    generated_at: recap.generatedAt,
-    recap: recap.recap,
-    highlights: recap.highlights,
-    outcomes: recap.outcomes,
-    next_actions: recap.nextActions,
-    open_tasks: recap.openTasks,
-    completed_today: recap.completedToday,
-    stats: recap.stats,
-  });
-}
-
-app.get("/recap", (req, res) => {
-  const requestedWindow = String(req.query?.window || "today").trim().toLowerCase();
-  return sendRecapResponse(req, res, requestedWindow);
+// GET /recap + GET /recap/today extracted to lib/recap_routes.js.
+// Authenticated reads use canonical account state so recaps stay current across
+// backend instances and devices while preserving the existing response contracts.
+mountRecapRoutes(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildDailyRecapPayload,
+  buildReadStateMeta,
+  ifNoneMatchStateHit,
+  resolveCanonicalWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
+  logger: console,
 });
 
-app.get("/recap/today", (req, res) => {
-  return sendRecapResponse(req, res, "today");
-});
-
-app.post("/linkedin/analyze", express.json({ limit: "1mb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  if (!LINKEDIN_ANALYSIS_ENABLED) {
-    return res.status(503).json({
-      stage: "linkedin_analysis",
-      error: "LinkedIn analysis is disabled.",
-    });
-  }
-
-  const profileText = buildLinkedInProfileTextFromPayload(req.body);
-  const targetRole = normalizeSnippet(
-    req.body?.target_role ?? req.body?.targetRole ?? req.body?.goal_role ?? "",
-    160
-  );
-  const goals = normalizeSnippet(req.body?.goals ?? req.body?.goal ?? "", 320);
-  if (!profileText) {
-    return res.status(400).json({
-      stage: "linkedin_analysis",
-      error: "Missing profile content. Provide profile_text or structured fields.",
-      expected_fields: [
-        "profile_text",
-        "headline",
-        "about",
-        "experiences",
-        "skills",
-      ],
-    });
-  }
-
-  const analysis = await analyzeLinkedInProfilePayload({
-    profileText,
-    targetRole,
-    goals,
-    rid,
-  });
-  if (analysis?.error) {
-    return res.status(400).json({
-      stage: "linkedin_analysis",
-      error: analysis.message || "Invalid profile payload.",
-    });
-  }
-
-  return res.status(200).json({
-    mode: String(analysis.mode || "heuristic_fallback"),
-    profile_score: Math.max(0, Math.min(100, Number(analysis.profileScore || 0))),
-    summary: normalizeSnippet(analysis.summary, 320),
-    strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
-    weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses : [],
-    action_plan: Array.isArray(analysis.actionPlan) ? analysis.actionPlan : [],
-    rewritten_headline: normalizeSnippet(analysis.rewrittenHeadline, 180),
-    rewritten_about: normalizeSnippet(analysis.rewrittenAbout, 1200),
-    target_role: targetRole || null,
-    input_chars: profileText.length,
-  });
-});
-
-app.post("/secretary/email", express.json({ limit: "1mb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  if (!SECRETARY_EMAIL_ENDPOINT_ENABLED) {
-    return res.status(503).json({
-      stage: "secretary_email",
-      error: "Secretary email endpoint is disabled.",
-    });
-  }
-
-  const to = normalizeEmailAddress(req.body?.to ?? req.body?.recipient ?? "");
-  const sendNow = req.body?.send_now == null
-    ? (req.body?.send == null ? true : Boolean(req.body.send))
-    : Boolean(req.body.send_now);
-  const manualSubject = trimToMax(req.body?.subject ?? "", 120);
-  let bodyText = normalizeSnippet(req.body?.body ?? req.body?.message ?? "", 4000);
-  const prompt = normalizeSnippet(req.body?.prompt ?? req.body?.instruction ?? "", 1600);
-  const context = normalizeSnippet(req.body?.context ?? req.body?.details ?? "", 2400);
-  const tone = normalizeSnippet(req.body?.tone ?? "", 120);
-
-  let draftMeta = "manual";
-  if (!bodyText && prompt) {
-    const drafted = await draftSecretaryEmailFromPrompt({
-      prompt,
-      context,
-      tone,
-      recipient: to,
-      rid,
-    });
-    bodyText = normalizeSnippet(drafted.body, 4000);
-    draftMeta = drafted.mode || "llm_draft";
-  }
-
-  const subject = manualSubject || buildCapturedEmailSubject(bodyText || prompt);
-  if (!to) {
-    return res.status(400).json({
-      stage: "secretary_email",
-      error: "Missing recipient email.",
-      hint: "Provide field 'to' with a valid email address.",
-    });
-  }
-  if (!bodyText || bodyText.length < 3) {
-    return res.status(400).json({
-      stage: "secretary_email",
-      error: "Missing email body.",
-      hint: "Provide 'body' or 'prompt' to auto-draft.",
-    });
-  }
-
-  if (!sendNow) {
-    return res.status(200).json({
-      stage: "secretary_email",
-      mode: "draft",
-      draft_source: draftMeta,
-      to,
-      subject,
-      body: bodyText,
-    });
-  }
-
-  const sendResult = await sendLocalEmail({
-    recipient: to,
-    subject,
-    body: bodyText,
-    reqId: rid,
-  });
-  const composeReady = sendResult?.status === "composed";
-  return res.status(composeReady ? 200 : 502).json({
-    stage: "secretary_email",
-    mode: composeReady ? "compose_ready" : "failed",
-    draft_source: draftMeta,
-    to: sendResult?.to || to,
-    subject: sendResult?.subject || subject,
-    status: sendResult?.status || "unknown",
-    action: sendResult?.action || "none",
-    target: sendResult?.target || EMAIL_SEND_TARGET,
-    transport: sendResult?.transport || "none",
-    compose_url: sendResult?.composeUrl || null,
-    error: sendResult?.error || null,
-  });
-});
-
-app.post("/secretary/calendar", express.json({ limit: "512kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  if (!SECRETARY_CALENDAR_ENDPOINT_ENABLED) {
-    return res.status(503).json({
-      stage: "secretary_calendar",
-      error: "Secretary calendar endpoint is disabled.",
-    });
-  }
-
-  const title = normalizeSnippet(
-    req.body?.title ?? req.body?.event ?? req.body?.summary ?? req.body?.subject ?? "",
-    120
-  ) || "Calendar block";
-  const details = normalizeSnippet(
-    req.body?.details ?? req.body?.body ?? req.body?.description ?? "",
-    420
-  );
-  const target = parseOneOf(
-    String(req.body?.target || CALENDAR_COMPOSE_TARGET).trim().toLowerCase(),
-    CALENDAR_COMPOSE_TARGETS,
-    CALENDAR_COMPOSE_TARGET
-  );
-  const prompt = normalizeSnippet(req.body?.prompt ?? req.body?.text ?? "", 280);
-  let startAt = Math.max(0, Number(req.body?.start_at ?? req.body?.startAt ?? 0));
-  let endAt = Math.max(0, Number(req.body?.end_at ?? req.body?.endAt ?? 0));
-  if (!startAt || !endAt || endAt <= startAt) {
-    const parsed = parseCalendarRange(prompt || title, Date.now());
-    startAt = Math.max(0, Number(parsed.startAt || startAt || Date.now()));
-    endAt = Math.max(startAt + (30 * 60 * 1000), Number(parsed.endAt || 0));
-  }
-
-  const compose = buildCalendarComposeUrl({
-    title,
-    startAt,
-    endAt,
-    details,
-    target,
-  });
-  const composed = Boolean(compose?.url);
-  console.log(
-    `[${rid}] secretary_calendar composed=${composed ? 1 : 0} target=${compose?.target || target} title="${trimToMax(title, 96)}"`
-  );
-
-  return res.status(composed ? 200 : 502).json({
-    stage: "secretary_calendar",
-    mode: composed ? "compose_ready" : "failed",
-    title,
-    details,
-    start_at: startAt,
-    end_at: endAt,
-    status: composed ? "composed" : "failed",
-    action: composed ? "compose" : "none",
-    target: compose?.target || target,
-    transport: compose?.transport || "none",
-    compose_url: compose?.url || null,
-    error: composed ? null : "Could not generate calendar compose URL.",
-  });
-});
-
-app.post("/session", sessionRateLimitGuard, (req, res) => {
+app.post("/session", sessionRateLimitGuard, async (req, res) => {
   console.log(`[session] has_app_token_header=${Boolean(req.get("X-APP-TOKEN"))}`);
   const requesterIp = clientIp(req);
-  const authUserId = String(req.authUser?.id || "").trim();
+  const authUserId = resolveAuthenticatedUserId(req);
   const requestedClientToken = normalizeClientToken(req.get("X-Client-Token"));
   const existingSessionCandidate = requestedClientToken ? getValidSession(requestedClientToken) : null;
   const existingSession = existingSessionCandidate && (!authUserId || String(existingSessionCandidate.userId || "").trim() === authUserId)
@@ -27077,15 +32528,27 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
 
   if (existingSession) {
     existingSession.expiresAt = Date.now() + SESSION_TTL_MS;
-    existingSession.ip = normalizeClientIp(requesterIp);
+    existingSession.ip = authUserId ? legacyAuthMemoryIp(authUserId) : normalizeClientIp(requesterIp);
     if (authUserId) {
       existingSession.userId = authUserId;
     }
     token = requestedClientToken;
     expiresAt = existingSession.expiresAt;
-    setPersistedUserMemoryForIp(existingSession.ip, existingSession.memory, Date.now(), {
-      clientTokenAliases: [requestedClientToken],
-    });
+    if (authUserId) {
+      const latestAccountMemory = getPersistedUserMemoryForAccount(authUserId, Date.now());
+      existingSession.memory = selectFreshestSessionMemory(
+        existingSession.memory,
+        latestAccountMemory
+      );
+      existingSession.memory = setPersistedUserMemoryForAccount(authUserId, existingSession.memory, Date.now(), {
+        clientTokenAliases: [requestedClientToken],
+        skipPersistenceWrite: true,
+      });
+    } else {
+      setPersistedUserMemoryForIp(existingSession.ip, existingSession.memory, Date.now(), {
+        clientTokenAliases: [requestedClientToken],
+      });
+    }
   } else {
     const issued = issueSessionToken(requesterIp, authUserId ? "" : requestedClientToken, authUserId);
     token = issued.token;
@@ -27094,25 +32557,65 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
 
   const sessionKpis = recordUserInitiatedSession(requesterIp);
   const sessionTargets = evaluateKpiTargets(sessionKpis);
-  let restoredMemory = sanitizePersistedSessionMemory(clientSessions.get(token)?.memory);
-  const sessionHistoryThreads = buildConversationHistoryThreads(
-    restoredMemory,
-    Math.max(20, MEMORY_BACKFILL_MAX_SCAN)
-  );
-  const backfillResult = maybeBackfillThemesFromHistory(
-    restoredMemory,
-    sessionHistoryThreads,
-    Date.now(),
-    { trigger: "session_load" }
-  );
-  if (backfillResult.applied) {
-    const active = clientSessions.get(token);
-    if (active && typeof active === "object") {
-      active.memory = restoredMemory;
+  const sessionNowTs = Date.now();
+  const activeSession = clientSessions.get(token) || null;
+  let restoredMemory;
+  let backfillResult = { applied: false, created: 0, trigger: "session_load", keys: [] };
+  if (authUserId) {
+    try {
+      const restored = await restoreAuthenticatedSessionMemory({
+        req,
+        token,
+        activeSession,
+        isNewSession: !existingSession,
+        nowTs: sessionNowTs,
+        resolveCanonicalWritableMemoryContext,
+        persistCanonicalWritableMemoryContext,
+        sanitizeMemory: sanitizePersistedSessionMemory,
+        initializeNewSessionMemory: (memory, nowTs) => initializeSessionMemoryState(
+          memory,
+          nowTs,
+          getAssistantSelfNameForIp(requesterIp),
+        ),
+        buildConversationHistoryThreads,
+        maybeBackfillThemesFromHistory,
+        historyLimit: Math.max(20, MEMORY_BACKFILL_MAX_SCAN),
+      });
+      restoredMemory = restored.memory;
+      backfillResult = restored.backfillResult;
+      setPersistedUserMemoryForAccount(authUserId, restoredMemory, sessionNowTs, {
+        clientTokenAliases: [token],
+        skipPersistenceWrite: true,
+      });
+    } catch (error) {
+      const rid = String(req.requestId || "session_restore");
+      console.error(`[${rid}] session memory_restore_failed error=${String(error?.message || error)}`);
+      if (!existingSession && token) clientSessions.delete(token);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "session",
+        error: "memory_restore_failed",
+      });
     }
-    setPersistedUserMemoryForIp(normalizeClientIp(requesterIp), restoredMemory, Date.now(), {
-      clientTokenAliases: [token],
-    });
+  } else {
+    restoredMemory = sanitizePersistedSessionMemory(activeSession?.memory);
+    const sessionHistoryThreads = buildConversationHistoryThreads(
+      restoredMemory,
+      Math.max(20, MEMORY_BACKFILL_MAX_SCAN)
+    );
+    backfillResult = maybeBackfillThemesFromHistory(
+      restoredMemory,
+      sessionHistoryThreads,
+      sessionNowTs,
+      { trigger: "session_load" }
+    );
+    if (backfillResult.applied) {
+      setPersistedUserMemoryForIp(normalizeClientIp(requesterIp), restoredMemory, Date.now(), {
+        clientTokenAliases: [token],
+      });
+    }
+  }
+  if (backfillResult.applied) {
     console.log(
       `[session_backfill] token=${token.slice(0, 8)} created=${backfillResult.created} trigger=${backfillResult.trigger} keys=${(backfillResult.keys || []).join(",") || "none"}`
     );
@@ -27165,6 +32668,92 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
     is_screenwriter: Boolean(restoredEvolutionSync.isScreenwriter || restoredMemory?.isScreenwriter || false),
   };
   const sanitizedRestoredMemory = sanitizePersistedSessionMemory(restoredMemory);
+  const sessionProjectMemoryItems = sanitizeScreenplayProjectMemoryItems(
+    sanitizedRestoredMemory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  let sessionScreenplayOwner = null;
+  try {
+    const refreshedScreenplayOwner = await refreshScreenplayOwnerRecord(resolveScreenplayOwnerKey(req));
+    if (refreshedScreenplayOwner?.ok) {
+      sessionScreenplayOwner = refreshedScreenplayOwner.owner || null;
+    } else {
+      console.warn("[session] canonical screenplay refresh failed; omitting cached screenplay state");
+    }
+  } catch (error) {
+    console.warn(
+      `[session] canonical screenplay refresh failed; omitting cached screenplay state: ${String(error?.message || error)}`
+    );
+  }
+  const sessionActiveProjectId = normalizeSnippet(sessionScreenplayOwner?.activeProjectId, 64);
+  const sessionActiveProject = Array.isArray(sessionScreenplayOwner?.projects)
+    ? sessionScreenplayOwner.projects.find((project) => project?.id === sessionActiveProjectId) || null
+    : null;
+  const sessionActiveProjectTitle = normalizeSnippet(sessionActiveProject?.title, 160);
+  const sessionProjectMemory = sessionProjectMemoryItems.find((item) => (
+    (sessionActiveProjectId && normalizeSnippet(item?.projectId, 96) === sessionActiveProjectId) ||
+    (
+      sessionActiveProjectTitle &&
+      normalizeSnippet(item?.projectTitle, 160).toLowerCase() === sessionActiveProjectTitle.toLowerCase()
+    )
+  )) || sessionProjectMemoryItems[0] || null;
+  const sessionPendingScreenplayQuestion = selectPendingScreenplayLearningQuestion(
+    sanitizedRestoredMemory?.pendingScreenplayLearningQuestions,
+    {
+      projectId: sessionActiveProjectId || sessionProjectMemory?.projectId || "",
+      projectTitle: sessionActiveProjectTitle || sessionProjectMemory?.projectTitle || "",
+    }
+  );
+  const sessionPendingScreenplayQuestionPayload = sessionPendingScreenplayQuestion
+    ? {
+        id: sessionPendingScreenplayQuestion.id,
+        project_id: sessionPendingScreenplayQuestion.projectId,
+        project_title: sessionPendingScreenplayQuestion.projectTitle,
+        target_field: sessionPendingScreenplayQuestion.targetField,
+        target_label: sessionPendingScreenplayQuestion.targetLabel,
+        question: sessionPendingScreenplayQuestion.question,
+        provisional_options: sessionPendingScreenplayQuestion.provisionalOptions.map((option) => ({
+          id: option.id,
+          rank: option.rank,
+          value: option.value,
+          recommended: option.recommended,
+        })),
+        asked_at: Math.max(0, Number(sessionPendingScreenplayQuestion.askedAt || 0)) || null,
+      }
+    : null;
+  let sessionCreativeMemory = null;
+  if (authUserId) {
+    try {
+      const continuityQuery = normalizeSnippet(
+        [
+          sessionProjectMemory?.projectId,
+          sessionProjectMemory?.act,
+          sessionProjectMemory?.featureSequence,
+          sessionProjectMemory?.currentBeat,
+          sessionProjectMemory?.lastSceneOutcome,
+          Array.isArray(sessionProjectMemory?.characterFocus)
+            ? sessionProjectMemory.characterFocus.join(" ")
+            : "",
+          "continue screenplay session restore",
+        ].filter(Boolean).join(" "),
+        1_000
+      );
+      sessionCreativeMemory = await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId: authUserId,
+        projectId: sessionProjectMemory?.projectId || "",
+        projectTitle: sessionProjectMemory?.projectTitle || sessionProjectMemory?.projectId || "",
+        query: continuityQuery,
+        maxEpisodicMemories: 3,
+        recordEpisodicRecall: true,
+      });
+    } catch (_e) {
+      sessionCreativeMemory = null;
+    }
+  }
+  const sessionContinuity = buildSessionContinuitySnapshot(
+    sanitizedRestoredMemory,
+    sessionCreativeMemory
+  );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);
   const sessionHistoryUpdatedAt = deriveHistoryUpdatedAt(sanitizedRestoredMemory);
@@ -27205,6 +32794,8 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
     last_conversation_recap: lastConversationRecap,
     last_conversation_snapshot: lastConversationSnapshot,
     last_conversation_at: lastConversationAt || null,
+    continuity: sessionContinuity,
+    pending_screenplay_question: sessionPendingScreenplayQuestionPayload,
     evolution_sync: evolutionSync,
     state_version: sessionStateVersion,
     last_updated_at: sessionLastUpdatedAt || null,
@@ -27217,180 +32808,27 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
   });
 });
 
-app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const now = Date.now();
-  const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  const validSession = clientToken ? getValidSession(clientToken) : null;
-  const requesterIp = normalizeClientIp(validSession?.ip || clientIp(req));
-  const readRecord = selectMemoryRecordForRead(req, now);
-  const memory = sanitizePersistedSessionMemory(readRecord?.memory || createEmptyEmotionMemory());
-
-  const stage = parseBoundedInt(req.body?.stage, 1, 5);
-  const depthScore = parseBoundedFloat(req.body?.depth_score ?? req.body?.depth, 0, 10);
-  const romanceTension = parseBoundedFloat(
-    req.body?.romance_tension ?? req.body?.romance,
-    0,
-    10
-  );
-  const sessionCount = parseBoundedInt(req.body?.session_count, 0, 1_000_000);
-  const reassuranceNeed = parseBoundedFloat(req.body?.reassurance_need, 0, 1);
-  const boundaryNeed = parseBoundedFloat(req.body?.boundary_need, 0, 1);
-  const playfulMomentum = parseBoundedFloat(req.body?.playful_momentum, 0, 1);
-  const trustSignal = parseBoundedFloat(req.body?.trust_signal, 0, 1);
-  const lastThemeCue = normalizeSnippet(req.body?.last_theme_cue ?? "", 96);
-  const latestUserMessage = normalizeSnippet(
-    req.body?.latest_user_message ?? req.body?.latestUserMessage ?? "",
-    220
-  );
-  const reassuranceStyleHintRaw = normalizeSnippet(
-    req.body?.reassurance_style_hint ?? req.body?.reassuranceStyleHint ?? "",
-    32
-  );
-  const reassuranceStyleHint = reassuranceStyleHintRaw
-    ? normalizeReassuranceStyle(reassuranceStyleHintRaw, "soft")
-    : "";
-  const affectionStyleHintRaw = normalizeSnippet(
-    req.body?.affection_style_hint ?? req.body?.affectionStyleHint ?? "",
-    32
-  );
-  const affectionStyleHint = affectionStyleHintRaw
-    ? normalizeAffectionStyle(affectionStyleHintRaw, "casual")
-    : "";
-  const supportIntentHintRaw = normalizeSnippet(
-    req.body?.support_intent_hint ?? req.body?.supportIntentHint ?? "",
-    40
-  ).toLowerCase();
-  const supportIntentHint = (
-    supportIntentHintRaw === "comfort_first" ||
-    supportIntentHintRaw === "clarity_then_comfort" ||
-    supportIntentHintRaw === "playful_then_depth"
-  ) ? supportIntentHintRaw : "";
-  const romanceDepthHint = parseBoundedFloat(
-    req.body?.romance_depth_hint ?? req.body?.romanceDepthHint,
-    0,
-    1
-  );
-  const loveTopicRaw = req.body?.love_topic_active ?? req.body?.loveTopicActive;
-  const loveTopicActive = (
-    loveTopicRaw == null ||
-    String(loveTopicRaw).trim() === ""
-  )
-    ? null
-    : parseBool(loveTopicRaw);
-  const isScreenwriterRaw = req.body?.is_screenwriter ?? req.body?.isScreenwriter;
-  const isScreenwriter = (
-    isScreenwriterRaw == null ||
-    String(isScreenwriterRaw).trim() === ""
-  )
-    ? null
-    : parseBool(isScreenwriterRaw);
-  const preferredName = normalizeUserPersonName(
-    req.body?.preferred_name ?? req.body?.user_name ?? ""
-  );
-
-  if (reassuranceNeed != null) {
-    memory.reassuranceNeed = clampUnit(reassuranceNeed, memory.reassuranceNeed);
-  }
-  if (boundaryNeed != null) {
-    memory.boundaryNeed = clampUnit(boundaryNeed, memory.boundaryNeed);
-  }
-  if (playfulMomentum != null) {
-    memory.playfulness = clampUnit(playfulMomentum, memory.playfulness);
-  }
-  if (trustSignal != null) {
-    memory.trust = clampUnit(trustSignal, memory.trust);
-  }
-  if (reassuranceStyleHint) {
-    memory.reassuranceStyle = reassuranceStyleHint;
-    memory.reassuranceStyleUpdatedAt = now;
-  }
-  if (affectionStyleHint) {
-    memory.affectionStyle = affectionStyleHint;
-  }
-  if (supportIntentHint) {
-    memory.supportIntentHint = supportIntentHint;
-  }
-  if (romanceDepthHint != null) {
-    memory.romanceDepthHint = clampUnit(romanceDepthHint, memory.romanceDepthHint);
-  }
-  if (loveTopicActive != null) {
-    memory.loveTopicActive = Boolean(loveTopicActive);
-  }
-  if (depthScore != null) {
-    const depthTarget = Math.max(0, Math.min(RELATIONSHIP_DEPTH_MAX, depthScore * 16));
-    const currentDepth = Math.max(
-      0,
-      Math.min(RELATIONSHIP_DEPTH_MAX, Number(memory.relationshipDepthScore || depthTarget))
-    );
-    const blendedDepth = (currentDepth * 0.88) + (depthTarget * 0.12);
-    memory.relationshipDepthScore = Math.max(0, Math.min(RELATIONSHIP_DEPTH_MAX, blendedDepth));
-    memory.relationshipDepthPeak = Math.max(
-      Number(memory.relationshipDepthPeak || 0),
-      memory.relationshipDepthScore
-    );
-    memory.emotionalDepthScore = clampUnit(depthScore / 10, memory.emotionalDepthScore);
-  }
-  if (sessionCount != null) {
-    memory.conversationCount = Math.max(0, Number(sessionCount));
-  }
-  if (lastThemeCue) {
-    memory.lastTheme = lastThemeCue;
-  }
-  if (preferredName) {
-    memory.userPrimaryName = preferredName;
-    memory.userPrimaryNameUpdatedAt = now;
-  }
-  if (latestUserMessage) {
-    memory.lastUserQuestion = normalizeSnippet(latestUserMessage, 180);
-  }
-  if (isScreenwriter === true) {
-    memory.isScreenwriter = true;
-  }
-
-  // Keep a direct snapshot of client-side evolution signals for future server-side use.
-  memory.evolutionSync = {
-    stage: stage ?? Number(memory.evolutionSync?.stage || 0),
-    depthScore: depthScore ?? Number(memory.evolutionSync?.depthScore || 0),
-    romanceTension: romanceTension ?? Number(memory.evolutionSync?.romanceTension || 0),
-    sessionCount: sessionCount ?? Number(memory.evolutionSync?.sessionCount || 0),
-    reassuranceNeed: reassuranceNeed ?? Number(memory.evolutionSync?.reassuranceNeed || memory.reassuranceNeed || 0),
-    boundaryNeed: boundaryNeed ?? Number(memory.evolutionSync?.boundaryNeed || memory.boundaryNeed || 0),
-    playfulMomentum: playfulMomentum ?? Number(memory.evolutionSync?.playfulMomentum || memory.playfulness || 0),
-    trustSignal: trustSignal ?? Number(memory.evolutionSync?.trustSignal || memory.trust || 0),
-    lastThemeCue: lastThemeCue || String(memory.evolutionSync?.lastThemeCue || memory.lastTheme || ""),
-    preferredName: preferredName || String(memory.evolutionSync?.preferredName || memory.userPrimaryName || ""),
-    latestUserMessage: latestUserMessage || String(memory.evolutionSync?.latestUserMessage || ""),
-    reassuranceStyleHint: reassuranceStyleHint || String(memory.evolutionSync?.reassuranceStyleHint || memory.reassuranceStyle || "soft"),
-    affectionStyleHint: affectionStyleHint || String(memory.evolutionSync?.affectionStyleHint || memory.affectionStyle || "casual"),
-    supportIntentHint: supportIntentHint || String(memory.evolutionSync?.supportIntentHint || memory.supportIntentHint || "clarity_then_comfort"),
-    romanceDepthHint: romanceDepthHint ?? Number(memory.evolutionSync?.romanceDepthHint || memory.romanceDepthHint || 0),
-    loveTopicActive: loveTopicActive != null ? Boolean(loveTopicActive) : Boolean(memory.evolutionSync?.loveTopicActive || memory.loveTopicActive),
-    isScreenwriter: Boolean((isScreenwriter === true) || memory.evolutionSync?.isScreenwriter || memory.isScreenwriter),
-    updatedAt: now,
-  };
-
-  if (stage != null) memory.evolutionStageHint = stage;
-  if (romanceTension != null) memory.romanceTensionHint = romanceTension;
-  memory.lastUpdatedAt = now;
-
-  const persisted = setPersistedUserMemoryForIp(
-    requesterIp,
-    memory,
-    now,
-    { clientTokenAliases: clientToken ? [clientToken] : [] }
-  );
-  if (validSession && typeof validSession === "object") {
-    validSession.memory = persisted;
-    validSession.ip = requesterIp;
-  }
-
-  const meta = buildReadStateMeta(req, persisted, requesterIp);
-  applyReadStateHeaders(res, meta);
-  console.log(
-    `[${rid}] session_evolution synced stage=${stage ?? "n/a"} depth=${depthScore ?? "n/a"} romance=${romanceTension ?? "n/a"} reassure_style=${reassuranceStyleHint || "n/a"} affection=${affectionStyleHint || "n/a"} love_topic=${loveTopicActive == null ? "n/a" : (loveTopicActive ? "1" : "0")} ip=${requesterIp}`
-  );
-  return res.status(204).end();
+// PATCH /session/evolution uses canonical account CAS so simultaneous iPhone
+// and macOS preference updates preserve each other.
+mountSessionEvolutionRoute(app, {
+  applyReadStateHeaders,
+  buildReadStateMeta,
+  clampUnit,
+  clientIp,
+  createCanonicalMemoryMutationCommitter,
+  createRequestId,
+  normalizeAffectionStyle,
+  normalizeClientIp,
+  normalizeReassuranceStyle,
+  normalizeSnippet,
+  normalizeUserPersonName,
+  parseBool,
+  parseBoundedFloat,
+  parseBoundedInt,
+  resolveCanonicalWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  logger: console,
+  RELATIONSHIP_DEPTH_MAX,
 });
 
 // T-realtime-supplier-health: readiness probe for the configured
@@ -27421,6 +32859,11 @@ mountRealtimeRoutes(app, {
 // state — same as the original inline handler. See
 // docs/specs/T-decompose-backend-index.md and
 // docs/schemas/realtime-client-secret.md.
+app.use(
+  "/realtime/client_secret",
+  backendRateLimiter.middleware("realtime_mint"),
+  providerBudgetGuard.middleware("realtime_mint")
+);
 mountRealtimeClientSecretRoute(app, {
   getRealtimeSupplier: () => realtimeSupplier,
   createRealtimeSupplier,
@@ -27439,29 +32882,50 @@ mountRealtimeClientSecretRoute(app, {
   clientIp,
   getAssistantSelfNameForIp,
   normalizeSnippet,
+  resolveUserId: (req) => String(req?.authUser?.id || req?.userId || "").trim(),
+  getPersistedUserMemoryForUserId,
+  getCreativeMemoryForPrompt: (options) => creativeMemoryStore.getCreativeMemoryForPrompt(options),
+  buildCreativeMemoryBlock: (memory) => buildModelPromptParts({
+    creativeMemory: memory,
+  }).memoryBlock,
   OPENAI_API_KEY,
   OPENAI_REALTIME_MODEL,
   OPENAI_REALTIME_VOICE,
   OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
   OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
   getRealtimeProviderEnv: () => process.env.REALTIME_PROVIDER,
+  isProduction: () => NODE_ENV === "production",
 });
 
 // T-decompose-phase5b2-studio-render: two routes moved to
-// lib/realtime_studio_render_routes.js. Byte-identical with
-// the previous inline handlers. See
+// lib/realtime_studio_render_routes.js. See
 // docs/specs/T-decompose-backend-index.md and design note
 // in tasks/_proposals/T-decompose-phase5b-realtime-design.md.
+app.use(
+  "/realtime/studio_render",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_render")
+);
+app.use(
+  "/realtime/studio_render_stream",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_render_stream")
+);
 mountRealtimeStudioRenderRoutes(app, {
   renderStudioRealtimeText,
   streamStudioRealtimeText,
   createRequestId,
   normalizeSnippet,
   getOpenAIApiKey: () => OPENAI_API_KEY,
+  shouldAllowStudioRenderWithoutOpenAIKey: () => Boolean(STUDIO_RENDER_TEST_REPLY),
+  creativeMemoryStore,
+  resolveUserId: (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
 });
 
 app.post(
   "/visual/context",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("visual_context"),
   requireClientTokenForTalk,
   express.json({ limit: "2mb" }),
   async (req, res) => {
@@ -27533,17 +32997,24 @@ app.post(
 // T-decompose-phase5b3-turn-commit: route moved to
 // lib/realtime_turn_commit_route.js. Byte-identical with the
 // previous inline handler — same 201 envelope, same 400
-// missing-fields guard, same memory-write pipeline, same
-// storeTalkTurnMeta call, same read-state headers. See
+// missing-fields guard, same storeTalkTurnMeta call, and same
+// read-state headers. Its writes now use the canonical account
+// CAS pipeline shared with /talk. See
 // docs/specs/T-decompose-backend-index.md and the #227
 // design note.
+app.use(
+  "/realtime/turn_commit",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_turn_commit")
+);
 mountRealtimeTurnCommitRoute(app, {
   createRequestId,
   normalizeSnippet,
   sanitizeStudioTurnMetadata,
-  resolveWritableMemoryContext,
+  resolveCanonicalWritableMemoryContext,
   sanitizePersistedSessionMemory,
-  persistWritableMemoryContext,
+  createTalkMemoryCommitter,
+  createCanonicalMemoryMutationCommitter,
   normalizeClientIp,
   clientIp,
   directorFlagsFromTranscript,
@@ -27554,6 +33025,8 @@ mountRealtimeTurnCommitRoute(app, {
   updateSessionAfterReply,
   recordUserTalkMetrics,
   maybeRefineActiveThemesWithLLM,
+  recordCreativeMemoryTriggersForRequest,
+  getCreativeMemoryForPrompt: (options) => creativeMemoryStore.getCreativeMemoryForPrompt(options),
   storeTalkTurnMeta,
   buildReadStateMeta,
   applyReadStateHeaders,
@@ -27566,6 +33039,11 @@ mountRealtimeTurnCommitRoute(app, {
 // passthrough/200 envelopes, same SDP body passthrough, same
 // response headers, same form encoding, same 15s timeout.
 // Closes the 5b decomp chain per #227 design note.
+app.use(
+  "/realtime/call",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_call")
+);
 mountRealtimeCallRoute(app, {
   createRequestId,
   buildRealtimeSessionConfig,
@@ -27576,17 +33054,40 @@ mountRealtimeCallRoute(app, {
   OPENAI_REALTIME_VOICE,
 });
 
-// handleTalkRequest extracted to backend/lib/talk_handler.js (Phase 7b);
-// the createTalkHandler({...}) call is placed here so the guard /
-// idempotency deps created just above are already in scope.
+const authJson = express.json({ limit: "256kb" });
+const wrapAuthHandler = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
 
+app.use("/auth", backendRateLimiter.middleware("auth"));
+app.post("/auth/signup", authJson, wrapAuthHandler(userAuth.handleAuthSignup));
+app.post("/auth/login", authJson, wrapAuthHandler(userAuth.handleAuthLogin));
+app.post("/auth/apple", authJson, wrapAuthHandler(userAuth.handleAuthApple));
+app.post("/auth/refresh", authJson, wrapAuthHandler(userAuth.handleAuthRefresh));
+app.post("/auth/logout", authJson, wrapAuthHandler(userAuth.handleAuthLogout));
+app.get("/auth/sessions", wrapAuthHandler(userAuth.handleAuthSessions));
+app.post("/auth/sessions/revoke", authJson, wrapAuthHandler(userAuth.handleAuthSessionsRevoke));
+app.post("/auth/request_password_reset", authJson, wrapAuthHandler(userAuth.handleAuthRequestPasswordReset));
+app.post("/auth/reset_password", authJson, wrapAuthHandler(userAuth.handleAuthResetPassword));
+app.post("/auth/request_email_verification", authJson, wrapAuthHandler(userAuth.handleAuthRequestEmailVerification));
+app.post("/auth/verify_email", authJson, wrapAuthHandler(userAuth.handleAuthVerifyEmail));
 
-// T-decompose-phase4-auth-routes: all 11 /auth/* routes moved to
-// lib/auth_routes.js. Behavior is byte-identical — same 256kb
-// body limit, same handler bindings. The userAuth subsystem is
-// created by createUserAuthSubsystem(...) above and passed as a
-// dep. See docs/specs/T-decompose-backend-index.md.
-mountAuthRoutes(app, { userAuth });
+app.use("/account", express.json({ limit: "64kb" }));
+mountAccountRoutes(app, {
+  resolveAuthenticatedUser: async (req) => req.authUser || null,
+  exportUserData: exportAuthenticatedUserData,
+  lifecycleStore: accountLifecycleStore,
+  revokeAllSessions: async (userId) => {
+    const result = await revokeAllAuthSessionsForUserDurably(userId, Date.now());
+    if (result.ok) return result;
+    const error = new Error("auth_persistence_failed");
+    error.code = "AUTH_PERSISTENCE_FAILED";
+    error.retryable = Boolean(result.retryable);
+    throw error;
+  },
+  verifyReauthProof: userAuth.verifyReauthProof,
+  auditLog: accountAuditLog,
+});
 
 // Phase 7a: guards are built from backend/lib/talk_state.js factories
 // using live config + helpers. State (rate buckets, idempotency cache,
@@ -27636,6 +33137,7 @@ const captureTalkResponseHeaders = (res) =>
   talkIdempotencyHelpers.captureResponseHeaders(res);
 
 const handleTalkRequest = createTalkHandler({
+  logger: console,
   ACTIVE_PRESET_GUIDANCE,
   ACTIVE_THEME_DECAY_MULTIPLIER,
   ACTIVE_THEME_MAX,
@@ -27650,7 +33152,6 @@ const handleTalkRequest = createTalkHandler({
   BARGE_IN_ENABLED,
   BARGE_IN_HINT_THRESHOLD,
   BARGE_IN_STOP_PLAYBACK,
-  CALENDAR_COMPOSE_TARGET,
   CHAT_STREAM_ENABLED,
   CHAT_TIMEOUT_MS,
   CLEMENTINE_CHAOS_FACTOR_BASELINE,
@@ -27659,13 +33160,10 @@ const handleTalkRequest = createTalkHandler({
   COMPANION_MODE_PROFILE,
   DEEP_TURN_SCORE_THRESHOLD,
   DEFAULT_ASSISTANT_SELF_NAME,
-  EMAIL_COMPOSE_BODY_MAX_CHARS,
-  EMAIL_SEND_TARGET,
   EMOTIONAL_TRAJECTORY,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_ENABLED,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_MIN_BYTES,
   EMPTY_TRANSCRIPT_VOICE_PROMPT_STREAK,
-  ENABLE_LOCAL_EMAIL_SEND,
   ENABLE_LOCAL_NOTE_CAPTURE,
   FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
   INTERACTIVE_TTS_PROVIDER,
@@ -27714,20 +33212,18 @@ const handleTalkRequest = createTalkHandler({
   WEEKLY_EXPANSION_EXISTENTIAL_TURNS,
   WEEKLY_EXPANSION_SELF_AWARENESS_TURNS,
   appendCraftContextToSystem,
+  applyTalkScreenplayRepairCandidate,
   appendDirectorAddendum,
   applyAdaptiveTurnLearning,
   applyTtsLeadIn,
   applyUserIdentityIntentToMemory,
   buildBackReferenceAddendum,
   buildBackReferencePlan,
-  buildCalendarActionReply,
-  buildCalendarComposeUrl,
   buildCharacterTextureAddendum,
   buildCinemaCheckEnvelope,
   buildCycleConsciousMemoryAddendum,
   buildCycleConsciousMemoryPlan,
   buildCycleEvolutionAddendum,
-  buildEmailSendReply,
   buildEmotionalTrajectoryAddendum,
   buildEstimatedTalkScreenplayCues,
   buildEvolvingSelfAwarenessAddendum,
@@ -27739,6 +33235,7 @@ const handleTalkRequest = createTalkHandler({
   buildMelancholySeedAddendum,
   buildMemoryAddendum,
   buildMemoryStateVersion,
+  buildSessionContinuitySnapshot,
   buildMemoryUsefulnessGuardrails,
   buildMovementArcAddendum,
   buildNoPendingLocalActionReply,
@@ -27761,19 +33258,20 @@ const handleTalkRequest = createTalkHandler({
   buildTherapeuticDepthAddendum,
   buildTimeOfDayToneAddendum,
   buildTurnPlanner,
+  applyClementineVoiceDirection,
   buildWeeklyEmotionalArcAddendum,
   buildWeeklyExpansionArcAddendum,
   captureLocalNote,
   captureTalkResponseHeaders,
   clampUnit,
   classifyActionLane,
-  clearPendingEmailDraft,
   clearPendingLocalAction,
   clearTalkIdempotencyPending,
   clientIp,
   commitTalkIdempotencySuccess,
   completeTaskInMemory,
   computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
   computeMemoryTurnNumber,
   computeOutboxRetryAt,
   computeSpeculativePromptHash,
@@ -27808,8 +33306,6 @@ const handleTalkRequest = createTalkHandler({
   evaluateTurnQualityHeuristics,
   extractAnchorTerms,
   extractAssistantRenameIntent,
-  extractCalendarIntent,
-  extractEmailSendIntent,
   extractNoteCaptureIntent,
   extractTaskCompleteIntent,
   extractTaskCreateIntent,
@@ -27833,6 +33329,7 @@ const handleTalkRequest = createTalkHandler({
   inferRoutingPriorityLane,
   isAbortError,
   isAdviceRequestedByUser,
+  isAuthoritativeTalkScreenplayOutput,
   isLikelyAmbiguousLowConfidenceUtterance,
   isLikelyMp3Buffer,
   isLocalActionCancelTranscript,
@@ -27846,15 +33343,16 @@ const handleTalkRequest = createTalkHandler({
   maybeRefineActiveThemesWithLLM,
   mergeTurnQualitySignals,
   normalizeAffectionStyle,
+  normalizeAcceptedCausalFacts,
   normalizeAssistantSelfName,
   normalizeClientIp,
   normalizeClientToken,
-  normalizeEmailAddress,
   normalizeLocalActionType,
   normalizeMotivationOutcome,
   normalizePersonaPreset,
   normalizeReassuranceStyle,
   normalizeSnippet,
+  sanitizeStudioTurnMetadata,
   normalizeSpeculativeKey,
   normalizeSpeculativePromptHash,
   normalizeSpeechCompare,
@@ -27876,8 +33374,8 @@ const handleTalkRequest = createTalkHandler({
   recordTalkMetric,
   recordUserTalkMetrics,
   recordUserTurnQualityMetric,
-  resolveEmailSendIntentWithPending,
   resolveTalkSessionKey,
+  resolveCanonicalWritableMemoryContext,
   sanitizeActiveThemes,
   sanitizeAdaptiveBias,
   sanitizeAdaptiveQualityTags,
@@ -27887,11 +33385,9 @@ const handleTalkRequest = createTalkHandler({
   selectChatModelForTurn,
   selectChatTemperatureForTurn,
   selectExecutableLocalActionCandidate,
-  sendLocalEmail,
   setAssistantSelfNameForIp,
-  setPendingEmailDraft,
   setPendingLocalAction,
-  setPersistedUserMemoryForIp,
+  createTalkMemoryCommitter,
   shouldForceSessionCheckInOpener,
   shouldHoldForContinuation,
   shouldPrioritizeReassurance,
@@ -27913,6 +33409,22 @@ const handleTalkRequest = createTalkHandler({
   wrapSystemPromptWithCreativeMemory,
 });
 
+function requireOpenAIProviderForTalk(_req, res, next) {
+  if (OPENAI_API_KEY) return next();
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(503).json({
+    stage: "talk",
+    code: "provider_not_configured",
+    retryable: false,
+    error: "Writing provider is not configured.",
+  });
+}
+
+app.post(
+  "/talk",
+  requireOpenAIProviderForTalk,
+  providerBudgetGuard.middleware("talk")
+);
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -27945,6 +33457,10 @@ mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,
   buildCraftContextBlock,
+  getOrCreateScreenplayOwnerRecord,
+  getScreenplayProjectRecord,
+  getLatestScreenplayVersion,
+  refreshScreenplayOwnerRecord,
 });
 // T-screenplay-import-fountain: POST /screenplay/import/fountain.
 // Reverse of T-fountain-export-endpoint. Parses Fountain text into
@@ -27982,13 +33498,6 @@ mountArchetypeRoute(app, { creativeMemoryStore });
 // computeBlockSignal() so iOS can nudge the writer when block patterns
 // emerge.
 mountBlockSignalRoute(app, { creativeMemoryStore });
-
-// T-creative-memory-export (V1 core-only): GET /memory/export returns
-// the requesting user's own creative-memory record. Project-linked
-// export (logline/twist by projectIds) is deferred post-V1 pending an
-// ownership-scoping design — see
-// tasks/_proposals/T-creative-memory-export-projectids-ownership.md.
-mountCreativeMemoryExportRoute(app, { creativeMemoryStore });
 // T-talk-error-rate-tracker: GET /talk/errors snapshots in-memory
 // error counters. Wired into the /realtime/client_secret error paths
 // above; additional /talk pipeline call sites are a small follow-up.
@@ -28014,6 +33523,7 @@ mountScreenplayExportFormatsRoute(app);
 // optional surfaces). Distinct from /ops/metrics (hot-path counters).
 mountOpsHealthSummaryRoute(app, {
   deriveBackendStatus: deriveBackendRuntimeStatus,
+  signals: buildOpsHealthSignals,
   features: {
     creative_memory: true,
     block_signal: true,
@@ -28055,63 +33565,10 @@ mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 mountTalkTurnStatsRoute(app, {
   getAllTalkTurns: () => [...talkTurnMetaById.values()],
 });
-app.all("/auth/signup", methodNotAllowed("POST"));
-app.all("/auth/login", methodNotAllowed("POST"));
-app.all("/auth/apple", methodNotAllowed("POST"));
-app.all("/auth/refresh", methodNotAllowed("POST"));
-app.all("/auth/logout", methodNotAllowed("POST"));
-app.all("/auth/sessions", methodNotAllowed("GET"));
-app.all("/auth/sessions/revoke", methodNotAllowed("POST"));
-app.all("/auth/request_password_reset", methodNotAllowed("POST"));
-app.all("/auth/reset_password", methodNotAllowed("POST"));
-app.all("/auth/request_email_verification", methodNotAllowed("POST"));
-app.all("/auth/verify_email", methodNotAllowed("POST"));
-app.all("/health", methodNotAllowed("GET"));
-app.all("/bridge", methodNotAllowed("GET"));
-app.all("/ops/metrics", methodNotAllowed("GET"));
-app.all("/ops/alerts", methodNotAllowed("GET"));
-app.all("/outbox", methodNotAllowed("GET"));
-app.all("/outbox/retry", methodNotAllowed("POST"));
-app.all("/state", methodNotAllowed("GET"));
-app.all("/history", methodNotAllowed("GET"));
-app.all("/memories", methodNotAllowed("GET"));
-app.all("/memories/export", methodNotAllowed("GET"));
-app.all("/memories/update", methodNotAllowed("POST"));
-app.all("/memories/forget", methodNotAllowed("POST"));
-app.all("/memories/promote", methodNotAllowed("POST"));
-app.all("/memories/feedback", methodNotAllowed("POST"));
-app.all("/tasks", methodNotAllowed("GET"));
-app.all("/tasks/update", methodNotAllowed("POST"));
-app.all("/recap", methodNotAllowed("GET"));
-app.all("/recap/today", methodNotAllowed("GET"));
-app.all("/screenplay/projects", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId", methodNotAllowed("GET"));
-app.all("/screenplay/projects/:projectId/outline", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/scenes", methodNotAllowed("POST"));
-app.all("/screenplay/projects/:projectId/beats", methodNotAllowed("POST"));
-app.all("/screenplay/projects/:projectId/collaborators", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/comments", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
-app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
-app.all("/screenplay/paginate", methodNotAllowed("POST"));
-app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
-app.all("/screenplay/export", methodNotAllowed("POST"));
-app.all("/history/annotate_turn", methodNotAllowed("POST"));
-app.all("/data/history/clear", methodNotAllowed("POST"));
-app.all("/data/memories/clear", methodNotAllowed("POST"));
-app.all("/linkedin/analyze", methodNotAllowed("POST"));
-app.all("/secretary/email", methodNotAllowed("POST"));
-app.all("/secretary/calendar", methodNotAllowed("POST"));
-app.all("/session", methodNotAllowed("POST, PATCH"));
-app.all("/realtime/client_secret", methodNotAllowed("POST"));
-app.all("/realtime/studio_render", methodNotAllowed("POST"));
-app.all("/realtime/studio_render_stream", methodNotAllowed("POST"));
-app.all("/visual/context", methodNotAllowed("POST"));
-app.all("/realtime/bridge", methodNotAllowed("GET"));
-app.all("/realtime/turn_commit", methodNotAllowed("POST"));
-app.all("/realtime/call", methodNotAllowed("POST"));
-app.all("/talk", methodNotAllowed("POST"));
-app.all("/talk/turn/:turnId", methodNotAllowed("GET"));
+// 405 method guards (extracted to lib/method_not_allowed_routes.js).
+// Registered here — after the real handlers, before the final 404 — so
+// Express still matches specific methods first and order is unchanged.
+registerMethodNotAllowedRoutes(app);
 
 app.use((req, res) => {
   return res.status(404).json({ stage: "route", error: "Not found." });
@@ -28135,19 +33592,68 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ stage: "server", error: "Internal server error." });
 });
 
-let didCloseScaleBackplane = false;
-async function closeScaleBackplaneOnce() {
-  if (didCloseScaleBackplane) return;
-  didCloseScaleBackplane = true;
-  try {
-    await scaleBackplane.close();
-  } catch (_) {
-    // no-op
+let backendHttpServer = null;
+let outboxWorkerTimer = null;
+let scaleBackplaneClosePromise = null;
+let gracefulShutdownPromise = null;
+
+function closeScaleBackplaneOnce() {
+  if (!scaleBackplaneClosePromise) {
+    scaleBackplaneClosePromise = Promise.resolve()
+      .then(() => scaleBackplane.close())
+      .catch(() => {});
   }
+  return scaleBackplaneClosePromise;
 }
-process.on("SIGINT", () => { void closeScaleBackplaneOnce(); });
-process.on("SIGTERM", () => { void closeScaleBackplaneOnce(); });
-process.on("exit", () => { void closeScaleBackplaneOnce(); });
+
+function closeBackendHttpServerOnce() {
+  const server = backendHttpServer;
+  backendHttpServer = null;
+  if (!server) return Promise.resolve();
+  server.closeIdleConnections?.();
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+function gracefulShutdown(signal = "shutdown") {
+  if (gracefulShutdownPromise) return gracefulShutdownPromise;
+  gracefulShutdownPromise = (async () => {
+    console.log(`[shutdown] ${signal} received; draining backend`);
+    if (outboxWorkerTimer) {
+      clearInterval(outboxWorkerTimer);
+      outboxWorkerTimer = null;
+    }
+    let deadlineTimer = null;
+    const deadline = new Promise((resolve) => {
+      deadlineTimer = setTimeout(() => resolve("timeout"), 8_000);
+    });
+    const cleanup = (async () => {
+      await closeBackendHttpServerOnce();
+      await outboxSnapshotter.stop();
+      await Promise.allSettled([
+        closeScaleBackplaneOnce(),
+        Promise.resolve().then(() => sharedPersistence.close?.()),
+      ]);
+      return "closed";
+    })();
+    const status = await Promise.race([cleanup, deadline]);
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (status === "timeout") {
+      console.error("[shutdown] graceful shutdown timed out after 8000ms");
+    }
+    return status;
+  })();
+  return gracefulShutdownPromise;
+}
+
+function handleTerminationSignal(signal) {
+  void gracefulShutdown(signal).then((status) => {
+    process.exit(status === "closed" ? 0 : 1);
+  });
+}
+process.once("SIGINT", () => handleTerminationSignal("SIGINT"));
+process.once("SIGTERM", () => handleTerminationSignal("SIGTERM"));
 
 if (SHOULD_START_SERVER) {
   // T-known-domains-startup-check: cheap boot-time invariant on the
@@ -28155,17 +33661,23 @@ if (SHOULD_START_SERVER) {
   // so a deploy with a corrupted constant fails diagnostics loudly
   // instead of crashing on the first persistence call.
   checkKnownDomainsAtStartup();
-  app.listen(PORT, () => {
-    console.log(`Backend listening on http://localhost:${PORT}`);
+  const onListening = () => {
+    console.log(`Backend listening on http://${HOST || "localhost"}:${PORT}`);
     if (OUTBOX_ENABLED && OUTBOX_WORKER_ENABLED) {
-      setInterval(() => {
+      outboxWorkerTimer = setInterval(() => {
         void runOutboxWorkerTick();
       }, Math.max(1_000, OUTBOX_WORKER_INTERVAL_MS));
+      outboxWorkerTimer.unref?.();
     }
     setTimeout(() => {
       void warmupKnowledgeEmbeddingsOnBoot({ rid: "knowledge_warmup_boot" });
     }, Math.max(0, KNOWLEDGE_RAG_WARMUP_DELAY_MS));
-  });
+  };
+  if (HOST) {
+    backendHttpServer = app.listen(PORT, HOST, onListening);
+  } else {
+    backendHttpServer = app.listen(PORT, onListening);
+  }
 }
 
 export {
@@ -28176,10 +33688,35 @@ export {
   appendDirectorAddendum,
   directorFlagsFromTranscript,
   inferRoutingPriorityLane,
+  buildTalkScreenplayOutput,
+  applyTalkScreenplayRepairCandidate,
+  isAuthoritativeTalkScreenplayOutput,
   buildTurnPlanner,
   selectChatModelForTurn,
+  computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
   buildKnowledgeRetrievalAddendum,
+  buildMemoryAddendum,
+  buildMemoryCards,
+  buildMemoryStateVersion,
+  buildSessionContinuitySnapshot,
+  buildCreativeMemoryRecallQuery,
+  buildCreativeMemoryPromptTrace,
+  buildRealtimeSessionConfig,
+  renderRealtimeBridgeHtml,
+  renderStudioRealtimeText,
+  buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,
   enforceReplyCompletenessGuard,
+  createEmptyEmotionMemory,
+  normalizeTalkPageReply,
+  readTalkTurnMeta,
+  sanitizeScreenplayProjectMemoryItems,
+  sanitizeStudioTurnMetadata,
+  storeTalkTurnMeta,
+  updateMemoryCardInMemory,
+  updateSessionAfterReply,
+  upsertScreenplayProjectMemory,
+  wrapSystemPromptWithCreativeMemory,
 };

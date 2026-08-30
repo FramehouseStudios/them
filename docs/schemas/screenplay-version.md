@@ -20,7 +20,8 @@ Canonical shape for `POST /screenplay/projects/:projectId/version`.
 
 ## Access-control posture
 
-**PER-USER**.
+**PER-USER**. Trusted auth identity is required. Caller-supplied
+`X-User-Id` is ignored; unauthenticated callers receive HTTP 401.
 
 ## Success envelope (201 created or 200 conflict)
 
@@ -76,8 +77,10 @@ prompt the user to reconcile (merge / discard / overwrite).
 
 | Code | HTTP | Notes |
 | --- | --- | --- |
+| `user_auth_required` | 401 | Missing trusted auth identity. |
 | `project_not_found` | 404 | `:projectId` missing |
 | `draft_required` | 400 | empty draft body |
+| `screenplay_persistence_failed` | 503 | The version write could not be durably saved. |
 
 ## Compatibility rules
 
@@ -89,4 +92,6 @@ prompt the user to reconcile (merge / discard / overwrite).
 
 ## Changelog
 
+- 2026-05-27 — Version saves require trusted auth and surface
+  durable persistence failure as 503.
 - 2026-05-14 — Doc created. Reflects PR #197 shape.

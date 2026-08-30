@@ -79,18 +79,47 @@ await persistence.close();                               // releases pool / noth
 DATABASE_URL=postgres://... node scripts/migrate_stores_to_postgres.mjs
 ```
 
+Run the data import with backend auth writes stopped. The auth portion is an
+exact snapshot replacement: rows absent from `user_store.json` are deleted in
+the same transaction that installs the imported rows and canonical marker.
+Running it against a live writer could therefore discard a session created
+after the source snapshot was captured.
+
 Flags:
 
-- `--schema-only` — apply `backend/migrations/001_init_persistence.sql` only; no data load.
-- `--dry-run` — report counts that would be migrated; do not write.
+- `--schema-only` — apply the persistence and auth table migrations; no data
+  load and no deletion of existing auth rows. Migration 011 may mark an
+  existing nonempty auth store, but it never authorizes an empty database as
+  canonical. Production remains fail-closed until a validated import publishes
+  the marker for an empty store.
+- `--allow-empty-auth` — explicitly authorize an exact empty auth replacement.
+  A live run with a valid four-array empty snapshot deletes every canonical
+  user, session, reset token, and verification token in the auth transaction.
+- `--dry-run` — parse and validate the source snapshot and report counts; do
+  not connect to Postgres or write. An allowed empty snapshot emits a prominent
+  warning because the corresponding live run is destructive.
 - `--backend DIR` — point at a different backend root (defaults to `./backend`).
 
 The script:
 
-1. Applies the schema (idempotent).
-2. Reads each legacy file (`outbox_store.json`, etc.) if present.
-3. Extracts records using a per-source extractor that knows the legacy shape (e.g., `user_memory_store.json` has `byUserId` / `byClientToken` / `byIp` buckets — these become `byUserId:<id>` keys in Postgres).
-4. Calls `persistence.put({ domain, key, value })` for each record. Idempotent: re-running migrates only new/changed records.
+1. Reads every legacy file before the first database operation and requires a
+   recognized, structurally valid `user_store.json`. Empty auth snapshots fail
+   closed unless `--allow-empty-auth` explicitly authorizes exact replacement;
+   `--schema-only` is not an empty-data operation.
+2. Validates auth identity uniqueness, credential completeness, consistent
+   email-verification metadata, bounded PBKDF2 work factors, complete encoded
+   password digests, session/token lifetimes, and every user reference before
+   any schema or data write.
+3. Applies the pre-import persistence/auth schema migrations (idempotent).
+4. Extracts non-auth records using a per-source extractor that knows the
+   legacy shape (for example, `user_memory_store.json` buckets become
+   `byUserId:<id>` keys) and upserts them through the persistence adapter.
+5. In one Postgres transaction, installs the marker table, rejects an
+   incompatible future marker version, clears all four auth tables, inserts the
+   exact validated auth snapshot, and publishes the canonical initialization
+   marker. Any delete, insert, or marker failure rolls the entire auth
+   replacement back. Re-running with the same snapshot produces the same
+   canonical state.
 
 ### Reverse — Postgres → JSON
 

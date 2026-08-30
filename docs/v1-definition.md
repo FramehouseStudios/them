@@ -4,6 +4,16 @@ This is the operative V1 target until the human product lead changes it.
 Every PR must either close a V1 checklist item, unblock one, or clearly say
 that it is infrastructure for one. Work that does none of those is not next.
 
+## Platform scope
+
+**V1 is iPhone only.** See `D-desktop-posture-v1` in
+`docs/decisions-queue.md` (resolved 2026-05-14). The Xcode `macosx`
+target stays in `SUPPORTED_PLATFORMS` as dormant scaffolding so a
+future Mac shell isn't re-plumbed from scratch, but the V1 TestFlight
+scheme, App Store listing, and marketing copy must say iPhone only. A
+real desktop product is `T-macos-shell-v1.1` and requires its own
+ADR.
+
 ## V1 Promise
 
 A writer can open io.them on a phone, speak or type a messy creative impulse,
@@ -51,7 +61,9 @@ Checklist:
 - [x] Prompt assembly consumes persona, memory, session, accepted twists, and
       block signal in a pinned order.
 - [x] iOS exposes a plain-language memory summary and refresh state.
-- [x] Human privacy decision is made for full memory export/delete.
+- [x] Human privacy decision is made for full memory export/delete
+      (`D-creative-memory-export-approval` and
+      `D-creative-memory-delete-scope` resolved 2026-05-14).
 - [ ] Manual smoke: mention character -> later suggestion recalls them.
 
 ## Realtime
@@ -74,14 +86,33 @@ can run end-to-end without developer narration. Build, tests, smoke notes, and
 known human-gated privacy decisions must be visible before external review.
 
 Checklist:
-- [x] macOS app builds and focused Swift tests have been passing in the merge
-      train.
+- [x] macOS scheme still compiles (kept as dormant scaffolding per
+      `D-desktop-posture-v1`; not in V1).
 - [x] Current app build and `themTests` are green after the latest app-visible
       feature.
 - [x] `smoke.sh` or an equivalent manual QA script covers the V1 path.
 - [x] TestFlight preflight artifact names what is verified and what is parked.
 - [ ] Human signs off on the V1 manual smoke before external review and the
       TestFlight handoff can proceed.
+- [x] iOS auth tokens migrated from UserDefaults to Keychain
+      (`T-ios-keychain-token-migration`).
+- [x] iOS offline outbox queues talk turns when offline
+      (`T-ios-offline-outbox`).
+- [x] macOS scaffolding gated off the V1 TestFlight scheme
+      (`T-macos-posture-cleanup`).
+- [x] Backend deploy manifest + Dockerfile in repo
+      (`T-backend-deploy-image`).
+- [x] Backend boot guard refuses production start without required env
+      (`assertProductionEnv`).
+- [x] Migrations runner applies all `backend/migrations/*.sql`
+      (`scripts/apply_migrations.mjs`) — run it before first deploy.
+- [x] `GET /account/export` + `DELETE /account` wired to real
+      persistence — **App Store reviewer blocker**
+      (`T-account-deletion-and-export`).
+- [x] Security headers (HSTS/nosniff/frame-ancestors) set before
+      external review (`T-backend-security-headers`).
+- [x] Auth + realtime routes rate-limited
+      (`T-backend-rate-limit` Phase 1–2).
 
 ## PR Rule
 

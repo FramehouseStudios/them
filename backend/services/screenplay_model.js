@@ -1,4 +1,8 @@
 import { normalizeCharacterVoiceCardCollection } from "./character_voice_runtime.js";
+import {
+  normalizeOutlineMutationReceipts,
+  normalizeOutlineRevision,
+} from "../lib/screenplay_outline_protocol.js";
 
 export function createScreenplayModelServices(deps = {}) {
   const {
@@ -39,6 +43,14 @@ function buildDraftExcerpt(draft, maxChars = 220) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, Math.max(32, maxChars));
+}
+
+function normalizeScreenplayMultilineSnippet(value, maxChars = 2400) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .slice(0, Math.max(0, Number(maxChars || 0)));
 }
 
 function scoreScreenplayDraft(draft) {
@@ -473,6 +485,7 @@ function analyzeScreenplayContinuityQa(input = {}) {
 
 function createEmptyScreenplayOutline() {
   return {
+    revision: 0,
     updatedAt: 0,
     acts: [],
     scenes: [],
@@ -963,6 +976,70 @@ function normalizeStoredScreenplayDiffAcknowledgementState(entry) {
   };
 }
 
+function normalizeStoredScreenplayStudioAskNoteExchange(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const id = normalizeSnippet(entry.id, 96);
+  const prompt = normalizeSnippet(entry.prompt, 1200);
+  const noteBody = normalizeScreenplayMultilineSnippet(entry.noteBody ?? entry.note_body, 2400);
+  const insertedText = normalizeScreenplayMultilineSnippet(entry.insertedText ?? entry.inserted_text, 2400);
+  const developmentText = normalizeScreenplayMultilineSnippet(entry.developmentText ?? entry.development_text, 2400);
+  if (!id || (!prompt && !noteBody && !insertedText && !developmentText)) return null;
+  const target = normalizeSnippet(entry.target, 32) || "voicePin";
+  const source = normalizeSnippet(entry.source, 32) || "typed";
+  return {
+    id,
+    backendThreadID: normalizeSnippet(entry.backendThreadID ?? entry.backendThreadId ?? entry.backend_thread_id, 120),
+    backendTurn: Number.isFinite(Number(entry.backendTurn ?? entry.backend_turn))
+      ? Math.max(0, Math.floor(Number(entry.backendTurn ?? entry.backend_turn)))
+      : null,
+    requestID: normalizeSnippet(entry.requestID ?? entry.requestId ?? entry.request_id, 120),
+    prompt,
+    target: ["page", "voicePin"].includes(target) ? target : "voicePin",
+    source: ["typed", "voice"].includes(source) ? source : "typed",
+    noteTitle: normalizeSnippet(entry.noteTitle ?? entry.note_title, 240) || "Clementine",
+    noteBody,
+    developmentText,
+    writeID: normalizeSnippet(entry.writeID ?? entry.writeId ?? entry.write_id, 96),
+    replacedWriteID: normalizeSnippet(entry.replacedWriteID ?? entry.replacedWriteId ?? entry.replaced_write_id, 96),
+    anchorLine: Number.isFinite(Number(entry.anchorLine ?? entry.anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorLine ?? entry.anchor_line)))
+      : null,
+    anchorEndLine: Number.isFinite(Number(entry.anchorEndLine ?? entry.anchor_end_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorEndLine ?? entry.anchor_end_line)))
+      : null,
+    anchorSceneLabel: normalizeSnippet(entry.anchorSceneLabel ?? entry.anchor_scene_label, 180),
+    anchorExcerpt: normalizeScreenplayMultilineSnippet(entry.anchorExcerpt ?? entry.anchor_excerpt, 1600),
+    insertedText,
+    replacementApplied: typeof (entry.replacementApplied ?? entry.replacement_applied) === "boolean"
+      ? Boolean(entry.replacementApplied ?? entry.replacement_applied)
+      : null,
+    revisedBlockText: normalizeScreenplayMultilineSnippet(entry.revisedBlockText ?? entry.revised_block_text, 2400),
+    resolvedAnchorExcerpt: normalizeScreenplayMultilineSnippet(entry.resolvedAnchorExcerpt ?? entry.resolved_anchor_excerpt, 1600),
+    packLabel: normalizeSnippet(entry.packLabel ?? entry.pack_label, 120),
+    phase: normalizeSnippet(entry.phase, 80),
+    sluglineAnchorLine: Number.isFinite(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line)))
+      : null,
+    memoryDomainRaw: normalizeSnippet(entry.memoryDomainRaw ?? entry.memory_domain_raw, 80),
+    companionModeRaw: normalizeSnippet(entry.companionModeRaw ?? entry.companion_mode_raw, 80),
+    timestamp: normalizeSnippet(entry.timestamp, 80) || new Date().toISOString(),
+  };
+}
+
+function normalizeStoredScreenplayStudioAskNoteHistory(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    const exchange = normalizeStoredScreenplayStudioAskNoteExchange(item);
+    if (!exchange || seen.has(exchange.id)) continue;
+    seen.add(exchange.id);
+    normalized.push(exchange);
+    if (normalized.length >= 24) break;
+  }
+  return normalized;
+}
+
 function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
   if (!entry || typeof entry !== "object") return null;
   const id = normalizeSnippet(entry.id, 64) || createScreenplayId("act");
@@ -971,8 +1048,8 @@ function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
     id,
     title,
     summary: normalizeSnippet(entry.summary, 220),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
-    sceneIds: normalizeScreenplayStringList(entry.sceneIds, 128, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
+    sceneIds: normalizeScreenplayStringList(entry.sceneIds ?? entry.scene_ids, 128, 64),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
   };
@@ -987,10 +1064,10 @@ function normalizeStoredScreenplayScene(entry, orderFallback = 0) {
     title: normalizeSnippet(entry.title, 140) || "Scene",
     objective: normalizeSnippet(entry.objective, 220),
     summary: normalizeSnippet(entry.summary, 320),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
-    beatIds: normalizeScreenplayStringList(entry.beatIds, 256, 64),
+    beatIds: normalizeScreenplayStringList(entry.beatIds ?? entry.beat_ids, 256, 64),
     unresolvedSetups: normalizeScreenplayStringList(entry.unresolvedSetups ?? entry.unresolved_setups, 64, 120),
     resolvedPayoffs: normalizeScreenplayStringList(entry.resolvedPayoffs ?? entry.resolved_payoffs ?? entry.payoffs, 64, 120),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
@@ -1005,9 +1082,9 @@ function normalizeStoredScreenplayBeat(entry, orderFallback = 0) {
     id,
     label: normalizeSnippet(entry.label, 140) || "Beat",
     summary: normalizeSnippet(entry.summary, 280),
-    sceneId: normalizeSnippet(entry.sceneId, 64),
-    actId: normalizeSnippet(entry.actId, 64),
-    order: Math.max(0, Number(entry.order ?? orderFallback)),
+    sceneId: normalizeSnippet(entry.sceneId ?? entry.scene_id, 64),
+    actId: normalizeSnippet(entry.actId ?? entry.act_id, 64),
+    order: normalizeOutlineRevision(entry.order, orderFallback),
     status: normalizeSnippet(entry.status, 24) || "open",
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
@@ -1063,16 +1140,40 @@ function normalizeStoredScreenplayOutline(entry) {
   const acts = Array.isArray(raw.acts)
     ? raw.acts.map((item, index) => normalizeStoredScreenplayAct(item, index)).filter(Boolean)
     : [];
-  const scenes = Array.isArray(raw.scenes)
+  let scenes = Array.isArray(raw.scenes)
     ? raw.scenes.map((item, index) => normalizeStoredScreenplayScene(item, index)).filter(Boolean)
     : [];
-  const beats = Array.isArray(raw.beats)
+  let beats = Array.isArray(raw.beats)
     ? raw.beats.map((item, index) => normalizeStoredScreenplayBeat(item, index)).filter(Boolean)
     : [];
+  const actIds = new Set(acts.map((act) => act.id));
+  scenes = scenes.map((scene) => ({
+    ...scene,
+    actId: scene.actId && actIds.has(scene.actId) ? scene.actId : "",
+  }));
+  const sceneIds = new Set(scenes.map((scene) => scene.id));
+  beats = beats.map((beat) => ({
+    ...beat,
+    sceneId: beat.sceneId && sceneIds.has(beat.sceneId) ? beat.sceneId : "",
+    actId: beat.actId && actIds.has(beat.actId) ? beat.actId : "",
+  }));
+  const orderedScenes = [...scenes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const orderedBeats = [...beats].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   return {
+    revision: normalizeOutlineRevision(raw.revision ?? raw.outlineRevision ?? raw.outline_revision),
     updatedAt: Math.max(0, Number(raw.updatedAt || 0)),
-    acts,
-    scenes,
+    acts: acts.map((act) => ({
+      ...act,
+      sceneIds: orderedScenes
+        .filter((scene) => scene.actId === act.id)
+        .map((scene) => scene.id),
+    })),
+    scenes: scenes.map((scene) => ({
+      ...scene,
+      beatIds: orderedBeats
+        .filter((beat) => beat.sceneId === scene.id)
+        .map((beat) => beat.id),
+    })),
     beats,
   };
 }
@@ -1093,6 +1194,10 @@ function normalizeStoredScreenplayProject(entry) {
     }
   );
   const outline = normalizeStoredScreenplayOutline(entry.outline);
+  const outlineRevision = normalizeOutlineRevision(
+    entry.outlineRevision ?? entry.outline_revision ?? outline.revision
+  );
+  outline.revision = outlineRevision;
   const versions = Array.isArray(entry.versions)
     ? entry.versions.map(normalizeStoredScreenplayVersion).filter(Boolean)
     : [];
@@ -1102,6 +1207,12 @@ function normalizeStoredScreenplayProject(entry) {
   const comments = Array.isArray(entry.comments)
     ? entry.comments.map(normalizeStoredScreenplayComment).filter(Boolean)
     : [];
+  const studioAskNoteHistory = normalizeStoredScreenplayStudioAskNoteHistory(
+    entry.studioAskNoteHistory
+    || entry.studio_ask_note_history
+    || entry.studioExchangeHistory
+    || entry.studio_exchange_history
+  );
   return {
     id,
     title,
@@ -1112,6 +1223,18 @@ function normalizeStoredScreenplayProject(entry) {
     setting: normalizeSnippet(entry.setting, 120),
     tone: normalizeSnippet(entry.tone, 120),
     promptSeed: normalizeSnippet(entry.promptSeed, 240),
+    logline: normalizeSnippet(entry.logline, 500),
+    themeArgument: normalizeSnippet(entry.themeArgument ?? entry.theme_argument ?? entry.theme, 500),
+    centralQuestion: normalizeSnippet(
+      entry.centralQuestion ?? entry.central_question ?? entry.dramaticQuestion ?? entry.dramatic_question,
+      500
+    ),
+    protagonistWant: normalizeSnippet(entry.protagonistWant ?? entry.protagonist_want, 500),
+    protagonistNeed: normalizeSnippet(entry.protagonistNeed ?? entry.protagonist_need, 500),
+    antagonisticForce: normalizeSnippet(entry.antagonisticForce ?? entry.antagonistic_force, 500),
+    actPosition: normalizeSnippet(entry.actPosition ?? entry.act_position ?? entry.act, 80),
+    endingImage: normalizeSnippet(entry.endingImage ?? entry.ending_image ?? entry.finalImage ?? entry.final_image, 500),
+    unresolvedSetups: normalizeScreenplayStringList(entry.unresolvedSetups ?? entry.unresolved_setups, 24, 220),
     createdAt: Math.max(0, Number(entry.createdAt || 0)),
     updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
     lastPhase: normalizeSnippet(entry.lastPhase, 48) || "scene_draft",
@@ -1121,6 +1244,11 @@ function normalizeStoredScreenplayProject(entry) {
     studioThreadViewState: normalizeStoredScreenplayThreadViewState(entry.studioThreadViewState || entry.studio_thread_view_state),
     studioDiffAcknowledgedKeys: diffAcknowledged.keys,
     studioDiffAcknowledgedEntries: diffAcknowledged.entries,
+    studioAskNoteHistory,
+    outlineRevision,
+    outlineMutationReceipts: normalizeOutlineMutationReceipts(
+      entry.outlineMutationReceipts ?? entry.outline_mutation_receipts
+    ),
     outline,
     versions,
     collaborators,
@@ -1200,7 +1328,7 @@ function toScreenplayActPayload(act) {
     id: act.id,
     title: act.title,
     summary: act.summary || "",
-    order: Math.max(0, Number(act.order || 0)),
+    order: normalizeOutlineRevision(act.order),
     scene_ids: Array.isArray(act.sceneIds) ? act.sceneIds : [],
     created_at: Math.max(0, Number(act.createdAt || 0)),
     updated_at: Math.max(0, Number(act.updatedAt || act.createdAt || 0)),
@@ -1215,7 +1343,7 @@ function toScreenplayScenePayload(scene) {
     objective: scene.objective || "",
     summary: scene.summary || "",
     act_id: scene.actId || "",
-    order: Math.max(0, Number(scene.order || 0)),
+    order: normalizeOutlineRevision(scene.order),
     status: scene.status || "open",
     beat_ids: Array.isArray(scene.beatIds) ? scene.beatIds : [],
     unresolved_setups: normalizeScreenplayStringList(scene.unresolvedSetups ?? scene.unresolved_setups, 64, 120),
@@ -1232,7 +1360,7 @@ function toScreenplayBeatPayload(beat) {
     summary: beat.summary || "",
     scene_id: beat.sceneId || "",
     act_id: beat.actId || "",
-    order: Math.max(0, Number(beat.order || 0)),
+    order: normalizeOutlineRevision(beat.order),
     status: beat.status || "open",
     created_at: Math.max(0, Number(beat.createdAt || 0)),
     updated_at: Math.max(0, Number(beat.updatedAt || beat.createdAt || 0)),
@@ -1242,6 +1370,7 @@ function toScreenplayBeatPayload(beat) {
 function toScreenplayOutlinePayload(outline) {
   const safeOutline = normalizeStoredScreenplayOutline(outline);
   return {
+    revision: normalizeOutlineRevision(safeOutline.revision),
     updated_at: Math.max(0, Number(safeOutline.updatedAt || 0)),
     act_count: safeOutline.acts.length,
     scene_count: safeOutline.scenes.length,
@@ -1291,6 +1420,39 @@ function toScreenplayCommentPayload(comment, actorEmail = "") {
     created_at: Math.max(0, Number(comment.createdAt || 0)),
     updated_at: Math.max(0, Number(comment.updatedAt || comment.createdAt || 0)),
     can_edit: canEdit,
+  };
+}
+
+function toScreenplayStudioAskNoteExchangePayload(exchange) {
+  const safeExchange = normalizeStoredScreenplayStudioAskNoteExchange(exchange);
+  if (!safeExchange) return null;
+  return {
+    id: safeExchange.id,
+    backend_thread_id: safeExchange.backendThreadID || "",
+    backend_turn: safeExchange.backendTurn,
+    request_id: safeExchange.requestID || "",
+    prompt: safeExchange.prompt || "",
+    target: safeExchange.target || "voicePin",
+    source: safeExchange.source || "typed",
+    note_title: safeExchange.noteTitle || "",
+    note_body: safeExchange.noteBody || "",
+    development_text: safeExchange.developmentText || "",
+    write_id: safeExchange.writeID || "",
+    replaced_write_id: safeExchange.replacedWriteID || "",
+    anchor_line: safeExchange.anchorLine,
+    anchor_end_line: safeExchange.anchorEndLine,
+    anchor_scene_label: safeExchange.anchorSceneLabel || "",
+    anchor_excerpt: safeExchange.anchorExcerpt || "",
+    inserted_text: safeExchange.insertedText || "",
+    replacement_applied: safeExchange.replacementApplied,
+    revised_block_text: safeExchange.revisedBlockText || "",
+    resolved_anchor_excerpt: safeExchange.resolvedAnchorExcerpt || "",
+    pack_label: safeExchange.packLabel || "",
+    phase: safeExchange.phase || "",
+    slugline_anchor_line: safeExchange.sluglineAnchorLine,
+    memory_domain_raw: safeExchange.memoryDomainRaw || "",
+    companion_mode_raw: safeExchange.companionModeRaw || "",
+    timestamp: safeExchange.timestamp || "",
   };
 }
 
@@ -1353,11 +1515,17 @@ function toScreenplayProjectPayload(project, options = {}) {
   const versionLimit = Math.max(1, Number(options.versionLimit || 24));
   const safeProject = recalculateScreenplayProject(project);
   const studioExportSettings = backfillScreenplayStudioExportSettings(safeProject);
+  const sortedVersions = [...(safeProject.versions || [])]
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+  const versionsForPayload = sortedVersions.slice(0, versionLimit);
+  if (includeVersions && safeProject.activeVersionId) {
+    const activeVersion = sortedVersions.find((item) => item.id === safeProject.activeVersionId);
+    if (activeVersion && !versionsForPayload.some((item) => item.id === activeVersion.id)) {
+      versionsForPayload.push(activeVersion);
+    }
+  }
   const versions = includeVersions
-    ? [...(safeProject.versions || [])]
-        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
-        .slice(0, versionLimit)
-        .map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
+    ? versionsForPayload.map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
     : undefined;
   return {
     id: safeProject.id,
@@ -1369,6 +1537,15 @@ function toScreenplayProjectPayload(project, options = {}) {
     setting: safeProject.setting || "",
     tone: safeProject.tone || "",
     prompt_seed: safeProject.promptSeed || "",
+    logline: safeProject.logline || "",
+    theme_argument: safeProject.themeArgument || "",
+    central_question: safeProject.centralQuestion || "",
+    protagonist_want: safeProject.protagonistWant || "",
+    protagonist_need: safeProject.protagonistNeed || "",
+    antagonistic_force: safeProject.antagonisticForce || "",
+    act_position: safeProject.actPosition || "",
+    ending_image: safeProject.endingImage || "",
+    unresolved_setups: Array.isArray(safeProject.unresolvedSetups) ? safeProject.unresolvedSetups : [],
     studio_export_settings: {
       pdf_page_count_tolerance: studioExportSettings.pdfPageCountTolerance,
     },
@@ -1386,6 +1563,9 @@ function toScreenplayProjectPayload(project, options = {}) {
     act_count: Math.max(0, Number(safeProject.actCount || 0)),
     scene_count: Math.max(0, Number(safeProject.sceneCount || 0)),
     beat_count: Math.max(0, Number(safeProject.beatCount || 0)),
+    outline_revision: normalizeOutlineRevision(
+      safeProject.outlineRevision ?? safeProject.outline?.revision
+    ),
     outline_updated_at: Math.max(0, Number(safeProject.outlineUpdatedAt || 0)),
     collaborator_count: Math.max(0, Number(safeProject.collaboratorCount || 0)),
     approved_emails: safeProject.approvedEmails || [],
@@ -1396,6 +1576,12 @@ function toScreenplayProjectPayload(project, options = {}) {
       safeProject.studioDiffAcknowledgedEntries,
       safeProject.studioDiffAcknowledgedKeys
     ),
+    studio_ask_note_history: Array.isArray(safeProject.studioAskNoteHistory)
+      ? safeProject.studioAskNoteHistory
+          .slice(0, 24)
+          .map(toScreenplayStudioAskNoteExchangePayload)
+          .filter(Boolean)
+      : [],
     collaborators: Array.isArray(safeProject.collaborators)
       ? safeProject.collaborators.map(toScreenplayCollaboratorPayload)
       : [],
@@ -1419,6 +1605,7 @@ function toScreenplayProjectPayload(project, options = {}) {
     normalizeStoredScreenplayBindings,
     normalizeStoredScreenplayCompanionState,
     normalizeStoredScreenplayDiffAcknowledgementState,
+    normalizeStoredScreenplayStudioAskNoteHistory,
     normalizeStoredScreenplayOwner,
     normalizeStoredScreenplayProject,
     normalizeStoredScreenplayScene,

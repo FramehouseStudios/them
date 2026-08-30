@@ -21,20 +21,56 @@ function tableName(domain) {
   return `persistence_${domain}`;
 }
 
-async function loadPgClient(databaseUrl) {
+function boundedTimeout(value, fallback, min, max) {
+  const parsed = Number(value);
+  const resolved = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  return Math.max(min, Math.min(max, resolved));
+}
+
+function buildPostgresPoolConfig({
+  databaseUrl,
+  connectionTimeoutMs = process.env.PERSISTENCE_POSTGRES_CONNECTION_TIMEOUT_MS,
+  statementTimeoutMs = process.env.PERSISTENCE_POSTGRES_STATEMENT_TIMEOUT_MS,
+  queryTimeoutMs = process.env.PERSISTENCE_POSTGRES_QUERY_TIMEOUT_MS,
+} = {}) {
+  const connectionTimeoutMillis = boundedTimeout(connectionTimeoutMs, 1_000, 100, 10_000);
+  const statement_timeout = boundedTimeout(statementTimeoutMs, 3_000, 250, 29_000);
+  const requestedQueryTimeout = boundedTimeout(queryTimeoutMs, 3_500, 300, 30_000);
+  const query_timeout = Math.max(statement_timeout + 100, requestedQueryTimeout);
+  return {
+    connectionString: databaseUrl,
+    connectionTimeoutMillis,
+    statement_timeout,
+    query_timeout,
+  };
+}
+
+async function loadPgClient(poolConfig) {
   // Lazy import so test environments without pg installed can still
   // exercise the JSON adapter.
   const pgModule = await import("pg");
   const { Pool } = pgModule.default ?? pgModule;
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool(poolConfig);
   return {
     query: (...args) => pool.query(...args),
     end: () => pool.end(),
   };
 }
 
-function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
+function createPostgresPersistence({
+  databaseUrl,
+  pgClient,
+  connectionTimeoutMs,
+  statementTimeoutMs,
+  queryTimeoutMs,
+} = {}) {
   let clientPromise = null;
+  const poolConfig = buildPostgresPoolConfig({
+    databaseUrl,
+    connectionTimeoutMs,
+    statementTimeoutMs,
+    queryTimeoutMs,
+  });
 
   async function client() {
     if (pgClient) return pgClient;
@@ -42,7 +78,7 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
       if (!databaseUrl) {
         throw new Error("createPostgresPersistence requires databaseUrl or pgClient");
       }
-      clientPromise = loadPgClient(databaseUrl);
+      clientPromise = loadPgClient(poolConfig);
     }
     return clientPromise;
   }
@@ -50,6 +86,20 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
   return {
     kind: "postgres",
     databaseUrl,
+    poolConfig,
+
+    // Readiness probe for /healthz. Cheapest possible round-trip; just
+    // confirms the connection pool can reach the database.
+    async ping() {
+      const c = await client();
+      const r = await c.query("SELECT 1 AS ok");
+      return r?.rows?.[0]?.ok === 1;
+    },
+
+    async query(...args) {
+      const c = await client();
+      return c.query(...args);
+    },
 
     async get({ domain, key }) {
       assertDomain(domain);
@@ -77,6 +127,33 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
       );
     },
 
+    async compareAndSwap({ domain, key, expectedValue, value }) {
+      assertDomain(domain);
+      assertKey(key);
+      assertValue(expectedValue);
+      assertValue(value);
+      const c = await client();
+      let r;
+      if (expectedValue === null) {
+        r = await c.query(
+          `INSERT INTO ${tableName(domain)} (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key`,
+          [key, JSON.stringify(value)],
+        );
+      } else {
+        r = await c.query(
+          `UPDATE ${tableName(domain)}
+           SET value = $3::jsonb, updated_at = NOW()
+           WHERE key = $1 AND value = $2::jsonb
+           RETURNING key`,
+          [key, JSON.stringify(expectedValue), JSON.stringify(value)],
+        );
+      }
+      return Number(r?.rowCount || r?.rows?.length || 0) === 1;
+    },
+
     async delete({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
@@ -87,18 +164,34 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
       );
     },
 
-    async list({ domain, prefix = "", limit = 1000 }) {
+    async list({ domain, prefix = "", afterKey = "", limit = 1000 }) {
       assertDomain(domain);
       const c = await client();
       const cap = Math.max(1, Math.min(10_000, Math.floor(Number(limit) || 1000)));
       let r;
-      if (prefix) {
+      if (prefix && afterKey) {
+        r = await c.query(
+          `SELECT key, value FROM ${tableName(domain)}
+           WHERE key LIKE $1 AND key > $2
+           ORDER BY key ASC
+           LIMIT $3`,
+          [`${prefix}%`, afterKey, cap],
+        );
+      } else if (prefix) {
         r = await c.query(
           `SELECT key, value FROM ${tableName(domain)}
            WHERE key LIKE $1
            ORDER BY key ASC
            LIMIT $2`,
           [`${prefix}%`, cap],
+        );
+      } else if (afterKey) {
+        r = await c.query(
+          `SELECT key, value FROM ${tableName(domain)}
+           WHERE key > $1
+           ORDER BY key ASC
+           LIMIT $2`,
+          [afterKey, cap],
         );
       } else {
         r = await c.query(
@@ -129,6 +222,7 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
 }
 
 export {
+  buildPostgresPoolConfig,
   createPostgresPersistence,
   tableName,
   KNOWN_DOMAINS,

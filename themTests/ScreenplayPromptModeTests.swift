@@ -25,6 +25,15 @@ final class ScreenplayPromptModeTests: XCTestCase {
         XCTAssertTrue(context.isLongFormScreenplayRequest)
     }
 
+    func testDirectorContextDetectsFeatureLengthScreenplayRequest() {
+        let context = HerDirectorContext.build(
+            from: HerEvolutionStore.shared,
+            userText: "Help me finish this feature-length screenplay and shape act two of the whole movie."
+        )
+
+        XCTAssertTrue(context.isLongFormScreenplayRequest)
+    }
+
     func testDirectorContextDetectsStoryDirectionPrompt() {
         let context = HerDirectorContext.build(
             from: HerEvolutionStore.shared,
@@ -84,6 +93,8 @@ final class ScreenplayPromptModeTests: XCTestCase {
         XCTAssertTrue(prompt.contains("PAGE WRITE MODE"))
         XCTAssertTrue(prompt.contains("LONGER PAGE WRITE SIGNAL"))
         XCTAssertTrue(prompt.contains("full scene section or beat sequence"))
+        XCTAssertTrue(prompt.contains("feature-length"))
+        XCTAssertTrue(prompt.contains("act pressure"))
         XCTAssertTrue(prompt.contains("OUTPUT ONLY FOUNTAIN TEXT."))
     }
 
@@ -114,6 +125,28 @@ final class ScreenplayPromptModeTests: XCTestCase {
         XCTAssertTrue(prompt.contains("PAGE WRITE MODE"))
         XCTAssertTrue(prompt.contains("Do not give notes."))
         XCTAssertTrue(prompt.contains("OUTPUT ONLY FOUNTAIN TEXT."))
+    }
+
+    func testSystemPromptFramesClementineAsFeatureScreenwritingPartner() {
+        let prompt = HerVoiceSpec.makeSystemPrompt(makeContext(
+            isSynopsisFocused: false,
+            isAskingForStoryHelp: false,
+            isDirectScreenplayPageWrite: true,
+            hasConfirmedScreenplayPageWrite: false,
+            confirmedScreenplayStoryDirection: "Write the next scene in the motel parking lot."
+        ))
+
+        XCTAssertTrue(prompt.contains("feature-length scripts"))
+        XCTAssertTrue(prompt.contains("from first page through final sequence"))
+        XCTAssertFalse(prompt.contains("short film writer"))
+    }
+
+    func testCoWriterCompanionModeCarriesFeatureContinuityInstruction() {
+        let instruction = StudioCompanionMode.coWriter.promptInstruction
+
+        XCTAssertTrue(instruction.contains("emotionally present"))
+        XCTAssertTrue(instruction.contains("feature-length continuity"))
+        XCTAssertTrue(instruction.contains("setups/payoffs"))
     }
 
     private func makeContext(

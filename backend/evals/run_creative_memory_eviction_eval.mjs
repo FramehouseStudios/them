@@ -8,7 +8,7 @@
 // heavy user who reuses the same character name dozens of times
 // must not grow the array unbounded — duplicates should de-dup by
 // name; new names should accumulate but the in-prompt projection
-// (`serializeCharacters`) caps at 8.
+// caps at 16.
 //
 // This eval pins:
 //   1. 50 mentions of the same name → 1 character record (de-duped)
@@ -101,10 +101,15 @@ async function unique200CapsAtStoreLimit() {
       characterName: `Char${i.toString().padStart(3, "0")}`,
     });
   }
-  const memory = await store.getCreativeMemoryForPrompt({ userId: "u-many" });
+  const memory = await store.getCreativeMemoryLedger({ userId: "u-many" });
+  const promptMemory = await store.getCreativeMemoryForPrompt({ userId: "u-many" });
   check(
     `200 unique names capped at ${STORE_CAP} (got ${memory?.characters?.length})`,
     memory?.characters?.length === STORE_CAP,
+  );
+  check(
+    `prompt projection stays capped at 16 (got ${promptMemory?.characters?.length})`,
+    promptMemory?.characters?.length === 16,
   );
   // The 32 kept must be the most recent — none of Char000-Char167.
   const names = new Set((memory?.characters || []).map((c) => c.name));

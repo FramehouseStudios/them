@@ -131,6 +131,14 @@ enum StudioThreadViewPersistPolicy {
     }
 }
 
+enum StudioThreadFocusRestorePolicy {
+    static func shouldClearPersistentFocusKey(
+        _ context: StudioThreadViewPersistDeferralContext
+    ) -> Bool {
+        !StudioThreadViewPersistPolicy.shouldDeferBackendPersist(context)
+    }
+}
+
 struct StudioFullThreadBrowseState: Codable, Equatable {
     let searchText: String
     let selectedFilterRaw: String
@@ -265,15 +273,27 @@ struct StudioFullThreadBrowseStateRestoreResult: Equatable {
             backend?.focusedDiffKey,
             isMeaningful: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         )
-        let reopenedLineages = chooseArray(
+        var reopenedLineages = chooseArray(
             local?.reopenedLineageKeys,
             backend?.reopenedLineageKeys
         )
-        let reopenedWriteID = chooseString(
+        var reopenedWriteID = chooseString(
             local?.latestReopenedWriteID,
             backend?.latestReopenedWriteID,
             isMeaningful: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         )
+        if let local, let backend {
+            let localReopened = normalizedArray(local.reopenedLineageKeys)
+            let backendReopened = normalizedArray(backend.reopenedLineageKeys)
+            if !backendReopened.isEmpty && localReopened == backendReopened {
+                reopenedLineages = (reopenedLineages.value, .backend)
+            }
+            let localWriteID = normalizedString(local.latestReopenedWriteID)
+            let backendWriteID = normalizedString(backend.latestReopenedWriteID)
+            if !backendWriteID.isEmpty && localWriteID == backendWriteID {
+                reopenedWriteID = (reopenedWriteID.value, .backend)
+            }
+        }
 
         let record = StudioFullThreadBrowseState(
             searchText: search.value,
@@ -341,5 +361,13 @@ struct StudioFullThreadBrowseStateRestoreResult: Equatable {
             return (backend, .backend)
         }
         return ([], .none)
+    }
+
+    nonisolated private static func normalizedString(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    nonisolated private static func normalizedArray(_ values: [String]) -> [String] {
+        values.map(normalizedString).filter { !$0.isEmpty }.sorted()
     }
 }

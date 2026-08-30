@@ -24,12 +24,15 @@ from `buildReadStateMeta`.
 
 ## Access-control posture
 
-**PER-USER**. The memory record is resolved from the request
-via `selectMemoryRecordForRead`: `X-Client-Token` session or
-token alias when present, otherwise the normalized requester IP.
-The inline handler does not enforce an auth-only read gate today;
-callers without a valid token receive the IP-scoped or empty
-memory context.
+**PER-USER**. The route requires trusted authenticated identity
+before resolving memory. Authenticated memory resolves through the
+auth user scope (`authuser:<user_id>`) or an auth-bound session;
+caller-supplied `X-User-Id` and unauthenticated IP ownership are
+not accepted. Unauthenticated callers receive HTTP 401:
+
+```json
+{ "stage": "memories", "error": "user_auth_required" }
+```
 
 ## Query parameters
 
@@ -189,3 +192,6 @@ fields (`relationship_depth_score`, `behavior_mode`, `cycle_index`,
   the inline `app.get("/memories", ...)` handler in
   `backend/index.js`. Will be amended when Phase 6 extracts
   the handler to `backend/lib/memories_route.js`.
+- 2026-05-26 — Auth/privacy hardening: `GET /memories` now
+  requires trusted auth identity and no longer falls back to
+  unauthenticated IP memory.

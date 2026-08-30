@@ -9,7 +9,6 @@
 // Usage:
 //   node scripts/v1_manual_qa_checklist.mjs
 //   node scripts/v1_manual_qa_checklist.mjs --json
-//   node scripts/v1_manual_qa_checklist.mjs --prompt
 //   node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md
 
 import fs from "node:fs";
@@ -42,13 +41,23 @@ const artifact = {
     {
       name: "Current app build and tests",
       command: "docs/v1-build-test-readiness.md",
-      proves: "The latest local app build and `themTests` result is recorded separately from the human smoke and signed-release checks.",
+      proves: "The latest local app build and themTests result is recorded separately from the human smoke and signed-release checks.",
+    },
+    {
+      name: "iOS V1 UI smoke",
+      command: "scripts/run_v1_ui_smoke.sh",
+      proves: "The 31-test sequential XCUITest suite covers the connected V1 app, including locally signed Keychain relaunch, Creative Partner routing, talk-to-screenplay, export/restore, memory, realtime, and recovery states. Fixture-gated skips remain explicit and do not count as human signoff.",
     },
     {
       name: "Release preflight",
-      command: "scripts/appstore_preflight.sh",
-      proves: "Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.",
+      command: "scripts/run_release_preflight.sh",
+      proves: "Release settings, private signing/token inputs, live backend and shipped privacy-policy URLs, privacy manifest, AppIcon, iPhone-only TestFlight posture, and the Release iPhone build are ready for signed archive checks.",
     },
+  ],
+  currentLocalProof: "Current local proof, 2026-08-28 America/Los_Angeles: the integrated release line includes current `main`; 497/497 iOS unit tests passed; the locally signed simulator V1 UI suite completed 31 tests with 24 passed, 7 explicit fixture/server-gated skips, and 0 failed; focused providerless-startup, PII-safe request logging, and screenplay ownership tests passed; release config/AppIcon/public-surface contracts passed; and a clean unsigned iPhone Release build was exercised with a dummy ignored config. The gate intentionally remains red until a human approves the branch's Email Address privacy declaration, supplies DEVELOPMENT_TEAM_ID and production APP_TOKEN_RELEASE, approves a dedicated iOS Sign in with Apple entitlement/capability, deploys the backend and privacy policy, and completes distribution-signed physical-device/App Store Connect checks.",
+  platformPosture: [
+    "iPhone TestFlight remains the App Store release lane.",
+    "The Mac Studio scaffold is outside V1 and is available only as an explicit opt-in diagnostic lane.",
   ],
   manualFlows: [
     {
@@ -88,35 +97,39 @@ const artifact = {
     },
     {
       pillar: "Realtime",
-      goal: "primary mint works; forced primary failure shows fallback",
+      goal: "primary mint works; failures surface as local fallback or production degraded state",
       steps: [
         "Set realtime supplier to the primary provider.",
         "Start a realtime session and confirm the primary session is minted.",
         "Force the primary provider to fail or run with a known failing primary config.",
-        "Confirm the app shows the fallback/degraded state and does not strand the writer.",
+        "In local/test, confirm deterministic stub fallback is visible and usable.",
+        "In production, confirm the app shows degraded/unavailable state with no synthetic client secret.",
       ],
-      passCriteria: "Primary succeeds when healthy; fallback is visible and usable when primary fails.",
+      passCriteria: "Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.",
     },
     {
-      pillar: "iOS Release Readiness",
-      goal: "real release config -> green preflight -> exported proof -> human signoff",
+      pillar: "iPhone Release Readiness",
+      goal: "real release config -> live public surfaces -> signed iPhone archive -> exported Launch Doctor proof -> human signoff",
       steps: [
-        "Create them/Release.local.env from them/Release.local.env.example.",
-        "Fill real DEVELOPMENT_TEAM_ID, hosted BACKEND_URL, and production APP_TOKEN values.",
-        "Run scripts/run_release_preflight.sh and confirm it is green.",
-        "Confirm the release build is not using localhost, placeholders, or debug signing.",
-        "Export Launch Doctor JSON/Markdown and attach it to the TestFlight or release handoff.",
+        "Create the ignored Release.local.env from the checked-in template.",
+        "Fill in DEVELOPMENT_TEAM_ID, production APP_TOKEN_RELEASE, and OPENAI_API_KEY; keep the file mode 600.",
+        "Deploy the production backend with Postgres, every migration, the canonical auth-store marker, one V1 backend instance, and real DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, and AUTH_APPLE_AUDIENCE; APP_TOKEN must match APP_TOKEN_RELEASE.",
+        "Publish https://api.them.io and the exact privacy URL shipped in Info-Release.plist, then confirm both return direct HTTP 200 io.them content without redirects or parked-domain material.",
+        "Approve a dedicated iOS entitlement containing com.apple.developer.applesignin = [Default], enable Sign in with Apple for io.them.them in the Apple portal, regenerate provisioning, and wire only that file to iphoneos Release.",
+        "Review and approve the Email Address declaration in PrivacyInfo.xcprivacy, approve or replace the generated AppIcon, and complete App Store privacy/export-compliance metadata.",
+        "Add GitHub Actions secrets APP_TOKEN_RELEASE and DEVELOPMENT_TEAM_ID, verify OPENAI_API_KEY, then run scripts/run_release_preflight.sh without disabling any gate and require the rc-* workflow to pass.",
+        "Archive and Validate the distribution-signed iPhone app, upload it to TestFlight, and install the build on a physical iPhone.",
+        "Verify real Sign in with Apple using an actual Apple ID, server-backed email signup/sign-in, session restoration, Remember Me/Keychain opt-in and opt-out, sign-out, and account deletion. The DEBUG .invalid demo account is not an Apple or production account.",
+        "Run all five manual flows on the TestFlight build, export Launch Doctor JSON/Markdown, and record final human signoff before external review.",
       ],
-      passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human signoff is recorded.",
+      passCriteria: "Public surfaces, signed archive validation, physical-device flows, Launch Doctor proof, metadata, and human sign-off are all green before TestFlight/external review.",
     },
   ],
-  parked: [],
-  outOfV1: [
+  parked: [
     {
-      item: "Creative-memory delete",
+      item: "Creative-memory delete implementation",
       prs: ["#99"],
-      reason: "Intentionally deferred post-V1. V1 core-only export already shipped in #94; destructive delete needs explicit product semantics before release.",
-      decisionPacket: "docs/memory-export-delete-decision-packet.md",
+      reason: "The privacy decision and core export work are merged; destructive memory delete remains post-V1 unless Codex assigns it.",
     },
   ],
 };
@@ -137,6 +150,16 @@ function markdown(data) {
     lines.push(item.proves);
     lines.push("");
   }
+  if (data.currentLocalProof) {
+    lines.push(data.currentLocalProof);
+    lines.push("");
+  }
+  lines.push("## Platform Posture");
+  lines.push("");
+  for (const line of data.platformPosture) {
+    lines.push(`- ${line}`);
+  }
+  lines.push("");
   lines.push("## Manual App Flows");
   lines.push("");
   for (const flow of data.manualFlows) {
@@ -151,24 +174,12 @@ function markdown(data) {
     lines.push(`Pass: ${flow.passCriteria}`);
     lines.push("");
   }
-  if (data.parked.length) {
-    lines.push("## Parked Before V1 External Review");
-    lines.push("");
-    for (const item of data.parked) {
-      const suffix = item.decisionPacket ? ` Decision packet: \`${item.decisionPacket}\`.` : "";
-      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
-    }
-    lines.push("");
+  lines.push("## Parked Before V1 External Review");
+  lines.push("");
+  for (const item of data.parked) {
+    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}`);
   }
-  if (data.outOfV1.length) {
-    lines.push("## Explicitly Out of V1");
-    lines.push("");
-    for (const item of data.outOfV1) {
-      const suffix = item.decisionPacket ? ` Decision record: \`${item.decisionPacket}\`.` : "";
-      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
-    }
-    lines.push("");
-  }
+  lines.push("");
   lines.push("## Status Command");
   lines.push("");
   lines.push(`Run \`${data.v1StatusCommand}\` after updating docs/v1-definition.md.`);
@@ -178,41 +189,13 @@ function markdown(data) {
   return lines.join("\n");
 }
 
-function prompt(data) {
-  const lines = [];
-  lines.push("V1 human smoke prompt");
-  lines.push("");
-  lines.push("Run these app flows against the intended backend, then paste the result block back to Codex.");
-  lines.push("Codex can save the pasted block with: node scripts/v1_launch_doctor_report.mjs --from-result-block=<file> --write-docs");
-  lines.push("");
-  for (const flow of data.manualFlows) {
-    lines.push(`- ${flow.pillar}: ${flow.goal}`);
-  }
-  if (data.parked.length) {
-    lines.push("");
-    lines.push("Parked before external review:");
-    for (const item of data.parked) {
-      const suffix = item.decisionPacket ? ` Decision packet: ${item.decisionPacket}.` : "";
-      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
-    }
-  }
-  if (data.outOfV1.length) {
-    lines.push("");
-    lines.push("Explicitly out of V1:");
-    for (const item of data.outOfV1) {
-      const suffix = item.decisionPacket ? ` Decision record: ${item.decisionPacket}.` : "";
-      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
-    }
-  }
-  lines.push("");
-  lines.push("Result block to paste back:");
-  for (const flow of data.manualFlows) {
-    lines.push(`${flow.pillar}: PASS/FAIL - <notes>`);
-  }
-  lines.push("Overall V1 manual smoke: PASS/FAIL - <notes>");
-  lines.push("");
-  lines.push(`Status command: ${data.v1StatusCommand}`);
-  return lines.join("\n");
+function promptBlock(data) {
+  const flowNames = data.manualFlows.map((flow) => flow.pillar);
+  const lines = [
+    "Overall V1 manual smoke: PASS/FAIL - <notes>",
+    ...flowNames.map((name) => `${name}: PASS/FAIL/IN PROGRESS/NOT STARTED - <notes>`),
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 function parseArgs(argv) {
@@ -227,10 +210,10 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (args.json) {
+if (args.prompt) {
+  process.stdout.write(promptBlock(artifact));
+} else if (args.json) {
   console.log(JSON.stringify(artifact, null, 2));
-} else if (args.prompt) {
-  console.log(prompt(artifact));
 } else {
   const body = markdown(artifact);
   if (args.write) {

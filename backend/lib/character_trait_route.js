@@ -20,11 +20,12 @@
 //     Returns one character's record `{ name, traits }`, or the full
 //     library array when `characterName` is omitted.
 //
-// Auth mirrors the other /memory routes: unauthenticated requests
-// return a typed empty receipt instead of 401.
+// Auth mirrors the other /memory user-data routes: trusted auth identity
+// is required, and caller-supplied X-User-Id is never trusted.
 
 import express from "express";
 
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 import { extractTraits, mergeTraits } from "./trait_library.js";
 
 const MAX_NAME_LENGTH = 64;
@@ -47,18 +48,9 @@ function pickFirstString(...candidates) {
   return "";
 }
 
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    null
-  );
-}
-
 function mountCharacterTraitRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
 } = {}) {
   if (!app || typeof app.post !== "function" || typeof app.get !== "function") {
     throw new Error("mountCharacterTraitRoute requires an Express app");
@@ -87,11 +79,12 @@ function mountCharacterTraitRoute(app, {
     }
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json({
+      return res.status(401).json({
         ok: false,
-        action: "skipped",
+        action: "rejected",
         characterName,
         traits: null,
+        error: "user_auth_required",
       });
     }
     try {
@@ -120,14 +113,19 @@ function mountCharacterTraitRoute(app, {
           error: "no_trait_payload",
         });
       }
+      const projectId = pickFirstString(body.project_id, body.projectId).slice(0, 96);
+      const projectTitle = pickFirstString(body.project_title, body.projectTitle).slice(0, 160);
       const result = await creativeMemoryStore.recordCharacterMention({
         userId,
         characterName,
         traits: merged,
+        metadata: projectId || projectTitle ? { projectId, projectTitle } : null,
       });
       const persisted = await creativeMemoryStore.getCharacterTraits({
         userId,
         characterName,
+        projectId,
+        projectTitle,
       });
       return res.status(200).json({
         ok: Boolean(result && result.ok),
@@ -150,21 +148,21 @@ function mountCharacterTraitRoute(app, {
     res.setHeader("Cache-Control", "no-store");
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json({
-        schemaVersion: 1,
-        userId: null,
-        characters: [],
-      });
+      return res.status(401).json(memoryAuthRequired("memory_character_traits"));
     }
     const characterName = typeof req.query?.characterName === "string"
       ? req.query.characterName
       : typeof req.query?.character_name === "string"
         ? req.query.character_name
         : "";
+    const projectId = pickFirstString(req.query?.projectId, req.query?.project_id).slice(0, 96);
+    const projectTitle = pickFirstString(req.query?.projectTitle, req.query?.project_title).slice(0, 160);
     try {
       const data = await creativeMemoryStore.getCharacterTraits({
         userId,
         characterName: characterName || null,
+        projectId,
+        projectTitle,
       });
       if (!data) {
         return res.status(200).json({

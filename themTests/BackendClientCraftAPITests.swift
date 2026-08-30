@@ -2,7 +2,836 @@ import XCTest
 import ScreenplayStudio
 @testable import them
 
+private actor StudioRenderPartialCollector {
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        values.append(value)
+    }
+
+    func snapshot() -> [String] {
+        values
+    }
+}
+
 final class BackendClientCraftAPITests: XCTestCase {
+    func testRealtimeTurnCommitDecodesDurableCanonClarification() throws {
+        let data = Data(#"""
+        {
+          "ok": true,
+          "action": "realtime_turn_commit",
+          "status": "committed",
+          "canon_clarification": {
+            "id": "canon_ambiguity_realtime_1",
+            "status": "pending",
+            "project_id": "split-ferries",
+            "project_title": "Split Ferries",
+            "correction_text": "Mara goes back for both of them.",
+            "candidate_facts": [
+              "Mara abandons Eli at the east ferry dock.",
+              "Mara abandons June at the east ferry dock."
+            ],
+            "correction_memory_id": "episode_ambiguous",
+            "selected_fact": null,
+            "selected_facts": [],
+            "receipt_id": null,
+            "created_at": 1800000000000,
+            "resolved_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let clarification = try XCTUnwrap(response.canonClarification)
+
+        XCTAssertTrue(clarification.isPending)
+        XCTAssertEqual(clarification.projectId, "split-ferries")
+        XCTAssertEqual(clarification.projectTitle, "Split Ferries")
+        XCTAssertEqual(clarification.candidateFacts.count, 2)
+        XCTAssertTrue(clarification.resolvedFacts.isEmpty)
+    }
+
+    func testRealtimeTurnCommitDecodesScreenplayQuestionResolution() throws {
+        let data = Data(#"""
+        {
+          "ok": true,
+          "action": "realtime_turn_commit",
+          "status": "committed",
+          "screenplay_question_resolution": {
+            "question_id": "screenplay-learning-4-project.theme_argument",
+            "response_status": "answered",
+            "target_field": "project.theme_argument",
+            "learning_promoted": true,
+            "correction_protected": false
+          },
+          "memory_grounding_changed": true,
+          "memory_grounding_reason": "screenplay_question_resolved",
+          "memory_grounding_project_id": "split-ferries",
+          "memory_grounding_project_title": "Split Ferries"
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let resolution = try XCTUnwrap(response.screenplayQuestionResolution)
+
+        XCTAssertEqual(
+            resolution.questionId,
+            "screenplay-learning-4-project.theme_argument"
+        )
+        XCTAssertEqual(resolution.responseStatus, "answered")
+        XCTAssertEqual(resolution.targetField, "project.theme_argument")
+        XCTAssertEqual(resolution.learningPromoted, true)
+        XCTAssertEqual(resolution.correctionProtected, false)
+        XCTAssertEqual(response.memoryGroundingChanged, true)
+        XCTAssertEqual(response.memoryGroundingReason, "screenplay_question_resolved")
+        XCTAssertEqual(response.memoryGroundingProjectId, "split-ferries")
+        XCTAssertEqual(response.memoryGroundingProjectTitle, "Split Ferries")
+    }
+
+    func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
+        let data = Data(#"""
+        {
+          "id": "correction-choice-canon_ambiguity_123",
+          "key": "correction-ambiguity:canon_ambiguity_123",
+          "title": "Split Ferries Needs Clarification",
+          "summary": "Actually, Mara never abandons anyone at the ferry dock.",
+          "reason": "Two accepted canon facts matched.",
+          "emotional_tone": "",
+          "salience": 0.98,
+          "confidence": 0.52,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "editable": false,
+          "snippets": ["Possible canon: Mara abandons Eli at the east ferry dock."],
+          "reference_hint": "Mara abandons Eli at the east ferry dock.",
+          "source": "canon_correction_ambiguous",
+          "is_correction_memory": true,
+          "correction_ambiguity": {
+            "id": "canon_ambiguity_123",
+            "status": "pending",
+            "project_id": "split-ferries",
+            "project_title": "Split Ferries",
+            "correction_text": "Actually, Mara never abandons anyone at the ferry dock.",
+            "candidate_facts": [
+              "Mara abandons Eli at the east ferry dock.",
+              "Mara abandons June at the east ferry dock."
+            ],
+            "correction_memory_id": "episode_ambiguous",
+            "selected_fact": "",
+            "selected_facts": [],
+            "receipt_id": "",
+            "created_at": 1800000000000,
+            "resolved_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let ambiguity = try XCTUnwrap(card.correctionAmbiguity)
+
+        XCTAssertEqual(card.source, "canon_correction_ambiguous")
+        XCTAssertTrue(ambiguity.isPending)
+        XCTAssertEqual(ambiguity.projectTitle, "Split Ferries")
+        XCTAssertEqual(ambiguity.candidateFacts.count, 2)
+        XCTAssertEqual(ambiguity.correctionMemoryId, "episode_ambiguous")
+    }
+
+    func testCanonCorrectionAmbiguityDecodesMultipleResolvedFacts() throws {
+        let data = Data(#"""
+        {
+          "id": "canon_ambiguity_resolved",
+          "status": "resolved",
+          "project_id": "split-ferries",
+          "project_title": "Split Ferries",
+          "correction_text": "Mara goes back for both of them.",
+          "candidate_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "selected_fact": "Mara abandons Eli at the east ferry dock.",
+          "selected_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "receipt_id": "canon_correction_resolved",
+          "created_at": 1800000000000,
+          "resolved_at": 1800000001000
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let ambiguity = try decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
+
+        XCTAssertFalse(ambiguity.isPending)
+        XCTAssertEqual(ambiguity.resolvedFacts, ambiguity.candidateFacts)
+    }
+
+    func testCanonCorrectionReceiptDecodesForSharedMemoriesUI() throws {
+        let data = Data(#"""
+        {
+          "id": "correction-canon_correction_123",
+          "key": "correction:canon_correction_123",
+          "title": "Rain Docket Canon Correction",
+          "summary": "Actually, Mara never burns the affidavit. It survives.",
+          "reason": "Authoritative writer correction applied to accepted screenplay canon.",
+          "emotional_tone": "",
+          "salience": 0.92,
+          "confidence": 0.96,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "editable": false,
+          "snippets": ["Changed canon: Mara burns the only copy."],
+          "reference_hint": "Mara burns the only copy.",
+          "source": "canon_correction",
+          "is_correction_memory": true,
+          "correction_receipt": {
+            "id": "canon_correction_123",
+            "status": "active",
+            "project_id": "rain-docket",
+            "project_title": "Rain Docket",
+            "correction_text": "Actually, Mara never burns the affidavit. It survives.",
+            "matched_facts": ["Mara burns the only copy."],
+            "replacement_facts": ["Mara never burns the affidavit. It survives."],
+            "replacement_fact_ids": ["writer_canon_123"],
+            "structured_updates": ["Mara.falseBelief: truth will get Eli killed"],
+            "correction_memory_id": "episode_correction",
+            "created_at": 1800000000000,
+            "undone_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let receipt = try XCTUnwrap(card.correctionReceipt)
+
+        XCTAssertEqual(card.source, "canon_correction")
+        XCTAssertTrue(receipt.canUndo)
+        XCTAssertEqual(receipt.projectTitle, "Rain Docket")
+        XCTAssertEqual(receipt.matchedFacts, ["Mara burns the only copy."])
+        XCTAssertEqual(receipt.replacementFacts, ["Mara never burns the affidavit. It survives."])
+        XCTAssertEqual(receipt.replacementFactIds, ["writer_canon_123"])
+        XCTAssertEqual(receipt.structuredUpdates, ["Mara.falseBelief: truth will get Eli killed"])
+        XCTAssertEqual(receipt.correctionMemoryId, "episode_correction")
+    }
+
+    func testWriterCanonCausalFactDecodesCorrectionProvenance() throws {
+        let data = Data(#"""
+        {
+          "kind": "writer_correction",
+          "fact": "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+          "authority": "writer_correction",
+          "source_correction_id": "canon_correction_123",
+          "replaces_facts": ["Mara burns the only copy of the affidavit."],
+          "structured_updates": ["unresolvedSetups: the affidavit survives in Eli's ferry locker"],
+          "created_at": 1800000000000,
+          "age_in_scenes": 0
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let fact = try decoder.decode(BackendAcceptedCausalFact.self, from: data)
+
+        XCTAssertTrue(fact.isMeaningful)
+        XCTAssertEqual(fact.kind, "writer_correction")
+        XCTAssertEqual(fact.authority, "writer_correction")
+        XCTAssertEqual(fact.sourceCorrectionId, "canon_correction_123")
+        XCTAssertEqual(fact.replacesFacts, ["Mara burns the only copy of the affidavit."])
+        XCTAssertEqual(fact.structuredUpdates, ["unresolvedSetups: the affidavit survives in Eli's ferry locker"])
+        XCTAssertEqual(fact.createdAt, 1800000000000)
+    }
+
+    func testCharacterBibleMemoryDecodesAndBuildsCorrectionPayload() throws {
+        let data = Data(#"""
+        {
+          "id": "character-mara",
+          "key": "character:Mara",
+          "title": "Mara Character Memory",
+          "summary": "Want: expose the forged testimony",
+          "reason": "Captured from screenplay character memory and corrections.",
+          "emotional_tone": "guarded",
+          "salience": 0.86,
+          "confidence": 0.88,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "quality_score": 0.84,
+          "quality_hit_count": 0,
+          "quality_correction_count": 1,
+          "quality_last_feedback_at": 1800000000000,
+          "staleness_days": 0,
+          "staleness_band": "fresh",
+          "editable": true,
+          "snippets": ["Authoritative correction for Mara: sister, not mother."],
+          "reference_hint": "public courage",
+          "source": "character_bible",
+          "character_bible": {
+            "character": "Mara",
+            "canon": ["Mara is Eli's sister."],
+            "corrections": ["Authoritative correction for Mara: sister, not mother."],
+            "corrected_terms": ["mother"],
+            "correction_replacements": ["mother -> Eli's sister"],
+            "authoritative_fields": [{
+              "id": "character_field_1",
+              "field": "falseBelief",
+              "value": "truth will get Eli killed",
+              "source": "writer_correction",
+              "source_correction_id": "canon_correction_1",
+              "correction_text": "Actually, Mara's false belief is that truth will get Eli killed.",
+              "replaces_facts": ["Mara believes perfect proof keeps everyone safe."],
+              "created_at": 1800000000000
+            }],
+            "arc": {
+              "act": "Act II",
+              "want": "expose the forged testimony",
+              "need": "stop hiding behind observation",
+              "false_belief": "truth will get Eli killed",
+              "relationship_pressure": "with Eli: protecting him by lying",
+              "current_tactic": "collecting evidence in silence",
+              "next_emotional_turn": "public courage"
+            },
+            "voice": "guarded",
+            "tags": ["protagonist"]
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let bible = try XCTUnwrap(card.characterBible)
+
+        XCTAssertEqual(card.source, "character_bible")
+        XCTAssertTrue(bible.isMeaningful)
+        XCTAssertEqual(bible.character, "Mara")
+        XCTAssertEqual(bible.arc?.falseBelief, "truth will get Eli killed")
+        XCTAssertEqual(bible.arc?.nextEmotionalTurn, "public courage")
+        XCTAssertEqual(bible.authoritativeFields?.first?.field, "falseBelief")
+        XCTAssertEqual(bible.authoritativeFields?.first?.sourceCorrectionId, "canon_correction_1")
+
+        let payload = bible.payload
+        XCTAssertEqual(payload["character"] as? String, "Mara")
+        XCTAssertEqual(payload["canon"] as? [String], ["Mara is Eli's sister."])
+        XCTAssertEqual(payload["corrected_terms"] as? [String], ["mother"])
+        let arcPayload = try XCTUnwrap(payload["arc"] as? [String: String])
+        XCTAssertEqual(arcPayload["false_belief"], "truth will get Eli killed")
+        XCTAssertEqual(arcPayload["next_emotional_turn"], "public courage")
+    }
+
+    func testScreenplayCharacterArcMemoryPayloadUsesBackendContractKeys() throws {
+        let arc = BackendScreenplayCharacterArcMemory(
+            character: "Mara",
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            falseBelief: "truth destroys anyone who says it aloud",
+            relationshipPressure: "Eli will be blamed if she stays silent",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage"
+        )
+
+        XCTAssertTrue(arc.isMeaningful)
+        XCTAssertEqual(arc.payload["character"], "Mara")
+        XCTAssertEqual(arc.payload["act"], "Act II")
+        XCTAssertEqual(arc.payload["want"], "expose the forged testimony")
+        XCTAssertEqual(arc.payload["need"], "stop hiding behind observation")
+        XCTAssertEqual(arc.payload["false_belief"], "truth destroys anyone who says it aloud")
+        XCTAssertEqual(arc.payload["relationship_pressure"], "Eli will be blamed if she stays silent")
+        XCTAssertEqual(arc.payload["current_tactic"], "collecting evidence in silence")
+        XCTAssertEqual(arc.payload["next_emotional_turn"], "public courage")
+
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "",
+            screenplayDocumentRevisionId: "",
+            screenplayTarget: "",
+            screenplayPromptSource: "",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterArcMemory: arc
+        )
+
+        XCTAssertTrue(metadata.isMeaningful)
+    }
+
+    func testScreenplayCharacterVoiceMemoryPayloadUsesBackendContractKeys() throws {
+        let voiceMemory = BackendScreenplayCharacterVoiceMemory(
+            character: "Mara",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short and lets silence carry threat",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
+
+        XCTAssertTrue(voiceMemory.isMeaningful)
+        XCTAssertEqual(voiceMemory.payload["character"] as? String, "Mara")
+        let fingerprint = try XCTUnwrap(voiceMemory.payload["voice_fingerprint"] as? [String: Any])
+        XCTAssertEqual(fingerprint["tactics"] as? [String], ["refuses first", "weaponizes facts"])
+        XCTAssertEqual(fingerprint["silence"] as? String, "cuts lines short and lets silence carry threat")
+        XCTAssertEqual(fingerprint["emotional_tells"] as? [String], ["family pressure slips out"])
+
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "",
+            screenplayDocumentRevisionId: "",
+            screenplayTarget: "",
+            screenplayPromptSource: "",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterVoiceMemories: [voiceMemory]
+        )
+
+        XCTAssertTrue(metadata.isMeaningful)
+    }
+
+    func testStudioRenderSendsScreenplayCharacterArcMemory() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "studio_render",
+                  "reply": "INT. ARCHIVE - NIGHT",
+                  "memory_applied": {
+                    "creative_memory": true,
+                    "accepted_causal_facts": 3
+                  },
+                  "screenplay_quality": {
+                    "ok": true,
+                    "reason": "ok",
+                    "source": "initial",
+                    "requested_pages": 1,
+                    "attempted_repair": false,
+                    "repair_outcome": "not_needed",
+                    "initial_reason": null,
+                    "repair_ms": 0,
+                    "counts": { "scene_headings": 1, "action_lines": 1 },
+                    "canon_facts_checked": 3,
+                    "canon_violation_count": 0,
+                    "canon_violation_types": [],
+                    "canon_correction_override": false
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+        let arc = BackendScreenplayCharacterArcMemory(
+            character: "Mara",
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage"
+        )
+        let voiceMemory = BackendScreenplayCharacterVoiceMemory(
+            character: "Mara",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short and lets silence carry threat",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
+        var metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "project-1",
+            screenplayDocumentRevisionId: "version-1",
+            screenplayTarget: "page",
+            screenplayPromptSource: "typed",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterArcMemory: arc,
+            screenplayCharacterVoiceMemories: [voiceMemory]
+        )
+        metadata.screenplayDraftExcerpt = "INT. ARCHIVE - NIGHT\n\nMara reaches the sealed locker."
+        metadata.screenplayAct = "Act II"
+        metadata.screenplaySceneObjective = "steal the sealed subpoena before the guard arrives"
+        metadata.screenplayCurrentBeat = "Mara chooses public courage over control"
+        metadata.screenplayFeatureSequence = "Courthouse trap"
+        metadata.screenplayFeatureObligation = "turn the midpoint discovery into an irreversible commitment"
+        metadata.screenplayLastSceneOutcome = "Eli learned Mara hid the original testimony"
+        metadata.screenplayNextThreeTurns = [
+            "Mara steals the subpoena",
+            "Eli catches her",
+            "the guard locks the archive"
+        ]
+        metadata.screenplayUnresolvedSetups = ["the red seal on the subpoena"]
+        metadata.screenplayActThreePayoffPath = ["Mara reads the testimony in open court"]
+        metadata.screenplayImageMotifs = ["red seal reflected in steel"]
+        metadata.screenplayEmotionalContinuity = "Mara is ashamed, cornered, and done hiding"
+        metadata.screenplayPageCount = 54
+        metadata.screenplayTargetPages = 110
+
+        let result = try await client.renderRealtimeStudioResult(
+            transcript: "Continue the next page.",
+            systemPrompt: "Return screenplay only.",
+            screenplayTarget: "page",
+            studioMetadata: metadata
+        )
+
+        XCTAssertEqual(result.reply, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(result.screenplayQuality?.ok, true)
+        XCTAssertEqual(result.screenplayQuality?.repairOutcome, "not_needed")
+        XCTAssertEqual(result.screenplayQuality?.counts["scene_headings"], 1)
+        XCTAssertEqual(result.screenplayQuality?.canonFactsChecked, 3)
+        XCTAssertEqual(result.screenplayQuality?.canonViolationCount, 0)
+        XCTAssertEqual(result.screenplayQuality?.canonViolationTypes, [])
+        XCTAssertEqual(result.screenplayQuality?.canonCorrectionOverride, false)
+        XCTAssertEqual(result.memoryApplied?.acceptedCausalFacts, 3)
+        XCTAssertEqual(result.memoryApplied?.hasSignal, true)
+        let renderRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/realtime/studio_render" })
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_target"] as? String, "page")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_document_revision_id"] as? String, "version-1")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_act"] as? String, "Act II")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_feature_sequence"] as? String, "Courthouse trap")
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_feature_obligation"] as? String,
+            "turn the midpoint discovery into an irreversible commitment"
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_next_three_turns"] as? [String],
+            ["Mara steals the subpoena", "Eli catches her", "the guard locks the archive"]
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_unresolved_setups"] as? [String],
+            ["the red seal on the subpoena"]
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_act_three_payoff_path"] as? [String],
+            ["Mara reads the testimony in open court"]
+        )
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_page_count"] as? Int, 54)
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_target_pages"] as? Int, 110)
+        let arcBody = try XCTUnwrap(renderRequest.bodyObject?["screenplay_character_arc_memory"] as? [String: Any])
+        XCTAssertEqual(arcBody["character"] as? String, "Mara")
+        XCTAssertEqual(arcBody["want"] as? String, "expose the forged testimony")
+        XCTAssertEqual(arcBody["need"] as? String, "stop hiding behind observation")
+        XCTAssertEqual(arcBody["current_tactic"] as? String, "collecting evidence in silence")
+        XCTAssertEqual(arcBody["next_emotional_turn"] as? String, "public courage")
+        let voiceBodies = try XCTUnwrap(
+            renderRequest.bodyObject?["screenplay_character_voice_memories"] as? [[String: Any]]
+        )
+        XCTAssertEqual(voiceBodies.count, 1)
+        XCTAssertEqual(voiceBodies.first?["character"] as? String, "Mara")
+        let voiceBody = try XCTUnwrap(voiceBodies.first?["voice_fingerprint"] as? [String: Any])
+        XCTAssertEqual(voiceBody["tactics"] as? [String], ["refuses first", "weaponizes facts"])
+        XCTAssertEqual(voiceBody["emotional_tells"] as? [String], ["family pressure slips out"])
+    }
+
+    func testStudioRenderQualityRejectionUsesTypedError() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"""
+                {
+                  "stage": "studio_render_quality",
+                  "error": "Studio screenplay output did not pass the live quality gate (insufficient_action).",
+                  "screenplay_quality": {
+                    "ok": false,
+                    "reason": "insufficient_action",
+                    "source": "repair",
+                    "requested_pages": 1,
+                    "attempted_repair": true,
+                    "repair_outcome": "rejected",
+                    "initial_reason": "insufficient_action",
+                    "repair_ms": 184,
+                    "counts": { "scene_headings": 1, "action_lines": 0 }
+                  }
+                }
+                """#, status: 502)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.renderRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected Studio quality rejection")
+        } catch BackendError.studioRenderQuality(let quality, let message) {
+            XCTAssertFalse(quality.ok)
+            XCTAssertEqual(quality.reason, "insufficient_action")
+            XCTAssertEqual(quality.repairOutcome, "rejected")
+            XCTAssertEqual(quality.repairMs, 184)
+            XCTAssertTrue(message.contains("live quality gate"))
+            XCTAssertEqual(
+                BackendError.studioRenderQuality(quality, message).localizedDescription,
+                "Clementine held this page back because it did not pass the screenplay quality check. Your draft is unchanged."
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testStudioRenderDecodesRepairedStructuralQuality() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "studio_render",
+                  "reply": "REPAIRED SCENE DOCTOR. Canon protected: Mara already burned the ferry ledger.",
+                  "structural_quality": {
+                    "applicable": true,
+                    "passed": true,
+                    "repaired": true,
+                    "attempted_repair": true,
+                    "outcome": "repaired_pass",
+                    "reason": "ok",
+                    "initial_reason": "underdeveloped_scene_doctor",
+                    "initial_score": 0.25,
+                    "final_score": 1.0,
+                    "passed_dimensions": 4,
+                    "total_dimensions": 4,
+                    "dimensions": { "diagnosis": true, "evidence": true, "move": true, "canon": true },
+                    "repair_ms": 84,
+                    "model_reason": "screenplay_scene_doctor",
+                    "task_intent": "scene_doctor"
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.renderRealtimeStudioResult(
+            transcript: "Scene doctor this sequence.",
+            systemPrompt: "Protect canon.",
+            screenplayTarget: "voice_pin"
+        )
+
+        XCTAssertTrue(result.reply.contains("Canon protected"))
+        XCTAssertEqual(result.structuralQuality?.passed, true)
+        XCTAssertEqual(result.structuralQuality?.repaired, true)
+        XCTAssertEqual(result.structuralQuality?.outcome, "repaired_pass")
+        XCTAssertEqual(result.structuralQuality?.initialReason, "underdeveloped_scene_doctor")
+        XCTAssertEqual(result.structuralQuality?.modelReason, "screenplay_scene_doctor")
+        XCTAssertEqual(result.structuralQuality?.dimensions["canon"], true)
+    }
+
+    func testStudioRenderStreamReturnsOnlyAuthoritativeDoneReply() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT"}
+
+                event: done
+                data: {"ok":true,"action":"studio_render_stream","kind":"done","reply":"INT. ARCHIVE - NIGHT\n\nMara opens the locker.","screenplay_quality":{"ok":true,"reason":"ok","source":"repair","requested_pages":1,"attempted_repair":true,"repair_outcome":"repaired","initial_reason":"insufficient_action","repair_ms":92,"counts":{"scene_headings":1,"action_lines":1}}}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.streamRealtimeStudioResult(
+            transcript: "Write the next page.",
+            systemPrompt: "Return screenplay only.",
+            screenplayTarget: "page"
+        )
+
+        XCTAssertEqual(result.reply, "INT. ARCHIVE - NIGHT\n\nMara opens the locker.")
+        XCTAssertEqual(result.screenplayQuality?.repairOutcome, "repaired")
+        XCTAssertEqual(result.screenplayQuality?.talkQuality.confidence, "repaired")
+    }
+
+    func testStudioStructuralStreamNeverSurfacesBufferedWeakDraft() async throws {
+        let weakDraft = "WEAK STRUCTURAL DRAFT. The scene needs more emotion."
+        let repairedReply = "REPAIRED FEATURE ARCHITECTURE. Canon protected: Mara already burned the ferry ledger. Act I turns the case. Act II breaks the alliance. Act III pays off Mara's trust."
+        let repairedReplyJSON = String(
+            data: try JSONEncoder().encode(repairedReply),
+            encoding: .utf8
+        )!
+        let qualityJSON = #"{"applicable":true,"passed":true,"repaired":true,"attempted_repair":true,"outcome":"repaired_pass","reason":"ok","initial_reason":"underdeveloped_feature_architecture","initial_score":0.2,"final_score":1,"passed_dimensions":5,"total_dimensions":5,"dimensions":{"act_progression":true,"causality":true,"character_arc":true,"payoff":true,"canon":true},"repair_ms":95,"model_reason":"screenplay_feature_architecture","task_intent":"feature_architecture"}"#
+        let collector = StudioRenderPartialCollector()
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse("""
+                event: trace
+                data: {"ok":true,"action":"studio_render_stream","kind":"first_delta_buffered","request_id":"structural-1","first_delta_ms":31,"delta_chunks":0}
+
+                event: trace
+                data: {"ok":true,"action":"studio_render_stream","kind":"structural_quality_repair","request_id":"structural-1","structural_quality":\(qualityJSON)}
+
+                event: delta
+                data: {"delta":\(repairedReplyJSON)}
+
+                event: done
+                data: {"ok":true,"action":"studio_render_stream","kind":"done","request_id":"structural-1","reply":\(repairedReplyJSON),"structural_quality":\(qualityJSON)}
+
+                """)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.streamRealtimeStudioResult(
+            transcript: "Plan the feature through Act I, Act II, and Act III.",
+            systemPrompt: "Protect canon.",
+            screenplayTarget: "voice_pin",
+            onPartial: { partial in
+                await collector.append(partial)
+            }
+        )
+        let partials = await collector.snapshot()
+
+        XCTAssertEqual(result.reply, repairedReply)
+        XCTAssertEqual(result.structuralQuality?.modelReason, "screenplay_feature_architecture")
+        XCTAssertEqual(result.structuralQuality?.outcome, "repaired_pass")
+        XCTAssertTrue(partials.contains(repairedReply))
+        XCTAssertFalse(partials.contains(where: { $0.contains(weakDraft) }))
+        XCTAssertFalse(result.reply.contains(weakDraft))
+    }
+
+    func testStudioRenderStreamRejectsProvisionalDeltaWhenQualityFails() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT"}
+
+                event: error
+                data: {"stage":"studio_render_quality","error":"Studio screenplay output did not pass the live quality gate (insufficient_action).","screenplay_quality":{"ok":false,"reason":"insufficient_action","source":"repair","requested_pages":1,"attempted_repair":true,"repair_outcome":"rejected","initial_reason":"insufficient_action","repair_ms":101,"counts":{"scene_headings":1,"action_lines":0}}}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.streamRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected provisional stream rejection")
+        } catch BackendError.studioRenderQuality(let quality, _) {
+            XCTAssertEqual(quality.repairOutcome, "rejected")
+            XCTAssertFalse(quality.permitsSingleFallbackRender)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testStudioRenderStreamRejectsPageEOFWithoutDone() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT\n\nMara reaches for the locker."}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.streamRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected authoritative completion error")
+        } catch BackendError.stage(let stage, let message) {
+            XCTAssertEqual(stage, "studio_render")
+            XCTAssertTrue(message.contains("authoritative quality confirmation"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {
         let notice = try XCTUnwrap(
             BackendTalkTurnMetaRateLimitNotice(
@@ -208,6 +1037,71 @@ final class BackendClientCraftAPITests: XCTestCase {
         let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
         XCTAssertEqual(body["text"] as? String, "INT KITCHEN NIGHT\n\nJune waits.")
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
+    func testCoverageSimulationPostsDraftMetricsAndFramework() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/craft/coverage/simulate")
+            return .json(#"""
+            {
+              "schemaVersion": 1,
+              "overview": {
+                "pageCount": 90,
+                "sceneCount": 2,
+                "dialogueRatio": 0.2,
+                "avgSceneLengthLines": 9
+              },
+              "pacing": {
+                "intensity": "medium",
+                "peakScenes": [{ "idx": 0, "heading": "INT. TERMINAL - NIGHT", "lineCount": 12 }],
+                "longScenes": [],
+                "shortScenes": [{ "idx": 1, "heading": "EXT. RUNWAY - DAWN", "lineCount": 6 }]
+              },
+              "characters": [{ "name": "JUNE", "lineCount": 4, "sceneCount": 2, "share": 0.5 }],
+              "warnings": [{ "severity": "soft", "code": "dialogue_thin", "message": "Dialogue is sparse." }],
+              "frameworkId": "save-the-cat",
+              "summary": "2 scene(s), 20% dialogue — reads balanced."
+            }
+            """#)
+        }
+
+        let report = try await client.simulateCraftCoverage(
+            text: "INT. TERMINAL - NIGHT\n\nJUNE\nWait.",
+            pageCount: 90,
+            frameworkId: "save-the-cat"
+        )
+
+        XCTAssertEqual(report.overview.pageCount, 90)
+        XCTAssertEqual(report.pacing.peakScenes.first?.heading, "INT. TERMINAL - NIGHT")
+        XCTAssertEqual(report.characters.first?.share, 0.5)
+        XCTAssertEqual(report.warnings.first?.code, "dialogue_thin")
+        XCTAssertEqual(recorder.methodsAndPaths, ["POST /craft/coverage/simulate"])
+        XCTAssertEqual(recorder.allHeaders(named: "X-Craft-Schema-Version"), ["1"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["text"] as? String, "INT. TERMINAL - NIGHT\n\nJUNE\nWait.")
+        XCTAssertEqual(body["pageCount"] as? Int, 90)
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
+    func testCoverageSimulationRejectsBlankTextBeforeTransport() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { _ in
+            XCTFail("Blank coverage text should fail before transport.")
+            return .json(#"{}"#)
+        }
+
+        do {
+            _ = try await client.simulateCraftCoverage(text: "  \n  ")
+            XCTFail("Expected local craft validation error")
+        } catch BackendError.stage(let stage, let message) {
+            XCTAssertEqual(stage, "craft")
+            XCTAssertEqual(message, "text is required.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertTrue(recorder.requests.isEmpty)
     }
 
     func testLoglineEndpointsBuildExpectedRequests() async throws {
@@ -510,7 +1404,10 @@ final class BackendClientCraftAPITests: XCTestCase {
         let client = makeClient(recorder: recorder) { request in
             switch (request.httpMethod, request.url?.path) {
             case ("GET", "/memory/character-traits"):
-                XCTAssertEqual(request.url?.query, "characterName=JUNE")
+                XCTAssertEqual(
+                    request.url?.query,
+                    "characterName=JUNE&projectId=rain-docket&projectTitle=Rain%20Docket"
+                )
                 return .json(#"""
                 {
                   "schemaVersion": 1,
@@ -535,7 +1432,11 @@ final class BackendClientCraftAPITests: XCTestCase {
             }
         }
 
-        let response = try await client.fetchMemoryCharacterTraits(characterName: " JUNE ")
+        let response = try await client.fetchMemoryCharacterTraits(
+            characterName: " JUNE ",
+            projectID: " rain-docket ",
+            projectTitle: " Rain Docket "
+        )
 
         XCTAssertEqual(response.schemaVersion, 1)
         XCTAssertEqual(response.characters.first?.name, "JUNE")
@@ -582,6 +1483,9 @@ final class BackendClientCraftAPITests: XCTestCase {
             systemPrompt: "  write in screenplay mode  ",
             userName: "  June  ",
             isScreenplayMode: true,
+            screenplayProjectId: "  project-1  ",
+            screenplayProjectTitle: "  Ferry Light  ",
+            emotionLane: "  bright_playful  ",
             voice: "  marin  ",
             model: "  gpt-realtime-1.5  ",
             realtimeProvider: ""
@@ -589,9 +1493,12 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertNil(serverDefault["realtime_provider"])
         XCTAssertEqual(serverDefault["system_prompt"] as? String, "write in screenplay mode")
         XCTAssertEqual(serverDefault["user_name"] as? String, "June")
+        XCTAssertEqual(serverDefault["emotion_lane"] as? String, "bright_playful")
         XCTAssertEqual(serverDefault["voice"] as? String, "marin")
         XCTAssertEqual(serverDefault["model"] as? String, "gpt-realtime-1.5")
         XCTAssertEqual(serverDefault["is_screenplay_mode"] as? Bool, true)
+        XCTAssertEqual(serverDefault["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(serverDefault["screenplay_project_title"] as? String, "Ferry Light")
 
         let openAI = BackendClient.realtimeClientSecretBody(realtimeProvider: " openai ")
         let stub = BackendClient.realtimeClientSecretBody(realtimeProvider: " stub ")
@@ -606,6 +1513,65 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(ClementineRealtimeSupplierMode.serverDefault.providerParameter, "")
         XCTAssertEqual(ClementineRealtimeSupplierMode.openAI.providerParameter, "openai")
         XCTAssertEqual(ClementineRealtimeSupplierMode.stub.providerParameter, "stub")
+    }
+
+    func testRealtimeProjectGroundingBodyIsProjectScoped() throws {
+        let body = BackendClient.realtimeProjectGroundingBody(
+            systemPrompt: "  Stay cinematic.  ",
+            screenplayProjectId: "  project-1  ",
+            screenplayProjectTitle: "  Ferry Light  "
+        )
+
+        XCTAssertEqual(body["system_prompt"] as? String, "Stay cinematic.")
+        XCTAssertEqual(body["is_screenplay_mode"] as? Bool, true)
+        XCTAssertEqual(body["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(body["screenplay_project_title"] as? String, "Ferry Light")
+    }
+
+    func testRealtimeProjectGroundingRefreshUsesNoClientSecret() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/project_grounding"):
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "realtime_project_grounding",
+                  "instructions": "Fresh canon: Mara returns for both sisters.",
+                  "memory_grounding": {
+                    "project_id": "project-1",
+                    "project_title": "Ferry Light",
+                    "memory_applied": true,
+                    "pending_question_id": null
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let grounding = try await client.fetchRealtimeProjectGrounding(
+            systemPrompt: "Stay cinematic.",
+            screenplayProjectId: "project-1",
+            screenplayProjectTitle: "Ferry Light"
+        )
+
+        XCTAssertEqual(grounding.instructions, "Fresh canon: Mara returns for both sisters.")
+        XCTAssertEqual(grounding.projectId, "project-1")
+        XCTAssertEqual(grounding.projectTitle, "Ferry Light")
+        XCTAssertTrue(grounding.memoryApplied)
+        XCTAssertEqual(grounding.pendingQuestionId, "")
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/project_grounding" }.count,
+            1
+        )
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
+            0
+        )
     }
 
     func testRealtimeBootstrapPayloadDecodesProvider() throws {
@@ -659,7 +1625,8 @@ final class BackendClientCraftAPITests: XCTestCase {
                 voice: "stub-voice",
                 instructions: "Stay in screenplay mode.",
                 type: "realtime",
-                outputModalities: ["audio"]
+                outputModalities: ["audio"],
+                inputTranscriptionModel: "gpt-4o-mini-transcribe"
             ),
             clientSecret: BackendRealtimeClientSecret(
                 value: "stub_secret_abc",
@@ -673,6 +1640,163 @@ final class BackendClientCraftAPITests: XCTestCase {
             bootstrap.fallbackSummary,
             "Fallback from openai · to stub · realtime_supplier_request_failed"
         )
+    }
+
+    @MainActor
+    func testRealtimeCoordinatorForceRefreshMintsANewEphemeralCredential() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/client_secret"):
+                let mintCount = recorder.requests.filter { $0.path == "/realtime/client_secret" }.count
+                return .json(#"""
+                {
+                  "transport": "webrtc_ephemeral",
+                  "realtime_provider": "stub",
+                  "assistant_name": "io.them",
+                  "model": "stub-realtime-1",
+                  "voice": "stub-voice",
+                  "session": {
+                    "type": "realtime",
+                    "model": "stub-realtime-1",
+                    "voice": "stub-voice",
+                    "instructions": "Stay cinematic.",
+                    "output_modalities": ["audio", "text"]
+                  },
+                  "client_secret": {
+                    "value": "ephemeral-\#(mintCount)",
+                    "expires_at": 2000000000,
+                    "session_expires_at": 2000000000
+                  },
+                  "issued_at": 1800000000
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+        let coordinator = ClementineRealtimeCoordinator()
+
+        let first = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1",
+            emotionLane: "warm_attuned"
+        )
+        let cached = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1",
+            emotionLane: "warm_attuned"
+        )
+        let differentEmotion = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-1",
+            emotionLane: "bright_playful"
+        )
+        let differentProject = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-2",
+            emotionLane: "bright_playful"
+        )
+        let refreshed = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            screenplayProjectId: "project-2",
+            emotionLane: "bright_playful",
+            forceRefresh: true
+        )
+
+        XCTAssertEqual(first?.clientSecret.value, "ephemeral-1")
+        XCTAssertEqual(cached?.clientSecret.value, "ephemeral-1")
+        XCTAssertEqual(differentEmotion?.clientSecret.value, "ephemeral-2")
+        XCTAssertEqual(differentProject?.clientSecret.value, "ephemeral-3")
+        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-4")
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
+            4
+        )
+        let realtimeBodies = recorder.requests
+            .filter { $0.path == "/realtime/client_secret" }
+            .compactMap(\.bodyObject)
+        XCTAssertEqual(realtimeBodies.map { $0["screenplay_project_id"] as? String }, [
+            "project-1",
+            "project-1",
+            "project-2",
+            "project-2",
+        ])
+        XCTAssertEqual(realtimeBodies.map { $0["emotion_lane"] as? String }, [
+            "warm_attuned",
+            "bright_playful",
+            "bright_playful",
+            "bright_playful",
+        ])
+    }
+
+    func testRealtimeDegradedErrorUsesTypedUnavailableEnvelope() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/client_secret"):
+                return .json(#"""
+                {
+                  "stage": "realtime_auth",
+                  "code": "realtime_supplier_request_failed",
+                  "realtime_provider": "openai",
+                  "fallback": false,
+                  "degraded": true,
+                  "error": "OpenAI mint failed"
+                }
+                """#, status: 503)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.fetchRealtimeClientSecret(
+                systemPrompt: "Stay cinematic.",
+                userName: "June",
+                isScreenplayMode: true,
+                realtimeProvider: ClementineRealtimeSupplierMode.openAI.providerParameter
+            )
+            XCTFail("Expected realtime unavailable error")
+        } catch BackendError.realtimeUnavailable(let unavailable) {
+            XCTAssertEqual(unavailable.statusCode, 503)
+            XCTAssertEqual(unavailable.stage, "realtime_auth")
+            XCTAssertEqual(unavailable.code, "realtime_supplier_request_failed")
+            XCTAssertEqual(unavailable.realtimeProvider, "openai")
+            XCTAssertEqual(unavailable.fallback, false)
+            XCTAssertEqual(unavailable.degraded, true)
+            XCTAssertEqual(unavailable.message, "OpenAI mint failed")
+            XCTAssertEqual(unavailable.userMessage, "Realtime preview is temporarily unavailable. Standard voice still works.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertTrue(recorder.methodsAndPaths.contains("POST /realtime/client_secret"))
+        let realtimeBody = try XCTUnwrap(
+            recorder.requests.first(where: { $0.path == "/realtime/client_secret" })?.bodyObject
+        )
+        XCTAssertEqual(realtimeBody["realtime_provider"] as? String, "openai")
+        XCTAssertEqual(realtimeBody["system_prompt"] as? String, "Stay cinematic.")
+        XCTAssertEqual(realtimeBody["is_screenplay_mode"] as? Bool, true)
     }
 
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {
@@ -808,9 +1932,14 @@ final class BackendClientCraftAPITests: XCTestCase {
 private struct CraftHTTPStub {
     let status: Int
     let body: Data
+    let contentType: String
 
     static func json(_ raw: String, status: Int = 200) -> CraftHTTPStub {
-        CraftHTTPStub(status: status, body: Data(raw.utf8))
+        CraftHTTPStub(status: status, body: Data(raw.utf8), contentType: "application/json")
+    }
+
+    static func sse(_ raw: String, status: Int = 200) -> CraftHTTPStub {
+        CraftHTTPStub(status: status, body: Data(raw.utf8), contentType: "text/event-stream")
     }
 }
 
@@ -836,7 +1965,7 @@ private final class CraftURLProtocolStub: URLProtocol {
                 url: request.url!,
                 statusCode: stub.status,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
+                headerFields: ["Content-Type": stub.contentType]
             )!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: stub.body)

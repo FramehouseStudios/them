@@ -71,12 +71,9 @@ function computeOutboxRetryAt(attempt) {
 
 async function retryOutboxAction(item) {
   const {
-    CALENDAR_COMPOSE_TARGET,
-    buildCalendarComposeUrl,
     captureLocalNote,
     normalizeLocalActionType,
     normalizeSnippet,
-    sendLocalEmail,
   } = outboxStoreDeps();
   const payload = item?.payload && typeof item.payload === "object" ? item.payload : {};
   const type = normalizeLocalActionType(item?.type);
@@ -98,54 +95,6 @@ async function retryOutboxAction(item) {
       done: success,
       error: success ? "" : String(result?.error || "note_capture_failed"),
       result: result && typeof result === "object" ? result : {},
-    };
-  }
-  if (type === "email_compose") {
-    const result = await sendLocalEmail({
-      recipient: payload.recipient,
-      subject: payload.subject,
-      body: payload.body,
-      reqId: `outbox-${String(item?.id || "").slice(0, 8)}`,
-    });
-    const status = String(result?.status || "");
-    const success = status === "composed";
-    const terminal = status === "disabled" || status === "needs_recipient" || status === "needs_content";
-    return {
-      ok: success,
-      done: success || terminal,
-      error: success ? "" : String(result?.error || status || "email_compose_failed"),
-      result: result && typeof result === "object" ? result : {},
-    };
-  }
-  if (type === "calendar_compose") {
-    const compose = buildCalendarComposeUrl({
-      title: payload.title,
-      startAt: Number(payload.startAt || 0),
-      endAt: Number(payload.endAt || 0),
-      details: normalizeSnippet(payload.details, 360),
-      target: payload.target,
-    });
-    const success = Boolean(compose?.url);
-    return {
-      ok: success,
-      done: success,
-      error: success ? "" : "calendar_compose_failed",
-      result: success
-        ? {
-          status: "composed",
-          action: "compose",
-          title: normalizeSnippet(payload.title, 120) || "Calendar block",
-          target: String(compose.target || payload.target || CALENDAR_COMPOSE_TARGET),
-          transport: String(compose.transport || "none"),
-          composeUrl: String(compose.url || ""),
-          startAt: Math.max(0, Number(payload.startAt || 0)),
-          endAt: Math.max(0, Number(payload.endAt || 0)),
-        }
-        : {
-          status: "failed",
-          action: "none",
-          error: "Could not build calendar compose URL.",
-        },
     };
   }
   return { ok: false, done: true, error: `unsupported_type:${type}`, result: {} };

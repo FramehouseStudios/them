@@ -3,7 +3,7 @@
 > A voice-first AI screenplay studio that turns creative intent into production-ready pages.
 
 [![Quality Gate](https://github.com/FramehouseStudios/them/actions/workflows/quality-gate.yml/badge.svg?branch=main)](https://github.com/FramehouseStudios/them/actions/workflows/quality-gate.yml)
-![SwiftUI](https://img.shields.io/badge/SwiftUI-iOS%20%7C%20macOS-111111?logo=swift&logoColor=white)
+![SwiftUI](https://img.shields.io/badge/SwiftUI-iPhone-111111?logo=swift&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-20-111111?logo=nodedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-111111?logo=postgresql&logoColor=white)
 ![Status](https://img.shields.io/badge/status-V1%20release%20candidate-6d4aff)
@@ -16,7 +16,7 @@ The product principle is deliberately demanding: the technology should disappear
 
 | | |
 | --- | --- |
-| **Product** | Native iOS and macOS screenplay studio with voice, text, realtime collaboration, memory, and professional export workflows. |
+| **Product** | Native iPhone screenplay studio with voice, text, realtime collaboration, memory, and professional export workflows. |
 | **Core challenge** | Convert ambiguous creative intent into useful pages without flattening the writer's voice or losing edits during streaming, retries, or restore. |
 | **Architecture** | SwiftUI client and domain packages, modular Node/Express API, PostgreSQL persistence, optional Redis coordination, and provider adapters. |
 | **Engineering focus** | Realtime state reconciliation, deterministic screenplay formatting, auth/session safety, durable project memory, observability, and release automation. |
@@ -49,7 +49,7 @@ The product principle is deliberately demanding: the technology should disappear
 
 ```mermaid
 flowchart LR
-    Writer[Writer] --> App["SwiftUI app<br/>iOS + macOS"]
+    Writer[Writer] --> App["SwiftUI app<br/>iPhone V1"]
     App --> Domain["Screenplay + draft<br/>domain packages"]
     App --> API["Node / Express API"]
     API --> Auth["Auth + session<br/>boundaries"]
@@ -105,7 +105,7 @@ scripts/run_release_preflight.sh
 
 | Area | Stack |
 | --- | --- |
-| Client | Swift, SwiftUI, Swift Concurrency, AVFoundation, Speech, AuthenticationServices, WebRTC/realtime transport |
+| Client | Swift, SwiftUI, Swift Concurrency, AVFoundation, Speech, AuthenticationServices, WebRTC/realtime transport; dormant macOS compile scaffold |
 | Domain | Swift Package Manager, Fountain parsing/formatting, draft and screenplay state models |
 | Backend | Node.js 20, Express, modular route/services architecture |
 | Data | PostgreSQL 16, SQL migrations, JSON development adapters, Redis coordination |
@@ -128,7 +128,7 @@ scripts/run_release_preflight.sh
 
 ### Prerequisites
 
-- macOS with Xcode and the iOS/macOS 26 SDKs
+- macOS with Xcode and the iOS 26 SDK
 - Node.js 20 and npm
 - PostgreSQL for persistence-backed development; Redis only for distributed coordination scenarios
 - Provider credentials only when exercising live AI or realtime paths
@@ -145,12 +145,12 @@ The local API defaults to `http://localhost:3000`. Keep provider keys, app token
 
 ### Run the app
 
-Open [`them.xcodeproj`](them.xcodeproj) in Xcode, choose the shared `them` scheme, and run on macOS or an iOS simulator.
+Open [`them.xcodeproj`](them.xcodeproj) in Xcode, choose the shared `them` scheme, and run on an iPhone simulator. A dormant macOS scaffold remains compile-checked for future work but is not part of the V1 product or release claim.
 
 Command-line verification is also available:
 
 ```bash
-xcodebuild -project them.xcodeproj -scheme them -destination 'platform=macOS' test
+xcodebuild -project them.xcodeproj -scheme them -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:themTests test
 xcodebuild -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' build
 ```
 

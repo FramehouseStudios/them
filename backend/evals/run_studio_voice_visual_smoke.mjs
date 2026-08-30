@@ -1,7 +1,10 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
+import { createStudioOwnedAppController } from "./studio_eval_debug_utils.mjs";
 
-const BACKEND_DIR = "/Users/halfmutantfilms/Desktop/io.them/them/backend";
+const BACKEND_DIR = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-home.png";
 
 function assert(condition, message) {
@@ -33,13 +36,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
-}
+const studioApp = createStudioOwnedAppController({ runOptional });
 
 function readDefaultString(key) {
   const result = runOptional("defaults", ["read", "io.them.them", key]);
@@ -56,13 +53,9 @@ function extractMarkedJSON(text, marker) {
   return JSON.parse(line.slice(marker.length + 1));
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
-}
-
 function captureScreenshot(path) {
   mkdirSync("/tmp/them-smoke", { recursive: true });
-  run("screencapture", ["-x", path]);
+  studioApp.captureWindow(path);
   assert(existsSync(path), `Screenshot was not created: ${path}`);
   assert(statSync(path).size > 0, `Screenshot file is empty: ${path}`);
 }
@@ -108,8 +101,9 @@ assert(Boolean(String(voiceResult.playbackStartedAtISO8601 || "").trim()), "Assi
 assert(!String(voiceResult.playbackFinishedAtISO8601 || "").trim(), "Assistant playback already finished before visual capture");
 assert(Boolean(String(voiceResult.commitAtISO8601 || "").trim()) || Boolean(payload?.latestEntry), "Draft page did not have committed page content before visual capture");
 
-activateApp();
-osascript(["delay 0.35"]);
+studioApp.bindSession(payload?.appPath, payload?.appSession);
+studioApp.activate(payload?.appPath);
+await new Promise((resolve) => setTimeout(resolve, 350));
 captureScreenshot(SCREENSHOT_PATH);
 
 const currentSnapshot = readCurrentVoiceSnapshot(voiceResult.token);

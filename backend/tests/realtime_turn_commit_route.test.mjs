@@ -1,7 +1,7 @@
 // T-decompose-phase5b3-turn-commit — integration tests for
 // `mountRealtimeTurnCommitRoute`. Cover:
 //
-// - Required-deps mount guard (20 fns + 1 const).
+// - Required-deps mount guard (21 fns + 1 const).
 // - 400 envelope on missing transcript / reply.
 // - 201 envelope on happy path with the canonical field set.
 // - storeTalkTurnMeta called exactly once with the canonical
@@ -11,8 +11,8 @@
 // - request_id falls back to rid when not in the body.
 // - userMessage / user_message / transcript field-name fallbacks
 //   honored.
-// - Memory-write side-effect: persistWritableMemoryContext
-//   called with (context, nextMemory, nowTs).
+// - Memory-write side-effect: the canonical turn committer is
+//   called with (nextMemory, nowTs).
 // - No module-level supplier rotation — the route does NOT
 //   touch any state outside the deps (same byte-identical-
 //   rotation invariant Codex flagged in 5b.1).
@@ -28,13 +28,15 @@ import {
 
 function defaultDeps(overrides = {}) {
   const calls = {
-    resolveWritableMemoryContext: [],
+    resolveCanonicalWritableMemoryContext: [],
     sanitizePersistedSessionMemory: [],
-    persistWritableMemoryContext: [],
+    memoryCommits: [],
+    commitMemoryMutation: [],
     updateSessionEmotionMemory: [],
     updateSessionAfterReply: [],
     recordUserTalkMetrics: [],
     maybeRefineActiveThemesWithLLM: [],
+    recordCreativeMemoryTriggersForRequest: [],
     storeTalkTurnMeta: [],
     buildReadStateMeta: [],
     applyReadStateHeaders: [],
@@ -45,18 +47,26 @@ function defaultDeps(overrides = {}) {
     normalizeSnippet: (v, _max) => (typeof v === "string" ? v.trim() : ""),
     sanitizeStudioTurnMetadata: (v) => v || null,
     // Memory context
-    resolveWritableMemoryContext: (req, nowTs) => {
+    resolveCanonicalWritableMemoryContext: async (req, nowTs) => {
       const ctx = { memory: null, requesterIp: "10.0.0.1", activeSession: null };
-      calls.resolveWritableMemoryContext.push({ nowTs });
+      calls.resolveCanonicalWritableMemoryContext.push({ nowTs });
       return ctx;
     },
     sanitizePersistedSessionMemory: (m) => {
       calls.sanitizePersistedSessionMemory.push(m);
       return m || { behaviorMode: "surface", followUpPromptCount: 0, followUpAnswerCount: 0 };
     },
-    persistWritableMemoryContext: (ctx, nextMem, ts) => {
-      calls.persistWritableMemoryContext.push({ ctx, nextMem, ts });
-      return { ok: true };
+    createTalkMemoryCommitter: (ctx) => async (nextMem, ts) => {
+      calls.memoryCommits.push({ ctx, nextMem, ts, kind: "turn" });
+      ctx.memory = structuredClone(nextMem);
+      return structuredClone(nextMem);
+    },
+    createCanonicalMemoryMutationCommitter: (ctx) => async (mutator, ts) => {
+      const nextMem = mutator(structuredClone(ctx.memory || {}));
+      calls.memoryCommits.push({ ctx, nextMem, ts, kind: "mutation" });
+      calls.commitMemoryMutation.push({ ctx, nextMem, ts });
+      ctx.memory = structuredClone(nextMem);
+      return structuredClone(nextMem);
     },
     // IP
     normalizeClientIp: (ip) => String(ip || "").trim() || "0.0.0.0",
@@ -80,6 +90,10 @@ function defaultDeps(overrides = {}) {
     maybeRefineActiveThemesWithLLM: async () => {
       calls.maybeRefineActiveThemesWithLLM.push({});
       return undefined;
+    },
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return { skipped: false };
     },
     // Turn meta + read state
     storeTalkTurnMeta: (args) => {
@@ -143,12 +157,14 @@ test("[turn-commit] mount fails without Express app", () => {
 test("[turn-commit] mount fails when any required dep function is missing", () => {
   const required = [
     "createRequestId", "normalizeSnippet", "sanitizeStudioTurnMetadata",
-    "resolveWritableMemoryContext", "sanitizePersistedSessionMemory",
-    "persistWritableMemoryContext", "normalizeClientIp", "clientIp",
+    "resolveCanonicalWritableMemoryContext", "sanitizePersistedSessionMemory",
+    "createTalkMemoryCommitter", "createCanonicalMemoryMutationCommitter",
+    "normalizeClientIp", "clientIp",
     "directorFlagsFromTranscript", "getUserMetricState",
     "countSessionStartsForDay", "formatLocalDateStamp",
     "updateSessionEmotionMemory", "updateSessionAfterReply",
     "recordUserTalkMetrics", "maybeRefineActiveThemesWithLLM",
+    "recordCreativeMemoryTriggersForRequest",
     "storeTalkTurnMeta", "buildReadStateMeta", "applyReadStateHeaders",
   ];
   for (const key of required) {
@@ -198,6 +214,38 @@ test("[turn-commit] 400 when both missing", async () => {
   });
 });
 
+test("[turn-commit] fails closed when canonical account memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveCanonicalWritableMemoryContext: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, { transcript: "x", reply: "y" });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_turn_commit");
+    assert.equal(r.body.error, "memory_read_failed");
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 0);
+  });
+});
+
+test("[turn-commit] fails closed when the canonical turn cannot be committed", async () => {
+  const deps = defaultDeps({
+    createTalkMemoryCommitter: () => async () => {
+      const error = new Error("contention");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, { transcript: "x", reply: "y" });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_turn_commit");
+    assert.equal(r.body.error, "memory_write_failed");
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 0);
+  });
+});
+
 // ---------- 201 canonical envelope ----------
 
 test("[turn-commit] 201 with canonical envelope on happy path", async () => {
@@ -223,6 +271,8 @@ test("[turn-commit] 201 with canonical envelope on happy path", async () => {
     assert.equal(r.body.schema_version, 1);
     assert.equal(r.body.backend_build, "test-build");
     assert.equal(r.body.backend_boot_id, "test-boot");
+    assert.equal(r.body.memory_grounding_changed, false);
+    assert.equal(r.body.memory_grounding_reason, null);
   });
 });
 
@@ -360,12 +410,12 @@ test("[turn-commit] applyReadStateHeaders is invoked once with the meta object",
 
 // ---------- memory-write side-effect invariant (#227 constraint) ----------
 
-test("[turn-commit] persistWritableMemoryContext invoked with (ctx, nextMemory, nowTs)", async () => {
+test("[turn-commit] canonical turn committer receives nextMemory and nowTs", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     await postJson(baseURL, { transcript: "x", reply: "y" });
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
-    const args = deps._calls.persistWritableMemoryContext[0];
+    assert.equal(deps._calls.memoryCommits.length, 1);
+    const args = deps._calls.memoryCommits[0];
     assert.ok(args.ctx, "context should be passed");
     assert.ok(args.nextMem, "nextMemory should be passed");
     assert.equal(typeof args.ts, "number", "timestamp should be epoch ms");
@@ -378,10 +428,445 @@ test("[turn-commit] memory write pipeline: emotion → afterReply → persist (i
     await postJson(baseURL, { transcript: "x", reply: "y" });
     assert.equal(deps._calls.updateSessionEmotionMemory.length, 1);
     assert.equal(deps._calls.updateSessionAfterReply.length, 1);
-    assert.equal(deps._calls.persistWritableMemoryContext.length, 1);
+    assert.equal(deps._calls.memoryCommits.length, 1);
     // updateSessionEmotionMemory feeds updateSessionAfterReply.
-    // updateSessionAfterReply feeds persistWritableMemoryContext.
+    // updateSessionAfterReply feeds the canonical turn committer.
     // (Stub asserts the order by capture-time, not by tree.)
+  });
+});
+
+test("[turn-commit] promotes a spoken screenplay answer before clearing its pending question", async () => {
+  const pending = {
+    id: "screenplay-learning-4-project.theme_argument",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.theme_argument",
+    targetLabel: "the theme argument",
+    anchor: "Split Ferries",
+    question: "What does Split Ferries argue about how a person should live?",
+    actKey: "act2",
+    sequenceKey: "midpoint",
+    askedAtTurn: 4,
+    expiresAfterTurn: 6,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
+    memory: {
+      turns: 5,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+  deps.recordCreativeMemoryTriggersForRequest = async (_req, args) => {
+    deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+    return {
+      skipped: false,
+      learningAnswersPromoted: args.learningContext ? 1 : 0,
+      learningAnswersCorrectionProtected: 0,
+    };
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Love without trust becomes possession.",
+      reply: "That gives the midpoint a moral cost.",
+      request_id: "rt-spoken-answer-1",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.deepEqual(r.body.screenplay_question_resolution, {
+      question_id: pending.id,
+      response_status: "answered",
+      target_field: "project.theme_argument",
+      learning_promoted: true,
+      correction_protected: false,
+    });
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "screenplay_question_resolved");
+    assert.equal(r.body.memory_grounding_project_id, "split-ferries");
+    assert.equal(r.body.memory_grounding_project_title, "Split Ferries");
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext.targetField,
+      "project.theme_argument",
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
+      "answered",
+    );
+    assert.equal(deps._calls.memoryCommits.length, 2);
+    assert.deepEqual(
+      deps._calls.memoryCommits.at(-1).nextMem.pendingScreenplayLearningQuestions,
+      [],
+    );
+  });
+});
+
+test("[turn-commit] marks authoritative canon corrections for live grounding refresh", async () => {
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return {
+        skipped: false,
+        corrections: 1,
+        acceptedCanonFactsRetired: 1,
+        writerCanonFactsRecorded: 1,
+        canonCorrectionReceiptId: "canon-correction-1",
+        canonCorrectionAmbiguityId: "",
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Actually, Mara returns for both sisters.",
+      reply: "Then the choice costs her the evidence.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "canon_correction");
+    assert.equal(r.body.memory_grounding_project_id, "split-ferries");
+    assert.equal(r.body.memory_grounding_project_title, "Split Ferries");
+  });
+});
+
+test("[turn-commit] turns uncertain spoken brainstorming into provisional options", async () => {
+  const pending = {
+    id: "screenplay-learning-6-character.want",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "What does Mara want badly enough to choose danger?",
+    askedAtTurn: 6,
+    expiresAfterTurn: 8,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
+    memory: {
+      turns: 7,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "I'm not sure, help me brainstorm three options.",
+      reply: [
+        "Option 1 (recommended): Mara steals the ferry key so June must follow her plan.",
+        "Option 2: Mara tells June the truth and asks her to choose the crossing.",
+        "Option 3: Mara burns the manifest, forcing both sisters to move without proof.",
+        "",
+        "Which path should become true: Option 1, 2, or 3?",
+      ].join("\n"),
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(
+      r.body.screenplay_question_resolution.response_status,
+      "provisional_options"
+    );
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, false);
+    assert.equal(r.body.screenplay_question_resolution.provisional_options.length, 3);
+    assert.equal(r.body.memory_grounding_changed, true);
+    assert.equal(r.body.memory_grounding_reason, "screenplay_options_proposed");
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext,
+      null,
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction,
+      null,
+    );
+    const persisted = deps._calls.memoryCommits.at(-1).nextMem;
+    assert.equal(persisted.pendingScreenplayLearningQuestions.length, 1);
+    assert.equal(
+      persisted.pendingScreenplayLearningQuestions[0].provisionalOptions[1].value,
+      "Mara tells June the truth and asks her to choose the crossing."
+    );
+    assert.equal(
+      persisted.pendingScreenplayLearningQuestions[0].provisionalOptions
+        .map((option) => option.moveFamily)
+        .filter(Boolean).length,
+      3
+    );
+  });
+});
+
+test("[turn-commit] promotes only the explicit realtime option selection", async () => {
+  const pending = {
+    id: "screenplay-options-7-character.want",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "character.want",
+    targetLabel: "Mara's dramatic want",
+    anchor: "Mara",
+    question: "Which path should become true: Option 1, 2, or 3?",
+    provisionalOptions: [
+      { id: "option-1", rank: 1, value: "Mara wants control of every crossing.", recommended: true, moveFamily: "reversal_pressure" },
+      { id: "option-2", rank: 2, value: "Mara wants June to choose her freely.", recommended: false, moveFamily: "relationship_pressure" },
+      { id: "option-3", rank: 3, value: "Mara wants to expose the ferry board.", recommended: false, moveFamily: "obstacle_pressure" },
+    ],
+    askedAtTurn: 7,
+    expiresAfterTurn: 9,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
+    memory: {
+      turns: 8,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+  deps.recordCreativeMemoryTriggersForRequest = async (_req, args) => {
+    deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+    return {
+      skipped: false,
+      learningAnswersPromoted: args.learningContext ? 1 : 0,
+    };
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Let's go with option 2.",
+      reply: "Then Mara's desire is no longer rescue at any cost. It is being chosen without force.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.screenplay_question_resolution.response_status, "answered");
+    assert.equal(r.body.screenplay_question_resolution.selected_option_id, "option-2");
+    assert.equal(r.body.screenplay_question_resolution.selected_option_rank, 2);
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, true);
+    const write = deps._calls.recordCreativeMemoryTriggersForRequest[0];
+    assert.equal(write.learningContext.selectedOptionId, "option-2");
+    assert.equal(write.learningContext.selectedMoveFamily, "relationship_pressure");
+    assert.equal(write.learningContext.provisionalOptions.length, 3);
+    assert.equal(
+      deps._calls.memoryCommits.at(-1).nextMem
+        .pendingScreenplayLearningQuestions.length,
+      0
+    );
+  });
+});
+
+test("[turn-commit] does not apply an ambiguous correction before the writer resolves it", async () => {
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return {
+        skipped: false,
+        corrections: 1,
+        acceptedCanonFactsAmbiguous: 2,
+        canonCorrectionAmbiguityId: "canon-ambiguity-1",
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Actually, Mara goes back for both of them.",
+      reply: "Tell me which ferry fact that replaces.",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.memory_grounding_changed, false);
+    assert.equal(r.body.memory_grounding_reason, null);
+  });
+});
+
+test("[turn-commit] never mislearns a spoken page command as a screenplay answer", async () => {
+  const pending = {
+    id: "screenplay-learning-5-project.ending_image",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.ending_image",
+    targetLabel: "the ending image",
+    anchor: "Split Ferries",
+    question: "What final image proves Mara has changed?",
+    askedAtTurn: 5,
+    expiresAfterTurn: 7,
+    askedAt: 1_725_000_000_000,
+  };
+  const deps = defaultDeps();
+  deps.resolveCanonicalWritableMemoryContext = async () => ({
+    memory: {
+      turns: 6,
+      pendingScreenplayLearningQuestions: [pending],
+    },
+    requesterIp: "10.0.0.1",
+    activeSession: null,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Write the next scene.",
+      reply: "INT. EAST FERRY - NIGHT",
+      studio: {
+        screenplayProjectId: "split-ferries",
+        screenplayProjectTitle: "Split Ferries",
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(r.body.screenplay_question_resolution.response_status, "declined");
+    assert.equal(r.body.screenplay_question_resolution.learning_promoted, false);
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].learningContext,
+      null,
+    );
+    assert.equal(
+      deps._calls.recordCreativeMemoryTriggersForRequest[0].questionInteraction.responseStatus,
+      "declined",
+    );
+  });
+});
+
+test("[turn-commit] request_id replay executes the realtime memory pipeline exactly once", async () => {
+  const deps = defaultDeps();
+  const body = {
+    transcript: "Mara chooses June over the evidence.",
+    reply: "That choice now drives the climax.",
+    request_id: "rt-reconnect-replay-1",
+    studio: {
+      screenplayProjectId: "split-ferries",
+    },
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, body);
+    const replay = await postJson(baseURL, body);
+
+    assert.equal(first.status, 201);
+    assert.equal(replay.status, 201);
+    assert.equal(replay.headers.get("x-idempotency-replayed"), "1");
+    assert.deepEqual(replay.body, first.body);
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    assert.equal(deps._calls.memoryCommits.length, 1);
+    assert.equal(deps._calls.storeTalkTurnMeta.length, 1);
+  });
+});
+
+test("[turn-commit] queues durable project memory with accepted page text and structured arc metadata", async () => {
+  const deps = defaultDeps();
+  const acceptedPage = "INT. ARCHIVE - NIGHT\n\nMARA opens the sealed affidavit.";
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Continue Mara from the archive.",
+      reply: "I moved Mara into the archive.",
+      studio: {
+        screenplayProjectId: "rain-docket",
+        screenplayTarget: "page",
+        screenplayInsertedText: acceptedPage,
+        screenplayCharacterArcMemory: {
+          character: "Mara",
+          want: "expose the forged testimony",
+          wound: "her father's disappearance",
+          falseBelief: "perfect proof keeps Eli safe",
+        },
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    const memoryTurn = deps._calls.recordCreativeMemoryTriggersForRequest[0];
+    assert.equal(memoryTurn.transcript, "Continue Mara from the archive.");
+    assert.equal(memoryTurn.reply, acceptedPage);
+    assert.equal(memoryTurn.acceptedPageText, acceptedPage);
+    assert.equal(memoryTurn.source, "talk_screenplay_output");
+    assert.equal(memoryTurn.studioMeta.screenplayProjectId, "rain-docket");
+    assert.equal(memoryTurn.studioMeta.screenplayCharacterArcMemory.character, "Mara");
+  });
+});
+
+test("[turn-commit] returns a canon clarification only after its durable memory write resolves", async () => {
+  let releaseMemoryWrite;
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      await new Promise((resolve) => {
+        releaseMemoryWrite = resolve;
+      });
+      return {
+        canonCorrectionAmbiguity: {
+          id: "canon_ambiguity_realtime_1",
+          status: "pending",
+          projectId: "split-ferries",
+          projectTitle: "Split Ferries",
+          correctionText: "Mara goes back for both of them.",
+          candidateFacts: [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock.",
+          ],
+          createdAt: 1_725_000_000_000,
+        },
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    let settled = false;
+    const responsePromise = postJson(baseURL, {
+      transcript: "Actually, Mara goes back for both of them.",
+      reply: "I remember the correction.",
+    }).then((response) => {
+      settled = true;
+      return response;
+    });
+
+    while (typeof releaseMemoryWrite !== "function") {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(settled, false, "response must wait for the durable ambiguity receipt");
+
+    releaseMemoryWrite();
+    const response = await responsePromise;
+    assert.equal(response.status, 201);
+    assert.deepEqual(response.body.canon_clarification, {
+      id: "canon_ambiguity_realtime_1",
+      status: "pending",
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      correction_text: "Mara goes back for both of them.",
+      candidate_facts: [
+        "Mara abandons Eli at the east ferry dock.",
+        "Mara abandons June at the east ferry dock.",
+      ],
+      selected_fact: null,
+      selected_facts: [],
+      receipt_id: null,
+      created_at: 1_725_000_000_000,
+      resolved_at: null,
+    });
   });
 });
 

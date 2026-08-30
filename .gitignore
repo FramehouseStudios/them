@@ -4,12 +4,19 @@
 *.env
 them/Release.local.env
 them/Release.local.xcconfig
+# Keep documented, secret-free templates tracked.
+!.env.example
+!**/.env.example
+!*.env.example
+!**/*.env.example
 
 # ── User data stores (never commit user data) ──
 backend/user_memory_store.json
+backend/user_store.json
 backend/screenplay_store.json
 backend/outbox_store.json
 backend/knowledge_embeddings_cache.json
+backend/data/
 
 # ── Node ──
 node_modules/

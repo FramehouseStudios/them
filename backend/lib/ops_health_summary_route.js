@@ -7,6 +7,7 @@
 //   - node uptime + version
 //   - backend status string (e.g. "ok" / "degraded")
 //   - which optional subsystems are mounted (by name)
+//   - cheap safe-public subsystem quality signals
 //
 // Distinct from /ops/metrics, which exposes hot-path counters and
 // recent talk samples. /ops/metrics costs nothing per call but
@@ -19,6 +20,7 @@ const OPS_HEALTH_SUMMARY_SCHEMA_VERSION = 1;
 function mountOpsHealthSummaryRoute(app, {
   deriveBackendStatus = () => ({ status: "unknown", reasons: [] }),
   features = {},
+  signals = {},
   startedAtMs = Date.now(),
   nowFn = () => Date.now(),
 } = {}) {
@@ -46,6 +48,7 @@ function mountOpsHealthSummaryRoute(app, {
         platform: typeof process !== "undefined" ? process.platform : null,
       },
       features: normalizeFeatures(features),
+      signals: resolveSignals(signals),
     });
   });
 }
@@ -72,9 +75,53 @@ function normalizeFeatures(features) {
   return out;
 }
 
+function normalizeSignalValue(value, depth = 0) {
+  if (value === null) return null;
+  if (typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (Array.isArray(value)) {
+    if (depth >= 2) return [];
+    return value.slice(0, 24).map((item) => normalizeSignalValue(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    if (depth >= 2) return {};
+    const out = {};
+    for (const key of Object.keys(value).slice(0, 64)) {
+      out[key] = normalizeSignalValue(value[key], depth + 1);
+    }
+    return out;
+  }
+  return null;
+}
+
+function normalizeSignals(signals) {
+  if (!signals || typeof signals !== "object") return {};
+  const out = {};
+  for (const key of Object.keys(signals)) {
+    out[key] = normalizeSignalValue(signals[key]);
+  }
+  return out;
+}
+
+function resolveSignals(signals) {
+  try {
+    const source = typeof signals === "function" ? signals() : signals;
+    return normalizeSignals(source);
+  } catch (e) {
+    return {
+      ops_health_signals: {
+        status: "error",
+        reason: "derive_failed",
+      },
+    };
+  }
+}
+
 export {
   mountOpsHealthSummaryRoute,
   humanizeMs,
   normalizeFeatures,
+  normalizeSignals,
+  resolveSignals,
   OPS_HEALTH_SUMMARY_SCHEMA_VERSION,
 };

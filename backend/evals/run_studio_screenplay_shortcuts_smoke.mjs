@@ -1,5 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import {
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -30,13 +34,7 @@ function runOptional(command, args, options = {}) {
   };
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) {
-    args.push("-e", line);
-  }
-  return run("osascript", args);
-}
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,41 +63,21 @@ function findDebugAppPath() {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    'try',
-    'tell application "System Events"',
-    'tell process "them"',
-    'if visible is true then return "1"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function appIsRunning() {
-  const output = osascript([
-    'try',
-    'tell application "System Events"',
-    'return count of (every process whose name is "them")',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.isRunning();
 }
 
 function launchApp(appPath) {
-  const escapedPath = `'${String(appPath).replace(/'/g, `'\\''`)}'`;
-  run("/bin/zsh", ["-lc", `open -na ${escapedPath}`]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function writeDefaultString(key, value) {
@@ -130,8 +108,8 @@ async function waitForStudioOpenAck(token) {
   await waitFor(() => Number(readDefaultString("studio_debug_open_ack_token")) === token, `Studio open ack ${token}`, 15000, 150);
 }
 
-async function ensureStudioVisible() {
-  activateApp();
+async function ensureStudioVisible(appPath = "", appSession = null) {
+  activateApp(appPath, appSession);
   await waitFor(() => appHasWindow(), "visible THEM window", 20000, 250);
   const token = nextDebugToken();
   writeDefaultInt("studio_debug_open_token", token);
@@ -171,27 +149,19 @@ async function waitForActiveElement(expectedRaw, expectedLabel) {
 }
 
 function sendCommandNumber(number) {
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.15',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.05',
     `keystroke "${number}" using {command down}`,
-    'end tell',
   ]);
 }
 
 function sendTab(backward = false) {
   const modifiers = backward ? ' using {shift down}' : '';
-  osascript([
-    'tell application "them" to activate',
+  ownedApp.runProcessAppleScript([
     'delay 0.15',
-    'tell application "System Events"',
-    'tell process "them" to set frontmost to true',
     'delay 0.05',
     `key code 48${modifiers}`,
-    'end tell',
   ]);
 }
 
@@ -226,12 +196,12 @@ async function pressAndAssert(step) {
 }
 
 const appPath = findDebugAppPath();
-if (!appIsRunning()) {
-  activateApp();
-  await sleep(2200);
-}
+const appSession = launchApp(appPath);
+await waitFor(() => appIsRunning(), "helper-owned THEM process after launch", 20000, 250);
+activateApp(appPath, appSession);
+await sleep(2200);
 
-await ensureStudioVisible();
+await ensureStudioVisible(appPath);
 await focusDraftEditor();
 
 const steps = [

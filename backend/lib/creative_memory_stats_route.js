@@ -7,19 +7,12 @@
 // uses this to badge the sidebar; full content is fetched through the
 // existing per-domain endpoints when the user opens the detail view.
 //
-// Unauthenticated → 200 + zero-state envelope (same posture as
-// /memory/block-signal).
+// Unauthenticated requests return 401. Caller-supplied X-User-Id is
+// never trusted for ownership.
+
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 
 const CREATIVE_MEMORY_STATS_SCHEMA_VERSION = 1;
-
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    null
-  );
-}
 
 function zeroEnvelope() {
   return {
@@ -61,7 +54,7 @@ function summarizeMemory(memory) {
 
 function mountCreativeMemoryStatsRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
 } = {}) {
   if (!app || typeof app.get !== "function") {
     throw new Error("mountCreativeMemoryStatsRoute requires an Express app");
@@ -74,7 +67,7 @@ function mountCreativeMemoryStatsRoute(app, {
     res.setHeader("Cache-Control", "no-store");
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json(zeroEnvelope());
+      return res.status(401).json(memoryAuthRequired("memory_stats"));
     }
     try {
       const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });

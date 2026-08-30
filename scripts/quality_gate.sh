@@ -40,6 +40,16 @@ if [[ -f "${ENV_FILE}" ]]; then
   set +a
 fi
 
+# Keep every gate client on the same backend the gate starts. Local .env files
+# commonly move PORT away from 3000; without this normalization the server can
+# start on that custom port while individual smokes silently probe a stale
+# process on 3000.
+GATE_PORT="${QUALITY_GATE_PORT:-${PORT:-3000}}"
+GATE_BASE_URL="${BASE_URL:-http://127.0.0.1:${GATE_PORT}}"
+export PORT="${GATE_PORT}"
+export BASE_URL="${GATE_BASE_URL}"
+export THEM_BASE_URL="${THEM_BASE_URL:-${GATE_BASE_URL}}"
+
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
@@ -48,14 +58,32 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "${RUN_SERVER:-0}" == "1" ]]; then
-  echo "[quality-gate] starting backend ..."
+  echo "[quality-gate] starting backend on ${GATE_BASE_URL} ..."
   if [[ "${RUN_TALK_RECOVERY_GATE}" == "1" ]]; then
-    TALK_TEST_DEBUG_FAILURE_ENABLED=1 npm run start:env >"${LOG_FILE}" 2>&1 &
+    TALK_TEST_DEBUG_FAILURE_ENABLED=1 npm start >"${LOG_FILE}" 2>&1 &
   else
-    npm run start:env >"${LOG_FILE}" 2>&1 &
+    npm start >"${LOG_FILE}" 2>&1 &
   fi
   SERVER_PID="$!"
-  sleep 2
+  SERVER_READY=0
+  for _attempt in {1..100}; do
+    if ! kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
+      echo "[quality-gate] backend exited before becoming ready."
+      tail -n 80 "${LOG_FILE}" || true
+      exit 1
+    fi
+    if grep -q "Backend listening on" "${LOG_FILE}" \
+      && curl -fsS "${GATE_BASE_URL}/health" >/dev/null 2>&1; then
+      SERVER_READY=1
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ "${SERVER_READY}" != "1" ]]; then
+    echo "[quality-gate] backend did not become ready on ${GATE_BASE_URL}."
+    tail -n 80 "${LOG_FILE}" || true
+    exit 1
+  fi
 fi
 
 if [[ "${RUN_CANON}" == "1" ]]; then

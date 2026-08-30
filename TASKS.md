@@ -298,7 +298,7 @@
 - **Pillar:** living companion (resilience)
 - **Status:** merged
 - **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
-- **Scope (follow-up):** integrate a real second supplier once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
+- **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
 - **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
@@ -418,7 +418,7 @@
 - **Branch:** `codex/T31-coordination-status-cleanup`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md` and `docs/live-handoff.md` accurately reflect the merged PR stack, current support agent blockers, and next Codex/support agent handoff state; no stale review/in-progress rows remain for already-merged tasks; support agent has GitHub supervisor comments on active support agent PRs.
+- **Done when:** `TASKS.md` and `docs/codex-support-live-handoff.md` accurately reflect the merged PR stack, current support agent blockers, and next Codex/support agent handoff state; no stale review/in-progress rows remain for already-merged tasks; support agent has GitHub supervisor comments on active support agent PRs.
 
 ---
 
@@ -509,15 +509,15 @@
 - **Branch:** `codex/T33-support-command-center`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** a short repo-visible support agent inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send support agent; `docs/live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
+- **Done when:** a short repo-visible support agent inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send support agent; `docs/codex-support-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
 ### T-codex-inbox — Add Codex inbox + prompt printer (support agent→Codex)
 - **Owner:** support
 - **Branch:** `support/T-codex-inbox`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (support agent-maintained — current open support agent PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions support agent needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_support_prompt.mjs` for the Codex direction). Updates `docs/live-handoff.md` so Codex standard read includes the inbox, and `docs/support-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a support agent→Codex handoff after each support agent PR.
-- **Done when:** `docs/codex-inbox.md` exists with current open support agent PRs, endpoint contracts, blockers, and decisions support agent needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/live-handoff.md` Fast Path lists the new inbox; `docs/support-inbox.md` notes that support agent maintains the reciprocal channel.
+- **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (support agent-maintained — current open support agent PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions support agent needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_support_prompt.mjs` for the Codex direction). Updates `docs/codex-support-live-handoff.md` so Codex standard read includes the inbox, and `docs/support-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a support agent→Codex handoff after each support agent PR.
+- **Done when:** `docs/codex-inbox.md` exists with current open support agent PRs, endpoint contracts, blockers, and decisions support agent needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/codex-support-live-handoff.md` Fast Path lists the new inbox; `docs/support-inbox.md` notes that support agent maintains the reciprocal channel.
 
 ---
 
@@ -654,7 +654,7 @@
 - **Branch:** `codex/T61-post-t60-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
 
 ---
 
@@ -672,7 +672,7 @@
 - **Branch:** `codex/T63-post-t62-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; support agent's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; support agent's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
 
 ---
 
@@ -690,7 +690,7 @@
 - **Branch:** `codex/T65-post-t64-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; support agent's #133/#134 blockers remain current; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; support agent's #133/#134 blockers remain current; coordination prompt/check scripts pass.
 
 ---
 
@@ -699,7 +699,7 @@
 - **Branch:** `codex/T66-refresh-after-support-pr-triage`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
 
 ---
 
@@ -708,7 +708,7 @@
 - **Branch:** `codex/T67-refresh-after-pr148-triage`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
 
 ---
 
@@ -717,7 +717,7 @@
 - **Branch:** `codex/T68-refresh-after-pr150-151`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-support-live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
 
 ---
 
@@ -733,96 +733,586 @@
 
 ## Active work — quick view (auto-generated from tasks/_active/)
 
-| ID                                      | Title                                                                                    | Owner  | Status           |
-|-----------------------------------------|------------------------------------------------------------------------------------------|--------|------------------|
-| T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | support | review           |
-| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | support | review           |
-| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | support | review           |
-| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits                                   | support | review           |
-| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)                               | support | review           |
-| T-coord-refresh-batch-15                | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | support | review           |
-| T-decompose-phase4-auth-routes          | Decompose backend/index.js — Phase 4 (11 /auth/* routes)                                 | support | review           |
-| T-decompose-phase5a-realtime-reads      | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | support | review           |
-| T-decompose-phase5b4-realtime-call      | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | support | review           |
+| ID                                      | Title                                                                                    | Owner   | Status            |
+|-----------------------------------------|------------------------------------------------------------------------------------------|---------|-------------------|
+| T-account-deletion-and-export           | GET /account/export + DELETE /account (Apple/GDPR compliance)                            | support | review            |
+| T-apply-migrations-runner               | scripts/apply_migrations.mjs — apply all backend/migrations/*.sql in order               | support | review            |
+| T-archive-legacy-json-stores            | Move backend/*_store.json into backend/data/_legacy/                                     | support | ready             |
+| T-auth-demo-keychain-login              | Add local demo login and Keychain remembered credentials                                 | codex   | review            |
+| T-auth-session-durability               | Make auth sessions durable before success responses                                      | codex   | review            |
+| T-backend-api-version-healthz           | Add /api/version and /healthz orchestrator endpoints                                     | support | review            |
+| T-backend-ci-hardening                  | CI secret-format validation + Dockerfile build gate                                      | support | review            |
+| T-backend-deploy-image                  | Containerize the backend and document a deploy recipe                                    | support | review            |
+| T-backend-graceful-shutdown             | Drain in-flight requests on SIGTERM before exit                                          | support | ready             |
+| T-backend-openai-cost-cap               | OpenAI per-day / per-user / per-hour budget cap                                          | support | ready             |
+| T-backend-pg-pool-tuning                | Production-tune the Postgres connection pool                                             | support | ready             |
+| T-backend-rate-limit                    | Token-bucket rate limiter for auth, realtime mint, and default routes                    | support | review            |
+| T-backend-security-headers              | Set HSTS / nosniff / Referrer-Policy / frame-ancestors headers                           | support | ready             |
+| T-backend-structured-logs               | Structured JSON logger + request-id propagation                                          | support | review            |
+| T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | support | review            |
+| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | support | review            |
+| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | support | review            |
+| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits                                   | support | review            |
+| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)                               | support | review            |
+| T-coord-refresh-batch-15                | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | support | review            |
+| T-decompose-phase4-auth-routes          | Decompose backend/index.js — Phase 4 (11 /auth/* routes)                                 | support | review            |
+| T-decompose-phase5a-realtime-reads      | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | support | review            |
+| T-decompose-phase5b4-realtime-call      | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | support | review            |
 | T-decompose-phase6-1a-outbox-data-state | Decompose backend long-tail Phase 6.1a routes                                            | support | ready-for-support |
-| T-decompose-phase6-memories             | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | support | review           |
-| T-deeper-lib-tests-batch-2              | Deeper tests for persona + utils + screenplay_store + outbox_store                       | support | review           |
-| T-deeper-lib-tests-batch-3              | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | support | review           |
-| T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | support | review           |
-| T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | support | review           |
-| T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | support | review           |
-| T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | support | review           |
-| T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | support | review           |
-| T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex  | review           |
-| T-pii-safe-request-logs                 | Redact PII from structured request logs                                                   | codex  | review           |
-| T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | support | review           |
-| T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | support | review           |
-| T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | support | review           |
-| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | support | review           |
-| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | support | review           |
-| T-screenplay-idor-regression            | Prove cross-account screenplay project isolation                                         | codex  | review           |
-| T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | support | review           |
-| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | support | review           |
-| T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | support | review           |
-| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | support | review           |
-| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | support | review           |
-| T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | support | planned          |
-| T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | support | review           |
-| T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | support | review           |
-| T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | support | review           |
-| T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | support | review           |
-| T113                                    | Archive merged active tasks after V1 status pass                                         | codex  | review           |
-| T115                                    | Refresh queue after V1 preflight and schema guard                                        | codex  | review           |
-| T117                                    | Refresh queue after memories tests merge                                                 | codex  | review           |
-| T118                                    | Prove current app build and tests for V1 readiness                                       | codex  | review           |
-| T119                                    | Close Screenplay Studio export UX gap                                                    | codex  | review           |
-| T120                                    | Memory export/delete privacy decision packet                                             | codex  | review           |
-| T121                                    | Post V1 progress coordination refresh                                                    | codex  | review           |
-| T122                                    | Reprove current app build and themTests after export UX                                  | codex  | review           |
-| T123                                    | Make V1 manual smoke handoff one-command                                                 | codex  | review           |
-| T124                                    | Refresh after V1 smoke prompt merge                                                      | codex  | review           |
-| T125                                    | Record deterministic V1 smoke proof                                                      | codex  | review           |
-| T126                                    | Run and record release preflight                                                         | codex  | review           |
-| T131                                    | Refresh after T130 release preflight clearance                                           | codex  | review           |
-| T135                                    | Refresh after Phase 7b talk-handler merge                                                | codex  | review           |
-| T138                                    | Refresh queue after Launch Doctor proof PRs                                              | codex  | review           |
-| T139                                    | Clear V1 release smoke and config gap                                                    | codex  | review           |
-| T140                                    | Refresh coordination after T139 merge                                                    | codex  | review           |
-| T141                                    | Add safe local release config handoff                                                    | codex  | review           |
-| T145                                    | Refresh coordination after auth and memory export merges                                 | codex  | review           |
-| T146                                    | Run V1 launch smoke and release preflight pass                                           | codex  | review           |
-| T147                                    | Refresh support agent handoff after Phase 7c design merge                                       | codex  | review           |
-| T148                                    | Add safe release config status command                                                   | codex  | review           |
-| T149                                    | Add Phase 7c implementation task row for support agent                                          | codex  | review           |
-| T151                                    | Refresh coordination after Phase 7c merge                                                | codex  | review           |
-| T152                                    | Refresh eval-secret and release-gap state                                                | codex  | review           |
-| T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane                                     | codex  | review           |
-| T43-refresh-support-queue                | Refresh support agent queue after supervisor protocol merge                                     | codex  | review           |
-| T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                                               | codex  | review           |
-| T46-post-review-queue-refresh           | Refresh queue after Codex PR reviews                                                     | codex  | review           |
-| T47-refresh-after-new-support-prs        | Refresh queue after new support agent PR triage                                                 | codex  | review           |
-| T48-ios-archetype-traits                | Surface character archetypes in the Studio traits rail                                   | codex  | in-progress      |
-| T81                                     | Refresh coordination after PR #193/#194                                                  | codex  | review           |
-| T82                                     | Refresh coordination after PR #204/#205/#206/#207                                        | codex  | review           |
-| T83                                     | Define V1 and product-state handoff loop                                                 | codex  | review           |
-| T84                                     | Surface talk health and error diagnostics in iOS                                         | codex  | review           |
-| T85                                     | Round 22 coordination refresh after supervisor merge train                               | codex  | review           |
-| T86                                     | Round 22b coordination refresh after design-note mini-train                              | codex  | review           |
-| T87                                     | Round 22c coordination refresh after memory and long-tail design notes                   | codex  | review           |
-| T88                                     | Round 22d coordination refresh after V1 smoke fixture pack                               | codex  | review           |
-| T89                                     | Round 22e coordination refresh after schema docs batch 2                                 | codex  | review           |
-| T90                                     | V1 memory and realtime diagnostics in iOS                                                | codex  | review           |
-| T91                                     | Round 22f coordination refresh                                                           | codex  | review           |
-| T92                                     | Round 22g coordination refresh                                                           | codex  | review           |
-| T93                                     | Round 22h coordination refresh                                                           | codex  | review           |
-| T94                                     | support agent supervisor note handoff                                                           | codex  | review           |
-| T95-schema-doc-drift-gate               | Gate schema docs against backend field drift                                             | codex  | review           |
-| T96-batch-coordination-refresh          | Refresh coordination after supervisor merge train                                        | codex  | review           |
-| T97-post-support-merge-refresh          | Refresh coordination after support merge train                                           | codex  | review           |
-| T98-post-v1-realtime-refresh            | Post V1 status and realtime turn-commit coordination refresh                             | codex  | review           |
-| T99-fix-auth-expected-action            | Fix truncated auth-route coordination expected action                                    | codex  | review           |
+| T-decompose-phase6-memories             | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | support | review            |
+| T-decompose-root-experience-view        | Decompose them/RootExperienceView.swift (529 KB) into per-concern modules                | codex   | ready             |
+| T-decompose-screenplay-studio-screen    | Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules            | codex   | ready             |
+| T-deeper-lib-tests-batch-2              | Deeper tests for persona + utils + screenplay_store + outbox_store                       | support | review            |
+| T-deeper-lib-tests-batch-3              | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | support | review            |
+| T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | support | review            |
+| T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | support | review            |
+| T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | support | review            |
+| T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | support | review            |
+| T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | support | review            |
+| T-idempotency-key-contract              | Cross-route idempotency-key contract + reusable envelope                                 | support | review            |
+| T-ios-keychain-token-migration          | Migrate iOS auth tokens from UserDefaults to Keychain                                    | codex   | ready             |
+| T-ios-offline-outbox                    | iOS client outbox for offline-tolerant talk turns                                        | codex   | ready             |
+| T-ios-xcuitest-v1-smoke                 | Thin XCUITest scaffold for the V1 manual smoke checklist                                 | codex   | review            |
+| T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex   | review            |
+| T-macos-posture-cleanup                 | Gate macOS scaffolding off the V1 iOS scheme                                             | codex   | ready             |
+| T-pii-safe-request-logs                 | Redact PII from structured request logs                                                  | codex   | review            |
+| T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | support | review            |
+| T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | support | review            |
+| T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | support | review            |
+| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | support | review            |
+| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | support | review            |
+| T-screenplay-idor-regression            | Prove cross-account screenplay project isolation                                         | codex   | review            |
+| T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | support | review            |
+| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | support | review            |
+| T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | support | review            |
+| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | support | review            |
+| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | support | review            |
+| T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | support | planned           |
+| T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | support | review            |
+| T-v1-human-clearance                    | Integrate V1 release line to the human-clearance boundary                                | codex   | review            |
+| T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | support | review            |
+| T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | support | review            |
+| T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | support | review            |
+| T113                                    | Archive merged active tasks after V1 status pass                                         | codex   | review            |
+| T115                                    | Refresh queue after V1 preflight and schema guard                                        | codex   | review            |
+| T117                                    | Refresh queue after memories tests merge                                                 | codex   | review            |
+| T118                                    | Prove current app build and tests for V1 readiness                                       | codex   | review            |
+| T119                                    | Close Screenplay Studio export UX gap                                                    | codex   | review            |
+| T120                                    | Memory export/delete privacy decision packet                                             | codex   | review            |
+| T121                                    | Post V1 progress coordination refresh                                                    | codex   | review            |
+| T122                                    | Reprove current app build and themTests after export UX                                  | codex   | review            |
+| T123                                    | Make V1 manual smoke handoff one-command                                                 | codex   | review            |
+| T124                                    | Refresh after V1 smoke prompt merge                                                      | codex   | review            |
+| T125                                    | Record deterministic V1 smoke proof                                                      | codex   | review            |
+| T126                                    | Run and record release preflight                                                         | codex   | review            |
+| T131                                    | Refresh after T130 release preflight clearance                                           | codex   | review            |
+| T135                                    | Refresh after Phase 7b talk-handler merge                                                | codex   | review            |
+| T138                                    | Refresh queue after Launch Doctor proof PRs                                              | codex   | review            |
+| T139                                    | Clear V1 release smoke and config gap                                                    | codex   | review            |
+| T140                                    | Refresh coordination after T139 merge                                                    | codex   | review            |
+| T141                                    | Add safe local release config handoff                                                    | codex   | review            |
+| T145                                    | Refresh coordination after auth and memory export merges                                 | codex   | review            |
+| T146                                    | Run V1 launch smoke and release preflight pass                                           | codex   | review            |
+| T147                                    | Refresh support agent handoff after Phase 7c design merge                                | codex   | review            |
+| T148                                    | Add safe release config status command                                                   | codex   | review            |
+| T149                                    | Add Phase 7c implementation task row for support agent                                   | codex   | review            |
+| T151                                    | Refresh coordination after Phase 7c merge                                                | codex   | review            |
+| T152                                    | Refresh eval-secret and release-gap state                                                | codex   | review            |
+| T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane                                     | codex   | review            |
+| T43-refresh-support-queue               | Refresh support agent queue after supervisor protocol merge                              | codex   | review            |
+| T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                                               | codex   | review            |
+| T46-post-review-queue-refresh           | Refresh queue after Codex PR reviews                                                     | codex   | review            |
+| T47-refresh-after-new-support-prs       | Refresh queue after new support agent PR triage                                          | codex   | review            |
+| T48-ios-archetype-traits                | Surface character archetypes in the Studio traits rail                                   | codex   | in-progress       |
+| T81                                     | Refresh coordination after PR #193/#194                                                  | codex   | review            |
+| T82                                     | Refresh coordination after PR #204/#205/#206/#207                                        | codex   | review            |
+| T83                                     | Define V1 and product-state handoff loop                                                 | codex   | review            |
+| T84                                     | Surface talk health and error diagnostics in iOS                                         | codex   | review            |
+| T85                                     | Round 22 coordination refresh after supervisor merge train                               | codex   | review            |
+| T86                                     | Round 22b coordination refresh after design-note mini-train                              | codex   | review            |
+| T87                                     | Round 22c coordination refresh after memory and long-tail design notes                   | codex   | review            |
+| T88                                     | Round 22d coordination refresh after V1 smoke fixture pack                               | codex   | review            |
+| T89                                     | Round 22e coordination refresh after schema docs batch 2                                 | codex   | review            |
+| T90                                     | V1 memory and realtime diagnostics in iOS                                                | codex   | review            |
+| T91                                     | Round 22f coordination refresh                                                           | codex   | review            |
+| T92                                     | Round 22g coordination refresh                                                           | codex   | review            |
+| T93                                     | Round 22h coordination refresh                                                           | codex   | review            |
+| T94                                     | support agent supervisor note handoff                                                    | codex   | review            |
+| T95-schema-doc-drift-gate               | Gate schema docs against backend field drift                                             | codex   | review            |
+| T96-batch-coordination-refresh          | Refresh coordination after supervisor merge train                                        | codex   | review            |
+| T97-post-support-merge-refresh          | Refresh coordination after support merge train                                           | codex   | review            |
+| T98-post-v1-realtime-refresh            | Post V1 status and realtime turn-commit coordination refresh                             | codex   | review            |
+| T99-fix-auth-expected-action            | Fix truncated auth-route coordination expected action                                    | codex   | review            |
 
 ## Active work — full detail (auto-generated)
+
+### T-account-deletion-and-export — GET /account/export + DELETE /account (Apple/GDPR compliance)
+- **Owner:** support
+- **Branch:** support/backend-account-routes
+- **Pillar:** ios
+- **Status:** review
+
+## Scope
+
+Spec: `docs/specs/T-account-deletion-and-export.md`.
+
+Backend: `lib/account_routes.js` with `GET /account/export` and
+`DELETE /account` (7-day soft delete + hard delete sweep). New
+migration `008_account_lifecycle.sql`. iOS surface via Codex follow-up
+in `DataControlsScreen.swift`.
+
+## Progress
+
+Phase-0 DONE (branch `support/backend-post-v1-audit`):
+- `backend/lib/account_routes.js` + 10 tests — route shapes, deps injected.
+- `backend/lib/account_lifecycle_store.js` + 8 tests — table-backed
+  store (read / markPendingDeletion / clearPendingDeletion /
+  listDueForHardDelete / finalizeHardDelete / audit), pg-style
+  client injected, in-memory-fake tested.
+- `backend/migrations/008_account_lifecycle.sql`.
+- Precise Phase-1 wiring plan written into the spec
+  (`docs/specs/T-account-deletion-and-export.md`) with verified
+  index.js line refs.
+- Flagged `D-account-export-key-scope` in the decisions queue —
+  per-user key convention must be confirmed before Phase-1 merges.
+
+Phase-1 REMAINING (next, one PR): wire deps in index.js
+(`resolveAuthenticatedUser` ← `req.authUser.id`; `lifecycleStore` ←
+pg pool; `exportUserData` ← `sharedPersistence.list`), mount at
+`index.js:26410`, add the hard-delete sweep timer, wire
+`verifyReauthProof`. Phase-2: iOS DataControlsScreen (Codex).
+
+## Done when
+
+- Signed-in user can export every owned store row in one JSON
+  archive. (route done; real exporter wiring remaining)
+- Signed-in user can request account deletion; sessions revoked;
+  hard delete fires after 7 days. (route + soft-delete done; sweep
+  job remaining)
+- Re-signing in within the window cancels the pending deletion. (route done)
+- App Store privacy questionnaire entries match the new endpoints.
+
+### T-apply-migrations-runner — scripts/apply_migrations.mjs — apply all backend/migrations/*.sql in order
+- **Owner:** support
+- **Branch:** support/backend-apply-migrations
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+- `scripts/apply_migrations.mjs`: discovers `backend/migrations/*.sql`,
+  applies them in numeric order inside a transaction each, tracks
+  applied set in a new `_schema_migrations` table, supports `--dry-run`
+  and `--status` flags.
+- Idempotent: re-running is a no-op.
+- Detects checksum drift (an applied migration file changed in source)
+  and exits non-zero with a clear message.
+
+## Done when
+
+- `DATABASE_URL=... node scripts/apply_migrations.mjs --status` lists
+  every migration as PENDING on a fresh DB.
+- After one apply run, the same command lists every migration as applied.
+- Re-running is a no-op.
+- Editing an applied migration file → next run errors out with the
+  checksum mismatch.
+
+### T-archive-legacy-json-stores — Move backend/*_store.json into backend/data/_legacy/
+- **Owner:** support
+- **Branch:** -
+- **Pillar:** infra (enables all)
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-archive-legacy-json-stores.md`.
+
+Move `screenplay_store.json` (3.6 MB), `user_memory_store.json`
+(296 KB), `outbox_store.json`, `knowledge_cards.json` into
+`backend/data/_legacy/`. Update `persistence_json.js` default root.
+Add `.gitignore` for the new path. One-time fallback warning if
+only the old path exists.
+
+## Done when
+
+- The four legacy JSON files no longer sit at `backend/<filename>.json`.
+- `npm test` and dev `npm start` work against the new path.
+- `du -sh backend/` decreases by ~4 MB.
+- Deprecation warning fires once if only the old path exists.
+
+### T-auth-demo-keychain-login — Add local demo login and Keychain remembered credentials
+- **Owner:** codex
+- **Branch:** codex/T-auth-demo-keychain-login
+- **Pillar:** mobile-first
+- **Status:** review
+
+## Scope
+
+- Add a debug-and-loopback-only fake email account through the existing email
+  signup/login routes.
+- Add explicit remembered-email and remembered-password controls to Profile.
+- Store the opted-in password only in Apple Keychain and clear it immediately
+  when the user disables remembrance.
+- Preserve refresh-token session restoration and keep Sign in with Apple on
+  the Apple-issued identity-token path.
+- Normalize backend millisecond session timestamps before rendering account
+  activity so a valid current session never appears tens of thousands of years
+  in the future.
+- Keep authenticated Data Controls responsive by caching its recovery-owner
+  scope outside SwiftUI rendering and deferring legacy token cleanup until the
+  auth session read has released its queue.
+- Do not add a backend demo endpoint, production credential, or auth bypass.
+
+## Done when
+
+- The documented demo credential can create or reuse a local account and sign
+  in through normal auth.
+- Remembered credentials repopulate after sign-out/relaunch, while disabling
+  the option removes them.
+- Release or non-loopback configurations cannot surface or invoke demo login.
+- Current-session activity displays the real calendar date for both legacy
+  second timestamps and backend millisecond timestamps.
+- Data Controls opens and remains interactive for a remembered signed-in
+  account while backend identity and memory refreshes run concurrently.
+- Focused credential/auth tests, iPhone and macOS builds, local backend smoke,
+  strict pre-flight, and `git diff --check` pass.
+
+## Verification
+
+- Focused credential and authentication policy tests: 61 passed, 0 failed.
+- Remembered-login/session-date policy tests after the live smoke repair: 26
+  passed, 0 failed.
+- Focused account deletion, password reset, session bootstrap, and auth-race tests: 15 passed, 0 failed.
+- Signed Profile UI tests for demo separation and Keychain relaunch restoration: 2 passed, 0 failed.
+- Focused remembered-login and recovery-owner partition tests: 29 passed, 0
+  failed, 0 skipped.
+- Full `themTests` target: 497 passed, 0 failed, 0 skipped.
+- Exact replay of the formerly deadlocked first-page telemetry test: 1 passed, 0 failed.
+- Backend auth/account contracts: 37 passed, 0 failed.
+- iOS Simulator Release, macOS Scaffold Debug, and macOS Scaffold Release builds passed.
+- Rebuilt macOS Scaffold Debug app relaunched into the same authenticated local
+  account and rendered the active session as `Aug 27, 2026` instead of year
+  `58625`.
+- Process sampling reproduced the Data Controls freeze as a main-thread/auth
+  session queue lock inversion. The rebuilt app then opened Data Controls,
+  refreshed memory shape, opened Launch Doctor, exported its report, returned
+  home, and reopened Account without a freeze.
+- Launch Doctor records Screenplay Studio passed with a cold-reopened clean
+  operator-provided Fountain draft outside the repository (the local path and document are not tracked);
+  the JSON and Markdown reports were exported to Downloads.
+- Release-app scan found none of the demo email, password, or UI label.
+- Isolated local-backend smoke passed signup, refresh rotation, logout, repeat login, persistence, process restart, and repeat login.
+- `node scripts/pre_flight.mjs --strict`, active-task front-matter evaluation, and `git diff --check` passed.
+- Global strict task sync still reports repository-wide legacy/orphan debt; this task's row, owner, and status are synchronized and produce no finding.
+
+### T-auth-session-durability — Make auth sessions durable before success responses
+- **Owner:** codex
+- **Branch:** codex/T-auth-session-durability
+- **Pillar:** longitudinal learning
+- **Status:** review
+
+## Scope
+
+- Await the existing user-store persistence queue before any mutating auth
+  handler returns success.
+- Return a stable failure instead of claiming success when canonical auth
+  persistence fails, and only mark it retryable after durable compensation.
+- Serialize auth mutations, restore the pre-request checkpoint on persistence
+  failure, and keep bearer reads from observing transient rotation state.
+- Verify Apple identity before entering the mutation lock and bound JWKS
+  discovery so an identity-provider stall cannot block every authenticated
+  request.
+- Fail production startup closed when canonical auth records cannot be read;
+  never authenticate from a stale local snapshot during a database outage.
+- Treat an initialized-but-empty canonical auth store as authoritative so a
+  stale legacy JSON mirror cannot resurrect deleted users or sessions.
+- Hydrate and prune every canonical auth page so records beyond the adapter's
+  10,000-row page cap cannot disappear from revocation or later reappear.
+- Validate the canonical marker and stage the complete auth identity graph
+  before swapping it live, rejecting malformed rows, key mismatches, orphaned
+  credentials, duplicate identities, and incomplete login mechanisms without
+  clearing the last known-good in-memory state.
+- Accept Apple account creation/linking only from a token-verified email claim;
+  never substitute the request body's email for missing identity data.
+- Require production Apple audience validation so tokens issued for another
+  app cannot authenticate here.
+- Revoke account sessions durably before scheduling deletion, so no failed
+  compensation can leave an unacknowledged hard deletion queued.
+- Commit lifecycle state and its audit record atomically so an audit failure
+  cannot leave an unacknowledged deletion or cancellation behind.
+- Keep legacy-import dry runs read-only, validate the entire legacy auth
+  snapshot before any database operation, and replace all four auth tables
+  plus the canonical marker in one rollback-safe Postgres transaction.
+- Require an explicit destructive opt-in for an authoritative empty auth
+  replacement; schema-only must neither clear auth data nor silently authorize
+  an empty database, and production must reject uninitialized canonical auth.
+- Reject contradictory email-verification state and password records whose
+  digest encoding or PBKDF2 work factor could bypass comparison or block login.
+- Preserve existing access/refresh token contracts and iOS Keychain restore.
+- Do not create, commit, log, or expose account credentials.
+
+## Done when
+
+- Signup, login, refresh, logout, session revocation, reset, and verification
+  handlers settle their queued persistence writes before a success response.
+- A delayed adapter proves signup does not answer early; adapter failures
+  produce `503 auth_persistence_failed` without leaking tokens, and the
+  `retryable` flag truthfully reflects whether rollback became durable.
+- Slow Apple JWKS discovery does not block bearer auth or unrelated signup,
+  and a real production boot exits when Postgres is unavailable.
+- An Apple token without a verified email cannot take over a password account
+  by supplying its email in the request body; known Apple subjects can still
+  sign in when later tokens omit email.
+- Empty canonical state survives restart without legacy resurrection; all
+  auth pages hydrate and prune; failed durable revocation restores both live
+  and canonical sessions without first scheduling deletion.
+- Invalid canonical metadata or identity rows fail closed while preserving
+  live state; exact-snapshot imports remove omitted stale credentials only at
+  commit and restore the complete prior snapshot on rollback.
+- Deletion scheduling and cancellation each use one atomic Postgres statement;
+  an audit-write failure leaves the prior lifecycle state unchanged.
+- Production rejects missing or mismatched Apple audiences, and failed or
+  dry-run legacy imports cannot publish partial authoritative auth state.
+- Empty imports fail closed without explicit authorization, and corrupted
+  verification/password records fail before database writes or live hydration.
+- Schema-only setup leaves an empty auth database uninitialized; production
+  fails closed until a validated exact import publishes its canonical marker.
+- The V1 single-instance constraint is explicit until auth snapshot writes are
+  replaced by row-scoped transactions and refresh-token compare-and-swap.
+- Focused auth/persistence tests, iOS session-restore tests, strict pre-flight,
+  and `git diff --check` pass.
+
+## Verification
+
+- `npm test` in `backend/`: 2,238 passed, 1 skipped, 0 failed.
+- Focused Apple/auth/account/persistence/migration suite: 222 passed, 0
+  failed.
+- Focused iOS account/session restore and workspace-auth policy: 20 passed, 0
+  failed on iPhone 17 Pro (iOS 26.2 simulator).
+- Canon/V1 deterministic quality gate, including the learned-answer realtime
+  voice smoke and craft completeness: passed. The live regression/provider
+  gate remains external because this environment has no valid live provider
+  credential.
+- Strict pre-flight, task front matter, syntax checks, and `git diff --check`:
+  passed.
+- Repository-wide task sync still reports only the pre-existing legacy/orphan
+  task debt; this task's row and status are synchronized.
+
+### T-backend-api-version-healthz — Add /api/version and /healthz orchestrator endpoints
+- **Owner:** support
+- **Branch:** support/backend-api-version-healthz
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+- `backend/lib/api_version_route.js` + tests: dependency-free `GET /api/version`.
+- `backend/lib/healthz_route.js` + tests: orchestrator readiness probe pinging persistence.
+- `ping()` method added to both `persistence_json.js` and `persistence_postgres.js`.
+- Routes wired in `backend/index.js`.
+
+## Done when
+
+- `node --test tests/api_version_route.test.mjs tests/healthz_route.test.mjs` green.
+- `backend/Dockerfile` HEALTHCHECK can point to `/healthz` instead of
+  `/realtime/health` (HEALTHCHECK switch is a follow-up PR).
+- Full backend `npm test` passes.
+
+### T-backend-ci-hardening — CI secret-format validation + Dockerfile build gate
+- **Owner:** support
+- **Branch:** support/backend-ci-hardening
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+- `quality-gate.yml`: new "Validate OPENAI_API_KEY format" step that hits
+  `api.openai.com/v1/models` once and fails the gate with a one-line
+  error referencing `docs/ci-openai-secret-fix.md`.
+- New `docker-build.yml`: PRs touching `backend/Dockerfile`, deps, or
+  the image build context build the image and verify
+  `assertProductionEnv` actually fires.
+
+## Done when
+
+- A PR that bumps a `backend/lib/*` file triggers `docker-build`.
+- A malformed `OPENAI_API_KEY` secret now reports a one-line CI error.
+- `backend/.env.example` exists and documents every var.
+
+### T-backend-deploy-image — Containerize the backend and document a deploy recipe
+- **Owner:** support
+- **Branch:** support/backend-deploy-image
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+- Add `backend/Dockerfile` (Node 20, two-stage, non-root, tini PID 1)
+  with healthcheck wired to `/realtime/health`.
+- Add `backend/.dockerignore` to keep secrets and JSON dev stores out
+  of the image.
+- Add `backend/render.yaml` as one valid deploy target (host-agnostic
+  image; same Dockerfile runs on Fly, ECS, Cloud Run).
+- Add `backend/DEPLOY.md` as the deploy recipe.
+- Add `assertProductionEnv()` boot guard in `backend/config.js`,
+  wired from `backend/index.js` startup, with full coverage in
+  `backend/tests/config_assert_production_env.test.mjs`.
+- Bump default PBKDF2 iterations to OWASP 2023 minimum (600k) in
+  `backend/lib/user_store.js`. Existing accounts unaffected — they
+  keep their stored iteration count.
+
+## Done when
+
+- `node --test tests/config_assert_production_env.test.mjs` passes.
+- `node --test tests/user_store.test.mjs tests/user_auth.test.mjs`
+  passes.
+- `backend/DEPLOY.md`, `backend/Dockerfile`, `backend/render.yaml`,
+  and `backend/.dockerignore` exist and are referenced from
+  follow-on PR description.
+- A future deploy can follow `DEPLOY.md` end-to-end without external
+  knowledge.
+
+### T-backend-graceful-shutdown — Drain in-flight requests on SIGTERM before exit
+- **Owner:** support
+- **Branch:** -
+- **Pillar:** infra (enables all)
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-backend-graceful-shutdown.md`.
+
+`lib/shutdown.js` helper wired from `index.js`: stop accepting
+connections, drain in-flight (talkInFlight), drain outbox tick,
+close backplane + persistence, exit 0. `/healthz` returns 503
+during drain. `SHUTDOWN_GRACE_MS` default 25s.
+
+## Done when
+
+- SIGTERM with 2 in-flight talk turns: both finish before exit;
+  exit before 25s.
+- `/healthz` returns 503 within 100ms of SIGTERM.
+- New connections refused during drain.
+- After grace timeout, process exits even with in-flight (warn log).
+
+### T-backend-openai-cost-cap — OpenAI per-day / per-user / per-hour budget cap
+- **Owner:** support
+- **Branch:** -
+- **Pillar:** infra (enables all)
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-backend-openai-cost-cap.md`.
+
+In-memory cost meter keyed by `(YYYY-MM-DD, route_class, user_id)`,
+env-driven caps, `/ops/cost` endpoint, 402 response on cap breach.
+
+## Done when
+
+- 5 successive talk calls within a minute that estimate above the
+  per-hour cap return 402 instead of calling OpenAI.
+- `/ops/cost` returns the current-day spend per route_class.
+- Unit tests cover meter math, rollover, refund-on-failure.
+
+### T-backend-pg-pool-tuning — Production-tune the Postgres connection pool
+- **Owner:** support
+- **Branch:** -
+- **Pillar:** infra (enables all)
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-backend-pg-pool-tuning.md`.
+
+Tuned `new Pool(...)` config in `lib/persistence_postgres.js`
+(max, idleTimeoutMillis, connectionTimeoutMillis, statement_timeout,
+application_name), a `pool.on('error')` handler, and `/ops/pg-pool`
+status endpoint. New env vars documented in `.env.example` + DEPLOY.md.
+
+## Done when
+
+- `pg_stat_activity.application_name` shows `them-backend@<build>`.
+- A 30s blocking query elsewhere does not stall our requests beyond
+  `PG_STATEMENT_TIMEOUT_MS`.
+- `/ops/pg-pool` returns pool stats JSON.
+
+### T-backend-rate-limit — Token-bucket rate limiter for auth, realtime mint, and default routes
+- **Owner:** support
+- **Branch:** support/backend-rate-limit-phase0
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+Spec: `docs/specs/T-backend-rate-limit.md`. Phase 0 is the helper +
+tests; subsequent phases wire it to `/auth/*`, `/realtime/call`, and
+the default class.
+
+## Progress
+
+- Phase 0 DONE: `backend/lib/rate_limit.js` + 10 tests
+  (`tests/rate_limit.test.mjs`) shipped. Token-bucket, route-class
+  isolation, user-id-over-IP keying, LRU bound, production-ignores-bypass.
+- Phase 1 (wire /auth/*), Phase 2 (/realtime/call), Phase 3 (default)
+  pending.
+
+## Done when
+
+- `lib/rate_limit.js` exists, tested, with default budgets per route class. (done)
+- /auth/signup returns 429 with `Retry-After` after 5 reqs/min/IP. (Phase 1)
+- /realtime/call returns 429 after 20 reqs/min/user. (Phase 2)
+- `NODE_ENV=test` honors `X-Test-Bypass-Rate-Limit`. (done in helper)
+
+### T-backend-security-headers — Set HSTS / nosniff / Referrer-Policy / frame-ancestors headers
+- **Owner:** support
+- **Branch:** -
+- **Pillar:** infra (enables all)
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-backend-security-headers.md`.
+
+`lib/security_headers.js` middleware wired early in
+`applyAppMiddleware`. HSTS, X-Content-Type-Options, Referrer-Policy,
+Permissions-Policy, COOP, X-Frame-Options + CSP frame-ancestors.
+`SECURITY_HEADERS_DISABLED=1` opt-out for local debug.
+
+## Done when
+
+- `curl -I` against any route returns every header.
+- securityheaders.com grades A/A+ once deployed.
+- Unit test asserts all headers present; opt-out strips them.
+
+### T-backend-structured-logs — Structured JSON logger + request-id propagation
+- **Owner:** support
+- **Branch:** support/backend-structured-logs-phase0
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+Spec: `docs/specs/T-backend-structured-logs.md`. Thin `lib/log.js`
+wrapper (no new deps), `request_id` middleware, and wiring into
+three high-signal call sites to prove the pattern.
+
+## Progress
+
+- Phase 0 DONE: `backend/lib/log.js` + 10 tests (`tests/log.test.mjs`).
+  JSON + pretty formats, level filter, child loggers,
+  `createRequestIdMiddleware` honoring incoming x-request-id.
+  Existing `middleware/auth.js` requestIdMiddleware also upgraded to
+  honor incoming x-request-id (non-breaking).
+- Follow-up `T-backend-log-migration`: mechanical sweep of console.log
+  in index.js (separate task — keeps this PR reviewable).
+
+## Done when
+
+- `lib/log.js` exists with JSON + pretty formats and level filter. (done)
+- `requestIdMiddleware` exists; tests cover the round-trip. (done)
+- Three call sites adopt the new logger. (follow-up: T-backend-log-migration)
+- `LOG_LEVEL=debug` actually changes behavior in CI. (done in helper)
 
 ### T-backfill-v1-pillar-legacy — Backfill V1 pillar/effect on 13 legacy non-merged task files
 - **Owner:** support
@@ -1512,6 +2002,47 @@ Once it lands:
 Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
 
+### T-decompose-root-experience-view — Decompose them/RootExperienceView.swift (529 KB) into per-concern modules
+- **Owner:** codex
+- **Branch:** -
+- **Pillar:** ios
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-decompose-root-experience-view.md`.
+
+Phased, byte-identical extraction following the backend Phase 0–N
+pattern. Six phases planned: viewmodel, onboarding, companion
+presence, screenplay shell, modal sheets, residual.
+
+## Done when
+
+- `RootExperienceView.swift` is < 100 KB.
+- Each phase landed as its own PR, byte-identical, with a
+  pre/post view-hierarchy screenshot pair.
+- No regression in `themTests` or V1 manual smoke.
+
+### T-decompose-screenplay-studio-screen — Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules
+- **Owner:** codex
+- **Branch:** -
+- **Pillar:** ios
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-decompose-screenplay-studio-screen.md`.
+
+Seven phased extractions: viewmodel, paper canvas, command palette,
+inline editor, voice overlay, inspector tabs, fixer queue + toast.
+Each phase gated by `npm run eval:studio` (39-step gauntlet).
+
+## Done when
+
+- `ScreenplayStudioScreen.swift` is < 250 KB.
+- `npm run eval:studio` green at every phase.
+- `T-ios-xcuitest-v1-smoke` (once landed) continues to pass.
+
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** support
 - **Branch:** support/T-deeper-lib-tests-batch-2
@@ -2046,6 +2577,128 @@ existing smoke.
   (#256 schema batch 4).
 - FDX export deeper coverage when its smoke lands.
 
+### T-idempotency-key-contract — Cross-route idempotency-key contract + reusable envelope
+- **Owner:** support
+- **Branch:** support/backend-idempotency-envelope
+- **Pillar:** talk
+- **Status:** review
+
+## Scope
+
+Spec: `docs/specs/T-idempotency-key-contract.md`.
+
+- `backend/lib/idempotency_envelope.js`: `withIdempotency(handler, deps)`
+  envelope, in-memory LRU cache, body-hash mismatch → 409, 5xx not cached.
+- 10 tests in `tests/idempotency_envelope.test.mjs`.
+- Helper extraction only; wiring into specific routes (memory, screenplay)
+  lands in follow-up PRs scoped to each adoption.
+
+## Done when
+
+- `node --test tests/idempotency_envelope.test.mjs` green (10/10).
+- Spec defines the contract for the iOS outbox consumer.
+- `/talk` continues to use its existing helper byte-identically.
+- Follow-up adoption tasks filed (memory, screenplay write routes).
+
+### T-ios-keychain-token-migration — Migrate iOS auth tokens from UserDefaults to Keychain
+- **Owner:** codex
+- **Branch:** -
+- **Pillar:** ios
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-ios-keychain-token-migration.md`. Decision:
+`D-token-keychain-migration` in `docs/decisions-queue.md`
+(resolved 2026-05-14).
+
+Replace UserDefaults reads/writes for the `app_token` and
+`sharedUserID` keys in `them/BackendClient.swift` with a
+`KeychainTokenStore`, including a one-shot idempotent migration from
+existing UserDefaults values. No public-surface changes; callers stay
+untouched.
+
+## Done when
+
+- Keychain values are the source of truth on a fresh install and after
+  upgrade-over-existing.
+- Existing UserDefaults entries are cleared after migration.
+- `themTests` covers fresh-install, upgrade, keychain-fail branches.
+- Manual smoke: install previous build, sign in, install this build
+  over the top — sign-in survives.
+
+### T-ios-offline-outbox — iOS client outbox for offline-tolerant talk turns
+- **Owner:** codex
+- **Branch:** -
+- **Pillar:** talk
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-ios-offline-outbox.md`.
+
+Durable client-side outbox actor that queues failed `/talk` POSTs and
+retries them on app foreground + `NWPathMonitor` recovery. Visible UI
+state for queued turns. Backend already exposes `/outbox` and
+`/outbox/retry`; this is the missing client piece.
+
+## Done when
+
+- Airplane-mode → record turn → reconnect → turn lands without
+  user intervention.
+- Kill app while queue non-empty → relaunch → queue intact and drains.
+- 4xx (non-retryable) → entry transitions to `parked` and is
+  user-visible / user-deletable.
+- Unit tests cover the state machine + backoff schedule.
+
+### T-ios-xcuitest-v1-smoke — Thin XCUITest scaffold for the V1 manual smoke checklist
+- **Owner:** codex
+- **Branch:** codex/T-ios-xcuitest-v1-smoke-bash32
+- **Pillar:** ios
+- **Status:** review
+
+## Scope
+
+Spec: `docs/specs/T-ios-xcuitest-v1-smoke.md`.
+
+Add a `themUITests` target with five thin tests covering the V1
+manual smoke checklist items. Inject a `MockBackendTransport` so tests
+run deterministically without hitting the production API. Wire one CI
+step to run the suite on the iOS simulator.
+
+## Done when
+
+- `themUITests` target exists; five tests pass on a clean simulator.
+- CI runs the suite as a soft gate on every iOS-touching PR.
+- `docs/runbook-v1-smoke.md` updated to reflect automated coverage.
+- Adding a sixth UI test is a 1-file change.
+
+## Repair milestone — 2026-08-25
+
+- Made both optional-xcconfig smoke runners safe under macOS Bash 3.2
+  with `set -u` enabled.
+- Reset the persisted screenplay draft-save outbox during isolated UI
+  launches so stale queued work cannot mutate a later smoke.
+- Prevented an empty reconnect notification from reloading and clearing
+  the selected Studio project.
+- Made draft-conflict, pending-question, and structural fixtures install
+  before live hydration can race them.
+- Kept the structural reversal-card fixture stable when the Them rail opens,
+  while preserving the manual refresh action.
+- Hardened route-selection assertions to wait for the selected accessibility
+  state instead of sampling during a SwiftUI render transition.
+
+## Verification — 2026-08-25
+
+- `scripts/run_v1_ui_smoke.sh` — 29 executed, 7 fixture-dependent skips,
+  0 failures.
+- `env ONLY_TESTING=themTests scripts/run_v1_ui_smoke.sh` — 450/450 passed.
+- `xcodebuild build -project them.xcodeproj -scheme them-macOS-scaffold
+  -configuration 'Mac Scaffold Debug' -destination platform=macOS
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` — passed.
+- Smoke-runner Node regressions — 4/4 passed.
+- Bash syntax and `git diff --check` — passed.
+
 ### T-local-backend-no-provider-boot — Keep local backend bootable without provider credentials
 - **Owner:** codex
 - **Branch:** codex/T-local-backend-no-provider-boot
@@ -2087,6 +2740,33 @@ existing smoke.
   - Local backend reached `http://127.0.0.1:3001` without a provider key.
   - Account creation/sign-in succeeded.
   - Data Controls changed from connection/auth failures to `No companion memory yet.`
+
+### T-macos-posture-cleanup — Gate macOS scaffolding off the V1 iOS scheme
+- **Owner:** codex
+- **Branch:** -
+- **Pillar:** ios
+- **Status:** ready
+
+## Scope
+
+Spec: `docs/specs/T-macos-posture-cleanup.md`. Decision:
+`D-desktop-posture-v1` in `docs/decisions-queue.md` (resolved
+2026-05-14: no desktop app for V1).
+
+Inventory every `#if os(macOS)` branch in `them/`; for each either
+(a) keep with a one-line "reason" comment, (b) wrap in a dormant
+`THEM_MAC_SHELL` compile flag, or (c) delete. Remove macOS from the
+active V1 TestFlight scheme. Leave the project-wide `macosx` flag in
+`SUPPORTED_PLATFORMS` so a future Mac shell isn't re-plumbed from
+scratch.
+
+## Done when
+
+- `grep -rn "#if os(macOS)" them/` shows every branch annotated or
+  gated.
+- V1 TestFlight scheme excludes macOS as a destination.
+- macOS scheme still compiles (dormant), no warning regressions.
+- iOS scheme `themTests` green.
 
 ### T-pii-safe-request-logs — Redact PII from structured request logs
 - **Owner:** codex
@@ -2750,6 +3430,51 @@ The 7 stateful libs (utils, persona, screenplay_store, outbox_store,
 memory_store, user_store, user_auth) are now covered at smoke +
 deeper + (for user_auth) round-trip tiers. Pre-flight's
 `lib-missing-test` rule is clean on main.
+
+### T-v1-human-clearance — Integrate V1 release line to the human-clearance boundary
+- **Owner:** codex
+- **Branch:** codex/T-v1-human-clearance
+- **Pillar:** mobile-first
+- **Status:** review
+
+## Scope
+
+Integrate the Reader Preview, stable UI smoke, durable auth, local demo/Keychain
+login, current-main backend safety fixes, and iPhone release tooling into one
+Tier-3 review branch. Run the full code-owned verification story and stop at
+the Apple/deployment/App Store/physical-device boundary without inventing
+credentials or weakening release gates.
+
+## Done When
+
+- Current `main` is integrated without dropping the stacked V1 work.
+- Providerless local startup, production fail-closed behavior, PII-safe logs,
+  account isolation, durable auth, and the DEBUG-loopback demo path are covered.
+- Remember Me and password saving are opt-in, use Apple Keychain, and survive a
+  real locally signed simulator relaunch.
+- Full backend, iOS unit, signed sequential UI, script-contract, audit, and
+  clean unsigned iPhone Release gates are recorded.
+- The final PR is labeled Tier 3 / do-not-merge and names every remaining
+  human-owned action, including approval of the inherited Email Address
+  privacy-manifest declaration.
+
+## Verification
+
+- Backend: `2,269` total, `2,268` passed, `1` skipped, `0` failed; npm audit
+  reported `0` vulnerabilities across `126` dependencies.
+- iOS unit: `497/497` passed on iPhone 17 / iOS 26.2.
+- Locally signed sequential UI: `31` total, `24` passed, `7` explicit
+  fixture/server-gated skips, `0` failed; Keychain relaunch and Creative
+  Partner reuse/Voice Pin/To Page routing passed.
+- Focused release/security contracts: `37/37` passed after enforcing full-gate
+  defaults, mode-600/non-symlink inputs, persistent backend configuration, and
+  exact io.them public-surface identity.
+- Complete script-contract suite: `197/197` passed.
+- Clean unsigned iPhone Release with dummy private values: `fail=1 warn=0`;
+  only the dedicated human-owned iOS Sign in with Apple entitlement is absent.
+- Human-only files were not edited in the final working pass. The inherited
+  branch delta contains an Email Address declaration in
+  `them/PrivacyInfo.xcprivacy`; it remains explicitly human-gated.
 
 ### T-v1-pillar-rule-and-canon-wire — Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon
 - **Owner:** support
@@ -3455,7 +4180,11 @@ Launch Doctor evidence, and document exact results.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
 - `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed, 108 tests, 0 failures.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
-- `scripts/appstore_preflight.sh` failed with the expected real release blockers: missing Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`; signed Release build skipped because `DEVELOPMENT_TEAM_ID` is not configured.
+- At that historical run, `scripts/appstore_preflight.sh` failed for the then-unset
+  Development Team, backend, and token inputs; the current contract fixes the
+  hosted backend at `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`. The signed Release build was skipped because
+  `DEVELOPMENT_TEAM_ID` was not configured.
 - `cd backend && npm run v1:status` reported 19/25 V1 checklist items complete.
 - `node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs` wrote the blocked Launch Doctor report.
 
@@ -3495,8 +4224,10 @@ merged so agent prompts stop treating T139 as an open review item.
 
 Make the release configuration path safer and faster after T139 proved the
 remaining blocker is missing real release inputs. Add a local-only release
-config template and documentation so the Apple team ID, hosted backend URL, and
-production app token can be supplied without editing tracked project files.
+config template and documentation so the Apple team ID and
+`APP_TOKEN_RELEASE` can be supplied without editing tracked project files,
+while the hosted backend remains the tracked `https://api.them.io` release
+origin.
 
 ## Done When
 
@@ -3573,8 +4304,11 @@ concrete backend failure.
 
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- At that historical run, `scripts/appstore_preflight.sh` failed with
+  `fail=3 warn=1` for the then-unset Development Team, backend, and token
+  inputs. The current contract fixes the hosted backend at
+  `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`.
 - `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
   smokes.
 - `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
@@ -3743,8 +4477,11 @@ are still absent locally.
   and `playful_banter_humor` missed case minima.
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- At that historical run, `scripts/appstore_preflight.sh` failed with
+  `fail=3 warn=1` for the then-unset Development Team, backend, and token
+  inputs. The current contract fixes the hosted backend at
+  `https://api.them.io` and names the remaining token secret
+  `APP_TOKEN_RELEASE`.
 - `security find-identity -v -p codesigning` reported `0 valid identities
   found`.
 - `node scripts/release_config_status.mjs` reported missing local release

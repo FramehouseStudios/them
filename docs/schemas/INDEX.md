@@ -67,7 +67,8 @@ invariants, and compatibility rules for one envelope or record.
 | Doc | Covers | Posture |
 | --- | --- | --- |
 | [ops-metrics.md](ops-metrics.md) | `/ops/metrics` | SAFE-PUBLIC |
-| [ops-health-summary.md](ops-health-summary.md) | `/ops/health/summary` | SAFE-PUBLIC |
+| [ops-alerts.md](ops-alerts.md) | `/ops/alerts` | SAFE-PUBLIC |
+| [ops-health-summary.md](ops-health-summary.md) | `/ops/health-summary` | SAFE-PUBLIC |
 | [outbox-routes.md](outbox-routes.md) | `GET /outbox` + `POST /outbox/retry` operator HTTP envelopes | PER-USER (internal) |
 
 ## Daily / weekly surfaces

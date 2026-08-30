@@ -38,8 +38,26 @@ authentication required.
 | `idempotency_entries` | int | yes | `talkIdempotencyCacheSize()` accessor | live count |
 | `scale_backplane` | object | yes | `scaleBackplaneStatus()` | backplane snapshot |
 | `metrics_window_ms` | int | yes | `deriveBackendRuntimeStatus().metrics.windowMs` | sample window |
-| `metrics` | object | yes | `deriveBackendRuntimeStatus().metrics` | aggregate stats over window |
+| `metrics` | object | yes | `deriveBackendRuntimeStatus().metrics` | aggregate stats over window; includes `screenplay` outcome counters |
 | `recent` | array | yes | last min(32, n) `talkMetricsSamples` | per-sample objects |
+
+### `metrics.screenplay`
+
+Content-free aggregate quality counters for screenplay talk turns in
+the active metrics window.
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `modeCount` | int | screenplay-mode talk samples |
+| `pageRequestedCount` | int | samples where the requested target was `page` |
+| `pageAcceptedCount` | int | page requests accepted as authoritative page text |
+| `pageRepairedCount` | int | accepted page replies repaired into valid screenplay form |
+| `pageDowngradedCount` | int | page requests downgraded to a voice pin |
+| `pageRejectedInvalidFormatCount` | int | page requests rejected by format guard |
+| `pageRejectedNonScreenplayCount` | int | page requests rejected as non-screenplay output |
+| `pageAcceptanceRate` | number | `pageAcceptedCount / pageRequestedCount`; `0` when no page requests |
+| `outcomeCounts` | object | counts by normalized screenplay outcome token |
+| `outputSourceCounts` | object | counts by normalized screenplay output source token |
 
 ## Recent-sample object shape
 
@@ -55,7 +73,14 @@ authentication required.
   "chat_stream_used": 0,
   "talk_status": "ok",
   "lane": "live",
-  "model": "gpt-4o-mini"
+  "model": "gpt-4o-mini",
+  "screenplay_mode": 1,
+  "screenplay_requested_target": "page",
+  "screenplay_final_target": "page",
+  "screenplay_output_source": "studio_target",
+  "screenplay_outcome": "accepted_page",
+  "screenplay_authoritative": 1,
+  "screenplay_reply_repaired": 0
 }
 ```
 
@@ -69,8 +94,13 @@ authentication required.
 - Additive new keys are fine.
 - Boolean flags in recent samples are emitted as 0/1, not
   true/false — iOS / dashboards already parse this way.
+- Screenplay fields must remain routing/outcome telemetry only. Do
+  not include script text, prompts, transcripts, scene excerpts, or
+  user identifiers in this envelope.
 - Removing or renaming a key requires a v2 bump.
 
 ## Changelog
 
+- 2026-06-08 — Added screenplay page-write aggregate quality
+  counters and content-free recent-sample outcome fields.
 - 2026-05-14 — Doc created. Reflects PR #190's extraction shape.

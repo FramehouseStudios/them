@@ -9,3 +9,8 @@ INFOPLIST_KEY_APP_TOKEN = $(APP_TOKEN)
 
 // Fill this with your Apple Team ID (10 chars) before archive/upload.
 DEVELOPMENT_TEAM_ID =
+
+// Generated from the ignored Release.local.env by the release preflight.
+// Optional include keeps Debug usable before private release inputs exist and
+// lets Xcode Organizer consume the same Team ID/token/backend after preflight is green.
+#include? "Release.local.xcconfig"

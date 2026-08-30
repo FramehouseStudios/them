@@ -16,6 +16,90 @@
 // No module-level mutable state; deps injected; boundary proven by
 // backend/tools/freevars.mjs (acorn).
 
+function cleanContinuityText(value, maxChars = 1_000) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars || 1_000)))
+    .trim();
+}
+
+function resolveStateRouteUserId(req) {
+  return cleanContinuityText(
+    req?.authUser?.id || req?.user?.id || req?.userId || "",
+    128
+  );
+}
+
+function firstScreenplayProjectMemory(memory) {
+  const items = Array.isArray(memory?.screenplayProjectMemory)
+    ? memory.screenplayProjectMemory
+    : [];
+  return items.find((item) => item && typeof item === "object") || null;
+}
+
+function buildStateContinuityQuery(project = null) {
+  return cleanContinuityText([
+    project?.projectId,
+    project?.projectTitle,
+    project?.act,
+    project?.featureSequence,
+    project?.currentBeat,
+    project?.lastSceneOutcome,
+    Array.isArray(project?.characterFocus) ? project.characterFocus.join(" ") : "",
+    "continue screenplay session restore",
+  ].filter(Boolean).join(" "), 1_000);
+}
+
+async function buildStateContinuityPayload(req, memory, {
+  creativeMemoryStore = null,
+  buildSessionContinuitySnapshot = null,
+} = {}) {
+  if (typeof buildSessionContinuitySnapshot !== "function") return null;
+  const project = firstScreenplayProjectMemory(memory);
+  const userId = resolveStateRouteUserId(req);
+  let creativeMemory = null;
+  if (userId && creativeMemoryStore && typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+    try {
+      creativeMemory = await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId,
+        projectId: cleanContinuityText(project?.projectId, 96),
+        projectTitle: cleanContinuityText(project?.projectTitle || project?.projectId, 160),
+        query: buildStateContinuityQuery(project),
+        maxEpisodicMemories: 3,
+      });
+    } catch (_err) {
+      creativeMemory = null;
+    }
+  }
+  const snapshot = buildSessionContinuitySnapshot(memory, creativeMemory);
+  return snapshot && typeof snapshot === "object" ? snapshot : null;
+}
+
+async function readStateCreativeMemoryLedger(req, {
+  creativeMemoryStore = null,
+} = {}) {
+  const userId = resolveStateRouteUserId(req);
+  if (!userId || !creativeMemoryStore) return null;
+  try {
+    if (typeof creativeMemoryStore.getCreativeMemoryLedger === "function") {
+      return await creativeMemoryStore.getCreativeMemoryLedger({
+        userId,
+        includeSuperseded: true,
+        maxEpisodicMemories: 72,
+      });
+    }
+    if (typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+      return await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId,
+        query: "memories character bible",
+      });
+    }
+  } catch (_err) {
+    return null;
+  }
+  return null;
+}
 
 function mountStateRoute(app, deps = {}) {
   if (!deps || typeof deps !== "object") {
@@ -31,15 +115,25 @@ function mountStateRoute(app, deps = {}) {
     normalizeClientToken,
     parseQueryLimit,
     parseTurnIdToNumber,
+    persistCanonicalWritableMemoryContext,
+    resolveCanonicalWritableMemoryContext,
     sanitizePersistedSessionMemory,
     selectMemoryRecordForRead,
     setPersistedUserMemoryForIp,
+    creativeMemoryStore = null,
+    buildSessionContinuitySnapshot = null,
   } = deps;
-  for (const k of ["selectMemoryRecordForRead","buildReadStateMeta","applyReadStateHeaders"]) {
+  for (const k of [
+    "selectMemoryRecordForRead",
+    "resolveCanonicalWritableMemoryContext",
+    "persistCanonicalWritableMemoryContext",
+    "buildReadStateMeta",
+    "applyReadStateHeaders",
+  ]) {
     if (deps[k] === undefined) throw new Error("mountStateRoute requires dep: " + k);
   }
 
-  app.get("/state", (req, res) => {
+  app.get("/state", async (req, res) => {
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
     const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
     const historyLimit = parseQueryLimit(
@@ -58,22 +152,72 @@ function mountStateRoute(app, deps = {}) {
       120
     );
 
-    const selected = selectMemoryRecordForRead(req, Date.now());
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
+    const nowTs = Date.now();
+    const localSelected = selectMemoryRecordForRead(req, nowTs);
+    let selected = localSelected;
+    let canonicalContext = null;
+    try {
+      canonicalContext = await resolveCanonicalWritableMemoryContext(req, nowTs);
+      if (canonicalContext?.canonical) {
+        selected = {
+          source: "auth_user",
+          ip: String(canonicalContext.requesterIp || localSelected.ip || ""),
+          memory: canonicalContext.memory,
+        };
+      }
+    } catch (error) {
+      const rid = String(req.requestId || "state_read");
+      logger.error?.(`[${rid}] state memory_read_failed error=${String(error?.message || error)}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        stage: "state",
+        error: "memory_read_failed",
+      });
+    }
+    const originalMemory = sanitizePersistedSessionMemory(selected.memory);
+    let memory = sanitizePersistedSessionMemory(originalMemory);
+    let fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
     const backfillResult = maybeBackfillThemesFromHistory(
       memory,
       fullThreads,
-      Date.now(),
+      nowTs,
       { trigger: "state_read" }
     );
-    if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-      setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-        clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-      });
-      logger.log(
-        `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
-      );
+    if (backfillResult.applied) {
+      if (canonicalContext?.canonical) {
+        try {
+          const commit = await persistCanonicalWritableMemoryContext(
+            canonicalContext,
+            memory,
+            nowTs,
+          );
+          memory = sanitizePersistedSessionMemory(
+            commit?.memory || originalMemory,
+          );
+          fullThreads = buildConversationHistoryThreads(
+            memory,
+            Math.max(historyLimit, 260),
+          );
+          logger.log(
+            `[state_backfill] status=${commit?.status || "unknown"} source=${selected.source} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
+          );
+        } catch (error) {
+          memory = originalMemory;
+          fullThreads = buildConversationHistoryThreads(
+            memory,
+            Math.max(historyLimit, 260),
+          );
+          const rid = String(req.requestId || "state_read");
+          logger.error?.(`[${rid}] state backfill_write_failed error=${String(error?.message || error)}`);
+        }
+      } else if (selected.ip && selected.ip !== "unknown") {
+        setPersistedUserMemoryForIp(selected.ip, memory, nowTs, {
+          clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
+        });
+        logger.log(
+          `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
+        );
+      }
     }
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
     const historyDelta = sinceTurnNumber > 0
@@ -81,8 +225,13 @@ function mountStateRoute(app, deps = {}) {
           .filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber)
           .slice(0, historyLimit)
       : fullThreads.slice(0, historyLimit);
-    const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit);
+    const creativeMemoryLedger = await readStateCreativeMemoryLedger(req, { creativeMemoryStore });
+    const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit, creativeMemoryLedger);
     const deltaNoChange = Boolean(sinceVersion && sinceVersion === readMeta.stateVersion);
+    const continuity = await buildStateContinuityPayload(req, memory, {
+      creativeMemoryStore,
+      buildSessionContinuitySnapshot,
+    });
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -105,6 +254,7 @@ function mountStateRoute(app, deps = {}) {
         memory_changed: false,
         since_version: sinceVersion || null,
         since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
+        continuity,
         history_delta: [],
         memories_delta: [],
       });
@@ -128,10 +278,11 @@ function mountStateRoute(app, deps = {}) {
       memory_changed: memoriesDelta.length > 0,
       since_version: sinceVersion || null,
       since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
+      continuity,
       history_delta: historyDelta,
       memories_delta: memoriesDelta,
     });
   });
 }
 
-export { mountStateRoute };
+export { mountStateRoute, buildStateContinuityPayload };

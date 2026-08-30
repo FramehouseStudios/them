@@ -73,6 +73,13 @@ function runMiddleware(mw, req) {
   return { res, nextCalls };
 }
 
+async function runMiddlewareAsync(mw, req) {
+  const res = makeRes();
+  let nextCalls = 0;
+  await Promise.resolve(mw(req, res, () => { nextCalls += 1; }));
+  return { res, nextCalls };
+}
+
 // --- A. attachUserAuth strips inbound x-user-id on every path --------
 
 const SPOOFED = { "x-user-id": "victim-user-id", "X-User-Id": "victim-user-id" };
@@ -87,13 +94,13 @@ test("[day1-lock] no token + spoofed X-User-Id: header stripped, no identity lea
   assert.equal(req.userId, undefined, "no token => no req.userId (cannot inherit the spoof)");
 });
 
-test("[day1-lock] invalid bearer + spoofed X-User-Id: header stripped, no identity leaked", () => {
+test("[day1-lock] invalid bearer + spoofed X-User-Id: header stripped, no identity leaked", async () => {
   const { attachUserAuth } = createUserAuthSubsystem({ jwtSecret: "test-secret" });
   const req = makeReq({
     path: "/screenplay",
     headers: { ...SPOOFED, authorization: "Bearer not-a-real-token" },
   });
-  const { nextCalls } = runMiddleware(attachUserAuth, req);
+  const { nextCalls } = await runMiddlewareAsync(attachUserAuth, req);
   assert.equal(nextCalls, 1, "attachUserAuth must call next() exactly once");
   assert.equal(req.headers["x-user-id"], undefined, "invalid token must not preserve spoofed header");
   assert.equal(req.authUser, null, "invalid token => no authUser");
@@ -124,11 +131,18 @@ const PREEXISTING_PROTECTED = ["/talk", "/state", "/screenplay", "/memories"];
 const PUBLIC_PROBES = ["/realtime/health", "/realtime/bridge"];
 
 test("[day1-lock] cost paths 401 without an authenticated user", () => {
-  const { protectUserRoutes } = createUserAuthSubsystem({
+  const { protectPaidProviderRoutes, protectUserRoutes } = createUserAuthSubsystem({
     requireUserAuth: true,
     jwtSecret: "test-secret",
   });
-  for (const p of [...COST_PATHS, ...PREEXISTING_PROTECTED]) {
+  for (const p of COST_PATHS) {
+    const req = makeReq({ path: p });
+    const { res, nextCalls } = runMiddleware(protectPaidProviderRoutes, req);
+    assert.equal(nextCalls, 0, `${p} must NOT pass through unauthenticated`);
+    assert.equal(res.statusCode, 401, `${p} must 401 unauthenticated`);
+    assert.equal(res.body?.error, "user_auth_required", `${p} must report user_auth_required`);
+  }
+  for (const p of PREEXISTING_PROTECTED) {
     const req = makeReq({ path: p });
     const { res, nextCalls } = runMiddleware(protectUserRoutes, req);
     assert.equal(nextCalls, 0, `${p} must NOT pass through unauthenticated`);
@@ -138,40 +152,38 @@ test("[day1-lock] cost paths 401 without an authenticated user", () => {
 });
 
 test("[day1-lock] cost paths pass once an authoritative req.authUser exists", () => {
-  const { protectUserRoutes } = createUserAuthSubsystem({
+  const { protectPaidProviderRoutes } = createUserAuthSubsystem({
     requireUserAuth: true,
     jwtSecret: "test-secret",
   });
   for (const p of COST_PATHS) {
     const req = makeReq({ path: p, authUser: { id: "real-authoritative-user" } });
-    const { res, nextCalls } = runMiddleware(protectUserRoutes, req);
+    const { res, nextCalls } = runMiddleware(protectPaidProviderRoutes, req);
     assert.equal(nextCalls, 1, `${p} must pass with a real authUser`);
     assert.equal(res.statusCode, 200, `${p} must not 401 with a real authUser`);
   }
 });
 
 test("[day1-lock] public realtime probes stay open (no auth wall on health/bridge)", () => {
-  const { protectUserRoutes } = createUserAuthSubsystem({
+  const { protectPaidProviderRoutes } = createUserAuthSubsystem({
     requireUserAuth: true,
     jwtSecret: "test-secret",
   });
   for (const p of PUBLIC_PROBES) {
     const req = makeReq({ path: p });
-    const { res, nextCalls } = runMiddleware(protectUserRoutes, req);
+    const { res, nextCalls } = runMiddleware(protectPaidProviderRoutes, req);
     assert.equal(nextCalls, 1, `${p} must remain a public probe`);
     assert.equal(res.statusCode, 200, `${p} must not be auth-walled`);
   }
 });
 
-test("[day1-lock] regression-direction: requireUserAuth=false is a pure pass-through", () => {
-  // The lock must not change the default posture: when an
-  // authenticated user is not required, even cost paths fall through.
-  const { protectUserRoutes } = createUserAuthSubsystem({ jwtSecret: "test-secret" });
-  for (const p of [...COST_PATHS, ...PUBLIC_PROBES]) {
+test("[day1-lock] paid-provider protection is independent of the general auth flag", () => {
+  const { protectPaidProviderRoutes } = createUserAuthSubsystem({ jwtSecret: "test-secret" });
+  for (const p of COST_PATHS) {
     const req = makeReq({ path: p });
-    const { res, nextCalls } = runMiddleware(protectUserRoutes, req);
-    assert.equal(nextCalls, 1, `${p} must pass through when auth not required`);
-    assert.equal(res.statusCode, 200, `${p} must not 401 when auth not required`);
+    const { res, nextCalls } = runMiddleware(protectPaidProviderRoutes, req);
+    assert.equal(nextCalls, 0, `${p} must stay protected when general auth is disabled`);
+    assert.equal(res.statusCode, 401, `${p} must still 401 without authenticated identity`);
   }
 });
 

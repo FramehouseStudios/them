@@ -33,16 +33,18 @@ const {
   inferRoutingPriorityLane,
   buildTurnPlanner,
   selectChatModelForTurn,
+  computeChatMaxTokensForTurn,
+  resolveTalkScreenplayRequestedPageBatch,
 } = await import("../index.js");
 
-function plan(transcript) {
+function plan(transcript, modelOptions = {}) {
   const flags = directorFlagsFromTranscript(transcript);
   const routingPlan = inferRoutingPriorityLane(transcript, flags);
   const turnPlanner = buildTurnPlanner({
     transcript, flags, routingPlan, behaviorMode: "growth", memory: {},
   });
   const modelPlan = selectChatModelForTurn({
-    transcript, turnPlanner, flags, routingLane: routingPlan?.lane,
+    transcript, turnPlanner, flags, routingLane: routingPlan?.lane, ...modelOptions,
   });
   return { flags, routingPlan, turnPlanner, modelPlan };
 }
@@ -85,4 +87,222 @@ test("[33-guard] no collateral regression: a plain emotional turn stays reflecti
   const { turnPlanner } = plan("I feel kind of lost today and I'm not sure why.");
   assert.equal(turnPlanner.intent, "reflective_checkin",
     "the new playful branch must not over-trigger on non-playful emotional turns");
+});
+
+test("[screenplay-budget] normal companion talk stays compact", () => {
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan("keep going");
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript: "keep going",
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+  });
+  assert.ok(maxTokens <= 190, `normal talk should stay compact, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] page-write turns get enough budget for feature page sprints", () => {
+  const transcript = "Write the next ten pages of act two and keep the feature moving fast.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 3000, `ten-page page-write needs a larger budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `screenplay page-write budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] range-based feature continuation briefs get batch budget", () => {
+  const transcript = "Continue the feature as feature-film screenplay pages. Write 3-5 pages in Fountain format only.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 1750, `3-5 page continuation needs five-page budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `range-based page-write budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] long feature page batches can use the expanded bounded cap", () => {
+  const transcript = "Write the next fifteen pages of act three and pay off the ending image.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 3200, `fifteen-page page-write needs expanded cap, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `default long page-write budget should stay at configured cap, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] explicit requested page count overrides missing transcript count", () => {
+  const transcript = "Continue the feature from the remembered turn.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+    screenplayRequestedPages: 8,
+  });
+  assert.ok(maxTokens >= 2600, `explicit eight-page request needs batch budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `explicit requested-page budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] Studio generation brief preserves its requested page batch", () => {
+  const generationTranscript = [
+    "Continue the feature from the remembered turn.",
+    "- Requested page batch: 10 pages",
+    "- Target act from request: Act II",
+  ].join("\n");
+  const requestedPages = resolveTalkScreenplayRequestedPageBatch({
+    transcript: generationTranscript,
+    studioMeta: { screenplayTargetPages: 110 },
+  });
+  assert.equal(requestedPages, 10, "the batch count must not be confused with the feature target");
+
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan("Continue the feature from the remembered turn.");
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript: generationTranscript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+    screenplayRequestedPages: requestedPages,
+  });
+  assert.ok(maxTokens >= 3000, "ten-page Studio brief needs batch budget, got " + maxTokens);
+  assert.ok(maxTokens <= 3200, "Studio batch budget should remain bounded, got " + maxTokens);
+});
+
+test("[screenplay-budget] project target length is never treated as a per-turn batch", () => {
+  assert.equal(
+    resolveTalkScreenplayRequestedPageBatch({
+      transcript: "Continue the screenplay.",
+      studioMeta: { screenplayTargetPages: 20 },
+    }),
+    0,
+    "a short-film target is project scope, not a request to write twenty pages now"
+  );
+});
+
+test("[screenplay-model] short Studio commands keep the structural screenplay model under load", () => {
+  const voiceTranscript = "Continue.";
+  const generationTranscript = [
+    voiceTranscript,
+    "- Requested page batch: 10 pages",
+    "- Active act: Act II",
+    "- Continue as playable Fountain pages with causal scene turns.",
+  ].join("\n");
+  const { flags, routingPlan, turnPlanner } = plan(voiceTranscript);
+  const modelPlan = selectChatModelForTurn({
+    transcript: generationTranscript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    runtimeStatus: {
+      status: "degraded",
+      metrics: { sampleCount: 20, p95TotalMs: 12_000 },
+    },
+    screenplayPageWrite: true,
+  });
+
+  assert.equal(modelPlan.tier, "structural");
+  assert.equal(modelPlan.reason, "screenplay_page_write");
+  assert.equal(modelPlan.loadShed, false, "feature pages must not fall back to the chat model");
+  assert.notEqual(modelPlan.model, "gpt-4o-mini");
+  assert.equal(modelPlan.apiMode, "responses");
+  assert.equal(modelPlan.reasoningEffort, "low");
+  assert.equal(modelPlan.fallbackModel, "gpt-4o");
+  assert.equal(modelPlan.repairReasoningEffort, "medium");
+});
+
+const STRUCTURAL_ANALYSIS_CASES = [
+  {
+    name: "Scene Doctor",
+    transcript: "Scene doctor this courtroom scene: the reversal is not landing and Mara feels passive.",
+    reason: "screenplay_scene_doctor",
+    intent: "scene_doctor",
+    minTokens: 700,
+  },
+  {
+    name: "feature architecture",
+    transcript: "Outline the feature film from Act I through Act III and make the midpoint cause the final choice.",
+    reason: "screenplay_feature_architecture",
+    intent: "finish_feature",
+    minTokens: 2_400,
+    maxTokens: 2_600,
+  },
+  {
+    name: "writer-block rescue",
+    transcript: "I'm stuck. I don't know what the next beat should be.",
+    reason: "screenplay_momentum_rescue",
+    intent: "momentum_rescue",
+    minTokens: 720,
+    modelOptions: { screenplayContextActive: true },
+  },
+];
+
+for (const item of STRUCTURAL_ANALYSIS_CASES) {
+  test(`[screenplay-model] ${item.name} uses bounded structural reasoning`, () => {
+    const { flags, routingPlan, turnPlanner, modelPlan } = plan(
+      item.transcript,
+      item.modelOptions
+    );
+    const maxTokens = computeChatMaxTokensForTurn({
+      transcript: item.transcript,
+      turnPlanner,
+      flags,
+      routingLane: routingPlan?.lane,
+      chatModelPlan: modelPlan,
+    });
+
+    assert.equal(modelPlan.tier, "structural");
+    assert.equal(modelPlan.reason, item.reason);
+    assert.equal(modelPlan.screenplayTaskIntent, item.intent);
+    assert.equal(modelPlan.apiMode, "responses");
+    assert.equal(modelPlan.reasoningEffort, "low");
+    assert.equal(modelPlan.loadShed, false);
+    assert.ok(maxTokens >= item.minTokens, `${item.name} budget was ${maxTokens}`);
+    assert.ok(maxTokens <= (item.maxTokens || 1_200), `${item.name} budget exceeded the bounded cap`);
+  });
+}
+
+test("[screenplay-model] ordinary stuckness never wakes the structural screenplay tier", () => {
+  const { modelPlan } = plan("I'm stuck in traffic and running late for dinner.");
+  assert.notEqual(modelPlan.tier, "structural");
+  assert.notEqual(modelPlan.reason, "screenplay_momentum_rescue");
+});
+
+test("[screenplay-model] structural analysis is protected from latency load shedding", () => {
+  const transcript = "Scene doctor this screenplay scene and fix the weak Act II reversal.";
+  const { flags, routingPlan, turnPlanner } = plan(transcript);
+  const modelPlan = selectChatModelForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    runtimeStatus: {
+      status: "degraded",
+      metrics: { sampleCount: 20, p95TotalMs: 12_000 },
+    },
+    screenplayContextActive: true,
+  });
+
+  assert.equal(modelPlan.tier, "structural");
+  assert.equal(modelPlan.reason, "screenplay_scene_doctor");
+  assert.equal(modelPlan.loadShed, false);
 });

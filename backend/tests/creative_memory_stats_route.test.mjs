@@ -119,12 +119,12 @@ test("[memory-stats] GET /memory/stats reflects recorded memory", async () => {
   );
 });
 
-test("[memory-stats] GET /memory/stats unauthenticated → zero envelope (not 401)", async () => {
+test("[memory-stats] GET /memory/stats unauthenticated returns 401", async () => {
   await withTestServer(
     async ({ baseURL }) => {
       const r = await get(baseURL, "/memory/stats");
-      assert.equal(r.status, 200);
-      assert.equal(r.body.hasMemory, false);
+      assert.equal(r.status, 401);
+      assert.equal(r.body.error, "user_auth_required");
     },
     { userId: null },
   );

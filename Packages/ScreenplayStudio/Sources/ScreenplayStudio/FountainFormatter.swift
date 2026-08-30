@@ -245,6 +245,37 @@ public enum FountainFormatter {
         return issues
     }
 
+    public static func removingDuplicateLeadingSceneHeading(
+        from text: String,
+        existingDraft: String,
+        insertionUTF16Location: Int,
+        replacementText: String = ""
+    ) -> String {
+        let original = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = sanitizeRawScreenplayText(text)
+        guard !clean.isEmpty else { return "" }
+        guard let leadingHeading = leadingSceneHeading(in: clean) else { return original }
+
+        if containsMatchingSceneHeading(leadingHeading.normalizedHeading, in: replacementText) {
+            return original
+        }
+
+        guard let existingHeading = nearestSceneHeading(
+            in: existingDraft,
+            atOrBeforeUTF16Location: insertionUTF16Location
+        ) else {
+            return original
+        }
+        guard insertionUTF16Location >= existingHeading.range.location + existingHeading.range.length else {
+            return original
+        }
+        guard sceneHeadingsMatchForDuplicate(leadingHeading.normalizedHeading, existingHeading.normalizedHeading) else {
+            return original
+        }
+
+        return strippingLeadingSceneHeading(from: clean, leadingAction: leadingHeading.attachedAction)
+    }
+
     public static func normalizeEditorLine(
         _ rawLine: String,
         as element: ScreenplayEditorElement,
@@ -297,6 +328,12 @@ public enum FountainFormatter {
 
     private static func sanitizeRawScreenplayText(_ raw: String) -> String {
         var text = raw
+            .replacingOccurrences(of: "\\\\r\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\\\r", with: "\n")
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\t", with: "    ")
@@ -422,15 +459,21 @@ public enum FountainFormatter {
             }
             shouldStripLeadingOpeningTransition = false
 
-            if let fragment = normalizedSceneHeadingFragment(trimmed) {
+            if let fragment = normalizedSceneHeadingFragment(trimmed) ?? normalizedIncompleteSceneHeadingFragment(trimmed) {
                 pendingSceneHeadingFragment = fragment
                 pendingBlank = false
                 continue
             }
 
             let lineToClassify: String
+            var attachedAction: String?
             if let fragment = pendingSceneHeadingFragment {
-                if isSceneHeadingLine(trimmed) {
+                if normalizedIncompleteSceneHeadingFragment(fragment) != nil,
+                   let completion = completeIncompleteSceneHeadingFragment(fragment, with: trimmed) {
+                    lineToClassify = completion.heading
+                    attachedAction = completion.action
+                    pendingSceneHeadingFragment = nil
+                } else if isSceneHeadingLine(trimmed) {
                     lineToClassify = trimmed
                     pendingSceneHeadingFragment = nil
                 } else if canCompleteSceneHeadingFragment(trimmed) {
@@ -442,6 +485,23 @@ public enum FountainFormatter {
                 }
             } else {
                 lineToClassify = trimmed
+            }
+
+            if let split = splitSceneHeadingLineWithAttachedAction(lineToClassify) {
+                if pendingBlank, !elements.isEmpty, elements.last?.kind != .blank {
+                    elements.append(FountainElement(kind: .blank, text: ""))
+                }
+                pendingBlank = false
+                let normalizedHeading = normalizeSceneHeading(split.heading)
+                if previousKind != .sceneHeading || elements.last?.text != normalizedHeading {
+                    elements.append(FountainElement(kind: .sceneHeading, text: normalizedHeading))
+                }
+                previousKind = .sceneHeading
+                if let action = split.action, !action.isEmpty {
+                    elements.append(FountainElement(kind: .action, text: normalizeActionText(action)))
+                    previousKind = .action
+                }
+                continue
             }
 
             if pendingBlank, !elements.isEmpty, elements.last?.kind != .blank {
@@ -485,6 +545,11 @@ public enum FountainFormatter {
                 }
                 elements.append(FountainElement(kind: .sceneHeading, text: normalizedHeading))
                 previousKind = .sceneHeading
+                if let attachedAction,
+                   !attachedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    elements.append(FountainElement(kind: .action, text: normalizeActionText(attachedAction)))
+                    previousKind = .action
+                }
                 continue
             }
 
@@ -754,6 +819,18 @@ public enum FountainFormatter {
             timeWords.contains($0.trimmingCharacters(in: .punctuationCharacters))
         }
         let hasPlace = placeWords.contains(where: { lower.contains($0) })
+        let firstWord = words.first?.trimmingCharacters(in: .punctuationCharacters) ?? ""
+        if ["a", "an", "the"].contains(firstWord),
+           hasPlace {
+            let articleHeadingPattern = #"^(?:a|an|the)\s+.+\s-\s*(?:day|night|dawn|dusk|morning|evening|afternoon|later|continuous|moments later)\b"#
+            let hasArticleTimeHeading = lower.range(
+                of: articleHeadingPattern,
+                options: .regularExpression
+            ) != nil
+            if !hasArticleTimeHeading && !(hasTime && words.count <= 5) {
+                return false
+            }
+        }
 
         if hasPlace && words.count <= 8 { return true }
         if hasPlace && hasTime { return true }
@@ -914,6 +991,11 @@ public enum FountainFormatter {
     private static func normalizeActionText(_ text: String) -> String {
         text
             .replacingOccurrences(of: #"^\s*[-*•]+\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(
+                of: #"\b(SUN|HALF|BLOOD|RAIN|NEON|MOON|SHADOW|COFFEE|TEAR|SWEAT|WATER|DUST)\s+-\s+(DRENCHED|FINISHED|STAINED|LIT|SOAKED|WASHED|WORN|COVERED|FILLED|SLICK|DARK)\b"#,
+                with: "$1-$2",
+                options: [.regularExpression, .caseInsensitive]
+            )
             .replacingOccurrences(of: ",.", with: ".")
             .replacingOccurrences(of: ";.", with: ".")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1018,6 +1100,147 @@ public enum FountainFormatter {
             upper.hasPrefix("INT/EXT.") || upper.hasPrefix("I/E.")
     }
 
+    private struct SceneHeadingLocation {
+        let normalizedHeading: String
+        let range: NSRange
+    }
+
+    private struct LeadingSceneHeading {
+        let normalizedHeading: String
+        let attachedAction: String?
+    }
+
+    private static func leadingSceneHeading(in text: String) -> LeadingSceneHeading? {
+        let lines = text.components(separatedBy: "\n")
+        guard let firstContentIndex = lines.firstIndex(where: {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return nil
+        }
+
+        let firstLine = lines[firstContentIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        if let split = splitSceneHeadingLineWithAttachedAction(firstLine) {
+            return LeadingSceneHeading(
+                normalizedHeading: normalizeSceneHeading(split.heading),
+                attachedAction: split.action
+            )
+        }
+
+        guard let normalizedHeading = normalizedSceneHeadingCandidate(firstLine) else { return nil }
+        return LeadingSceneHeading(normalizedHeading: normalizedHeading, attachedAction: nil)
+    }
+
+    private static func normalizedSceneHeadingCandidate(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if isSceneHeadingLine(trimmed) || looksLikeSceneHeading(trimmed.lowercased(), upper: trimmed.uppercased()) {
+            return normalizeSceneHeading(trimmed)
+        }
+        return nil
+    }
+
+    private static func nearestSceneHeading(
+        in draft: String,
+        atOrBeforeUTF16Location location: Int
+    ) -> SceneHeadingLocation? {
+        let normalized = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let ns = normalized as NSString
+        let safeLocation = max(0, min(location, ns.length))
+        var cursor = 0
+        var latest: SceneHeadingLocation?
+
+        while cursor <= safeLocation {
+            let remaining = max(0, ns.length - cursor)
+            let newlineRange = remaining > 0
+                ? ns.range(of: "\n", options: [], range: NSRange(location: cursor, length: remaining))
+                : NSRange(location: NSNotFound, length: 0)
+            let lineEnd = newlineRange.location == NSNotFound ? ns.length : newlineRange.location
+            let lineRange = NSRange(location: cursor, length: max(0, lineEnd - cursor))
+            let line = lineRange.length > 0 ? ns.substring(with: lineRange) : ""
+
+            if let heading = normalizedSceneHeadingCandidate(line) {
+                latest = SceneHeadingLocation(normalizedHeading: heading, range: lineRange)
+            }
+
+            if newlineRange.location == NSNotFound || lineEnd >= safeLocation {
+                break
+            }
+            cursor = lineEnd + 1
+        }
+
+        return latest
+    }
+
+    private static func containsMatchingSceneHeading(_ normalizedHeading: String, in text: String) -> Bool {
+        text
+            .components(separatedBy: "\n")
+            .compactMap(normalizedSceneHeadingCandidate)
+            .contains { sceneHeadingsMatchForDuplicate($0, normalizedHeading) }
+    }
+
+    private static func strippingLeadingSceneHeading(from text: String, leadingAction: String?) -> String {
+        let lines = text.components(separatedBy: "\n")
+        guard let firstContentIndex = lines.firstIndex(where: {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var startIndex = firstContentIndex + 1
+        while startIndex < lines.count,
+              lines[startIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            startIndex += 1
+        }
+
+        var remainder: [String] = []
+        if let leadingAction,
+           !leadingAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            remainder.append(leadingAction)
+        }
+        if startIndex < lines.count {
+            remainder.append(contentsOf: lines[startIndex...])
+        }
+
+        let stripped = remainder
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? text.trimmingCharacters(in: .whitespacesAndNewlines) : stripped
+    }
+
+    private static func sceneHeadingsMatchForDuplicate(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsNormalized = normalizeSceneHeading(lhs)
+        let rhsNormalized = normalizeSceneHeading(rhs)
+        if lhsNormalized == rhsNormalized { return true }
+        guard sceneHeadingCompactKey(lhsNormalized) == sceneHeadingCompactKey(rhsNormalized) else {
+            return false
+        }
+        return !sceneHeadingHasExplicitTime(lhsNormalized) || !sceneHeadingHasExplicitTime(rhsNormalized)
+    }
+
+    private static func sceneHeadingCompactKey(_ heading: String) -> String {
+        var core = normalizeSceneHeading(heading)
+        let prefixes = ["INT/EXT.", "EXT/INT.", "INT.", "EXT.", "I/E."]
+        if let prefix = prefixes.first(where: { core.hasPrefix($0) }) {
+            core = String(core.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let dashRange = core.range(of: " - ", options: .backwards) {
+            core = String(core[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return core
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sceneHeadingHasExplicitTime(_ heading: String) -> Bool {
+        normalizeSceneHeading(heading).range(
+            of: #"\s-\s(?:DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|LATER|CONTINUOUS|MOMENTS LATER)\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     private static func normalizedSceneHeadingFragment(_ line: String) -> String? {
         let trimmed = line
             .uppercased()
@@ -1028,6 +1251,96 @@ public enum FountainFormatter {
         default:
             return nil
         }
+    }
+
+    private static func normalizedIncompleteSceneHeadingFragment(_ line: String) -> String? {
+        let trimmed = line
+            .uppercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*-\s*$"#, with: " -", options: .regularExpression)
+        guard trimmed.range(
+            of: #"^(?:INT\.|EXT\.|INT/EXT\.|I/E\.)\s+.+\s-$"#,
+            options: .regularExpression
+        ) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func completeIncompleteSceneHeadingFragment(
+        _ fragment: String,
+        with line: String
+    ) -> (heading: String, action: String?)? {
+        guard let timeSplit = splitLeadingSceneTimeAndAttachedAction(line) else {
+            return nil
+        }
+        let cleanFragment = normalizedIncompleteSceneHeadingFragment(fragment) ?? fragment
+        return (
+            heading: "\(cleanFragment) \(timeSplit.time)",
+            action: timeSplit.action
+        )
+    }
+
+    private static func splitSceneHeadingLineWithAttachedAction(
+        _ line: String
+    ) -> (heading: String, action: String?)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isSceneHeadingLine(trimmed) else { return nil }
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^((?:INT\.|EXT\.|INT/EXT\.|I/E\.)\s+.+?\s-\s*)(DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|LATER|CONTINUOUS|MOMENTS LATER)(.*)$"#,
+            options: [.caseInsensitive]
+        ) else {
+            return nil
+        }
+        guard let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+              match.numberOfRanges >= 4,
+              let prefixRange = Range(match.range(at: 1), in: trimmed),
+              let timeRange = Range(match.range(at: 2), in: trimmed),
+              let restRange = Range(match.range(at: 3), in: trimmed) else {
+            return nil
+        }
+
+        let rawRest = String(trimmed[restRange])
+        guard rawRest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                rawRest.hasPrefix(" ") ||
+                rawRest.hasPrefix("\t") ||
+                rawRest.range(of: #"^(?:A|AN|THE)\b"#, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return nil
+        }
+
+        let heading = String(trimmed[prefixRange]) + String(trimmed[timeRange])
+        let action = rawRest.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (heading, action.isEmpty ? nil : action)
+    }
+
+    private static func splitLeadingSceneTimeAndAttachedAction(
+        _ line: String
+    ) -> (time: String, action: String?)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^(DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|LATER|CONTINUOUS|MOMENTS LATER)(.*)$"#,
+            options: [.caseInsensitive]
+        ) else {
+            return nil
+        }
+        guard let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+              match.numberOfRanges >= 3,
+              let timeRange = Range(match.range(at: 1), in: trimmed),
+              let restRange = Range(match.range(at: 2), in: trimmed) else {
+            return nil
+        }
+
+        let rawRest = String(trimmed[restRange])
+        guard rawRest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                rawRest.hasPrefix(" ") ||
+                rawRest.hasPrefix("\t") ||
+                rawRest.range(of: #"^(?:A|AN|THE)\b"#, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return nil
+        }
+
+        let action = rawRest.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(trimmed[timeRange]).uppercased(), action.isEmpty ? nil : action)
     }
 
     private static func canCompleteSceneHeadingFragment(_ line: String) -> Bool {

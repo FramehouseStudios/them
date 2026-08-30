@@ -1,0 +1,120 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { test } from "node:test";
+
+import { apiRequest, startBackend } from "./helpers/backend_test_server.mjs";
+
+async function signup(server, email) {
+  const r = await apiRequest(server, "/auth/signup", {
+    method: "POST",
+    json: { email, password: "account-wiring-password-123" },
+  });
+  assert.equal(r.status, 201, `signup failed: ${r.text}`);
+  const token = String(r.json?.access_token || "");
+  const userId = String(r.json?.user?.user_id || "");
+  assert.ok(token, "signup returns access token");
+  assert.ok(userId, "signup returns user id");
+  return { token, userId };
+}
+
+test("[account-wiring] export reads real persistence and delete revokes sessions", async () => {
+  const server = await startBackend();
+  try {
+    const { token, userId } = await signup(server, "account-wiring@example.com");
+    const { token: otherToken } = await signup(server, "account-wiring-other@example.com");
+
+    const created = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      json: { title: "Account Export Picture" },
+    });
+    assert.equal(created.status, 201, created.text);
+    const projectId = String(created.json?.project_id || created.json?.project?.id || "");
+    assert.ok(projectId, "screenplay project should be created");
+
+    const otherCreated = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + otherToken },
+      json: { title: "Other Account Picture" },
+    });
+    assert.equal(otherCreated.status, 201, otherCreated.text);
+    const otherProjectId = String(otherCreated.json?.project_id || otherCreated.json?.project?.id || "");
+    assert.ok(otherProjectId, "other user's screenplay project should be created");
+
+    const paginatedExportKey = "zzzz-account-export-pagination-target";
+    const craftReportsDomainPath = path.join(
+      server.dataDir,
+      "persistence",
+      "craft_reports.json"
+    );
+    fs.mkdirSync(path.dirname(craftReportsDomainPath), { recursive: true });
+    const craftReportRows = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [
+        `filler-${String(index).padStart(5, "0")}`,
+        { userId: "unrelated-user" },
+      ])
+    );
+    craftReportRows[paginatedExportKey] = {
+      userId,
+      marker: "owned-row-after-first-page",
+    };
+    fs.writeFileSync(craftReportsDomainPath, JSON.stringify(craftReportRows));
+
+    const exported = await apiRequest(server, "/account/export", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    assert.equal(exported.status, 200, exported.text);
+    assert.equal(exported.json?.schema, "io.them.account_export.v1");
+    assert.equal(exported.json?.user_id, userId);
+    assert.match(
+      exported.headers.get("content-disposition") || "",
+      new RegExp(`io-them-export-${userId}\\.json`)
+    );
+    const screenplayRows = exported.json?.domains?.screenplay || [];
+    assert.ok(
+      screenplayRows.some((row) => JSON.stringify(row).includes(projectId)),
+      "account export should include the user's persisted screenplay project"
+    );
+    assert.ok(
+      screenplayRows.every((row) => !JSON.stringify(row).includes(otherProjectId)),
+      "account export must not include another user's screenplay project"
+    );
+    const exportedCraftReports = exported.json?.domains?.craft_reports || [];
+    assert.ok(
+      exportedCraftReports.some((row) => (
+        row.key === paginatedExportKey && row.value?.marker === "owned-row-after-first-page"
+      )),
+      "account export should include owned rows after the adapter's first 10,000-row page"
+    );
+
+    const deniedDelete = await apiRequest(server, "/account", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token },
+      json: { reason: "missing reauth proof" },
+    });
+    assert.equal(deniedDelete.status, 403, "delete should require a fresh reauth proof");
+    assert.equal(deniedDelete.json?.error, "reauth_required");
+
+    const stillSignedIn = await apiRequest(server, "/auth/sessions", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    assert.equal(stillSignedIn.status, 200, "failed delete must not revoke the active session");
+
+    const deleted = await apiRequest(server, "/account", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token },
+      json: { reason: "test cleanup", password: "account-wiring-password-123" },
+    });
+    assert.equal(deleted.status, 202, deleted.text);
+    assert.equal(deleted.json?.status, "pending_deletion");
+    assert.ok(deleted.json?.hard_delete_at, "delete response includes scheduled hard-delete date");
+
+    const sessions = await apiRequest(server, "/auth/sessions", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    assert.equal(sessions.status, 401, "delete request should revoke the active session");
+  } finally {
+    await server.stop();
+  }
+});

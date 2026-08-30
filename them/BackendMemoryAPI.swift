@@ -1,9 +1,35 @@
 import Foundation
+import CryptoKit
 import Security
 
 nonisolated extension Notification.Name {
     static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
     static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
+    static let themBackendIdentityPartitionChanged = Notification.Name(
+        "io.them.them.backendIdentityPartitionChanged"
+    )
+    static let themRememberedLoginKeychainAvailable = Notification.Name(
+        "io.them.them.rememberedLoginKeychainAvailable"
+    )
+    static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
+}
+
+nonisolated private struct BackendNotificationPayload: @unchecked Sendable {
+    let name: Notification.Name
+    let userInfo: [AnyHashable: Any]
+}
+
+nonisolated private func postBackendNotificationOnMain(
+    name: Notification.Name,
+    userInfo: [AnyHashable: Any]
+) {
+    let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
+    // Always enqueue. Several identity mutations intentionally hold a serial
+    // state lock while publishing durable Keychain/defaults state; a
+    // synchronous observer must never be able to re-enter that lock.
+    DispatchQueue.main.async {
+        NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
+    }
 }
 
 nonisolated struct BackendSyncState: Equatable {
@@ -43,6 +69,15 @@ nonisolated struct BackendTurnCommittedEvent {
     let memoryUpdatedAt: TimeInterval
     let userMessage: String?
     let assistantMessage: String?
+    let screenplayTarget: String?
+    let screenplayPromptSource: String?
+    let screenplayWriteId: String?
+    let screenplayAnchorLine: Int?
+    let screenplayAnchorEndLine: Int?
+    let screenplayAnchorSceneLabel: String?
+    let screenplayNoteTitle: String?
+    let screenplayNoteBody: String?
+    let screenplayInsertedText: String?
     let screenplayReplacementApplied: Bool?
     let screenplayReplacedWriteId: String?
     let screenplayRevisedBlockText: String?
@@ -65,6 +100,26 @@ nonisolated struct BackendTurnCommittedEvent {
         self.memoryUpdatedAt = Double(String(describing: userInfo[BackendMemoryAPI.NotificationKey.memoryUpdatedAt] ?? "")) ?? 0
         self.userMessage = userInfo[BackendMemoryAPI.NotificationKey.userMessage] as? String
         self.assistantMessage = userInfo[BackendMemoryAPI.NotificationKey.assistantMessage] as? String
+        func cleanString(_ key: String) -> String? {
+            let value = String(describing: userInfo[key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        func cleanInt(_ key: String) -> Int? {
+            if let value = userInfo[key] as? Int { return value }
+            let raw = String(describing: userInfo[key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return raw.isEmpty ? nil : Int(raw)
+        }
+        self.screenplayTarget = cleanString(BackendMemoryAPI.NotificationKey.screenplayTarget)
+        self.screenplayPromptSource = cleanString(BackendMemoryAPI.NotificationKey.screenplayPromptSource)
+        self.screenplayWriteId = cleanString(BackendMemoryAPI.NotificationKey.screenplayWriteId)
+        self.screenplayAnchorLine = cleanInt(BackendMemoryAPI.NotificationKey.screenplayAnchorLine)
+        self.screenplayAnchorEndLine = cleanInt(BackendMemoryAPI.NotificationKey.screenplayAnchorEndLine)
+        self.screenplayAnchorSceneLabel = cleanString(BackendMemoryAPI.NotificationKey.screenplayAnchorSceneLabel)
+        self.screenplayNoteTitle = cleanString(BackendMemoryAPI.NotificationKey.screenplayNoteTitle)
+        self.screenplayNoteBody = cleanString(BackendMemoryAPI.NotificationKey.screenplayNoteBody)
+        self.screenplayInsertedText = cleanString(BackendMemoryAPI.NotificationKey.screenplayInsertedText)
         if let replacementApplied = userInfo[BackendMemoryAPI.NotificationKey.screenplayReplacementApplied] as? Bool {
             self.screenplayReplacementApplied = replacementApplied
         } else {
@@ -165,6 +220,303 @@ nonisolated struct BackendHistoryResponse: Decodable {
     let threads: [BackendHistoryThread]
 }
 
+nonisolated struct BackendCharacterBibleArcMemory: Codable, Hashable {
+    var act: String?
+    var want: String?
+    var need: String?
+    var wound: String?
+    var falseBelief: String?
+    var relationshipPressure: String?
+    var currentTactic: String?
+    var nextEmotionalTurn: String?
+
+    var isMeaningful: Bool {
+        [
+            act,
+            want,
+            need,
+            wound,
+            falseBelief,
+            relationshipPressure,
+            currentTactic,
+            nextEmotionalTurn
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { !$0.isEmpty }
+    }
+
+    var payload: [String: String] {
+        var out: [String: String] = [:]
+        append("act", act, to: &out)
+        append("want", want, to: &out)
+        append("need", need, to: &out)
+        append("wound", wound, to: &out)
+        append("false_belief", falseBelief, to: &out)
+        append("relationship_pressure", relationshipPressure, to: &out)
+        append("current_tactic", currentTactic, to: &out)
+        append("next_emotional_turn", nextEmotionalTurn, to: &out)
+        return out
+    }
+
+    private func append(_ key: String, _ value: String?, to out: inout [String: String]) {
+        let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        out[key] = clean
+    }
+}
+
+nonisolated struct BackendAuthoritativeCharacterField: Codable, Hashable {
+    let id: String?
+    let field: String
+    let value: String
+    let source: String?
+    let sourceCorrectionId: String?
+    let correctionText: String?
+    let replacesFacts: [String]?
+    let createdAt: TimeInterval?
+}
+
+nonisolated struct BackendLearnedFieldProvenance: Codable, Hashable {
+    let id: String?
+    let field: String
+    let value: String
+    let learnedValue: String?
+    let source: String?
+    let status: String?
+    let questionId: String?
+    let question: String?
+    let targetLabel: String?
+    let sourceCorrectionId: String?
+    let correctionText: String?
+    let learnedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+
+    var isCorrected: Bool {
+        status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "corrected"
+    }
+
+    var statusLabel: String {
+        isCorrected ? "Corrected" : "Current"
+    }
+
+    var sourceLabel: String {
+        if isCorrected { return "Writer correction" }
+        let normalized = source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return normalized == "screenplay_learning_confirmation"
+            ? "Learned from your answer"
+            : "Story memory"
+    }
+
+    var fieldLabel: String {
+        switch field.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "falseBelief": return "False belief"
+        case "relationshipPressure": return "Relationship pressure"
+        case "currentTactic": return "Current tactic"
+        case "nextEmotionalTurn": return "Next emotional turn"
+        case "protagonistWant": return "Protagonist want"
+        case "protagonistNeed": return "Protagonist need"
+        case "antagonisticForce": return "Antagonistic force"
+        case "centralQuestion": return "Central question"
+        case "themeArgument": return "Theme argument"
+        case "endingImage": return "Ending image"
+        case "sceneObjective": return "Scene objective"
+        case "nextScenePlan": return "Next scene"
+        case "nextSceneMoves": return "Next moves"
+        case "unresolvedSetups": return "Unresolved setup"
+        case "unresolvedStoryThreads": return "Unresolved thread"
+        case "actThreePayoffPath": return "Act III payoff"
+        default:
+            return field
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    var accessibilityKey: String {
+        let clean = field
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
+nonisolated struct BackendStoryObligationChange: Codable, Hashable, Identifiable {
+    let id: String
+    let kind: String
+    let obligation: String
+    let status: String
+    let result: String
+    let evidence: String
+    let sourceSceneHeading: String?
+    let sourceAct: String?
+    let sourcePosition: Int?
+    let acceptedAt: TimeInterval?
+
+    var isMeaningful: Bool {
+        !obligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var statusLabel: String {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "advanced": return "Advanced"
+        case "complicated": return "Complicated"
+        case "transformed": return "Transformed"
+        case "paid_off", "paid off": return "Paid off"
+        default: return "Changed"
+        }
+    }
+
+    var kindLabel: String {
+        switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "promised_payoff": return "Promised payoff"
+        case "accepted_consequence": return "Accepted consequence"
+        default: return "Setup"
+        }
+    }
+
+    var accessibilityKey: String {
+        let source = id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? obligation
+            : id
+        let clean = source
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
+nonisolated struct BackendStoryObligationCorrection: Codable, Hashable, Identifiable {
+    let id: String
+    let obligation: String
+    let action: String
+    let note: String?
+    let sourceChangeId: String?
+    let sourceStatus: String?
+    let correctedAt: TimeInterval
+
+    var actionLabel: String {
+        action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "retire"
+            ? "Retired"
+            : "Kept open"
+    }
+
+    var accessibilityKey: String {
+        let source = id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? obligation
+            : id
+        let clean = source
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
+nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
+    var character: String
+    var canon: [String]
+    var corrections: [String]
+    var correctedTerms: [String]
+    var correctionReplacements: [String]
+    var authoritativeFields: [BackendAuthoritativeCharacterField]? = nil
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
+    var arc: BackendCharacterBibleArcMemory?
+    var voice: String?
+    var tags: [String]?
+
+    var isMeaningful: Bool {
+        !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (!canon.isEmpty ||
+         !corrections.isEmpty ||
+         !correctedTerms.isEmpty ||
+         !correctionReplacements.isEmpty ||
+         !(authoritativeFields ?? []).isEmpty ||
+         !(fieldProvenance ?? []).isEmpty ||
+         arc?.isMeaningful == true)
+    }
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [
+            "character": character.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let canonLines = cleanLines(canon)
+        let correctionLines = cleanLines(corrections)
+        let corrected = cleanLines(correctedTerms)
+        let replacements = cleanLines(correctionReplacements)
+        if !canonLines.isEmpty { out["canon"] = canonLines }
+        if !correctionLines.isEmpty { out["corrections"] = correctionLines }
+        if !corrected.isEmpty { out["corrected_terms"] = corrected }
+        if !replacements.isEmpty { out["correction_replacements"] = replacements }
+        if let arcPayload = arc?.payload, !arcPayload.isEmpty {
+            out["arc"] = arcPayload
+        }
+        return out
+    }
+
+    private func cleanLines(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(clean)
+        }
+        return out
+    }
+}
+
+nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
+    let id: String
+    let status: String
+    let projectId: String?
+    let projectTitle: String?
+    let correctionText: String
+    let matchedFacts: [String]
+    let replacementFacts: [String]?
+    let replacementFactIds: [String]?
+    let structuredUpdates: [String]?
+    let correctionMemoryId: String?
+    let createdAt: TimeInterval
+    let undoneAt: TimeInterval?
+
+    var canUndo: Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "active"
+    }
+}
+
+nonisolated struct BackendCanonCorrectionAmbiguity: Codable, Hashable {
+    let id: String
+    let status: String
+    let projectId: String?
+    let projectTitle: String?
+    let correctionText: String
+    let candidateFacts: [String]
+    let correctionMemoryId: String?
+    let selectedFact: String?
+    let selectedFacts: [String]?
+    let receiptId: String?
+    let createdAt: TimeInterval
+    let resolvedAt: TimeInterval?
+
+    var isPending: Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pending"
+    }
+
+    var resolvedFacts: [String] {
+        let facts = (selectedFacts ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !facts.isEmpty { return facts }
+        let legacy = selectedFact?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return legacy.isEmpty ? [] : [legacy]
+    }
+}
+
 nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let id: String
     let key: String
@@ -186,6 +538,111 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let snippets: [String]
     let referenceHint: String
     let source: String
+    let characterBible: BackendCharacterBibleMemory?
+    let episodicId: String?
+    let projectId: String?
+    let projectTitle: String?
+    let characterNames: [String]?
+    let tags: [String]?
+    let isCorrectionMemory: Bool?
+    let isSuperseded: Bool?
+    let supersededAt: TimeInterval?
+    let supersededByMemoryId: String?
+    let supersededReason: String?
+    let supersededTerms: [String]?
+    let correctionReceipt: BackendCanonCorrectionReceipt?
+    let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
+    let referenceCount: Int?
+    let storySpine: BackendStorySpineMemory?
+}
+
+nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
+    let projectId: String?
+    let projectTitle: String?
+    let act: String?
+    let featureSequence: String?
+    let featureObligation: String?
+    let sceneLabel: String?
+    let sceneObjective: String?
+    let sceneSummary: String?
+    let currentBeat: String?
+    let logline: String?
+    let themeArgument: String?
+    let centralQuestion: String?
+    let protagonistWant: String?
+    let protagonistNeed: String?
+    let antagonisticForce: String?
+    let endingImage: String?
+    let actPressureState: String?
+    let characterArcState: String?
+    let lastSceneOutcome: String?
+    let nextScenePlan: String?
+    let nextSceneMoves: [String]?
+    let nextThreeTurns: [String]?
+    let actThreePayoffPath: [String]?
+    let beatSequence: [String]?
+    let characterFocus: [String]?
+    let unresolvedSetups: [String]?
+    let unresolvedStoryThreads: [String]?
+    let characterArcTurns: [String]?
+    let imageMotifs: [String]?
+    let continuityNotes: [String]?
+    let emotionalContinuity: String?
+    let pageCount: Int?
+    let targetPages: Int?
+    let updatedAt: TimeInterval?
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
+    var storyObligationLedger: [BackendStoryObligationChange]? = nil
+    var currentStoryObligationChange: BackendStoryObligationChange? = nil
+    var storyObligationCorrections: [BackendStoryObligationCorrection]? = nil
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [:]
+        func put(_ key: String, _ value: String?) {
+            let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty { out[key] = clean }
+        }
+        func putList(_ key: String, _ value: [String]?) {
+            let clean = (value ?? [])
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !clean.isEmpty { out[key] = clean }
+        }
+        put("project_id", projectId)
+        put("project_title", projectTitle)
+        put("act", act)
+        put("feature_sequence", featureSequence)
+        put("feature_obligation", featureObligation)
+        put("scene_label", sceneLabel)
+        put("scene_objective", sceneObjective)
+        put("scene_summary", sceneSummary)
+        put("current_beat", currentBeat)
+        put("logline", logline)
+        put("theme_argument", themeArgument)
+        put("central_question", centralQuestion)
+        put("protagonist_want", protagonistWant)
+        put("protagonist_need", protagonistNeed)
+        put("antagonistic_force", antagonisticForce)
+        put("ending_image", endingImage)
+        put("act_pressure_state", actPressureState)
+        put("character_arc_state", characterArcState)
+        put("last_scene_outcome", lastSceneOutcome)
+        put("next_scene_plan", nextScenePlan)
+        putList("next_scene_moves", nextSceneMoves)
+        putList("next_three_turns", nextThreeTurns)
+        putList("act_three_payoff_path", actThreePayoffPath)
+        putList("beat_sequence", beatSequence)
+        putList("character_focus", characterFocus)
+        putList("unresolved_setups", unresolvedSetups)
+        putList("unresolved_story_threads", unresolvedStoryThreads)
+        putList("character_arc_turns", characterArcTurns)
+        putList("image_motifs", imageMotifs)
+        putList("continuity_notes", continuityNotes)
+        put("emotional_continuity", emotionalContinuity)
+        if let pageCount, pageCount > 0 { out["page_count"] = pageCount }
+        if let targetPages, targetPages > 0 { out["target_pages"] = targetPages }
+        return out
+    }
 }
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
@@ -218,6 +675,91 @@ nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
     let generatedAt: TimeInterval?
 }
 
+nonisolated struct BackendStoryMovePreference: Decodable, Hashable, Identifiable {
+    let projectId: String
+    let projectTitle: String
+    let family: String
+    let displayName: String
+    let summary: String
+    let learnedScore: Int
+    let effectiveScore: Int
+    let evidenceCount: Int
+    let selectedCount: Int
+    let passedOverCount: Int
+    let acceptedPageCount: Int
+    let blockResolutionCount: Int
+    let successfulRescueCount: Int?
+    let failedRescueCount: Int?
+    let explicitStance: String
+    let correctedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+
+    var id: String {
+        "\(projectId.lowercased())|\(projectTitle.lowercased())|\(family.lowercased())"
+    }
+
+    var isExplicitlyCorrected: Bool {
+        explicitStance == "prefer" || explicitStance == "avoid"
+    }
+
+    var creativeGuidanceSummary: String {
+        if explicitStance == "avoid" {
+            return "Clementine will use less of this pattern."
+        }
+        let successfulRescues = max(0, successfulRescueCount ?? 0)
+        let failedRescues = max(0, failedRescueCount ?? 0)
+        if effectiveScore < 0, failedRescues > successfulRescues {
+            return "Clementine will not repeat this move by default."
+        }
+        let cleanSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanSummary.isEmpty else {
+            return "Clementine uses this pattern when shaping options."
+        }
+        return "Clementine will \(cleanSummary)."
+    }
+
+    var learningProvenanceSummary: String {
+        if explicitStance == "prefer" {
+            return "You corrected this toward more."
+        }
+        if explicitStance == "avoid" {
+            return "You corrected this toward less."
+        }
+        let successfulRescues = max(0, successfulRescueCount ?? 0)
+        let failedRescues = max(0, failedRescueCount ?? 0)
+        var parts: [String]
+        if successfulRescues > 0 {
+            parts = [
+                "Learned from \(successfulRescues) rescue\(successfulRescues == 1 ? "" : "s") that worked"
+            ]
+            if failedRescues > 0 {
+                parts.append(
+                    "\(failedRescues) did not unblock you"
+                )
+            }
+        } else if failedRescues > 0 {
+            parts = [
+                "Learned from \(failedRescues) rescue\(failedRescues == 1 ? "" : "s") that did not unblock you"
+            ]
+        } else {
+            parts = [
+                "Learned from \(evidenceCount) choice\(evidenceCount == 1 ? "" : "s")"
+            ]
+        }
+        if acceptedPageCount > 0 {
+            parts.append(
+                "\(acceptedPageCount) page\(acceptedPageCount == 1 ? "" : "s") kept"
+            )
+        }
+        if blockResolutionCount > 0 {
+            parts.append(
+                "\(blockResolutionCount) block\(blockResolutionCount == 1 ? "" : "s") cleared"
+            )
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
 nonisolated struct BackendMemoriesResponse: Decodable {
     let source: String
     let sourceIp: String
@@ -230,6 +772,7 @@ nonisolated struct BackendMemoriesResponse: Decodable {
     let seasonProgress: Double?
     let sessionId: String?
     let stateVersion: String?
+    let creativeMemoryRevision: String?
     let lastUpdatedAt: TimeInterval?
     let historyUpdatedAt: TimeInterval?
     let memoryUpdatedAt: TimeInterval?
@@ -241,6 +784,7 @@ nonisolated struct BackendMemoriesResponse: Decodable {
     let deltaNoChange: Bool?
     let actionReceipts: BackendActionReceiptsPayload?
     let memoryQuality: BackendMemoryQualitySnapshot?
+    let storyMovePreferences: [BackendStoryMovePreference]?
     let memories: [BackendMemoryCard]
     let conversationSamples: [BackendHistoryThread]
 }
@@ -264,6 +808,7 @@ nonisolated struct BackendStateDeltaResponse: Decodable {
     let sinceVersion: String?
     let sinceTurnId: String?
     let actionReceipts: BackendActionReceiptsPayload?
+    let continuity: BackendSessionContinuitySnapshot?
     let historyDelta: [BackendHistoryThread]
     let memoriesDelta: [BackendMemoryCard]
 }
@@ -370,30 +915,6 @@ nonisolated struct BackendDailyRecapResponse: Decodable {
     let stats: BackendDailyRecapStats
 }
 
-nonisolated struct BackendSecretaryEmailResponse: Decodable {
-    let stage: String?
-    let mode: String?
-    let draftSource: String?
-    let to: String?
-    let subject: String?
-    let body: String?
-    let status: String?
-    let action: String?
-    let target: String?
-    let transport: String?
-    let composeUrl: String?
-    let error: String?
-}
-
-nonisolated struct BackendSecretaryEmailConnectResponse: Decodable {
-    let stage: String?
-    let provider: String?
-    let mode: String?
-    let oauthConfigured: Bool?
-    let connectUrl: String?
-    let error: String?
-}
-
 nonisolated struct BackendMemoryExportResponse: Decodable {
     let source: String
     let sourceIp: String
@@ -426,6 +947,59 @@ nonisolated struct BackendDataControlResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let memoryQuality: BackendMemoryQualitySnapshot?
+}
+
+nonisolated struct BackendAccountDeletionResponse: Decodable, Equatable {
+    let status: String
+    let pendingDeletionAt: String?
+    let hardDeleteAt: String?
+    let recoveryWindowDays: Int?
+}
+
+nonisolated enum BackendAccountDeletionProof: Equatable, Sendable {
+    case password(String)
+    case apple(identityToken: String, rawNonce: String?)
+
+    func requestFields() throws -> [String: String] {
+        switch self {
+        case .password(let password):
+            guard !password.isEmpty else {
+                throw BackendMemoryAPIError.server(status: 400, message: "current_password_required")
+            }
+            return ["current_password": password]
+        case .apple(let identityToken, let rawNonce):
+            let normalizedToken = identityToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedNonce = (rawNonce ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedToken.isEmpty else {
+                throw BackendMemoryAPIError.server(status: 400, message: "apple_identity_token_required")
+            }
+            var fields = ["identity_token": normalizedToken]
+            if !normalizedNonce.isEmpty {
+                fields["raw_nonce"] = normalizedNonce
+            }
+            return fields
+        }
+    }
+}
+
+nonisolated struct BackendAccountDeletionSessionHooks: Sendable {
+    let clearLocalSession: @Sendable () -> BackendAuthUser?
+    let clearAfterSuccessfulDeletion: @Sendable (BackendAuthUser?) -> Bool
+
+    static let live = BackendAccountDeletionSessionHooks(
+        clearLocalSession: {
+            BackendAuthClient.clearLocalSessionForAccountDeletion()
+        },
+        clearAfterSuccessfulDeletion: { deletedUser in
+            BackendAuthClient.clearSessionAfterSuccessfulAccountDeletionIfSameAccount(deletedUser)
+        }
+    )
+}
+
+nonisolated struct BackendAccountExportArtifact: Equatable {
+    let filename: String
+    let contentType: String
+    let data: Data
 }
 
 nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
@@ -483,6 +1057,194 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let schemaVersion: Int?
     let backendBuild: String?
     let backendBootId: String?
+    let canonClarification: BackendCanonCorrectionAmbiguity?
+    let screenplayQuestionResolution: BackendRealtimeScreenplayQuestionResolution?
+    let memoryGroundingChanged: Bool?
+    let memoryGroundingReason: String?
+    let memoryGroundingProjectId: String?
+    let memoryGroundingProjectTitle: String?
+}
+
+nonisolated struct BackendRealtimeScreenplayQuestionResolution: Decodable, Equatable {
+    let questionId: String
+    let responseStatus: String
+    let targetField: String?
+    let learningPromoted: Bool?
+    let correctionProtected: Bool?
+}
+
+nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
+    let character: String
+    let act: String
+    let want: String
+    let need: String
+    let wound: String
+    let falseBelief: String
+    let relationshipPressure: String
+    let currentTactic: String
+    let nextEmotionalTurn: String
+
+    init(
+        character: String = "",
+        act: String = "",
+        want: String = "",
+        need: String = "",
+        wound: String = "",
+        falseBelief: String = "",
+        relationshipPressure: String = "",
+        currentTactic: String = "",
+        nextEmotionalTurn: String = ""
+    ) {
+        self.character = Self.clean(character, limit: 80)
+        self.act = Self.clean(act, limit: 80)
+        self.want = Self.clean(want, limit: 180)
+        self.need = Self.clean(need, limit: 180)
+        self.wound = Self.clean(wound, limit: 180)
+        self.falseBelief = Self.clean(falseBelief, limit: 180)
+        self.relationshipPressure = Self.clean(relationshipPressure, limit: 180)
+        self.currentTactic = Self.clean(currentTactic, limit: 180)
+        self.nextEmotionalTurn = Self.clean(nextEmotionalTurn, limit: 180)
+    }
+
+    var isMeaningful: Bool {
+        [
+            want,
+            need,
+            wound,
+            falseBelief,
+            relationshipPressure,
+            currentTactic,
+            nextEmotionalTurn,
+        ]
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    var payload: [String: String] {
+        var out: [String: String] = [:]
+        Self.append("character", character, to: &out)
+        Self.append("act", act, to: &out)
+        Self.append("want", want, to: &out)
+        Self.append("need", need, to: &out)
+        Self.append("wound", wound, to: &out)
+        Self.append("false_belief", falseBelief, to: &out)
+        Self.append("relationship_pressure", relationshipPressure, to: &out)
+        Self.append("current_tactic", currentTactic, to: &out)
+        Self.append("next_emotional_turn", nextEmotionalTurn, to: &out)
+        return out
+    }
+
+    private static func append(_ key: String, _ value: String, to out: inout [String: String]) {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        out[key] = clean
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+}
+
+nonisolated struct BackendScreenplayCharacterVoiceFingerprint: Codable, Hashable {
+    let tactics: [String]
+    let silence: String
+    let emotionalTells: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case tactics
+        case silence
+        case emotionalTells = "emotional_tells"
+    }
+
+    init(
+        tactics: [String] = [],
+        silence: String = "",
+        emotionalTells: [String] = []
+    ) {
+        self.tactics = Self.cleanList(tactics, maxItems: 6, itemLimit: 80)
+        self.silence = Self.clean(silence, limit: 120)
+        self.emotionalTells = Self.cleanList(emotionalTells, maxItems: 6, itemLimit: 100)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            tactics: try container.decodeIfPresent([String].self, forKey: .tactics) ?? [],
+            silence: try container.decodeIfPresent(String.self, forKey: .silence) ?? "",
+            emotionalTells: try container.decodeIfPresent([String].self, forKey: .emotionalTells) ?? []
+        )
+    }
+
+    var isMeaningful: Bool {
+        !tactics.isEmpty ||
+        !silence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !emotionalTells.isEmpty
+    }
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [:]
+        if !tactics.isEmpty { out["tactics"] = tactics }
+        if !silence.isEmpty { out["silence"] = silence }
+        if !emotionalTells.isEmpty { out["emotional_tells"] = emotionalTells }
+        return out
+    }
+
+    private static func cleanList(_ values: [String], maxItems: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let compact = clean(value, limit: itemLimit)
+            guard !compact.isEmpty else { continue }
+            let key = compact.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            out.append(compact)
+            if out.count >= maxItems { break }
+        }
+        return out
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+}
+
+nonisolated struct BackendScreenplayCharacterVoiceMemory: Codable, Hashable {
+    let character: String
+    let voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
+
+    enum CodingKeys: String, CodingKey {
+        case character
+        case voiceFingerprint = "voice_fingerprint"
+    }
+
+    init(
+        character: String,
+        voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
+    ) {
+        self.character = character
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .prefix(80)
+            .description
+        self.voiceFingerprint = voiceFingerprint
+    }
+
+    var isMeaningful: Bool {
+        !character.isEmpty && voiceFingerprint.isMeaningful
+    }
+
+    var payload: [String: Any] {
+        guard isMeaningful else { return [:] }
+        return [
+            "character": character,
+            "voice_fingerprint": voiceFingerprint.payload,
+        ]
+    }
 }
 
 nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
@@ -493,6 +1255,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayWriteId: String
     let screenplayAnchorLine: Int?
     let screenplayAnchorEndLine: Int?
+    let screenplayInsertionMode: String
     let screenplayAnchorSceneLabel: String
     let screenplayAnchorDraftSceneId: String
     let screenplayAnchorOutlineSceneId: String
@@ -505,6 +1268,39 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayReplacedWriteId: String
     let screenplayRevisedBlockText: String
     let screenplayResolvedAnchorExcerpt: String
+    var screenplayDraftExcerpt: String = ""
+    var screenplayAct: String = ""
+    var screenplaySceneObjective: String = ""
+    var screenplaySceneSummary: String = ""
+    var screenplayCurrentBeat: String = ""
+    var screenplayLogline: String = ""
+    var screenplayThemeArgument: String = ""
+    var screenplayCentralQuestion: String = ""
+    var screenplayProtagonistWant: String = ""
+    var screenplayProtagonistNeed: String = ""
+    var screenplayAntagonisticForce: String = ""
+    var screenplayEndingImage: String = ""
+    var screenplayFeatureSequence: String = ""
+    var screenplayFeatureObligation: String = ""
+    var screenplayActPressureState: String = ""
+    var screenplayCharacterArcState: String = ""
+    var screenplayCharacterArcMemory: BackendScreenplayCharacterArcMemory? = nil
+    var screenplayCharacterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
+    var screenplayLastSceneOutcome: String = ""
+    var screenplayNextScenePlan: String = ""
+    var screenplayNextSceneMoves: [String] = []
+    var screenplayNextThreeTurns: [String] = []
+    var screenplayActThreePayoffPath: [String] = []
+    var screenplayBeatSequence: [String] = []
+    var screenplayCharacterFocus: [String] = []
+    var screenplayUnresolvedSetups: [String] = []
+    var screenplayUnresolvedStoryThreads: [String] = []
+    var screenplayCharacterArcTurns: [String] = []
+    var screenplayImageMotifs: [String] = []
+    var screenplayContinuityNotes: [String] = []
+    var screenplayEmotionalContinuity: String = ""
+    var screenplayPageCount: Int? = nil
+    var screenplayTargetPages: Int? = nil
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -514,6 +1310,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         !screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         screenplayAnchorLine != nil ||
         screenplayAnchorEndLine != nil ||
+        !screenplayInsertionMode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorDraftSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorOutlineSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -525,7 +1322,40 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         screenplayReplacementApplied ||
         !screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayRevisedBlockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-        !screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayDraftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplaySceneObjective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplaySceneSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCurrentBeat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayLogline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayThemeArgument.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCentralQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayProtagonistWant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayProtagonistNeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAntagonisticForce.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayEndingImage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayFeatureSequence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayFeatureObligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayActPressureState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCharacterArcState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        screenplayCharacterArcMemory?.isMeaningful == true ||
+        screenplayCharacterVoiceMemories.contains(where: \.isMeaningful) ||
+        !screenplayLastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNextSceneMoves.isEmpty ||
+        !screenplayNextThreeTurns.isEmpty ||
+        !screenplayActThreePayoffPath.isEmpty ||
+        !screenplayBeatSequence.isEmpty ||
+        !screenplayCharacterFocus.isEmpty ||
+        !screenplayUnresolvedSetups.isEmpty ||
+        !screenplayUnresolvedStoryThreads.isEmpty ||
+        !screenplayCharacterArcTurns.isEmpty ||
+        !screenplayImageMotifs.isEmpty ||
+        !screenplayContinuityNotes.isEmpty ||
+        !screenplayEmotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        (screenplayPageCount ?? 0) > 0 ||
+        (screenplayTargetPages ?? 0) > 0
     }
 }
 
@@ -537,8 +1367,15 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let memoryCard: BackendMemoryCard?
     let forgottenId: String?
     let themeKey: String?
+    let storySpineRepaired: Bool?
+    let storySpineRepairCount: Int?
+    let correctionReceipt: BackendCanonCorrectionReceipt?
+    let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
+    let storyMovePreferences: [BackendStoryMovePreference]?
+    let storyObligationCorrection: BackendStoryObligationCorrection?
     let sessionId: String?
     let stateVersion: String?
+    let creativeMemoryRevision: String?
     let lastTurnId: String?
     let lastUpdatedAt: TimeInterval?
     let historyUpdatedAt: TimeInterval?
@@ -546,6 +1383,281 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let schemaVersion: Int?
     let backendBuild: String?
     let backendBootId: String?
+}
+
+nonisolated struct BackendDueStoryThread: Decodable, Hashable {
+    let kind: String
+    let setup: String
+    let promisedPayoff: String
+    let sourceSceneHeading: String
+    let sourceSceneSummary: String
+    let sourceSceneOutcome: String
+    let sourceAct: String
+    let ageInScenes: Int
+    let acceptedSceneCount: Int
+
+    var isMeaningful: Bool {
+        !setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !promisedPayoff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case setup
+        case promisedPayoff
+        case sourceSceneHeading
+        case sourceSceneSummary
+        case sourceSceneOutcome
+        case sourceAct
+        case ageInScenes
+        case acceptedSceneCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        setup = try container.decodeIfPresent(String.self, forKey: .setup) ?? ""
+        promisedPayoff = try container.decodeIfPresent(String.self, forKey: .promisedPayoff) ?? ""
+        sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
+        sourceSceneSummary = try container.decodeIfPresent(String.self, forKey: .sourceSceneSummary) ?? ""
+        sourceSceneOutcome = try container.decodeIfPresent(String.self, forKey: .sourceSceneOutcome) ?? ""
+        sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""
+        ageInScenes = try container.decodeIfPresent(Int.self, forKey: .ageInScenes) ?? 0
+        acceptedSceneCount = try container.decodeIfPresent(Int.self, forKey: .acceptedSceneCount) ?? 0
+    }
+}
+
+nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
+    let kind: String
+    let fact: String
+    let authority: String
+    let sourceCorrectionId: String
+    let replacesFacts: [String]
+    let structuredUpdates: [String]
+    let createdAt: TimeInterval
+    let sourceSceneHeading: String
+    let sourceAct: String
+    let ageInScenes: Int
+
+    var isMeaningful: Bool {
+        !fact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case fact
+        case authority
+        case sourceCorrectionId
+        case replacesFacts
+        case structuredUpdates
+        case createdAt
+        case sourceSceneHeading
+        case sourceAct
+        case ageInScenes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        fact = try container.decodeIfPresent(String.self, forKey: .fact) ?? ""
+        authority = try container.decodeIfPresent(String.self, forKey: .authority) ?? ""
+        sourceCorrectionId = try container.decodeIfPresent(String.self, forKey: .sourceCorrectionId) ?? ""
+        replacesFacts = try container.decodeIfPresent([String].self, forKey: .replacesFacts) ?? []
+        structuredUpdates = try container.decodeIfPresent([String].self, forKey: .structuredUpdates) ?? []
+        createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
+        sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
+        sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""
+        ageInScenes = try container.decodeIfPresent(Int.self, forKey: .ageInScenes) ?? 0
+    }
+}
+
+nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
+    let hasContinuity: Bool
+    let source: String
+    let openingLine: String
+    let projectId: String
+    let projectTitle: String
+    let act: String
+    let featureSequence: String
+    let featureObligation: String
+    let sceneObjective: String
+    let sceneSummary: String
+    let currentBeat: String
+    let logline: String
+    let themeArgument: String
+    let centralQuestion: String
+    let protagonistWant: String
+    let protagonistNeed: String
+    let antagonisticForce: String
+    let endingImage: String
+    let actPressureState: String
+    let characterArcState: String
+    let lastSceneOutcome: String
+    let nextScenePlan: String
+    let nextSceneMoves: [String]
+    let nextThreeTurns: [String]
+    let actThreePayoffPath: [String]
+    let characterFocus: [String]
+    let unresolvedSetups: [String]
+    let unresolvedStoryThreads: [String]
+    let characterArcTurns: [String]
+    let imageMotifs: [String]
+    let continuityNotes: [String]
+    let emotionalContinuity: String
+    let pageCount: Int
+    let targetPages: Int
+    let memoryExcerpt: String
+    let isCorrection: Bool
+    let updatedAt: TimeInterval
+    let acceptedCausalFacts: [BackendAcceptedCausalFact]
+    let dueStoryThread: BackendDueStoryThread?
+    let storyObligationLedger: [BackendStoryObligationChange]
+    let currentStoryObligationChange: BackendStoryObligationChange?
+    let storyObligationCorrections: [BackendStoryObligationCorrection]
+
+    var isMeaningful: Bool {
+        hasContinuity && ([
+            openingLine,
+            projectTitle,
+            projectId,
+            act,
+            featureSequence,
+            featureObligation,
+            sceneObjective,
+            sceneSummary,
+            currentBeat,
+            logline,
+            themeArgument,
+            centralQuestion,
+            protagonistWant,
+            protagonistNeed,
+            antagonisticForce,
+            endingImage,
+            actPressureState,
+            characterArcState,
+            lastSceneOutcome,
+            nextScenePlan,
+            emotionalContinuity,
+            memoryExcerpt
+        ]
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ||
+            !nextSceneMoves.isEmpty ||
+            !nextThreeTurns.isEmpty ||
+            !actThreePayoffPath.isEmpty ||
+            !characterFocus.isEmpty ||
+            !unresolvedSetups.isEmpty ||
+            !unresolvedStoryThreads.isEmpty ||
+            !characterArcTurns.isEmpty ||
+            !imageMotifs.isEmpty ||
+            !continuityNotes.isEmpty ||
+            acceptedCausalFacts.contains(where: \.isMeaningful) ||
+            dueStoryThread?.isMeaningful == true ||
+            storyObligationLedger.contains(where: \.isMeaningful) ||
+            currentStoryObligationChange?.isMeaningful == true ||
+            !storyObligationCorrections.isEmpty ||
+            pageCount > 0 ||
+            targetPages > 0)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hasContinuity
+        case source
+        case openingLine
+        case projectId
+        case projectTitle
+        case act
+        case featureSequence
+        case featureObligation
+        case sceneObjective
+        case sceneSummary
+        case currentBeat
+        case logline
+        case themeArgument
+        case centralQuestion
+        case protagonistWant
+        case protagonistNeed
+        case antagonisticForce
+        case endingImage
+        case actPressureState
+        case characterArcState
+        case lastSceneOutcome
+        case nextScenePlan
+        case nextSceneMoves
+        case nextThreeTurns
+        case actThreePayoffPath
+        case characterFocus
+        case unresolvedSetups
+        case unresolvedStoryThreads
+        case characterArcTurns
+        case imageMotifs
+        case continuityNotes
+        case emotionalContinuity
+        case pageCount
+        case targetPages
+        case memoryExcerpt
+        case isCorrection
+        case updatedAt
+        case acceptedCausalFacts
+        case dueStoryThread
+        case storyObligationLedger
+        case currentStoryObligationChange
+        case storyObligationCorrections
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasContinuity = try container.decodeIfPresent(Bool.self, forKey: .hasContinuity) ?? false
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        openingLine = try container.decodeIfPresent(String.self, forKey: .openingLine) ?? ""
+        projectId = try container.decodeIfPresent(String.self, forKey: .projectId) ?? ""
+        projectTitle = try container.decodeIfPresent(String.self, forKey: .projectTitle) ?? ""
+        act = try container.decodeIfPresent(String.self, forKey: .act) ?? ""
+        featureSequence = try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? ""
+        featureObligation = try container.decodeIfPresent(String.self, forKey: .featureObligation) ?? ""
+        sceneObjective = try container.decodeIfPresent(String.self, forKey: .sceneObjective) ?? ""
+        sceneSummary = try container.decodeIfPresent(String.self, forKey: .sceneSummary) ?? ""
+        currentBeat = try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? ""
+        logline = try container.decodeIfPresent(String.self, forKey: .logline) ?? ""
+        themeArgument = try container.decodeIfPresent(String.self, forKey: .themeArgument) ?? ""
+        centralQuestion = try container.decodeIfPresent(String.self, forKey: .centralQuestion) ?? ""
+        protagonistWant = try container.decodeIfPresent(String.self, forKey: .protagonistWant) ?? ""
+        protagonistNeed = try container.decodeIfPresent(String.self, forKey: .protagonistNeed) ?? ""
+        antagonisticForce = try container.decodeIfPresent(String.self, forKey: .antagonisticForce) ?? ""
+        endingImage = try container.decodeIfPresent(String.self, forKey: .endingImage) ?? ""
+        actPressureState = try container.decodeIfPresent(String.self, forKey: .actPressureState) ?? ""
+        characterArcState = try container.decodeIfPresent(String.self, forKey: .characterArcState) ?? ""
+        lastSceneOutcome = try container.decodeIfPresent(String.self, forKey: .lastSceneOutcome) ?? ""
+        nextScenePlan = try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? ""
+        nextSceneMoves = try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? []
+        nextThreeTurns = try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? []
+        actThreePayoffPath = try container.decodeIfPresent([String].self, forKey: .actThreePayoffPath) ?? []
+        characterFocus = try container.decodeIfPresent([String].self, forKey: .characterFocus) ?? []
+        unresolvedSetups = try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? []
+        unresolvedStoryThreads = try container.decodeIfPresent([String].self, forKey: .unresolvedStoryThreads) ?? []
+        characterArcTurns = try container.decodeIfPresent([String].self, forKey: .characterArcTurns) ?? []
+        imageMotifs = try container.decodeIfPresent([String].self, forKey: .imageMotifs) ?? []
+        continuityNotes = try container.decodeIfPresent([String].self, forKey: .continuityNotes) ?? []
+        emotionalContinuity = try container.decodeIfPresent(String.self, forKey: .emotionalContinuity) ?? ""
+        pageCount = try container.decodeIfPresent(Int.self, forKey: .pageCount) ?? 0
+        targetPages = try container.decodeIfPresent(Int.self, forKey: .targetPages) ?? 0
+        memoryExcerpt = try container.decodeIfPresent(String.self, forKey: .memoryExcerpt) ?? ""
+        isCorrection = try container.decodeIfPresent(Bool.self, forKey: .isCorrection) ?? false
+        updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+        acceptedCausalFacts = try container.decodeIfPresent([BackendAcceptedCausalFact].self, forKey: .acceptedCausalFacts) ?? []
+        dueStoryThread = try container.decodeIfPresent(BackendDueStoryThread.self, forKey: .dueStoryThread)
+        storyObligationLedger = try container.decodeIfPresent(
+            [BackendStoryObligationChange].self,
+            forKey: .storyObligationLedger
+        ) ?? []
+        currentStoryObligationChange = try container.decodeIfPresent(
+            BackendStoryObligationChange.self,
+            forKey: .currentStoryObligationChange
+        )
+        storyObligationCorrections = try container.decodeIfPresent(
+            [BackendStoryObligationCorrection].self,
+            forKey: .storyObligationCorrections
+        ) ?? []
+    }
 }
 
 nonisolated struct BackendSessionResponse: Decodable {
@@ -570,9 +1682,52 @@ nonisolated struct BackendSessionResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let evolutionSync: BackendEvolutionSyncSnapshot?
+    let continuity: BackendSessionContinuitySnapshot?
+    let pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
 }
 
-nonisolated struct BackendAuthUser: Codable, Hashable {
+nonisolated struct BackendPendingScreenplayQuestion: Decodable, Equatable {
+    let id: String
+    let projectId: String
+    let projectTitle: String
+    let targetField: String
+    let targetLabel: String
+    let question: String
+    let provisionalOptions: [BackendPendingScreenplayOption]?
+    let askedAt: TimeInterval?
+}
+
+nonisolated struct BackendPendingScreenplayOption: Decodable, Equatable, Identifiable {
+    let id: String
+    let rank: Int
+    let value: String
+    let recommended: Bool
+}
+
+nonisolated struct BackendScreenplayQuestionResolutionResponse: Decodable, Equatable {
+    let ok: Bool
+    let action: String?
+    let status: String
+    let questionId: String
+    let responseStatus: String
+    let targetField: String?
+    let selectedOptionId: String?
+    let selectedOptionRank: Int?
+    let optionGenerationRequired: Bool?
+    let learningPromoted: Bool?
+    let correctionProtected: Bool?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let userId: String
     let email: String
     let authProvider: String?
@@ -581,6 +1736,165 @@ nonisolated struct BackendAuthUser: Codable, Hashable {
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
 }
+
+nonisolated enum BackendAuthDebugSessionPolicy {
+    static func syntheticUser(
+        signedIn: Bool,
+        accessToken: String,
+        userID: String,
+        email: String
+    ) -> BackendAuthUser? {
+        let cleanToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard signedIn, !cleanToken.isEmpty, !cleanUserID.isEmpty else { return nil }
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return BackendAuthUser(
+            userId: cleanUserID,
+            email: cleanEmail,
+            authProvider: "debug",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+    }
+}
+
+nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendable {
+    let email: String
+    let password: String?
+
+    var hasSavedPassword: Bool {
+        !(password ?? "").isEmpty
+    }
+}
+
+nonisolated enum BackendKeychainStringReadResult: Equatable, Sendable {
+    case value(String)
+    case notFound
+    case unavailable(OSStatus)
+    case invalidData
+}
+
+nonisolated enum BackendRememberedLoginCredentialLoadResult: Equatable, Sendable {
+    case loaded(BackendRememberedLoginCredentials)
+    case notRemembered
+    case unavailable(savePassword: Bool)
+}
+
+nonisolated enum BackendRememberedLoginMutationResult: Equatable, Sendable {
+    case saved
+    case unchanged
+    case disabled
+    case failed
+    case superseded
+}
+
+nonisolated enum BackendRememberedLoginCredentialPolicy {
+    static let keychainAccount = "auth_remembered_login"
+
+    static func load(
+        enabled: Bool,
+        readKeychain: (String) -> String?
+    ) -> BackendRememberedLoginCredentials? {
+        guard enabled,
+              let raw = readKeychain(keychainAccount),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(BackendRememberedLoginCredentials.self, from: data) else {
+            return nil
+        }
+        let email = decoded.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !email.isEmpty else { return nil }
+        let password = (decoded.password ?? "").isEmpty ? nil : decoded.password
+        return BackendRememberedLoginCredentials(email: email, password: password)
+    }
+
+    @discardableResult
+    static func update(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        guard rememberEmail else {
+            return deleteKeychain(keychainAccount)
+        }
+
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedEmail.isEmpty else { return false }
+        let credentials = BackendRememberedLoginCredentials(
+            email: normalizedEmail,
+            password: savePassword && !password.isEmpty ? password : nil
+        )
+        guard let data = try? JSONEncoder().encode(credentials),
+              let payload = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return writeKeychain(payload, keychainAccount)
+    }
+}
+
+nonisolated enum BackendAppleSignInNonceError: LocalizedError {
+    case invalidLength
+    case randomGenerationFailed(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLength:
+            return "Apple sign in could not create a valid security nonce."
+        case .randomGenerationFailed:
+            return "Apple sign in could not create secure random data."
+        }
+    }
+}
+
+nonisolated enum BackendAppleSignInNonce {
+    static func generateRawNonce(byteCount: Int = 32) throws -> String {
+        guard byteCount >= 16, byteCount <= 128 else {
+            throw BackendAppleSignInNonceError.invalidLength
+        }
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw BackendAppleSignInNonceError.randomGenerationFailed(status)
+        }
+        return base64URL(Data(bytes))
+    }
+
+    static func sha256Base64URL(_ rawNonce: String) -> String {
+        base64URL(Data(SHA256.hash(data: Data(rawNonce.utf8))))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+#if DEBUG
+nonisolated struct BackendLocalDemoAccount: Equatable, Sendable {
+    let email: String
+    let password: String
+
+    static let standard = BackendLocalDemoAccount(
+        email: "studio-demo@io.them.invalid",
+        password: "ThemDemo!2026"
+    )
+
+    static func isAvailable(baseURL: URL, isDebugBuild: Bool = true) -> Bool {
+        guard isDebugBuild,
+              baseURL.scheme?.lowercased() == "http",
+              let host = baseURL.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+}
+#endif
 
 nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
     let status: String?
@@ -662,7 +1976,7 @@ nonisolated struct BackendAuthSessionRevokeResponse: Decodable {
 
 }
 
-nonisolated struct BackendAuthSessionState: Equatable {
+nonisolated struct BackendAuthSessionState: Equatable, Sendable {
     let user: BackendAuthUser?
     let accessTokenPresent: Bool
     let refreshTokenPresent: Bool
@@ -704,6 +2018,94 @@ nonisolated struct BackendAuthSessionState: Equatable {
     )
 }
 
+actor BackendAuthRefreshCoordinator {
+    struct Key: Hashable, Sendable {
+        let sessionGeneration: Int
+        let userID: String
+        let refreshTokenDigest: String
+
+        init(lease: BackendAuthSessionLease) {
+            sessionGeneration = lease.sessionGeneration
+            userID = lease.userID
+            refreshTokenDigest = BackendAppleSignInNonce.sha256Base64URL(lease.refreshToken)
+        }
+    }
+
+    private struct ActiveRefresh {
+        let id: UUID
+        let task: Task<BackendAuthSessionState, Error>
+    }
+
+    private var activeRefreshes: [Key: ActiveRefresh] = [:]
+
+    func run(
+        key: Key,
+        _ operation: @escaping @Sendable () async throws -> BackendAuthSessionState
+    ) async throws -> BackendAuthSessionState {
+        let active: ActiveRefresh
+        if let existing = activeRefreshes[key] {
+            active = existing
+        } else {
+            let created = ActiveRefresh(id: UUID(), task: Task { try await operation() })
+            activeRefreshes[key] = created
+            active = created
+        }
+        defer {
+            if activeRefreshes[key]?.id == active.id {
+                activeRefreshes.removeValue(forKey: key)
+            }
+        }
+        return try await active.task.value
+    }
+}
+
+nonisolated struct BackendPasswordResetResult: Equatable {
+    let sessionState: BackendAuthSessionState
+    let canonicalEmail: String
+    let rememberedLoginResult: BackendRememberedLoginMutationResult
+}
+
+nonisolated struct BackendAuthOperationIntent: Equatable, Sendable {
+    let sessionGeneration: Int
+    let rememberedLoginGeneration: Int
+}
+
+nonisolated struct BackendAuthSessionLease: Equatable, Sendable {
+    let sessionGeneration: Int
+    let userID: String
+    let accessToken: String
+    let refreshToken: String
+}
+
+nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
+    let sessionEpoch: Int
+    let userID: String
+    let clientToken: String
+    let accessToken: String
+}
+
+nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
+    let authIntentGeneration: Int
+    let sessionEpoch: Int
+}
+
+nonisolated enum BackendAuthEnvelopeCommitOutcome: Equatable {
+    case committed
+    case superseded
+    case storageFailed
+}
+
+nonisolated struct BackendEmailAuthenticationResult: Equatable {
+    let sessionState: BackendAuthSessionState
+    let rememberedLoginResult: BackendRememberedLoginMutationResult
+}
+
+nonisolated enum BackendInteractiveAuthCommitResult: Equatable {
+    case committed(BackendEmailAuthenticationResult)
+    case superseded
+    case storageFailed
+}
+
 nonisolated struct BackendEvolutionSyncSnapshot: Decodable {
     let stage: Int?
     let depthScore: Double?
@@ -723,6 +2125,7 @@ nonisolated struct BackendScreenplayVersion: Decodable, Hashable {
     let projectId: String?
     let phase: String?
     let source: String?
+    let clientRequestId: String?
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
     let prompt: String?
@@ -796,6 +2199,35 @@ nonisolated struct BackendScreenplayDiffAcknowledgementState: Codable, Hashable 
     let entries: [BackendScreenplayDiffAcknowledgementEntry]?
 }
 
+nonisolated struct BackendScreenplayStudioExchange: Codable, Hashable {
+    let id: String
+    let backendThreadId: String?
+    let backendTurn: Int?
+    let requestId: String?
+    let prompt: String?
+    let target: String?
+    let source: String?
+    let noteTitle: String?
+    let noteBody: String?
+    let developmentText: String?
+    let writeId: String?
+    let replacedWriteId: String?
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let anchorSceneLabel: String?
+    let anchorExcerpt: String?
+    let insertedText: String?
+    let replacementApplied: Bool?
+    let revisedBlockText: String?
+    let resolvedAnchorExcerpt: String?
+    let packLabel: String?
+    let phase: String?
+    let sluglineAnchorLine: Int?
+    let memoryDomainRaw: String?
+    let companionModeRaw: String?
+    let timestamp: String?
+}
+
 nonisolated struct BackendScreenplayCollaborator: Decodable, Hashable {
     let id: String?
     let email: String
@@ -866,7 +2298,8 @@ nonisolated struct BackendScreenplayBeat: Codable, Hashable {
     let updatedAt: TimeInterval?
 }
 
-nonisolated struct BackendScreenplayOutline: Decodable, Hashable {
+nonisolated struct BackendScreenplayOutline: Codable, Hashable {
+    let revision: Int?
     let updatedAt: TimeInterval?
     let actCount: Int?
     let sceneCount: Int?
@@ -874,6 +2307,26 @@ nonisolated struct BackendScreenplayOutline: Decodable, Hashable {
     let acts: [BackendScreenplayAct]
     let scenes: [BackendScreenplayScene]
     let beats: [BackendScreenplayBeat]
+
+    init(
+        revision: Int? = nil,
+        updatedAt: TimeInterval?,
+        actCount: Int?,
+        sceneCount: Int?,
+        beatCount: Int?,
+        acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene],
+        beats: [BackendScreenplayBeat]
+    ) {
+        self.revision = revision
+        self.updatedAt = updatedAt
+        self.actCount = actCount
+        self.sceneCount = sceneCount
+        self.beatCount = beatCount
+        self.acts = acts
+        self.scenes = scenes
+        self.beats = beats
+    }
 }
 
 nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
@@ -885,6 +2338,15 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let setting: String?
     let tone: String?
     let promptSeed: String?
+    let logline: String?
+    let themeArgument: String?
+    let centralQuestion: String?
+    let protagonistWant: String?
+    let protagonistNeed: String?
+    let antagonisticForce: String?
+    let actPosition: String?
+    let endingImage: String?
+    let unresolvedSetups: [String]?
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
     let versionCount: Int?
@@ -900,12 +2362,14 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let sceneCount: Int?
     let beatCount: Int?
     let outlineUpdatedAt: TimeInterval?
+    var outlineRevision: Int? = nil
     let collaboratorCount: Int?
     let approvedEmails: [String]?
     let commentCount: Int?
     let lastCommentAt: TimeInterval?
     let studioThreadViewState: BackendScreenplayThreadViewState?
     let studioDiffAcknowledged: BackendScreenplayDiffAcknowledgementState?
+    let studioAskNoteHistory: [BackendScreenplayStudioExchange]?
     let collaborators: [BackendScreenplayCollaborator]?
     let comments: [BackendScreenplayComment]?
     let versions: [BackendScreenplayVersion]?
@@ -971,6 +2435,13 @@ nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
         analytics = try container.decodeIfPresent(ScreenplayCompanionAnalyticsSnapshot.self, forKey: .analytics) ?? .empty
         signals = try container.decodeIfPresent(CreativeCompanionSignalState.self, forKey: .signals) ?? .empty
     }
+}
+
+nonisolated struct BackendFirstPageTelemetryResponse: Decodable {
+    let schemaVersion: Int?
+    let ok: Bool
+    let action: String
+    let reason: String?
 }
 
 nonisolated struct BackendScreenplayProjectsResponse: Decodable {
@@ -1043,6 +2514,7 @@ nonisolated struct BackendScreenplayOutlineResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let projectId: String?
+    let outlineRevision: Int?
     let outline: BackendScreenplayOutline?
     let project: BackendScreenplayProjectSummary?
 }
@@ -1050,6 +2522,14 @@ nonisolated struct BackendScreenplayOutlineResponse: Decodable {
 nonisolated struct BackendScreenplayOutlineMutationResponse: Decodable {
     let stage: String?
     let status: String?
+    let error: String?
+    let replayed: Bool?
+    let conflict: Bool?
+    let clientRequestId: String?
+    let expectedOutlineRevision: Int?
+    let outlineRevision: Int?
+    let committedRevision: Int?
+    let retryAfterMs: Int?
     let createdProject: Bool?
     let projectId: String?
     let project: BackendScreenplayProjectSummary?
@@ -1073,6 +2553,7 @@ nonisolated struct BackendScreenplaySceneMutationResponse: Decodable {
     let status: String?
     let projectId: String?
     let sceneId: String?
+    let outlineRevision: Int?
     let scene: BackendScreenplayScene?
     let project: BackendScreenplayProjectSummary?
     let outline: BackendScreenplayOutline?
@@ -1092,6 +2573,7 @@ nonisolated struct BackendScreenplayBeatMutationResponse: Decodable {
     let status: String?
     let projectId: String?
     let beatId: String?
+    let outlineRevision: Int?
     let beat: BackendScreenplayBeat?
     let project: BackendScreenplayProjectSummary?
     let outline: BackendScreenplayOutline?
@@ -1161,6 +2643,7 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let serverVersionId: String?
     let serverVersion: BackendScreenplayVersion?
     let conflict: Bool?
+    let replayed: Bool?
     let sessionId: String?
     let stateVersion: String?
     let lastUpdatedAt: TimeInterval?
@@ -1224,6 +2707,72 @@ nonisolated struct BackendScreenplayExportArtifact {
     let filename: String
     let contentType: String
     let data: Data
+}
+
+nonisolated struct BackendScreenplayExportRejection: Decodable, Hashable {
+    let stage: String?
+    let error: String?
+    let message: String?
+    let alternativeFormats: [String]
+    let docsPath: String?
+
+    var displayMessage: String {
+        let cleanMessage = (message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanMessage.isEmpty {
+            return cleanMessage
+        }
+        let cleanError = (error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanStage = (stage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanError.isEmpty, !cleanStage.isEmpty {
+            return "\(cleanStage): \(cleanError)"
+        }
+        if !cleanError.isEmpty {
+            return cleanError
+        }
+        return "Screenplay export failed."
+    }
+
+    var alternativesSummary: String {
+        let titles = alternativeFormats
+            .map(Self.displayName(for:))
+            .filter { !$0.isEmpty }
+        guard !titles.isEmpty else { return "" }
+        return "Try \(titles.joined(separator: ", "))."
+    }
+
+    private static func displayName(for format: String) -> String {
+        switch format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fdx":
+            return "FDX"
+        case "md", "markdown":
+            return "Markdown"
+        case "fountain", "txt":
+            return "Fountain"
+        case "pdf":
+            return "PDF"
+        default:
+            return format.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        }
+    }
+}
+
+nonisolated enum BackendScreenplayExportError: LocalizedError {
+    case rejected(status: Int, payload: BackendScreenplayExportRejection)
+
+    var errorDescription: String? {
+        switch self {
+        case .rejected(let status, let payload):
+            let alternatives = payload.alternativesSummary
+            let docs = (payload.docsPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = [
+                alternatives,
+                docs.isEmpty ? "" : "See \(docs).",
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            return "Backend error \(status): \(payload.displayMessage)\(suffix.isEmpty ? "" : " \(suffix)")"
+        }
+    }
 }
 
 nonisolated struct BackendScreenplayExportFormat: Decodable, Hashable, Identifiable {
@@ -1575,6 +3124,115 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
             return "Backend error \(status): \(message)"
         }
     }
+
+    var isCrossDeviceMemoryConflict: Bool {
+        if case .server(let status, let message) = self {
+            return status == 409 && (
+                message.localizedCaseInsensitiveContains("another device") ||
+                message.localizedCaseInsensitiveContains("stale_memory_state_version") ||
+                message.localizedCaseInsensitiveContains("stale_creative_memory_revision")
+            )
+        }
+        return false
+    }
+
+    var isCreativeMemoryConflict: Bool { isCrossDeviceMemoryConflict }
+}
+
+nonisolated struct BackendScreenplayOutlineMutationHTTPError: LocalizedError {
+    let statusCode: Int
+    let response: BackendScreenplayOutlineMutationResponse?
+    let retryAfterMs: Int?
+
+    var errorDescription: String? {
+        let message = response?.error ?? response?.status ?? "screenplay_outline_request_failed"
+        return "Backend error \(statusCode): \(message)"
+    }
+}
+
+nonisolated enum BackendCredentialMigration {
+    static func normalizedNonEmpty(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "" : trimmed
+    }
+
+    static func readString(
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        readKeychain: (String) -> String?,
+        writeKeychain: (String, String) -> Bool,
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+    ) -> String? {
+        let legacy = normalize(defaults.string(forKey: defaultsKey))
+#if os(macOS)
+        if !legacy.isEmpty {
+            return legacy
+        }
+        return nil
+#else
+        if !legacy.isEmpty {
+            if writeKeychain(legacy, account) {
+                defaults.removeObject(forKey: defaultsKey)
+            }
+            return legacy
+        }
+
+        let existing = normalize(readKeychain(account))
+        if !existing.isEmpty {
+            defaults.removeObject(forKey: defaultsKey)
+            return existing
+        }
+
+        return nil
+#endif
+    }
+
+    @discardableResult
+    static func writeString(
+        _ value: String,
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Void,
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+    ) -> Bool {
+        let normalized = normalize(value)
+        guard !normalized.isEmpty else {
+            deleteString(
+                account: account,
+                defaultsKey: defaultsKey,
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+#if os(macOS)
+        defaults.set(normalized, forKey: defaultsKey)
+        return true
+#else
+        let wrote = writeKeychain(normalized, account)
+        if wrote {
+            defaults.removeObject(forKey: defaultsKey)
+        } else {
+            defaults.set(normalized, forKey: defaultsKey)
+        }
+        return true
+#endif
+    }
+
+    static func deleteString(
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        deleteKeychain: (String) -> Void
+    ) {
+#if !os(macOS)
+        deleteKeychain(account)
+#endif
+        defaults.removeObject(forKey: defaultsKey)
+    }
 }
 
 nonisolated enum BackendAuthClient {
@@ -1585,6 +3243,8 @@ nonisolated enum BackendAuthClient {
         static let authUserEmail = "auth_user_email"
         static let authUserVerified = "auth_user_verified"
         static let authUserPayload = "auth_user_payload"
+        static let authAccessToken = "auth_access_token"
+        static let authRefreshToken = "auth_refresh_token"
         static let authAccessExpiresAt = "auth_access_expires_at"
         static let authRefreshExpiresAt = "auth_refresh_expires_at"
         static let authPendingEmailVerification = "auth_pending_email_verification"
@@ -1592,12 +3252,39 @@ nonisolated enum BackendAuthClient {
         static let authCurrentSessionId = "auth_current_session_id"
         static let authCurrentFamilyId = "auth_current_family_id"
         static let authSignedIn = "auth_signed_in"
+        static let authRememberedLoginEnabled = "auth_remembered_login_enabled"
+        static let authRememberedLoginPasswordEnabled = "auth_remembered_login_password_enabled"
+        static let authRememberedLoginDeletionPending = "auth_remembered_login_deletion_pending"
+        static let authRememberedLoginIntentGeneration = "auth_remembered_login_intent_generation"
+        static let authSessionIntentGeneration = "auth_session_intent_generation"
+        static let authSessionEpoch = "auth_session_epoch"
+        static let authSessionTokenDeletionPending = "auth_session_token_deletion_pending"
+        static let clientTokenCachedAt = "client_token_cached_at"
+        static let clientTokenBaseURL = "client_token_base_url"
     }
 
     private static let personaFlowKey = "clementine"
     private static let keychainService = "io.them.client"
     private static let authAccessTokenAccount = "auth_access_token"
     private static let authRefreshTokenAccount = "auth_refresh_token"
+    private static let authSessionSensitiveKeychainAccounts = [
+        authAccessTokenAccount,
+        authRefreshTokenAccount,
+        "session_client_token",
+        "session_client_token_expiry",
+        "stable_user_id",
+    ]
+    private static let rememberedLoginCredentialQueue = DispatchQueue(
+        label: "io.them.auth.remembered-login"
+    )
+    private static let authSessionStateQueue = DispatchQueue(
+        label: "io.them.auth.session-state"
+    )
+    private static let authRefreshCoordinator = BackendAuthRefreshCoordinator()
+    private static let appTokenAccount = "app_token"
+    private static let clientTokenAccount = "session_client_token"
+    private static let clientTokenExpiryAccount = "session_client_token_expiry"
+    private static let userIDAccount = "stable_user_id"
     private static let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -1607,16 +3294,27 @@ nonisolated enum BackendAuthClient {
     }()
 
     static func currentAuthSessionState() -> BackendAuthSessionState {
-        let accessTokenValue = accessToken() ?? ""
-        let refreshTokenValue = refreshToken() ?? ""
-        let accessExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authAccessExpiresAt)
-        let refreshExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authRefreshExpiresAt)
-        let currentSessionId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentSessionId) ?? ""
-        let currentFamilyId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentFamilyId) ?? ""
-        let pendingEmailVerification = UserDefaults.standard.bool(forKey: DefaultsKey.authPendingEmailVerification)
-        let verificationRequired = UserDefaults.standard.bool(forKey: DefaultsKey.authVerificationRequired)
+        authSessionStateQueue.sync {
+            currentAuthSessionStateLocked(defaults: .standard)
+        }
+    }
+
+    private static func currentAuthSessionStateLocked(
+        defaults: UserDefaults
+    ) -> BackendAuthSessionState {
+        guard authSessionStorageIsReadable(defaults: defaults) else {
+            return .signedOut
+        }
+        let accessTokenValue = accessTokenLocked(defaults: defaults) ?? ""
+        let refreshTokenValue = refreshTokenLocked(defaults: defaults) ?? ""
+        let accessExpiresAt = defaults.double(forKey: DefaultsKey.authAccessExpiresAt)
+        let refreshExpiresAt = defaults.double(forKey: DefaultsKey.authRefreshExpiresAt)
+        let currentSessionId = defaults.string(forKey: DefaultsKey.authCurrentSessionId) ?? ""
+        let currentFamilyId = defaults.string(forKey: DefaultsKey.authCurrentFamilyId) ?? ""
+        let pendingEmailVerification = defaults.bool(forKey: DefaultsKey.authPendingEmailVerification)
+        let verificationRequired = defaults.bool(forKey: DefaultsKey.authVerificationRequired)
         return BackendAuthSessionState(
-            user: storedAuthUser(),
+            user: storedAuthUserLocked(defaults: defaults),
             accessTokenPresent: !accessTokenValue.isEmpty,
             refreshTokenPresent: !refreshTokenValue.isEmpty,
             accessExpiresAt: accessExpiresAt,
@@ -1629,42 +3327,885 @@ nonisolated enum BackendAuthClient {
         )
     }
 
-    static func signUp(email: String, password: String) async throws -> BackendAuthSessionState {
+    static func rememberedLoginCredentials() -> BackendRememberedLoginCredentials? {
+        guard case .loaded(let credentials) = rememberedLoginCredentialLoadResult() else {
+            return nil
+        }
+        return credentials
+    }
+
+    static func rememberedLoginIntentGeneration() -> Int {
+        rememberedLoginCredentialQueue.sync {
+            rememberedLoginIntentGeneration(defaults: .standard)
+        }
+    }
+
+    static func reserveRememberedLoginIntent() -> Int {
+        rememberedLoginCredentialQueue.sync {
+            reserveRememberedLoginIntent(defaults: .standard)
+        }
+    }
+
+    static func reserveRememberedLoginIntent(defaults: UserDefaults) -> Int {
+        advanceRememberedLoginIntentGeneration(defaults: defaults)
+    }
+
+    static func reserveAuthenticationIntent() -> BackendAuthOperationIntent {
+        authSessionStateQueue.sync {
+            let sessionGeneration = reserveAuthSessionIntent(defaults: .standard)
+            let rememberedGeneration = rememberedLoginCredentialQueue.sync {
+                reserveRememberedLoginIntent(defaults: .standard)
+            }
+            return BackendAuthOperationIntent(
+                sessionGeneration: sessionGeneration,
+                rememberedLoginGeneration: rememberedGeneration
+            )
+        }
+    }
+
+    static func reserveAuthSessionIntent() -> Int {
+        authSessionStateQueue.sync {
+            reserveAuthSessionIntent(defaults: .standard)
+        }
+    }
+
+    static func reserveAuthSessionIntent(defaults: UserDefaults) -> Int {
+        let current = authSessionIntentGeneration(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authSessionIntentGeneration)
+        return next
+    }
+
+    static func authSessionIntentGeneration(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authSessionIntentGeneration))
+    }
+
+    static func authSessionEpoch(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authSessionEpoch))
+    }
+
+    static func sessionBootstrapIdentityCommitIsAllowed(
+        expectedSessionEpoch: Int,
+        defaults: UserDefaults
+    ) -> Bool {
+        authSessionEpoch(defaults: defaults) == expectedSessionEpoch &&
+            !authSessionTokenDeletionIsPending(defaults: defaults)
+    }
+
+    @discardableResult
+    static func advanceAuthSessionEpoch(defaults: UserDefaults) -> Int {
+        let current = authSessionEpoch(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authSessionEpoch)
+        return next
+    }
+
+    @discardableResult
+    static func advanceAuthSessionEpoch() -> Int {
+        authSessionStateQueue.sync {
+            advanceAuthSessionEpoch(defaults: .standard)
+        }
+    }
+
+    static func currentAuthSessionEpoch() -> Int {
+        authSessionStateQueue.sync {
+            authSessionEpoch(defaults: .standard)
+        }
+    }
+
+    static func authSessionStorageIsReadable(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: DefaultsKey.authSignedIn) &&
+            !defaults.bool(forKey: DefaultsKey.authSessionTokenDeletionPending)
+    }
+
+    static func authSessionCommitIfCurrent(
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        commit: () -> Bool
+    ) -> Bool {
+        guard authSessionIntentGeneration(defaults: defaults) == expectedGeneration,
+              !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return false
+        }
+        return commit()
+    }
+
+    static func captureAuthSessionLease() -> BackendAuthSessionLease? {
+        authSessionStateQueue.sync {
+            guard authSessionStorageIsReadable(defaults: .standard) else { return nil }
+            let accessTokenValue = accessTokenLocked(defaults: .standard) ?? ""
+            let refreshTokenValue = refreshTokenLocked(defaults: .standard) ?? ""
+            let userID = storedAuthUserPayload(defaults: .standard)?.userId
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !userID.isEmpty,
+                  !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
+            return BackendAuthSessionLease(
+                sessionGeneration: authSessionEpoch(defaults: .standard),
+                userID: userID,
+                accessToken: accessTokenValue,
+                refreshToken: refreshTokenValue
+            )
+        }
+    }
+
+    static func requestIdentitySnapshot(
+        generateUserIDIfMissing: Bool
+    ) -> BackendAuthRequestIdentity {
+        authSessionStateQueue.sync {
+            requestIdentitySnapshotLocked(
+                generateUserIDIfMissing: generateUserIDIfMissing,
+                defaults: .standard
+            )
+        }
+    }
+
+    private static func requestIdentitySnapshotLocked(
+        generateUserIDIfMissing: Bool,
+        defaults: UserDefaults
+    ) -> BackendAuthRequestIdentity {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return BackendAuthRequestIdentity(
+                sessionEpoch: authSessionEpoch(defaults: defaults),
+                userID: "",
+                clientToken: "",
+                accessToken: ""
+            )
+        }
+
+        var userID = sharedUserIDLocked(defaults: defaults) ?? ""
+        if userID.isEmpty, generateUserIDIfMissing {
+            userID = generatedStableUserID()
+            if !persistSharedUserIDLocked(userID, defaults: defaults) {
+                userID = ""
+            }
+        }
+        return BackendAuthRequestIdentity(
+            sessionEpoch: authSessionEpoch(defaults: defaults),
+            userID: userID,
+            clientToken: sharedClientTokenLocked(defaults: defaults) ?? "",
+            accessToken: accessTokenLocked(defaults: defaults) ?? ""
+        )
+    }
+
+    static func commitSessionBootstrapIdentityIfCurrent(
+        expectedSessionEpoch: Int,
+        clientToken: String,
+        expiryRaw: String,
+        baseURLRaw: String,
+        userID: String?,
+        persistClientToken: Bool
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard sessionBootstrapIdentityCommitIsAllowed(
+                expectedSessionEpoch: expectedSessionEpoch,
+                defaults: .standard
+            ) else {
+                return false
+            }
+
+            let normalizedUserID = normalizedStoredUserID(userID)
+            if !normalizedUserID.isEmpty,
+               !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
+                return false
+            }
+            if persistClientToken,
+               !persistSharedClientTokenLocked(
+                    clientToken,
+                    expiryRaw: expiryRaw,
+                    baseURLRaw: baseURLRaw,
+                    defaults: .standard
+               ) {
+                return false
+            }
+            return sessionBootstrapIdentityCommitIsAllowed(
+                expectedSessionEpoch: expectedSessionEpoch,
+                defaults: .standard
+            )
+        }
+    }
+
+    static func authSessionLeaseIsCurrent(
+        _ lease: BackendAuthSessionLease,
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?
+    ) -> Bool {
+        guard authSessionStorageIsReadable(defaults: defaults),
+              authSessionEpoch(defaults: defaults) == lease.sessionGeneration else {
+            return false
+        }
+        if !lease.accessToken.isEmpty,
+           currentAccessToken()?.trimmingCharacters(in: .whitespacesAndNewlines) != lease.accessToken {
+            return false
+        }
+        if !lease.refreshToken.isEmpty,
+           currentRefreshToken()?.trimmingCharacters(in: .whitespacesAndNewlines) != lease.refreshToken {
+            return false
+        }
+        return true
+    }
+
+    static func emailVerificationMetadataCommitIsAllowed(
+        lease: BackendAuthSessionLease,
+        responseUserID: String,
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?,
+        currentUserID: () -> String?
+    ) -> Bool {
+        guard authSessionLeaseIsCurrent(
+            lease,
+            defaults: defaults,
+            currentAccessToken: currentAccessToken,
+            currentRefreshToken: currentRefreshToken
+        ) else {
+            return false
+        }
+        let normalizedCurrentUserID = (currentUserID() ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedResponseUserID = responseUserID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalizedCurrentUserID.isEmpty &&
+            normalizedCurrentUserID == lease.userID &&
+            normalizedResponseUserID == lease.userID
+    }
+
+    static func rememberedLoginIntentGeneration(defaults: UserDefaults) -> Int {
+        max(0, defaults.integer(forKey: DefaultsKey.authRememberedLoginIntentGeneration))
+    }
+
+    @discardableResult
+    static func advanceRememberedLoginIntentGeneration(defaults: UserDefaults) -> Int {
+        let current = rememberedLoginIntentGeneration(defaults: defaults)
+        let next = current >= Int.max - 1 ? 1 : current + 1
+        defaults.set(next, forKey: DefaultsKey.authRememberedLoginIntentGeneration)
+        return next
+    }
+
+    static func rememberedLoginCredentialLoadResult() -> BackendRememberedLoginCredentialLoadResult {
+        rememberedLoginCredentialQueue.sync {
+            rememberedLoginCredentialLoadResult(
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func rememberedLoginCredentials(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginCredentials? {
+        guard case .loaded(let credentials) = rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) else {
+            return nil
+        }
+        return credentials
+    }
+
+    static func rememberedLoginCredentialLoadResult(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginCredentialLoadResult {
+        let enabled = defaults.bool(forKey: DefaultsKey.authRememberedLoginEnabled)
+        let deletionPending = defaults.bool(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        guard enabled, !deletionPending else {
+            _ = clearRememberedLoginCredentials(
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            )
+            return .notRemembered
+        }
+
+        switch readKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount) {
+        case .unavailable:
+            // A when-unlocked item can be temporarily unreadable. Preserve
+            // both the item and its enabled state until Keychain is available,
+            // but only when the nonsecret password-retention intent is known.
+            // Older installs may not have this preference; fail closed rather
+            // than silently retaining an unknown password while locked.
+            guard defaults.object(forKey: DefaultsKey.authRememberedLoginPasswordEnabled) != nil else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .notRemembered
+            }
+            return .unavailable(
+                savePassword: defaults.bool(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+            )
+        case .notFound:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            recordRememberedLoginDeletionResult(true, defaults: defaults)
+            return .notRemembered
+        case .invalidData:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .notRemembered
+        case .value(let raw):
+            guard let credentials = BackendRememberedLoginCredentialPolicy.load(
+                enabled: true,
+                readKeychain: { _ in raw }
+            ) else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .notRemembered
+            }
+            // Backfill the explicit nonsecret intent for credentials created
+            // before the password-retention preference existed.
+            defaults.set(
+                credentials.hasSavedPassword,
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+            )
+            return .loaded(credentials)
+        }
+    }
+
+    @discardableResult
+    static func persistRememberedLoginCredentials(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            beginRememberedLoginCredentialMutation(defaults: .standard)
+            advanceRememberedLoginIntentGeneration(defaults: .standard)
+            return persistRememberedLoginCredentials(
+                email: email,
+                password: password,
+                rememberEmail: rememberEmail,
+                savePassword: savePassword,
+                defaults: .standard,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func persistRememberedLoginCredentials(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        // Disable reads before touching Keychain so an interrupted update can
+        // never make an older credential visible again. A successful write
+        // is the only path that re-enables remembered-login loading.
+        beginRememberedLoginCredentialMutation(defaults: defaults)
+        let saved = BackendRememberedLoginCredentialPolicy.update(
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword,
+            writeKeychain: writeKeychain,
+            deleteKeychain: deleteKeychain
+        )
+        if rememberEmail && saved {
+            defaults.set(
+                savePassword && !password.isEmpty,
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+            )
+            defaults.set(true, forKey: DefaultsKey.authRememberedLoginEnabled)
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+            if rememberEmail {
+                // A failed replacement can leave an older Keychain item in
+                // place. Hide it immediately and keep retrying deletion.
+                recordRememberedLoginDeletionResult(
+                    deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount),
+                    defaults: defaults
+                )
+            } else {
+                recordRememberedLoginDeletionResult(saved, defaults: defaults)
+            }
+        }
+        return saved
+    }
+
+    static func persistRememberedLoginCredentialsIfCurrent(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        expectedGeneration: Int
+    ) -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            persistRememberedLoginCredentialsIfCurrent(
+                email: email,
+                password: password,
+                rememberEmail: rememberEmail,
+                savePassword: savePassword,
+                expectedGeneration: expectedGeneration,
+                defaults: .standard,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func persistRememberedLoginCredentialsIfCurrent(
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool,
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        guard rememberedLoginIntentGeneration(defaults: defaults) == expectedGeneration else {
+            return .superseded
+        }
+        beginRememberedLoginCredentialMutation(defaults: defaults)
+        advanceRememberedLoginIntentGeneration(defaults: defaults)
+        return persistRememberedLoginCredentials(
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword,
+            defaults: defaults,
+            writeKeychain: writeKeychain,
+            deleteKeychain: deleteKeychain
+        ) ? .saved : .failed
+    }
+
+    static func disableRememberedLoginPassword() -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            disableRememberedLoginPassword(
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func disableRememberedLoginPassword(
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: "",
+                rememberEmail: true,
+                savePassword: false,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .notRemembered:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .unchanged
+        case .unavailable:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        }
+    }
+
+    static func updateRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        expectedGeneration: Int
+    ) -> BackendRememberedLoginMutationResult {
+        rememberedLoginCredentialQueue.sync {
+            updateRememberedLoginAfterPasswordReset(
+                email: email,
+                newPassword: newPassword,
+                expectedGeneration: expectedGeneration,
+                defaults: .standard,
+                readKeychain: readKeychainStringResult,
+                writeKeychain: writeRememberedLoginKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    static func reconcileRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            guard remembered.hasSavedPassword else { return .unchanged }
+            guard !normalizedEmail.isEmpty else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            guard remembered.email == normalizedEmail else { return .unchanged }
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: newPassword,
+                rememberEmail: true,
+                savePassword: true,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .unavailable(let savedPassword) where savedPassword:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        case .notRemembered, .unavailable:
+            return .unchanged
+        }
+    }
+
+    static func updateRememberedLoginAfterPasswordReset(
+        email: String,
+        newPassword: String,
+        expectedGeneration: Int,
+        defaults: UserDefaults,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> BackendRememberedLoginMutationResult {
+        let generationIsCurrent = rememberedLoginIntentGeneration(defaults: defaults) == expectedGeneration
+        switch rememberedLoginCredentialLoadResult(
+            defaults: defaults,
+            readKeychain: readKeychain,
+            deleteKeychain: deleteKeychain
+        ) {
+        case .loaded(let remembered):
+            let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard remembered.hasSavedPassword else {
+                return .unchanged
+            }
+            guard !normalizedEmail.isEmpty else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            guard remembered.email == normalizedEmail else { return .unchanged }
+            guard generationIsCurrent else {
+                beginRememberedLoginCredentialMutation(defaults: defaults)
+                advanceRememberedLoginIntentGeneration(defaults: defaults)
+                _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+                return .disabled
+            }
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            return persistRememberedLoginCredentials(
+                email: remembered.email,
+                password: newPassword,
+                rememberEmail: true,
+                savePassword: true,
+                defaults: defaults,
+                writeKeychain: writeKeychain,
+                deleteKeychain: deleteKeychain
+            ) ? .saved : .failed
+        case .unavailable(let savedPassword) where savedPassword:
+            beginRememberedLoginCredentialMutation(defaults: defaults)
+            advanceRememberedLoginIntentGeneration(defaults: defaults)
+            _ = clearRememberedLoginCredentials(defaults: defaults, deleteKeychain: deleteKeychain)
+            return .disabled
+        case .notRemembered, .unavailable:
+            return .unchanged
+        }
+    }
+
+    @discardableResult
+    static func clearRememberedLoginCredentials() -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            beginRememberedLoginCredentialMutation(defaults: .standard)
+            advanceRememberedLoginIntentGeneration(defaults: .standard)
+            return clearRememberedLoginCredentials(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func clearRememberedLoginCredentials(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        // Revoke app access first; physical deletion can be retried if the
+        // Keychain is temporarily unavailable (for example, while locked).
+        beginRememberedLoginCredentialMutation(defaults: defaults)
+        let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
+        recordRememberedLoginDeletionResult(deleted, defaults: defaults)
+        return deleted
+    }
+
+    private static func beginRememberedLoginCredentialMutation(defaults: UserDefaults) {
+        defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+    }
+
+    private static func recordRememberedLoginDeletionResult(
+        _ deleted: Bool,
+        defaults: UserDefaults
+    ) {
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
+        }
+    }
+
+    @discardableResult
+    static func retryPendingRememberedLoginDeletion() -> Bool {
+        rememberedLoginCredentialQueue.sync {
+            retryPendingRememberedLoginDeletion(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+        }
+    }
+
+    @discardableResult
+    static func retryPendingRememberedLoginDeletion(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        guard defaults.bool(forKey: DefaultsKey.authRememberedLoginDeletionPending) else {
+            return true
+        }
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
+        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+        let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
+        recordRememberedLoginDeletionResult(deleted, defaults: defaults)
+        return deleted
+    }
+
+    private static func commitEmailAuthenticationEnvelope(
+        _ payload: BackendAuthEnvelope,
+        intent: BackendAuthOperationIntent,
+        email: String,
+        password: String,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) -> BackendInteractiveAuthCommitResult {
+        authSessionStateQueue.sync {
+            guard authSessionIntentGeneration(defaults: .standard) == intent.sessionGeneration else {
+                return .superseded
+            }
+            return rememberedLoginCredentialQueue.sync {
+                let rememberedIntentIsCurrent = rememberedLoginIntentGeneration(defaults: .standard)
+                    == intent.rememberedLoginGeneration
+                if rememberedIntentIsCurrent {
+                    // Hide the prior remembered credential before publishing
+                    // a new account session. A crash can never expose Session
+                    // B beside Account A's previously saved password.
+                    beginRememberedLoginCredentialMutation(defaults: .standard)
+                }
+                guard persistAuthEnvelope(payload) else {
+                    _ = reserveAuthSessionIntent(defaults: .standard)
+                    _ = advanceAuthSessionEpoch(defaults: .standard)
+                    postBackendNotificationOnMain(
+                        name: .themBackendIdentityPartitionChanged,
+                        userInfo: [:]
+                    )
+                    return .storageFailed
+                }
+                _ = reserveAuthSessionIntent(defaults: .standard)
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                let rememberedResult: BackendRememberedLoginMutationResult
+                if rememberedIntentIsCurrent {
+                    rememberedResult = persistRememberedLoginCredentialsIfCurrent(
+                        email: email,
+                        password: password,
+                        rememberEmail: rememberEmail,
+                        savePassword: savePassword,
+                        expectedGeneration: intent.rememberedLoginGeneration,
+                        defaults: .standard,
+                        writeKeychain: writeRememberedLoginKeychainString,
+                        deleteKeychain: deleteKeychainString
+                    )
+                } else {
+                    // Remember/save toggles are intentionally independent of
+                    // session intent. A newer toggle may suppress credential
+                    // persistence without discarding an otherwise valid login.
+                    rememberedResult = .superseded
+                }
+                return .committed(
+                    BackendEmailAuthenticationResult(
+                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                        rememberedLoginResult: rememberedResult
+                    )
+                )
+            }
+        }
+    }
+
+#if DEBUG
+    static func localDemoAccount() -> BackendLocalDemoAccount? {
+        let account = BackendLocalDemoAccount.standard
+        return BackendLocalDemoAccount.isAvailable(baseURL: baseURL()) ? account : nil
+    }
+#endif
+
+    static func signUp(
+        email: String,
+        password: String,
+        intent: BackendAuthOperationIntent,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) async throws -> BackendEmailAuthenticationResult {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/signup")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        switch commitEmailAuthenticationEnvelope(
+            payload,
+            intent: intent,
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword
+        ) {
+        case .committed(let result):
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            return result
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
     }
 
-    static func login(email: String, password: String) async throws -> BackendAuthSessionState {
+    static func login(
+        email: String,
+        password: String,
+        intent: BackendAuthOperationIntent,
+        rememberEmail: Bool,
+        savePassword: Bool
+    ) async throws -> BackendEmailAuthenticationResult {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/login")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        switch commitEmailAuthenticationEnvelope(
+            payload,
+            intent: intent,
+            email: email,
+            password: password,
+            rememberEmail: rememberEmail,
+            savePassword: savePassword
+        ) {
+        case .committed(let result):
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            return result
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
     }
 
     static func signInWithApple(
         identityToken: String,
         authorizationCode: String? = nil,
         userIdentifier: String,
+        rawNonce: String,
+        expectedSessionGeneration: Int,
         email: String? = nil,
         givenName: String? = nil,
         familyName: String? = nil
     ) async throws -> BackendAuthSessionState {
+        let body = appleSignInRequestBody(
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            userIdentifier: userIdentifier,
+            rawNonce: rawNonce,
+            email: email,
+            givenName: givenName,
+            familyName: familyName
+        )
+        guard body["raw_nonce"]?.isEmpty == false else {
+            throw BackendMemoryAPIError.server(status: 400, message: "apple_nonce_required")
+        }
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/apple")
-        var body: [String: Any] = [
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        switch persistInteractiveAuthEnvelopeIfCurrent(
+            payload,
+            expectedGeneration: expectedSessionGeneration
+        ) {
+        case .committed:
+            break
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
+        await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        return currentAuthSessionState()
+    }
+
+    static func appleSignInRequestBody(
+        identityToken: String,
+        authorizationCode: String? = nil,
+        userIdentifier: String,
+        rawNonce: String,
+        email: String? = nil,
+        givenName: String? = nil,
+        familyName: String? = nil
+    ) -> [String: String] {
+        var body = [
             "identity_token": identityToken.trimmingCharacters(in: .whitespacesAndNewlines),
             "user_id": userIdentifier.trimmingCharacters(in: .whitespacesAndNewlines),
+            "raw_nonce": rawNonce.trimmingCharacters(in: .whitespacesAndNewlines),
         ]
         let normalizedAuthorizationCode = (authorizationCode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedAuthorizationCode.isEmpty {
@@ -1682,11 +4223,7 @@ nonisolated enum BackendAuthClient {
         if !normalizedFamilyName.isEmpty {
             body["family_name"] = normalizedFamilyName
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
-        return currentAuthSessionState()
+        return body
     }
 
     static func refreshAuthSession(force: Bool = false) async throws -> BackendAuthSessionState {
@@ -1696,42 +4233,223 @@ nonisolated enum BackendAuthClient {
                 return current
             }
         }
-        let refreshTokenValue = refreshToken() ?? ""
-        guard !refreshTokenValue.isEmpty else {
+        guard let lease = captureAuthSessionLease(), !lease.refreshToken.isEmpty else {
             throw BackendMemoryAPIError.server(status: 401, message: "refresh_token_required")
         }
+        return try await authRefreshCoordinator.run(key: .init(lease: lease)) {
+            try await performRefreshAuthSession(lease: lease)
+        }
+    }
+
+    private static func performRefreshAuthSession(
+        lease: BackendAuthSessionLease
+    ) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/refresh")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "refresh_token": refreshTokenValue,
+            "refresh_token": lease.refreshToken,
         ], options: [])
-        let payload = try await run(request, as: BackendAuthEnvelope.self)
-        persistAuthEnvelope(payload)
+        let payload: BackendAuthEnvelope
+        do {
+            payload = try await run(request, as: BackendAuthEnvelope.self)
+        } catch {
+            if isTerminalRefreshRejection(error), invalidateAuthSessionIfLeaseCurrent(lease) {
+                await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            }
+            throw error
+        }
+        switch persistRefreshAuthEnvelopeIfCurrent(payload, lease: lease) {
+        case .committed:
+            break
+        case .superseded:
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        case .storageFailed:
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            await revokeUncommittedAuthEnvelopeBestEffort(payload)
+            throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
+        }
+#if DEBUG
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_refresh_token")
+#endif
         return currentAuthSessionState()
     }
 
-    static func logout() async throws {
-        let accessTokenValue = accessToken() ?? ""
-        let refreshTokenValue = refreshToken() ?? ""
-        var pendingError: Error?
-        if !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty {
-            do {
-                var request = try makeAuthWriteRequest(path: "/auth/logout")
-                request.httpBody = try JSONSerialization.data(withJSONObject: [
-                    "refresh_token": refreshTokenValue,
-                ], options: [])
-                _ = try await run(request, as: BackendAuthEnvelope.self)
-            } catch {
-                pendingError = error
-            }
-        }
-        clearAuthSession()
-        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
-        if let pendingError {
-            throw pendingError
+    static func isTerminalRefreshRejection(_ error: Error) -> Bool {
+        guard case BackendMemoryAPIError.server(let status, let message) = error,
+              status == 401 else { return false }
+        let normalized = message
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == "invalid_refresh_token" ||
+            normalized == "auth_refresh: invalid_refresh_token"
+    }
+
+    private static func revokeUncommittedAuthEnvelopeBestEffort(
+        _ payload: BackendAuthEnvelope
+    ) async {
+        let access = (payload.accessToken ?? payload.token ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let refresh = (payload.refreshToken ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !access.isEmpty || !refresh.isEmpty else { return }
+        do {
+            let request = try capturedLogoutRequest(
+                accessToken: access,
+                refreshToken: refresh
+            )
+            _ = try await run(request, as: BackendAuthEnvelope.self)
+        } catch {
+            // The local state has already rejected this credential pair. A
+            // best-effort server revocation must never resurrect or replace it.
         }
     }
 
+    private static func invalidateAuthSessionIfLeaseCurrent(_ lease: BackendAuthSessionLease) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionLeaseIsCurrent(
+                lease,
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+            ) else {
+                return false
+            }
+            _ = clearAuthSession(advanceGeneration: true)
+            return true
+        }
+    }
+
+    static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
+        if authSessionTokenDeletionIsPending() {
+            _ = retryPendingAuthSessionTokenDeletion()
+            return currentAuthSessionState()
+        }
+        let current = currentAuthSessionState()
+        guard current.refreshTokenPresent else { return current }
+        guard !current.isAuthenticated || current.accessExpired else { return current }
+        return try await refreshAuthSession(force: true)
+    }
+
+    static func logout() async throws -> Bool {
+        let local = authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
+            let access = accessTokenLocked(defaults: .standard) ?? ""
+            let refresh = refreshTokenLocked(defaults: .standard) ?? ""
+            let deleted = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            return (access, refresh, deleted)
+        }
+
+        let capturedRequest: Result<URLRequest?, Error>
+        do {
+            if local.access.isEmpty, local.refresh.isEmpty {
+                capturedRequest = .success(nil)
+            } else {
+                capturedRequest = .success(try capturedLogoutRequest(
+                    accessToken: local.access,
+                    refreshToken: local.refresh
+                ))
+            }
+        } catch {
+            capturedRequest = .failure(error)
+        }
+
+        await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        switch capturedRequest {
+        case .success(let request?):
+            _ = try await run(request, as: BackendAuthEnvelope.self)
+        case .success(nil):
+            break
+        case .failure(let error):
+            throw error
+        }
+        return local.deleted
+    }
+
+    static func capturedLogoutRequest(
+        accessToken: String,
+        refreshToken: String
+    ) throws -> URLRequest {
+        let normalizedAccessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRefreshToken = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        var request = try makeAuthWriteRequest(path: "/auth/logout")
+        // Never inherit a bearer installed by a concurrent login. This
+        // request belongs only to the explicitly captured credential pair.
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        if !normalizedAccessToken.isEmpty {
+            request.setValue(
+                "Bearer \(normalizedAccessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "refresh_token": normalizedRefreshToken,
+        ], options: [])
+        return request
+    }
+
+    @discardableResult
+    static func clearLocalSessionForAccountDeletion() -> BackendAuthUser? {
+        authSessionStateQueue.sync {
+            let deletedUser = storedAuthUserPayload(defaults: .standard)
+            _ = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            rememberedLoginCredentialQueue.sync {
+                beginRememberedLoginCredentialMutation(defaults: .standard)
+                advanceRememberedLoginIntentGeneration(defaults: .standard)
+                _ = clearRememberedLoginCredentials(
+                    defaults: .standard,
+                    deleteKeychain: deleteKeychainString
+                )
+            }
+            return deletedUser
+        }
+    }
+
+    @discardableResult
+    static func clearSessionAfterSuccessfulAccountDeletionIfSameAccount(
+        _ deletedUser: BackendAuthUser?
+    ) -> Bool {
+        return authSessionStateQueue.sync {
+            let currentUser = storedAuthUserPayload(defaults: .standard)
+            guard accountDeletionShouldClearCurrentSession(
+                deletedUser: deletedUser,
+                currentUser: currentUser
+            ) else {
+                return false
+            }
+            _ = clearAuthSession(
+                advanceGeneration: true,
+                invalidateInteractiveIntents: true
+            )
+            rememberedLoginCredentialQueue.sync {
+                beginRememberedLoginCredentialMutation(defaults: .standard)
+                advanceRememberedLoginIntentGeneration(defaults: .standard)
+                _ = clearRememberedLoginCredentials(
+                    defaults: .standard,
+                    deleteKeychain: deleteKeychainString
+                )
+            }
+            return true
+        }
+    }
+
+    static func accountDeletionShouldClearCurrentSession(
+        deletedUser: BackendAuthUser?,
+        currentUser: BackendAuthUser?
+    ) -> Bool {
+        guard let deletedUser, let currentUser else { return false }
+        return authUsersReferToSameAccount(deletedUser, currentUser)
+    }
+
     static func requestPasswordReset(email: String) async throws -> BackendAuthEnvelope {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_password_reset")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1739,21 +4457,119 @@ nonisolated enum BackendAuthClient {
         return try await run(request, as: BackendAuthEnvelope.self)
     }
 
-    static func resetPassword(token: String, newPassword: String) async throws -> BackendAuthSessionState {
+    static func resetPassword(
+        token: String,
+        newPassword: String
+    ) async throws -> BackendPasswordResetResult {
+        let resetIntent = authSessionStateQueue.sync {
+            BackendPasswordResetIntent(
+                authIntentGeneration: reserveAuthSessionIntent(defaults: .standard),
+                sessionEpoch: authSessionEpoch(defaults: .standard)
+            )
+        }
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/reset_password")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
             "new_password": newPassword,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        if payload.passwordReset == true {
-            clearAuthSession()
-            await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+        let canonicalUser = payload.user
+        guard payload.passwordReset == true else {
+            return passwordResetResult(
+                canonicalUser: canonicalUser,
+                sessionState: currentAuthSessionState()
+            )
         }
-        return currentAuthSessionState()
+
+        let committed = authSessionStateQueue.sync { () -> (BackendPasswordResetResult, Bool) in
+            let currentUser = storedAuthUserPayload(defaults: .standard)
+            let currentIntentGeneration = authSessionIntentGeneration(defaults: .standard)
+            let currentSessionEpoch = authSessionEpoch(defaults: .standard)
+            // A login that merely started (and may later fail) cannot protect
+            // the revoked old session. A newer login that actually committed
+            // advances both the interactive intent and the session epoch.
+            let preserveCurrentSession = passwordResetShouldPreserveCurrentSession(
+                intent: resetIntent,
+                currentAuthIntentGeneration: currentIntentGeneration,
+                currentSessionEpoch: currentSessionEpoch,
+                sessionStorageIsReadable: authSessionStorageIsReadable(defaults: .standard),
+                canonicalUser: canonicalUser,
+                currentUser: currentUser
+            )
+            let shouldClearSession = currentUser != nil && !preserveCurrentSession
+            if shouldClearSession {
+                _ = clearAuthSession(advanceGeneration: true)
+            }
+
+            return rememberedLoginCredentialQueue.sync {
+                let canonicalEmail = canonicalUser?.email
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                let rememberedResult: BackendRememberedLoginMutationResult
+                if preserveCurrentSession {
+                    rememberedResult = .unchanged
+                } else {
+                    rememberedResult = reconcileRememberedLoginAfterPasswordReset(
+                        email: canonicalEmail,
+                        newPassword: newPassword,
+                        defaults: .standard,
+                        readKeychain: readKeychainStringResult,
+                        writeKeychain: writeRememberedLoginKeychainString,
+                        deleteKeychain: deleteKeychainString
+                    )
+                }
+                return (
+                    passwordResetResult(
+                        canonicalUser: canonicalUser,
+                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                        rememberedLoginResult: rememberedResult
+                    ),
+                    shouldClearSession
+                )
+            }
+        }
+        if committed.1 {
+            await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+        }
+        return committed.0
+    }
+
+    static func passwordResetResult(
+        canonicalUser: BackendAuthUser?,
+        sessionState: BackendAuthSessionState,
+        rememberedLoginResult: BackendRememberedLoginMutationResult = .unchanged
+    ) -> BackendPasswordResetResult {
+        BackendPasswordResetResult(
+            sessionState: sessionState,
+            canonicalEmail: canonicalUser?.email
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? "",
+            rememberedLoginResult: rememberedLoginResult
+        )
+    }
+
+    static func passwordResetShouldPreserveCurrentSession(
+        intent: BackendPasswordResetIntent,
+        currentAuthIntentGeneration: Int,
+        currentSessionEpoch: Int,
+        sessionStorageIsReadable: Bool,
+        canonicalUser: BackendAuthUser?,
+        currentUser: BackendAuthUser?
+    ) -> Bool {
+        guard let currentUser else { return false }
+        if let canonicalUser,
+           !authUsersReferToSameAccount(canonicalUser, currentUser) {
+            return true
+        }
+        return currentAuthIntentGeneration != intent.authIntentGeneration &&
+            currentSessionEpoch != intent.sessionEpoch &&
+            sessionStorageIsReadable
     }
 
     static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+        let lease = captureAuthSessionLease()
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
         var body: [String: Any] = [:]
         let normalizedEmail = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1762,51 +4578,65 @@ nonisolated enum BackendAuthClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
-        }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
+        if let lease {
+            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
         return payload
     }
 
     static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+        let lease = captureAuthSessionLease()
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/verify_email")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+        if let lease {
+            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
-        } else if var currentUser = storedAuthUser() {
-            currentUser = BackendAuthUser(
-                userId: currentUser.userId,
-                email: currentUser.email,
-                authProvider: currentUser.authProvider,
-                emailVerified: true,
-                emailVerifiedAt: Date().timeIntervalSince1970,
-                createdAt: currentUser.createdAt,
-                updatedAt: Date().timeIntervalSince1970
-            )
-            persistAuthUser(currentUser)
-        }
-        UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
         return currentAuthSessionState()
+    }
+
+    @discardableResult
+    private static func commitEmailVerificationMetadataIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        lease: BackendAuthSessionLease
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard let responseUser = payload.user,
+                  emailVerificationMetadataCommitIsAllowed(
+                    lease: lease,
+                    responseUserID: responseUser.userId,
+                    defaults: .standard,
+                    currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                    currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
+                    currentUserID: { storedAuthUserPayload(defaults: .standard)?.userId }
+                  ) else {
+                return false
+            }
+
+            let currentSessionId = (payload.currentSessionId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentSessionId.isEmpty {
+                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+            }
+            let currentFamilyId = (payload.currentFamilyId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentFamilyId.isEmpty {
+                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+            }
+            guard persistAuthUser(responseUser) else { return false }
+            UserDefaults.standard.set(
+                payload.pendingEmailVerification ?? !responseUser.emailVerified,
+                forKey: DefaultsKey.authPendingEmailVerification
+            )
+            UserDefaults.standard.set(
+                payload.verificationRequired ?? !responseUser.emailVerified,
+                forKey: DefaultsKey.authVerificationRequired
+            )
+            return true
+        }
     }
 
     private static func makeAuthWriteRequest(path: String) throws -> URLRequest {
@@ -1831,6 +4661,10 @@ nonisolated enum BackendAuthClient {
         return request
     }
 
+    private static func prepareVerifiedBackendForAuth() async throws {
+        _ = try await BackendMemoryAPI.shared.fetchHealth()
+    }
+
     private static func applyStandardHeaders(
         to request: inout URLRequest,
         includeContentType: Bool = false,
@@ -1838,6 +4672,7 @@ nonisolated enum BackendAuthClient {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
+        let identity = requestIdentitySnapshot(generateUserIDIfMissing: false)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1845,21 +4680,14 @@ nonisolated enum BackendAuthClient {
         if let token = appToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        if includeUserIdentity {
-            let userId = (UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !userId.isEmpty {
-                request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-            }
+        if includeUserIdentity, !identity.userID.isEmpty {
+            request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
         }
-        if includeClientToken {
-            let clientToken = preferenceString(forKey: "client_token")
-            if !clientToken.isEmpty {
-                request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
-            }
+        if includeClientToken, !identity.clientToken.isEmpty {
+            request.setValue(identity.clientToken, forHTTPHeaderField: "X-Client-Token")
         }
-        if includeAuthToken, let token = accessToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if includeAuthToken, !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.setValue("them", forHTTPHeaderField: "X-Them-Client-Name")
         #if os(macOS)
@@ -1887,6 +4715,15 @@ nonisolated enum BackendAuthClient {
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data) else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
+        }
         guard (200...299).contains(http.statusCode) else {
             throw BackendMemoryAPIError.server(status: http.statusCode, message: decodeErrorMessage(from: data))
         }
@@ -1895,107 +4732,495 @@ nonisolated enum BackendAuthClient {
         return try decoder.decode(T.self, from: data)
     }
 
-    private static func storedAuthUser() -> BackendAuthUser? {
-        guard let data = UserDefaults.standard.data(forKey: DefaultsKey.authUserPayload) else {
-            return nil
+    private static func storedAuthUserLocked(defaults: UserDefaults) -> BackendAuthUser? {
+        guard authSessionStorageIsReadable(defaults: defaults) else { return nil }
+        if let user = storedAuthUserPayload(defaults: defaults) {
+            return user
         }
-        return try? JSONDecoder().decode(BackendAuthUser.self, from: data)
+#if DEBUG
+        guard defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession else { return nil }
+        let signedIn = preferenceStringValues(forKey: DefaultsKey.authSignedIn).contains { rawValue in
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ["1", "true", "yes", "on"].contains(normalized)
+        } || UserDefaults.standard.bool(forKey: DefaultsKey.authSignedIn)
+        return BackendAuthDebugSessionPolicy.syntheticUser(
+            signedIn: signedIn,
+            accessToken: accessTokenLocked(defaults: defaults) ?? "",
+            userID: preferenceString(forKey: DefaultsKey.userId),
+            email: preferenceString(forKey: DefaultsKey.authUserEmail)
+        )
+#else
+        return nil
+#endif
     }
 
-    private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) {
+    private static func storedAuthUserPayload(defaults: UserDefaults) -> BackendAuthUser? {
+        if let data = defaults.data(forKey: DefaultsKey.authUserPayload),
+           let user = try? JSONDecoder().decode(BackendAuthUser.self, from: data) {
+            return user
+        }
+        return nil
+    }
+
+    static func authUsersReferToSameAccount(
+        _ lhs: BackendAuthUser,
+        _ rhs: BackendAuthUser
+    ) -> Bool {
+        let leftUserID = lhs.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rightUserID = rhs.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !leftUserID.isEmpty, !rightUserID.isEmpty {
+            return leftUserID == rightUserID
+        }
+        let leftEmail = lhs.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rightEmail = rhs.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !leftEmail.isEmpty && leftEmail == rightEmail
+    }
+
+    private static func persistInteractiveAuthEnvelopeIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        expectedGeneration: Int
+    ) -> BackendAuthEnvelopeCommitOutcome {
+        authSessionStateQueue.sync {
+            guard authSessionIntentGeneration(defaults: .standard) == expectedGeneration,
+                  !authSessionTokenDeletionIsPending(defaults: .standard) else {
+                return .superseded
+            }
+            guard persistAuthEnvelope(payload) else {
+                _ = reserveAuthSessionIntent(defaults: .standard)
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                postBackendNotificationOnMain(
+                    name: .themBackendIdentityPartitionChanged,
+                    userInfo: [:]
+                )
+                return .storageFailed
+            }
+            _ = reserveAuthSessionIntent(defaults: .standard)
+            _ = advanceAuthSessionEpoch(defaults: .standard)
+            return .committed
+        }
+    }
+
+    private static func persistRefreshAuthEnvelopeIfCurrent(
+        _ payload: BackendAuthEnvelope,
+        lease: BackendAuthSessionLease
+    ) -> BackendAuthEnvelopeCommitOutcome {
+        authSessionStateQueue.sync {
+            guard authSessionLeaseIsCurrent(
+                lease,
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+            ) else {
+                return .superseded
+            }
+            guard persistAuthEnvelope(payload) else {
+                _ = advanceAuthSessionEpoch(defaults: .standard)
+                postBackendNotificationOnMain(
+                    name: .themBackendIdentityPartitionChanged,
+                    userInfo: [:]
+                )
+                return .storageFailed
+            }
+            _ = advanceAuthSessionEpoch(defaults: .standard)
+            return .committed
+        }
+    }
+
+    @discardableResult
+    private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) -> Bool {
         let normalizedAccessToken = (payload.accessToken ?? payload.token ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedAccessToken.isEmpty {
-            writeKeychainString(normalizedAccessToken, account: authAccessTokenAccount)
-            let ttl = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
-            UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authAccessExpiresAt)
-        }
-
         let normalizedRefreshToken = (payload.refreshToken ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedRefreshToken.isEmpty {
-            writeKeychainString(normalizedRefreshToken, account: authRefreshTokenAccount)
-            let ttl = max(60, payload.refreshExpiresIn ?? 0)
-            if ttl > 0 {
-                UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authRefreshExpiresAt)
-            }
+        guard !normalizedAccessToken.isEmpty,
+              !normalizedRefreshToken.isEmpty,
+              let user = payload.user else {
+            _ = clearAuthSession()
+            return false
         }
 
-        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentSessionId.isEmpty {
-            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
-        }
-        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentFamilyId.isEmpty {
-            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-        }
-        if let user = payload.user {
-            persistAuthUser(user)
-        }
-        if payload.emailVerified == true, var currentUser = storedAuthUser() {
-            currentUser = BackendAuthUser(
-                userId: currentUser.userId,
-                email: currentUser.email,
-                authProvider: currentUser.authProvider,
-                emailVerified: true,
-                emailVerifiedAt: Date().timeIntervalSince1970,
-                createdAt: currentUser.createdAt,
-                updatedAt: Date().timeIntervalSince1970
+        return persistAuthTokenPair(
+            accessToken: normalizedAccessToken,
+            refreshToken: normalizedRefreshToken,
+            defaults: .standard,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainString
+        ) {
+            let accessTTL = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970 + Double(accessTTL),
+                forKey: DefaultsKey.authAccessExpiresAt
             )
-            persistAuthUser(currentUser)
+            let refreshTTL = max(60, payload.refreshExpiresIn ?? 0)
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970 + Double(refreshTTL),
+                forKey: DefaultsKey.authRefreshExpiresAt
+            )
+
+            let currentSessionId = (payload.currentSessionId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentSessionId.isEmpty {
+                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+            }
+            let currentFamilyId = (payload.currentFamilyId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentFamilyId.isEmpty {
+                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+            }
+            let verifiedUser: BackendAuthUser
+            if payload.emailVerified == true {
+                verifiedUser = BackendAuthUser(
+                    userId: user.userId,
+                    email: user.email,
+                    authProvider: user.authProvider,
+                    emailVerified: true,
+                    emailVerifiedAt: user.emailVerifiedAt ?? Date().timeIntervalSince1970,
+                    createdAt: user.createdAt,
+                    updatedAt: Date().timeIntervalSince1970
+                )
+            } else {
+                verifiedUser = user
+            }
+            guard persistAuthUser(verifiedUser) else { return false }
+            UserDefaults.standard.set(
+                payload.pendingEmailVerification ?? false,
+                forKey: DefaultsKey.authPendingEmailVerification
+            )
+            UserDefaults.standard.set(
+                payload.verificationRequired ?? false,
+                forKey: DefaultsKey.authVerificationRequired
+            )
+            return true
         }
-        UserDefaults.standard.set(payload.pendingEmailVerification ?? false, forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.set(payload.verificationRequired ?? false, forKey: DefaultsKey.authVerificationRequired)
-        let signedIn = (accessToken() != nil) && (storedAuthUser() != nil)
-        UserDefaults.standard.set(signedIn, forKey: DefaultsKey.authSignedIn)
     }
 
-    private static func persistAuthUser(_ user: BackendAuthUser) {
-        if let data = try? JSONEncoder().encode(user) {
-            UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
-        }
+    @discardableResult
+    private static func persistAuthUser(_ user: BackendAuthUser) -> Bool {
+        guard let data = try? JSONEncoder().encode(user) else { return false }
+        UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
         UserDefaults.standard.set(user.email, forKey: DefaultsKey.authUserEmail)
         UserDefaults.standard.set(user.emailVerified, forKey: DefaultsKey.authUserVerified)
-        UserDefaults.standard.set(user.userId, forKey: DefaultsKey.userId)
+        guard persistSharedUserIDLocked(
+            user.userId,
+            defaults: .standard,
+            allowDuringAuthMutation: true
+        ) else { return false }
         if user.emailVerified {
             UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
             UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
         }
+        return true
     }
 
-    private static func clearAuthSession() {
-        deleteKeychainString(account: authAccessTokenAccount)
-        deleteKeychainString(account: authRefreshTokenAccount)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserPayload)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserEmail)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserVerified)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authVerificationRequired)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authSignedIn)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentSessionId)
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
-        UserDefaults.standard.removeObject(forKey: "client_token")
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
+    private static func beginAuthSessionTokenMutation(defaults: UserDefaults) {
+        defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
+    }
+
+    @discardableResult
+    static func persistAuthTokenPair(
+        accessToken: String,
+        refreshToken: String,
+        defaults: UserDefaults,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Bool,
+        persistMetadata: () -> Bool
+    ) -> Bool {
+        let normalizedAccessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRefreshToken = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAccessToken.isEmpty, !normalizedRefreshToken.isEmpty else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+
+        // A prior interrupted deletion must be completed before a new token
+        // pair can become readable. Never clear its fail-closed marker merely
+        // because a replacement write was attempted.
+        if authSessionTokenDeletionIsPending(defaults: defaults) {
+            guard retryPendingAuthSessionTokenDeletion(
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            ) else {
+                return false
+            }
+        }
+
+        beginAuthSessionTokenMutation(defaults: defaults)
+        clearAuthSessionMetadata(defaults: defaults)
+        let priorIdentityDeleted = authSessionSensitiveKeychainAccounts.reduce(true) {
+            allDeleted,
+            account in
+            deleteKeychain(account) && allDeleted
+        }
+        guard priorIdentityDeleted else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+            return false
+        }
+        let accessWritten = writeKeychain(normalizedAccessToken, authAccessTokenAccount)
+        let refreshWritten = writeKeychain(normalizedRefreshToken, authRefreshTokenAccount)
+        guard accessWritten, refreshWritten else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+
+        guard persistMetadata() else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+        defaults.set(true, forKey: DefaultsKey.authSignedIn)
+        defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        return true
+    }
+
+    private static func clearAuthSessionMetadata(defaults: UserDefaults) {
+        defaults.removeObject(forKey: DefaultsKey.authUserPayload)
+        defaults.removeObject(forKey: DefaultsKey.authUserEmail)
+        defaults.removeObject(forKey: DefaultsKey.authUserVerified)
+        defaults.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
+        defaults.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
+        defaults.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
+        defaults.removeObject(forKey: DefaultsKey.authVerificationRequired)
+        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
+        defaults.removeObject(forKey: DefaultsKey.authCurrentSessionId)
+        defaults.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
+        defaults.removeObject(forKey: DefaultsKey.authAccessToken)
+        defaults.removeObject(forKey: DefaultsKey.authRefreshToken)
+        defaults.removeObject(forKey: DefaultsKey.userId)
+        defaults.removeObject(forKey: "client_token")
+        defaults.removeObject(forKey: "client_token_expiry")
+        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+    }
+
+    @discardableResult
+    static func invalidateAuthSessionStorage(
+        defaults: UserDefaults,
+        advanceGeneration: Bool,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        beginAuthSessionTokenMutation(defaults: defaults)
+        if advanceGeneration {
+            _ = advanceAuthSessionEpoch(defaults: defaults)
+        }
+        clearAuthSessionMetadata(defaults: defaults)
+        let deleted = authSessionSensitiveKeychainAccounts.reduce(true) { allDeleted, account in
+            deleteKeychain(account) && allDeleted
+        }
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        }
+        return deleted
+    }
+
+    @discardableResult
+    private static func clearAuthSession(
+        advanceGeneration: Bool = false,
+        invalidateInteractiveIntents: Bool = false
+    ) -> Bool {
+        if invalidateInteractiveIntents {
+            _ = reserveAuthSessionIntent(defaults: .standard)
+        }
+        let deleted = invalidateAuthSessionStorage(
+            defaults: .standard,
+            advanceGeneration: advanceGeneration,
+            deleteKeychain: deleteKeychainString
+        )
+        postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        return deleted
+    }
+
+    static func authSessionTokenDeletionIsPending(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: DefaultsKey.authSessionTokenDeletionPending)
+    }
+
+    static func authSessionTokenReadsAreAllowed(defaults: UserDefaults = .standard) -> Bool {
+        authSessionStorageIsReadable(defaults: defaults)
+    }
+
+    @discardableResult
+    static func retryPendingAuthSessionTokenDeletion() -> Bool {
+        authSessionStateQueue.sync {
+            let wasPending = authSessionTokenDeletionIsPending()
+            let deleted = retryPendingAuthSessionTokenDeletion(
+                defaults: .standard,
+                deleteKeychain: deleteKeychainString
+            )
+            if wasPending {
+                postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+            }
+            return deleted
+        }
+    }
+
+    @discardableResult
+    static func retryPendingAuthSessionTokenDeletion(
+        defaults: UserDefaults,
+        deleteKeychain: (String) -> Bool
+    ) -> Bool {
+        guard authSessionTokenDeletionIsPending(defaults: defaults) else { return true }
+        beginAuthSessionTokenMutation(defaults: defaults)
+        clearAuthSessionMetadata(defaults: defaults)
+        let deleted = authSessionSensitiveKeychainAccounts.reduce(true) { allDeleted, account in
+            deleteKeychain(account) && allDeleted
+        }
+        if deleted {
+            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        } else {
+            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+        }
+        return deleted
     }
 
     fileprivate static func accessToken() -> String? {
-        guard !IOThemRuntime.isRunningTests else { return nil }
+        authSessionStateQueue.sync {
+            accessTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func accessTokenLocked(defaults: UserDefaults) -> String? {
+        guard authSessionTokenReadsAreAllowed(defaults: defaults) else { return nil }
+#if DEBUG
+        if defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession {
+            let debugAccessEnabled = preferenceStringValues(forKey: "auth_debug_access_token_enabled").contains { rawValue in
+                let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return ["1", "true", "yes", "on"].contains(normalized)
+            } || UserDefaults.standard.bool(forKey: "auth_debug_access_token_enabled")
+            if debugAccessEnabled {
+                let trimmedDebugToken = preferenceString(forKey: "auth_debug_access_token")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedDebugToken.isEmpty {
+                    return trimmedDebugToken
+                }
+            }
+        }
+#endif
+        guard defaults === UserDefaults.standard, !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        if !trimmed.isEmpty {
+            scheduleLegacyAuthTokenDefaultsCleanup(
+                defaultsKey: DefaultsKey.authAccessToken
+            )
+            return trimmed
+        }
+        return migrateLegacyAuthTokenIfNeeded(
+            defaultsKey: DefaultsKey.authAccessToken,
+            account: authAccessTokenAccount,
+            defaults: defaults
+        )
+    }
+
+    static func authorizationHeaderValue() -> String? {
+        guard let token = accessToken(), !token.isEmpty else { return nil }
+        return "Bearer \(token)"
     }
 
     private static func refreshToken() -> String? {
-        guard !IOThemRuntime.isRunningTests else { return nil }
-        let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        authSessionStateQueue.sync {
+            refreshTokenLocked(defaults: .standard)
+        }
     }
 
-    private static func writeKeychainString(_ value: String, account: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    private static func refreshTokenLocked(defaults: UserDefaults) -> String? {
+        guard authSessionTokenReadsAreAllowed(defaults: defaults) else { return nil }
+#if DEBUG
+        if defaults === UserDefaults.standard, IOThemRuntime.isStudioAutomationSession {
+            let debugToken = preferenceString(forKey: "auth_debug_refresh_token")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !debugToken.isEmpty {
+                return debugToken
+            }
+        }
+#endif
+        guard defaults === UserDefaults.standard, !IOThemRuntime.isRunningTests else { return nil }
+        let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            scheduleLegacyAuthTokenDefaultsCleanup(
+                defaultsKey: DefaultsKey.authRefreshToken
+            )
+            return trimmed
+        }
+        return migrateLegacyAuthTokenIfNeeded(
+            defaultsKey: DefaultsKey.authRefreshToken,
+            account: authRefreshTokenAccount,
+            defaults: defaults
+        )
+    }
+
+    private static func migrateLegacyAuthTokenIfNeeded(
+        defaultsKey: String,
+        account: String,
+        defaults: UserDefaults
+    ) -> String? {
+        let legacy = (defaults.string(forKey: defaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !legacy.isEmpty else { return nil }
+        guard writeKeychainString(legacy, account: account) else {
+            // Do not expose a plaintext fallback when secure migration is
+            // unavailable. The enabled session remains recoverable once
+            // Keychain becomes writable again.
+            return nil
+        }
+        scheduleLegacyAuthTokenDefaultsCleanup(
+            defaultsKey: defaultsKey
+        )
+        return legacy
+    }
+
+    private static func scheduleLegacyAuthTokenDefaultsCleanup(
+        defaultsKey: String
+    ) {
+        guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return }
+        // Token reads run under authSessionStateQueue. UserDefaults publishes
+        // synchronously into SwiftUI, so mutating it while a view is waiting on
+        // that queue can invert the locks and freeze the window. Cleanup is
+        // intentionally deferred until the main run loop is outside the read.
+        DispatchQueue.main.async {
+            guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return }
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+        }
+    }
+
+    @discardableResult
+    private static func writeKeychainString(_ value: String, account: String) -> Bool {
+        writeKeychainString(
+            value,
+            account: account,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    @discardableResult
+    private static func writeRememberedLoginKeychainString(_ value: String, account: String) -> Bool {
+        writeKeychainString(
+            value,
+            account: account,
+            accessibility: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
+    }
+
+    @discardableResult
+    private static func writeKeychainString(
+        _ value: String,
+        account: String,
+        accessibility: CFString
+    ) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -2004,11 +5229,18 @@ nonisolated enum BackendAuthClient {
         SecItemDelete(query as CFDictionary)
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(item as CFDictionary, nil)
+        item[kSecAttrAccessible as String] = accessibility
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     private static func readKeychainString(account: String) -> String? {
+        guard case .value(let value) = readKeychainStringResult(account: account) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func readKeychainStringResult(account: String) -> BackendKeychainStringReadResult {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -2018,17 +5250,41 @@ nonisolated enum BackendAuthClient {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if status == errSecItemNotFound {
+            return .notFound
+        }
+        guard status == errSecSuccess else {
+            return .unavailable(status)
+        }
+        guard let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return .invalidData
+        }
+        return .value(value)
     }
 
-    private static func deleteKeychainString(account: String) {
+    @discardableResult
+    private static func deleteKeychainString(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+
+    private static func deleteKeychainStringIgnoringResult(account: String) {
+        _ = deleteKeychainString(account: account)
+    }
+
+    private static func normalizedStoredUserID(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard trimmed.count >= 8 && trimmed.count <= 128 else { return "" }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        if trimmed.rangeOfCharacter(from: allowed.inverted) != nil { return "" }
+        return trimmed
     }
 
     private static func preferenceDomains() -> [String] {
@@ -2074,6 +5330,18 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func preferenceValues(forKey key: String) -> [Any] {
+        #if DEBUG
+        if IOThemRuntime.isStudioAutomationSession,
+           let explicitValue = IOThemRuntime.explicitPreferenceArgumentValue(
+               forKey: key,
+               arguments: ProcessInfo.processInfo.arguments
+           ) {
+            return [explicitValue]
+        }
+        if let fileValue = StudioDebugPreferenceFileBridge.value(forKey: key) {
+            return [fileValue]
+        }
+        #endif
         var values: [Any] = []
         var seenFingerprints: Set<String> = []
 
@@ -2106,46 +5374,66 @@ nonisolated enum BackendAuthClient {
     }
 
     fileprivate static func preferenceString(forKey key: String, fallback: String = "") -> String {
-        for value in preferenceValues(forKey: key) {
-            if let string = value as? String {
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            } else if let number = value as? NSNumber {
-                return number.stringValue
-            }
+        for value in preferenceStringValues(forKey: key) {
+            return value
         }
         return fallback
     }
 
+    fileprivate static func preferenceStringValues(forKey key: String) -> [String] {
+        preferenceValues(forKey: key).compactMap { value in
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let number = value as? NSNumber {
+                return number.stringValue
+            }
+            return nil
+        }
+    }
+
     private static func baseURL() -> URL {
-        let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
+        }
+        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
+        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
+        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
-        #if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-        #else
-        return URL(string: "https://api.them.io")!
-        #endif
+        let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
+            UserDefaults.standard.synchronize()
+        }
+        return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
 
     private static func canonicalizeLoopbackURL(_ url: URL) -> URL {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -2155,8 +5443,31 @@ nonisolated enum BackendAuthClient {
         return components.url ?? url
     }
 
+    private static func isUsableBackendURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
+        return true
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
+    }
+
     private static func appToken() -> String? {
-        let fromDefaults = preferenceString(forKey: DefaultsKey.appToken)
+        let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.appToken) ?? ""
         if isUsableConfigValue(fromDefaults) {
             return fromDefaults
         }
@@ -2168,7 +5479,347 @@ nonisolated enum BackendAuthClient {
         if isUsableConfigValue(envValue) {
             return envValue
         }
+        if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
+            return fallback
+        }
+        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
+        }
         return devFallbackAppToken
+    }
+
+    static func sharedAppToken() -> String? {
+        BackendCredentialMigration.readString(
+            account: appTokenAccount,
+            defaultsKey: DefaultsKey.appToken,
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString,
+            normalize: { raw in
+                let value = BackendCredentialMigration.normalizedNonEmpty(raw)
+                return isUsableConfigValue(value) ? value : ""
+            }
+        )
+    }
+
+    static func sharedClientToken() -> String? {
+        authSessionStateQueue.sync {
+            sharedClientTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func sharedClientTokenLocked(defaults: UserDefaults) -> String? {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return nil }
+        #if DEBUG
+        if defaults === UserDefaults.standard, let debugOverride = studioDebugClientTokenOverride() {
+            return debugOverride
+        }
+        #endif
+        return BackendCredentialMigration.readString(
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            defaults: defaults,
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString
+        )
+    }
+
+    static func studioDebugClientTokenOverride(defaults: UserDefaults = .standard) -> String? {
+        #if DEBUG
+        guard isStudioDebugClientTokenOverrideActive(defaults: defaults) else { return nil }
+        let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
+        return token.isEmpty ? nil : token
+        #else
+        return nil
+        #endif
+    }
+
+    static func isStudioDebugClientTokenOverrideActive(defaults: UserDefaults = .standard) -> Bool {
+        #if DEBUG
+        let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
+        let projectID = studioDebugPreferenceString(forKey: "studio_debug_load_project_id", defaults: defaults)
+        let loadToken = studioDebugPreferenceInt(forKey: "studio_debug_load_project_token", defaults: defaults)
+        let ackToken = studioDebugPreferenceInt(forKey: "studio_debug_load_project_ack_token", defaults: defaults)
+        return !token.isEmpty && !projectID.isEmpty && loadToken > 0 && loadToken != ackToken
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG
+    private static func studioDebugPreferenceString(
+        forKey key: String,
+        defaults: UserDefaults
+    ) -> String {
+        if defaults !== UserDefaults.standard {
+            return BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: key))
+        }
+        return preferenceString(forKey: key)
+    }
+
+    private static func studioDebugPreferenceInt(
+        forKey key: String,
+        defaults: UserDefaults
+    ) -> Int {
+        if defaults !== UserDefaults.standard {
+            return defaults.integer(forKey: key)
+        }
+        return preferenceValues(forKey: key).reduce(0) { best, value in
+            let parsed: Int
+            if let number = value as? NSNumber {
+                parsed = number.intValue
+            } else if let string = value as? String {
+                parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            } else {
+                parsed = 0
+            }
+            return max(best, parsed)
+        }
+    }
+    #endif
+
+    static func sharedClientTokenExpiry() -> String? {
+        authSessionStateQueue.sync {
+            guard !authSessionTokenDeletionIsPending() else { return nil }
+            return BackendCredentialMigration.readString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                readKeychain: readKeychainString,
+                writeKeychain: writeKeychainString
+            )
+        }
+    }
+
+    static func sharedClientTokenCachedAt(defaults: UserDefaults = .standard) -> Date? {
+        let raw = defaults.double(forKey: DefaultsKey.clientTokenCachedAt)
+        guard raw > 0 else { return nil }
+        return Date(timeIntervalSince1970: raw)
+    }
+
+    static func sharedClientTokenBaseURL(defaults: UserDefaults = .standard) -> String? {
+        let raw = defaults.string(forKey: DefaultsKey.clientTokenBaseURL) ?? ""
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    @discardableResult
+    static func persistSharedClientToken(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String? = nil
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            persistSharedClientTokenLocked(
+                token,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURLRaw,
+                defaults: .standard
+            )
+        }
+    }
+
+    @discardableResult
+    static func persistSharedClientTokenIfCurrent(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String? = nil,
+        expectedSessionEpoch: Int
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionEpoch(defaults: .standard) == expectedSessionEpoch else {
+                return false
+            }
+            return persistSharedClientTokenLocked(
+                token,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURLRaw,
+                defaults: .standard
+            )
+        }
+    }
+
+    @discardableResult
+    private static func persistSharedClientTokenLocked(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String?,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return false }
+        let previousToken = sharedClientTokenLocked(defaults: defaults)
+        let wroteToken = BackendCredentialMigration.writeString(
+            token,
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            defaults: defaults,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainStringIgnoringResult
+        )
+        let expiryStored: Bool
+        if let expiryRaw {
+            expiryStored = BackendCredentialMigration.writeString(
+                expiryRaw,
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                defaults: defaults,
+                writeKeychain: writeKeychainString,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+        } else {
+            BackendCredentialMigration.deleteString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+            expiryStored = true
+        }
+        guard wroteToken, expiryStored else {
+            BackendCredentialMigration.deleteString(
+                account: clientTokenAccount,
+                defaultsKey: "client_token",
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+            BackendCredentialMigration.deleteString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                defaults: defaults,
+                deleteKeychain: deleteKeychainStringIgnoringResult
+            )
+            defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+            defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+            return false
+        }
+        if wroteToken {
+            defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.clientTokenCachedAt)
+            let normalizedBaseURL = (baseURLRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedBaseURL.isEmpty {
+                defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+            } else {
+                defaults.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
+            }
+            if sharedClientTokenLocked(defaults: defaults) != previousToken {
+                postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+            }
+        }
+        return wroteToken
+    }
+
+    static func clearSharedClientToken() {
+        authSessionStateQueue.sync {
+            clearSharedClientTokenLocked(defaults: .standard)
+        }
+    }
+
+    private static func clearSharedClientTokenLocked(defaults: UserDefaults) {
+        let previousToken = sharedClientTokenLocked(defaults: defaults)
+        BackendCredentialMigration.deleteString(
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
+        )
+        BackendCredentialMigration.deleteString(
+            account: clientTokenExpiryAccount,
+            defaultsKey: "client_token_expiry",
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
+        )
+        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+        if previousToken != nil, sharedClientTokenLocked(defaults: defaults) == nil {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
+    }
+
+    static func sharedUserID() -> String? {
+        authSessionStateQueue.sync {
+            sharedUserIDLocked(defaults: .standard)
+        }
+    }
+
+    private static func sharedUserIDLocked(defaults: UserDefaults) -> String? {
+        guard !authSessionTokenDeletionIsPending(defaults: defaults) else { return nil }
+        return BackendCredentialMigration.readString(
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            defaults: defaults,
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString,
+            normalize: normalizedStoredUserID
+        )
+    }
+
+    @discardableResult
+    static func persistSharedUserID(_ userID: String) -> Bool {
+        authSessionStateQueue.sync {
+            persistSharedUserIDLocked(userID, defaults: .standard)
+        }
+    }
+
+    @discardableResult
+    static func persistSharedUserIDIfCurrent(
+        _ userID: String,
+        expectedSessionEpoch: Int
+    ) -> Bool {
+        authSessionStateQueue.sync {
+            guard authSessionEpoch(defaults: .standard) == expectedSessionEpoch else {
+                return false
+            }
+            return persistSharedUserIDLocked(userID, defaults: .standard)
+        }
+    }
+
+    @discardableResult
+    private static func persistSharedUserIDLocked(
+        _ userID: String,
+        defaults: UserDefaults,
+        allowDuringAuthMutation: Bool = false
+    ) -> Bool {
+        guard allowDuringAuthMutation || !authSessionTokenDeletionIsPending(defaults: defaults) else {
+            return false
+        }
+        let previousUserID = allowDuringAuthMutation ? nil : sharedUserIDLocked(defaults: defaults)
+        let wroteUserID = BackendCredentialMigration.writeString(
+            userID,
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            defaults: defaults,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainStringIgnoringResult,
+            normalize: normalizedStoredUserID
+        )
+        if wroteUserID,
+           (allowDuringAuthMutation || sharedUserIDLocked(defaults: defaults) != previousUserID) {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
+        return wroteUserID
+    }
+
+    static func clearSharedUserID() {
+        authSessionStateQueue.sync {
+            clearSharedUserIDLocked(defaults: .standard)
+        }
+    }
+
+    private static func clearSharedUserIDLocked(defaults: UserDefaults) {
+        let previousUserID = sharedUserIDLocked(defaults: defaults)
+        BackendCredentialMigration.deleteString(
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            defaults: defaults,
+            deleteKeychain: deleteKeychainStringIgnoringResult
+        )
+        if previousUserID != nil, sharedUserIDLocked(defaults: defaults) == nil {
+            postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
+        }
+    }
+
+    private static func generatedStableUserID() -> String {
+        let compact = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return "usr_\(compact)"
     }
 
     private static func isUsableConfigValue(_ raw: String) -> Bool {
@@ -2191,7 +5842,7 @@ nonisolated enum BackendAuthClient {
             }
             return error
         }
-        return String(data: data, encoding: .utf8) ?? "Request failed."
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
     }
 }
 
@@ -2210,6 +5861,15 @@ actor BackendMemoryAPI {
         static let memoryUpdatedAt = "memory_updated_at"
         static let userMessage = "user_message"
         static let assistantMessage = "assistant_message"
+        static let screenplayTarget = "screenplay_target"
+        static let screenplayPromptSource = "screenplay_prompt_source"
+        static let screenplayWriteId = "screenplay_write_id"
+        static let screenplayAnchorLine = "screenplay_anchor_line"
+        static let screenplayAnchorEndLine = "screenplay_anchor_end_line"
+        static let screenplayAnchorSceneLabel = "screenplay_anchor_scene_label"
+        static let screenplayNoteTitle = "screenplay_note_title"
+        static let screenplayNoteBody = "screenplay_note_body"
+        static let screenplayInsertedText = "screenplay_inserted_text"
         static let screenplayReplacementApplied = "screenplay_replacement_applied"
         static let screenplayReplacedWriteId = "screenplay_replaced_write_id"
         static let screenplayRevisedBlockText = "screenplay_revised_block_text"
@@ -2228,6 +5888,101 @@ actor BackendMemoryAPI {
         static let userId = "user_id"
         static let assistantName = "assistant_self_name"
         static let userName = "user_primary_name"
+    }
+
+    static func studioTurnPayload(_ studioMetadata: BackendStudioThreadCommitMetadata) -> [String: Any] {
+        var payload: [String: Any] = [:]
+
+        func appendString(_ key: String, _ value: String, limit: Int = 1_000) {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { return }
+            payload[key] = String(clean.prefix(limit))
+        }
+
+        func appendStrings(_ key: String, _ values: [String], maxItems: Int = 12, limit: Int = 240) {
+            let cleanValues = values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(maxItems)
+                .map { String($0.prefix(limit)) }
+            guard !cleanValues.isEmpty else { return }
+            payload[key] = Array(cleanValues)
+        }
+
+        func appendInt(_ key: String, _ value: Int?) {
+            guard let value, value > 0 else { return }
+            payload[key] = value
+        }
+
+        func appendDictionary(_ key: String, _ value: [String: String]) {
+            guard !value.isEmpty else { return }
+            payload[key] = value
+        }
+
+        func appendDictionaries(_ key: String, _ values: [[String: Any]], maxItems: Int = 8) {
+            let cleanValues = values.filter { !$0.isEmpty }.prefix(maxItems)
+            guard !cleanValues.isEmpty else { return }
+            payload[key] = Array(cleanValues)
+        }
+
+        appendString("screenplay_project_id", studioMetadata.screenplayProjectId, limit: 96)
+        appendString("screenplay_document_revision_id", studioMetadata.screenplayDocumentRevisionId, limit: 96)
+        appendString("screenplay_target", studioMetadata.screenplayTarget, limit: 80)
+        appendString("screenplay_prompt_source", studioMetadata.screenplayPromptSource, limit: 120)
+        appendString("screenplay_write_id", studioMetadata.screenplayWriteId, limit: 120)
+        appendInt("screenplay_anchor_line", studioMetadata.screenplayAnchorLine)
+        appendInt("screenplay_anchor_end_line", studioMetadata.screenplayAnchorEndLine)
+        appendString("screenplay_insertion_mode", studioMetadata.screenplayInsertionMode, limit: 80)
+        appendString("screenplay_anchor_scene_label", studioMetadata.screenplayAnchorSceneLabel, limit: 160)
+        appendString("screenplay_anchor_draft_scene_id", studioMetadata.screenplayAnchorDraftSceneId, limit: 120)
+        appendString("screenplay_anchor_outline_scene_id", studioMetadata.screenplayAnchorOutlineSceneId, limit: 120)
+        appendStrings("screenplay_anchor_outline_beat_ids", studioMetadata.screenplayAnchorOutlineBeatIds, maxItems: 16, limit: 120)
+        appendString("screenplay_anchor_script_node_id", studioMetadata.screenplayAnchorScriptNodeId, limit: 120)
+        appendString("screenplay_note_title", studioMetadata.screenplayNoteTitle, limit: 240)
+        appendString("screenplay_note_body", studioMetadata.screenplayNoteBody, limit: 2_000)
+        appendString("screenplay_inserted_text", studioMetadata.screenplayInsertedText, limit: 12_000)
+        payload["screenplay_replacement_applied"] = studioMetadata.screenplayReplacementApplied
+        appendString("screenplay_replaced_write_id", studioMetadata.screenplayReplacedWriteId, limit: 120)
+        appendString("screenplay_revised_block_text", studioMetadata.screenplayRevisedBlockText, limit: 12_000)
+        appendString("screenplay_resolved_anchor_excerpt", studioMetadata.screenplayResolvedAnchorExcerpt, limit: 280)
+        appendString("screenplay_draft_excerpt", studioMetadata.screenplayDraftExcerpt, limit: 6_000)
+        appendString("screenplay_act", studioMetadata.screenplayAct, limit: 120)
+        appendString("screenplay_scene_objective", studioMetadata.screenplaySceneObjective, limit: 280)
+        appendString("screenplay_scene_summary", studioMetadata.screenplaySceneSummary, limit: 280)
+        appendString("screenplay_current_beat", studioMetadata.screenplayCurrentBeat, limit: 220)
+        appendString("screenplay_logline", studioMetadata.screenplayLogline, limit: 280)
+        appendString("screenplay_theme_argument", studioMetadata.screenplayThemeArgument, limit: 280)
+        appendString("screenplay_central_question", studioMetadata.screenplayCentralQuestion, limit: 280)
+        appendString("screenplay_protagonist_want", studioMetadata.screenplayProtagonistWant, limit: 240)
+        appendString("screenplay_protagonist_need", studioMetadata.screenplayProtagonistNeed, limit: 240)
+        appendString("screenplay_antagonistic_force", studioMetadata.screenplayAntagonisticForce, limit: 260)
+        appendString("screenplay_ending_image", studioMetadata.screenplayEndingImage, limit: 240)
+        appendString("screenplay_feature_sequence", studioMetadata.screenplayFeatureSequence, limit: 220)
+        appendString("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
+        appendString("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
+        appendString("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
+        appendDictionary("screenplay_character_arc_memory", studioMetadata.screenplayCharacterArcMemory?.payload ?? [:])
+        appendDictionaries(
+            "screenplay_character_voice_memories",
+            studioMetadata.screenplayCharacterVoiceMemories.map(\.payload)
+        )
+        appendString("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
+        appendString("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
+        appendStrings("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves, maxItems: 5, limit: 180)
+        appendStrings("screenplay_next_three_turns", studioMetadata.screenplayNextThreeTurns, maxItems: 3, limit: 180)
+        appendStrings("screenplay_act_three_payoff_path", studioMetadata.screenplayActThreePayoffPath, maxItems: 5, limit: 200)
+        appendStrings("screenplay_beat_sequence", studioMetadata.screenplayBeatSequence, maxItems: 8, limit: 180)
+        appendStrings("screenplay_character_focus", studioMetadata.screenplayCharacterFocus, maxItems: 8, limit: 120)
+        appendStrings("screenplay_unresolved_setups", studioMetadata.screenplayUnresolvedSetups, maxItems: 8, limit: 220)
+        appendStrings("screenplay_unresolved_story_threads", studioMetadata.screenplayUnresolvedStoryThreads, maxItems: 8, limit: 220)
+        appendStrings("screenplay_character_arc_turns", studioMetadata.screenplayCharacterArcTurns, maxItems: 6, limit: 180)
+        appendStrings("screenplay_image_motifs", studioMetadata.screenplayImageMotifs, maxItems: 6, limit: 140)
+        appendStrings("screenplay_continuity_notes", studioMetadata.screenplayContinuityNotes, maxItems: 8, limit: 220)
+        appendString("screenplay_emotional_continuity", studioMetadata.screenplayEmotionalContinuity, limit: 280)
+        appendInt("screenplay_page_count", studioMetadata.screenplayPageCount)
+        appendInt("screenplay_target_pages", studioMetadata.screenplayTargetPages)
+
+        return payload
     }
 
     private var clientNameHeaderValue: String {
@@ -2308,32 +6063,52 @@ actor BackendMemoryAPI {
     }()
     private let session: URLSession
     private let baseURLOverride: URL?
+    private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
+    private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
+    private var sessionBootstrapTask: (
+        id: Int,
+        authSessionEpoch: Int,
+        task: Task<SessionBootstrapHTTPResult, Error>
+    )?
+    private var nextSessionBootstrapTaskID: Int = 0
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
     private var latestSeenStateVersion: String = ""
+    private var latestCreativeMemoryRevision: String = ""
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
+    private var didInjectExpiredScreenplaySaveAuthForUITest = false
     private let forcedSessionRefreshCooldown: TimeInterval = 8
+    private let sessionCacheTTL: TimeInterval = 90
+    private let storedSessionRefreshSkew: TimeInterval = 30
 
-    init(session: URLSession = .shared, baseURL: URL? = nil) {
+    private struct SessionBootstrapHTTPResult: @unchecked Sendable {
+        let data: Data
+        let statusCode: Int
+        let responsePersonaKey: String
+        let path: String
+    }
+
+    init(
+        session: URLSession = .shared,
+        baseURL: URL? = nil,
+        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live
+    ) {
         self.session = session
         self.baseURLOverride = baseURL
+        self.accountDeletionSessionHooks = accountDeletionSessionHooks
     }
 
     func currentSyncState() -> BackendSyncState {
         syncState
     }
 
-    func invalidateResolvedSession(clearSharedUserID: Bool = false) {
+    func invalidateResolvedSessionCaches() {
         invalidateReadCaches(clearSyncState: true)
         lastForcedSessionRefreshAt = nil
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientToken)
-        if clearSharedUserID {
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
-        }
     }
 
     func authObservabilityEnabled() -> Bool {
@@ -2394,6 +6169,7 @@ actor BackendMemoryAPI {
     }
 
     func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
+        let now = Date()
         if force {
             cachedSession = nil
             cachedSessionAt = nil
@@ -2401,23 +6177,194 @@ actor BackendMemoryAPI {
         if !force,
            let cachedSession,
            let cachedSessionAt,
-           Date().timeIntervalSince(cachedSessionAt) < 90 {
+           now.timeIntervalSince(cachedSessionAt) < sessionCacheTTL {
             return cachedSession
         }
+        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now) {
+            cachedSession = storedSession
+            cachedSessionAt = now
+            return storedSession
+        }
+        if let sessionBootstrapTask {
+            return try await completeSessionBootstrap(
+                sessionBootstrapTask.task,
+                id: sessionBootstrapTask.id,
+                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch
+            )
+        }
+        let expectedAuthSessionEpoch = BackendAuthClient.currentAuthSessionEpoch()
         var request = try makeRequest(path: "/session")
         request.httpMethod = "POST"
-        let payload = try await run(request, as: BackendSessionResponse.self)
-        cacheSession(payload)
-        updateSyncState(syncFromSession(payload), emitTurnEvent: false)
-        return payload
+        let urlSession = session
+        let requestPath = request.url?.path ?? "/session"
+        nextSessionBootstrapTaskID += 1
+        let taskID = nextSessionBootstrapTaskID
+        let task = Task { () throws -> SessionBootstrapHTTPResult in
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            return SessionBootstrapHTTPResult(
+                data: data,
+                statusCode: http.statusCode,
+                responsePersonaKey: http.value(forHTTPHeaderField: "x-persona-key") ?? "",
+                path: requestPath
+            )
+        }
+        sessionBootstrapTask = (
+            id: taskID,
+            authSessionEpoch: expectedAuthSessionEpoch,
+            task: task
+        )
+        return try await completeSessionBootstrap(
+            task,
+            id: taskID,
+            expectedAuthSessionEpoch: expectedAuthSessionEpoch
+        )
+    }
+
+    private func completeSessionBootstrap(
+        _ task: Task<SessionBootstrapHTTPResult, Error>,
+        id taskID: Int,
+        expectedAuthSessionEpoch: Int
+    ) async throws -> BackendSessionResponse {
+        do {
+            let result = try await task.value
+            let ownsCompletion = sessionBootstrapTask?.id == taskID
+            if ownsCompletion {
+                sessionBootstrapTask = nil
+            }
+            validatePersonaContract(responsePersonaKey: result.responsePersonaKey, path: result.path)
+            guard (200...299).contains(result.statusCode) else {
+                let message = decodeErrorMessage(from: result.data)
+                throw BackendMemoryAPIError.server(status: result.statusCode, message: message)
+            }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let payload = try decoder.decode(BackendSessionResponse.self, from: result.data)
+            if !ownsCompletion {
+                guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch,
+                      cachedSession?.clientToken == payload.clientToken else {
+                    throw BackendMemoryAPIError.server(
+                        status: 409,
+                        message: "session_bootstrap_superseded"
+                    )
+                }
+                return payload
+            }
+            let expiry = Date().addingTimeInterval(TimeInterval(max(60, payload.expiresIn)))
+            let expiryRaw = ISO8601DateFormatter().string(from: expiry)
+            guard BackendAuthClient.commitSessionBootstrapIdentityIfCurrent(
+                expectedSessionEpoch: expectedAuthSessionEpoch,
+                clientToken: payload.clientToken,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURL().absoluteString,
+                userID: payload.userId,
+                persistClientToken: !BackendAuthClient.isStudioDebugClientTokenOverrideActive()
+            ) else {
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "session_bootstrap_superseded"
+                )
+            }
+            cacheSession(payload)
+            guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch else {
+                invalidateReadCaches(clearSyncState: true)
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "session_bootstrap_superseded"
+                )
+            }
+            updateSyncState(syncFromSession(payload), emitTurnEvent: false)
+            return payload
+        } catch {
+            if sessionBootstrapTask?.id == taskID {
+                sessionBootstrapTask = nil
+            }
+            throw error
+        }
+    }
+
+    private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let token = identity.clientToken
+        guard !token.isEmpty else { return nil }
+        guard let cachedAt = BackendAuthClient.sharedClientTokenCachedAt(),
+              now.timeIntervalSince(cachedAt) < sessionCacheTTL else {
+            return nil
+        }
+        guard BackendAuthClient.sharedClientTokenBaseURL() == baseURL().absoluteString else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        guard let expiryRaw = BackendAuthClient.sharedClientTokenExpiry(),
+              let expiry = formatter.date(from: expiryRaw) else {
+            return nil
+        }
+        let secondsRemaining = expiry.timeIntervalSince(now)
+        guard secondsRemaining > storedSessionRefreshSkew else { return nil }
+        guard BackendAuthClient.currentAuthSessionEpoch() == identity.sessionEpoch else {
+            return nil
+        }
+
+        return BackendSessionResponse(
+            userId: identity.userID.isEmpty ? nil : identity.userID,
+            authenticated: nil,
+            clientToken: token,
+            sessionId: nil,
+            expiresIn: Int(max(60, secondsRemaining.rounded(.down))),
+            assistantName: UserDefaults.standard.string(forKey: DefaultsKey.assistantName),
+            assistantSelfName: UserDefaults.standard.string(forKey: DefaultsKey.assistantName),
+            userName: UserDefaults.standard.string(forKey: DefaultsKey.userName),
+            rememberedNames: [],
+            lastConversationRecap: nil,
+            lastConversationSnapshot: nil,
+            lastConversationAt: nil,
+            stateVersion: nil,
+            lastUpdatedAt: nil,
+            historyUpdatedAt: nil,
+            memoryUpdatedAt: nil,
+            lastTurnId: nil,
+            schemaVersion: nil,
+            backendBuild: nil,
+            backendBootId: nil,
+            evolutionSync: nil,
+            continuity: nil,
+            pendingScreenplayQuestion: nil
+        )
+    }
+
+    private func validatePersonaContract(responsePersonaKey: String, path: String) {
+        let responsePersona = responsePersonaKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !responsePersona.isEmpty, responsePersona != personaFlowKey {
+            print(
+                "[BackendMemoryAPI] persona contract mismatch path=\(path) response=\(responsePersona) expected=\(personaFlowKey)"
+            )
+        }
     }
 
     func fetchHealth() async throws -> BackendHealthStatus {
-        do {
-            return try await fetchHealth(path: "/bridge")
-        } catch {
-            return try await fetchHealth(path: "/health")
+        var lastError: Error = BackendMemoryAPIError.invalidResponse
+        for candidate in healthBaseURLCandidates() {
+            do {
+                let status = try await fetchHealth(path: "/bridge", baseURL: candidate)
+                adoptHealthyBaseURL(candidate)
+                return status
+            } catch {
+                lastError = error
+            }
+            do {
+                let status = try await fetchHealth(path: "/health", baseURL: candidate)
+                adoptHealthyBaseURL(candidate)
+                return status
+            } catch {
+                lastError = error
+            }
         }
+        throw lastError
     }
 
     func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
@@ -2478,8 +6425,8 @@ actor BackendMemoryAPI {
         return try JSONDecoder().decode(BackendTalkErrorsResponse.self, from: data)
     }
 
-    private func fetchHealth(path: String) async throws -> BackendHealthStatus {
-        let request = try makeRequest(path: path)
+    private func fetchHealth(path: String, baseURL: URL) async throws -> BackendHealthStatus {
+        let request = try makeRequest(path: path, baseURL: baseURL)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -2489,6 +6436,21 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try? decoder.decode(HealthPayload.self, from: data)
+        guard (200...299).contains(http.statusCode) else {
+            throw BackendMemoryAPIError.server(
+                status: http.statusCode,
+                message: decodeErrorMessage(from: data)
+            )
+        }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data), payload?.ok == true else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
+        }
         let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "down")
         let payloadSync = syncFromHealthPayload(payload, ok: (200...299).contains(http.statusCode))
         let incomingSync = mergeSyncStates(base: payloadSync, incoming: headerSync)
@@ -2503,7 +6465,7 @@ actor BackendMemoryAPI {
         let healthStatus = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines)
         let turnReliability = buildTurnReliabilitySnapshot(from: payload)
         return BackendHealthStatus(
-            ok: (200...299).contains(http.statusCode),
+            ok: payload?.ok == true,
             status: healthStatus?.isEmpty == false ? healthStatus! : latest.status,
             raw: raw,
             sessionId: latest.sessionId,
@@ -2608,15 +6570,37 @@ actor BackendMemoryAPI {
     func fetchMemories(
         limit: Int = 36,
         force: Bool = false,
-        sinceVersion: String? = nil
+        sinceVersion: String? = nil,
+        storyPreferenceProjectID: String? = nil,
+        storyPreferenceProjectTitle: String? = nil
     ) async throws -> BackendReadResult<BackendMemoriesResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedSince = sinceVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let extraQuery: [URLQueryItem] = normalizedSince.isEmpty
-            ? []
-            : [URLQueryItem(name: "sinceVersion", value: normalizedSince)]
+        let normalizedProjectID = storyPreferenceProjectID?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = storyPreferenceProjectTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var extraQuery: [URLQueryItem] = []
+        if !normalizedSince.isEmpty {
+            extraQuery.append(URLQueryItem(name: "sinceVersion", value: normalizedSince))
+        }
+        if !normalizedProjectID.isEmpty {
+            extraQuery.append(URLQueryItem(
+                name: "story_preference_project_id",
+                value: normalizedProjectID
+            ))
+        } else if !normalizedProjectTitle.isEmpty {
+            extraQuery.append(URLQueryItem(
+                name: "story_preference_project_title",
+                value: normalizedProjectTitle
+            ))
+        }
+        let canUseSharedCache =
+            normalizedSince.isEmpty &&
+            normalizedProjectID.isEmpty &&
+            normalizedProjectTitle.isEmpty
         var request = try makeRequest(path: "/memories", limit: limit, extraQueryItems: extraQuery)
-        if !force, normalizedSince.isEmpty, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
+        if !force, canUseSharedCache, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let (data, response) = try await session.data(for: request)
@@ -2624,7 +6608,8 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.invalidResponse
         }
 
-        if normalizedSince.isEmpty, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
+        if canUseSharedCache, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
+            adoptCreativeMemoryRevision(cached.payload.creativeMemoryRevision, response: http)
             let headerSync = syncFromHeaders(http, fallbackStatus: "up")
             let incoming = mergeSyncStates(base: cached.sync, incoming: headerSync)
             updateSyncState(incoming, emitTurnEvent: false)
@@ -2639,15 +6624,111 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(BackendMemoriesResponse.self, from: data)
+        adoptCreativeMemoryRevision(payload.creativeMemoryRevision, response: http)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromMemoriesPayload(payload)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
         updateSyncState(incoming, emitTurnEvent: true)
         let etag = normalizedEtag(from: http, fallbackStateVersion: syncState.stateVersion)
-        if normalizedSince.isEmpty {
+        if canUseSharedCache {
             memoriesCacheByLimit[limit] = MemoriesCacheEntry(etag: etag, payload: payload, sync: syncState)
         }
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func resolvePendingScreenplayQuestion(
+        _ pending: BackendPendingScreenplayQuestion,
+        responseStatus: String,
+        answer: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayQuestionResolutionResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedStatus = responseStatus
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedStatus == "answered" || normalizedStatus == "declined" else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "response_status must be answered or declined"
+            )
+        }
+        let normalizedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedStatus == "answered", normalizedAnswer.isEmpty {
+            throw BackendMemoryAPIError.server(status: 400, message: "answer is required")
+        }
+
+        var request = try makeWriteRequest(path: "/memory/screenplay-question/resolve")
+        let idempotencyKey = String(
+            "screenplay-question-\(pending.id)-\(normalizedStatus)".prefix(128)
+        )
+        request.setValue(idempotencyKey, forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue(
+            "screenplay_question_resolution",
+            forHTTPHeaderField: "X-Them-Outbox-Action"
+        )
+        request.setValue(
+            String(pending.id.prefix(120)),
+            forHTTPHeaderField: "X-Screenplay-Question-ID"
+        )
+        let body = try JSONSerialization.data(withJSONObject: [
+            "question_id": pending.id,
+            "project_id": pending.projectId,
+            "project_title": pending.projectTitle,
+            "response_status": normalizedStatus,
+            "answer": normalizedAnswer,
+        ])
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw BackendMemoryAPIError.server(
+                    status: http.statusCode,
+                    message: decodeErrorMessage(from: data)
+                )
+            }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let payload = try decoder.decode(
+                BackendScreenplayQuestionResolutionResponse.self,
+                from: data
+            )
+            cachedSession = nil
+            cachedSessionAt = nil
+            let headerSync = syncFromHeaders(http, fallbackStatus: payload.ok ? "up" : "degraded")
+            let bodySync = syncFromScreenplayEnvelope(
+                sessionId: payload.sessionId,
+                stateVersion: payload.stateVersion,
+                lastUpdatedAt: payload.lastUpdatedAt,
+                historyUpdatedAt: payload.historyUpdatedAt,
+                memoryUpdatedAt: payload.memoryUpdatedAt,
+                lastTurnId: payload.lastTurnId,
+                schemaVersion: payload.schemaVersion,
+                backendBuild: payload.backendBuild,
+                backendBootId: payload.backendBootId
+            )
+            updateSyncState(
+                mergeSyncStates(base: bodySync, incoming: headerSync),
+                emitTurnEvent: true
+            )
+            return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        } catch {
+            guard shouldQueueScreenplayQuestionResolution(error) else { throw error }
+            let queued = try await OfflineTalkOutbox.shared.enqueue(
+                request: request,
+                body: body,
+                reason: error.localizedDescription
+            )
+            cachedSession = nil
+            cachedSessionAt = nil
+            throw BackendTalkQueuedError(
+                entryID: queued.entry.id,
+                snapshot: queued.snapshot,
+                reason: error.localizedDescription
+            )
+        }
     }
 
     func fetchStateDelta(
@@ -2692,6 +6773,32 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
+    private func shouldQueueScreenplayQuestionResolution(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .networkConnectionLost,
+                .cannotConnectToHost,
+                .cannotFindHost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(urlError.code)
+        }
+        guard let backendError = error as? BackendMemoryAPIError else { return false }
+        switch backendError {
+        case .invalidResponse:
+            return true
+        case .invalidBaseURL:
+            return false
+        case .server(let status, _):
+            return status == 408 ||
+                status == 425 ||
+                status == 429 ||
+                (500...599).contains(status)
+        }
+    }
+
     func fetchActionReceipts(
         limit: Int = 24,
         force: Bool = false
@@ -2724,6 +6831,55 @@ actor BackendMemoryAPI {
 
     func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
         try await runDataControl(path: "/data/memories/clear")
+    }
+
+    func exportAccountData() async throws -> BackendAccountExportArtifact {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeRequest(path: "/account/export")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let disposition = headerValue(http, "Content-Disposition")
+        let filename = disposition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "io-them-account-export.json"
+            : parseDispositionFilename(disposition, fallbackFormat: "json")
+        return BackendAccountExportArtifact(
+            filename: filename,
+            contentType: contentType.isEmpty ? "application/json" : contentType,
+            data: data
+        )
+    }
+
+    func requestAccountDeletion(
+        reason: String = "",
+        proof: BackendAccountDeletionProof
+    ) async throws -> BackendAccountDeletionResponse {
+        let proofFields = try proof.requestFields()
+        var request = try makeWriteRequest(path: "/account")
+        request.httpMethod = "DELETE"
+        let normalizedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        var body = proofFields
+        body["reason"] = String(normalizedReason.prefix(280))
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        // The fully authenticated request is captured first. Local secrets and
+        // remembered credentials are then revoked before transport so a crash
+        // or ambiguous network result cannot leave the account signed in.
+        let deletedUser = accountDeletionSessionHooks.clearLocalSession()
+        invalidateReadCaches(clearSyncState: true)
+        lastForcedSessionRefreshAt = nil
+        let payload = try await run(request, as: BackendAccountDeletionResponse.self)
+        if accountDeletionSessionHooks.clearAfterSuccessfulDeletion(deletedUser) {
+            invalidateReadCaches(clearSyncState: true)
+            lastForcedSessionRefreshAt = nil
+        }
+        return payload
     }
 
     func fetchTasks(
@@ -2827,19 +6983,28 @@ actor BackendMemoryAPI {
     func fetchScreenplayProject(
         projectId: String,
         includeDrafts: Bool = true,
-        versionLimit: Int = 16
+        versionLimit: Int = 16,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)",
             extraQueryItems: [
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
             ]
+        )
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
         )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2901,18 +7066,27 @@ actor BackendMemoryAPI {
 
     func fetchScreenplayOutline(
         projectId: String,
-        includeProject: Bool = true
+        includeProject: Bool = true,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayOutlineResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)/outline",
             extraQueryItems: [
                 URLQueryItem(name: "include_project", value: includeProject ? "1" : "0"),
             ]
+        )
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
         )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2949,9 +7123,19 @@ actor BackendMemoryAPI {
         characters: [String] = [],
         setting: String = "",
         tone: String = "",
+        logline: String? = nil,
+        themeArgument: String? = nil,
+        centralQuestion: String? = nil,
+        protagonistWant: String? = nil,
+        protagonistNeed: String? = nil,
+        antagonisticForce: String? = nil,
+        actPosition: String? = nil,
+        endingImage: String? = nil,
+        unresolvedSetups: [String]? = nil,
         studioThreadViewState: BackendScreenplayThreadViewState? = nil,
         studioDiffAcknowledgedKeys: [String]? = nil,
-        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil
+        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
+        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: "/screenplay/projects")
@@ -2964,6 +7148,33 @@ actor BackendMemoryAPI {
             "tone": tone,
             "activate": true,
         ]
+        if let logline {
+            payload["logline"] = logline
+        }
+        if let themeArgument {
+            payload["theme_argument"] = themeArgument
+        }
+        if let centralQuestion {
+            payload["central_question"] = centralQuestion
+        }
+        if let protagonistWant {
+            payload["protagonist_want"] = protagonistWant
+        }
+        if let protagonistNeed {
+            payload["protagonist_need"] = protagonistNeed
+        }
+        if let antagonisticForce {
+            payload["antagonistic_force"] = antagonisticForce
+        }
+        if let actPosition {
+            payload["act_position"] = actPosition
+        }
+        if let endingImage {
+            payload["ending_image"] = endingImage
+        }
+        if let unresolvedSetups {
+            payload["unresolved_setups"] = unresolvedSetups
+        }
         if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["project_id"] = projectId
         }
@@ -2980,7 +7191,58 @@ actor BackendMemoryAPI {
            let entriesPayload = try? JSONSerialization.jsonObject(with: encoded) {
             payload["studio_diff_acknowledged_entries"] = entriesPayload
         }
+        if let studioAskNoteHistory,
+           let encoded = try? JSONEncoder().encode(studioAskNoteHistory),
+           let historyPayload = try? JSONSerialization.jsonObject(with: encoded) {
+            payload["studio_ask_note_history"] = historyPayload
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func activateScreenplayProject(
+        projectId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
+    ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
+        request.httpBody = Data("{}".utf8)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -3013,39 +7275,57 @@ actor BackendMemoryAPI {
         acts: [BackendScreenplayAct],
         scenes: [BackendScreenplayScene],
         beats: [BackendScreenplayBeat],
-        merge: Bool = true,
-        title: String? = nil,
-        phase: String? = nil
+        expectedOutlineRevision: Int,
+        clientRequestId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayOutlineMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
+        let normalizedClientRequestId = clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedClientRequestId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "client_request_id_required")
+        }
+        guard normalizedClientRequestId.count <= 96 else {
+            throw BackendMemoryAPIError.server(status: 400, message: "client_request_id_too_long")
+        }
+        guard expectedOutlineRevision >= 0 else {
+            throw BackendMemoryAPIError.server(status: 400, message: "expected_outline_revision_invalid")
+        }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline")
-        var payload: [String: Any] = [
-            "merge": merge,
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
+        let payload: [String: Any] = [
+            "client_request_id": normalizedClientRequestId,
+            "expected_outline_revision": expectedOutlineRevision,
             "acts": acts.map(screenplayActPayload),
             "scenes": scenes.map(screenplayScenePayload),
             "beats": beats.map(screenplayBeatPayload),
         ]
-        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["title"] = title
-        }
-        if let phase, !phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["phase"] = phase
-        }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
-        guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
-        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard (200...299).contains(http.statusCode) else {
+            let parsed = try? decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
+            let retryAfterMs = parsed?.retryAfterMs ?? Self.retryAfterMilliseconds(from: http)
+            throw BackendScreenplayOutlineMutationHTTPError(
+                statusCode: http.statusCode,
+                response: parsed,
+                retryAfterMs: retryAfterMs
+            )
+        }
         let parsed = try decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromScreenplayEnvelope(
@@ -3061,6 +7341,18 @@ actor BackendMemoryAPI {
         )
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    private static func retryAfterMilliseconds(from response: HTTPURLResponse) -> Int? {
+        guard let rawValue = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let seconds = TimeInterval(rawValue),
+              seconds.isFinite,
+              seconds >= 0 else {
+            return nil
+        }
+        let boundedSeconds = min(seconds, 1_800)
+        return Int((boundedSeconds * 1_000).rounded(.up))
     }
 
     func upsertScreenplayScene(
@@ -3183,14 +7475,23 @@ actor BackendMemoryAPI {
     }
 
     func fetchScreenplayCollaborators(
-        projectId: String
+        projectId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        var request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -3223,7 +7524,10 @@ actor BackendMemoryAPI {
         email: String,
         action: String = "approve",
         note: String = "",
-        invitedBy: String = ""
+        invitedBy: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3235,6 +7539,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "valid_email_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         let payload: [String: Any] = [
             "email": normalizedEmail,
             "action": action,
@@ -3272,7 +7582,10 @@ actor BackendMemoryAPI {
     func fetchScreenplayComments(
         projectId: String,
         limit: Int = 120,
-        actorEmail: String = ""
+        actorEmail: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3284,10 +7597,16 @@ actor BackendMemoryAPI {
         if !normalizedActorEmail.isEmpty {
             query.append(URLQueryItem(name: "actor_email", value: normalizedActorEmail))
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)/comments",
             limit: max(1, limit),
             extraQueryItems: query
+        )
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
         )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -3330,7 +7649,10 @@ actor BackendMemoryAPI {
         action: String = "upsert",
         commentId: String = "",
         parentCommentId: String = "",
-        actorEmail: String = ""
+        actorEmail: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3347,6 +7669,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "comment_or_voice_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         var payload: [String: Any] = [
             "text": text,
             "author_email": authorEmail,
@@ -3415,7 +7743,11 @@ actor BackendMemoryAPI {
         studioWriteAnchors: [BackendScreenplayWriteAnchor] = [],
         screenplayBindings: [BackendScreenplayBindingRecord] = [],
         baseVersionId: String = "",
-        conflictStrategy: String = "reject_if_stale"
+        conflictStrategy: String = "reject_if_stale",
+        clientRequestId: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3427,7 +7759,6 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
 
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
@@ -3462,12 +7793,58 @@ actor BackendMemoryAPI {
         if !normalizedConflictStrategy.isEmpty {
             payload["conflict_strategy"] = normalizedConflictStrategy
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
+        let normalizedClientRequestId = clientRequestId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedClientRequestId.isEmpty {
+            payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
+        let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+#if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
+           !didInjectExpiredScreenplaySaveAuthForUITest {
+            didInjectExpiredScreenplaySaveAuthForUITest = true
+            UserDefaults.standard.set("expired-screenplay-save-access-token", forKey: "auth_debug_access_token")
+            UserDefaults.standard.set(true, forKey: "auth_debug_access_token_enabled")
+        }
+#endif
+
+        var data = Data()
+        var http: HTTPURLResponse?
+        var didAttemptAuthRefresh = false
+        while true {
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
+            applyProjectOwnerHeaders(
+                to: &request,
+                includeUserIdentity: includeUserIdentity,
+                includeAuthToken: includeAuthToken,
+                clientTokenOverride: clientTokenOverride
+            )
+            request.httpBody = requestBody
+            let responsePair = try await session.data(for: request)
+            guard let response = responsePair.1 as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            data = responsePair.0
+            http = response
+
+            guard response.statusCode == 401,
+                  includeAuthToken,
+                  !didAttemptAuthRefresh else {
+                break
+            }
+            didAttemptAuthRefresh = true
+            do {
+                let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+                if refreshed.isAuthenticated {
+                    continue
+                }
+            } catch {
+                // Preserve the original authorization failure when refresh is unavailable.
+            }
+            break
+        }
+        guard let http else { throw BackendMemoryAPIError.invalidResponse }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         if http.statusCode == 409 {
@@ -3565,6 +7942,47 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
+    func recordFirstPageWritten(
+        occurredAt: Date,
+        source: String,
+        projectId: String,
+        versionId: String
+    ) async throws -> BackendReadResult<BackendFirstPageTelemetryResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/telemetry/first-page-written")
+        var payload: [String: Any] = [
+            "occurred_at_ms": Int((occurredAt.timeIntervalSince1970 * 1_000).rounded()),
+        ]
+        let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedSource.isEmpty {
+            payload["source"] = normalizedSource
+        }
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedProjectId.isEmpty {
+            payload["project_id"] = normalizedProjectId
+        }
+        let normalizedVersionId = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedVersionId.isEmpty {
+            payload["version_id"] = normalizedVersionId
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendFirstPageTelemetryResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(mergeSyncStates(base: syncState, incoming: headerSync), emitTurnEvent: false)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
     func paginateScreenplayDraft(
         draft: String,
         title: String = "",
@@ -3650,11 +8068,19 @@ actor BackendMemoryAPI {
         targetPages: Int? = nil
     ) async throws -> BackendScreenplayExportArtifact {
         _ = try? await bootstrapSession(force: false)
+        let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedFormat == "fdx" {
+            return try await exportFinalDraftXML(
+                draft: draft,
+                title: title,
+                format: normalizedFormat
+            )
+        }
         var request = try makeWriteRequest(path: "/screenplay/export")
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
-            "format": format,
+            "format": normalizedFormat.isEmpty ? format : normalizedFormat,
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
@@ -3675,21 +8101,173 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+            throw decodeScreenplayExportError(status: http.statusCode, data: data)
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         updateSyncState(headerSync, emitTurnEvent: false)
         let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
         let disposition = headerValue(http, "Content-Disposition")
-        let filename = parseDispositionFilename(disposition, fallbackFormat: format)
+        let filename = parseDispositionFilename(disposition, fallbackFormat: normalizedFormat.isEmpty ? format : normalizedFormat)
         let resolvedFormat = headerValue(http, "x-screenplay-format").trimmingCharacters(in: .whitespacesAndNewlines)
         return BackendScreenplayExportArtifact(
-            format: resolvedFormat.isEmpty ? format : resolvedFormat,
+            format: resolvedFormat.isEmpty ? (normalizedFormat.isEmpty ? format : normalizedFormat) : resolvedFormat,
             filename: filename,
             contentType: contentType.isEmpty ? "application/octet-stream" : contentType,
             data: data
         )
+    }
+
+    private func exportFinalDraftXML(
+        draft: String,
+        title: String,
+        format: String
+    ) async throws -> BackendScreenplayExportArtifact {
+        var request = try makeWriteRequest(path: "/screenplay/export/fdx")
+        request.setValue("application/xml", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: screenplayExportDocumentPayload(draft: draft, title: title),
+            options: []
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw decodeScreenplayExportError(status: http.statusCode, data: data)
+        }
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let filename = parseDispositionFilename(
+            headerValue(http, "Content-Disposition"),
+            fallbackFormat: format
+        )
+        return BackendScreenplayExportArtifact(
+            format: "fdx",
+            filename: filename,
+            contentType: contentType.isEmpty ? "application/xml; charset=utf-8" : contentType,
+            data: data
+        )
+    }
+
+    private func screenplayExportDocumentPayload(draft: String, title: String) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanTitle.isEmpty {
+            payload["title"] = ["title": cleanTitle]
+        }
+        payload["scenes"] = screenplayExportScenes(from: draft)
+        return payload
+    }
+
+    private func screenplayExportScenes(from draft: String) -> [[String: Any]] {
+        let rawLines = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+        var scenes: [[String: Any]] = []
+        var heading = ""
+        var exportLines: [[String: Any]] = []
+
+        func flushScene() {
+            guard !heading.isEmpty || !exportLines.isEmpty else { return }
+            var scene: [String: Any] = [:]
+            if !heading.isEmpty {
+                scene["heading"] = heading
+            }
+            scene["lines"] = exportLines
+            scenes.append(scene)
+            heading = ""
+            exportLines = []
+        }
+
+        var index = rawLines.startIndex
+        while index < rawLines.endIndex {
+            let trimmed = rawLines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportSceneHeading(trimmed) {
+                flushScene()
+                heading = trimmed
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportTransition(trimmed) {
+                exportLines.append(["kind": "transition", "text": trimmed])
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportCharacterCue(trimmed) {
+                var parenthetical = ""
+                var dialogue: [String] = []
+                var cursor = index + 1
+                while cursor < rawLines.endIndex {
+                    let next = rawLines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if next.isEmpty { break }
+                    if isScreenplayExportSceneHeading(next)
+                        || isScreenplayExportTransition(next)
+                        || isScreenplayExportCharacterCue(next) {
+                        break
+                    }
+                    if parenthetical.isEmpty, isScreenplayExportParenthetical(next) {
+                        parenthetical = next
+                    } else {
+                        dialogue.append(next)
+                    }
+                    cursor += 1
+                }
+                if !dialogue.isEmpty {
+                    var line: [String: Any] = [
+                        "kind": "character",
+                        "name": trimmed,
+                        "dialogue": dialogue,
+                    ]
+                    if !parenthetical.isEmpty {
+                        line["parenthetical"] = parenthetical
+                    }
+                    exportLines.append(line)
+                    index = max(cursor, index + 1)
+                    continue
+                }
+            }
+
+            exportLines.append(["kind": "action", "text": trimmed])
+            index += 1
+        }
+
+        flushScene()
+        return scenes
+    }
+
+    private func isScreenplayExportSceneHeading(_ text: String) -> Bool {
+        text.range(
+            of: #"^(INT|EXT|EST|INT/EXT|I/E)\."#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func isScreenplayExportTransition(_ text: String) -> Bool {
+        text.range(
+            of: #"^(CUT TO:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|WIPE TO:|INTERCUT WITH:|FADE IN:|FADE IN ON:|FADE OUT:|FADE OUT\.|FADE TO BLACK:|FADE TO BLACK\.|SMASH TO BLACK:|THE END)$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func isScreenplayExportParenthetical(_ text: String) -> Bool {
+        text.hasPrefix("(") && text.hasSuffix(")") && text.count <= 80
+    }
+
+    private func isScreenplayExportCharacterCue(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 32 else { return false }
+        guard trimmed == trimmed.uppercased() else { return false }
+        guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
+        return !trimmed.contains(":") && !trimmed.contains(".")
     }
 
     func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
@@ -3733,7 +8311,8 @@ actor BackendMemoryAPI {
         key: String? = nil,
         title: String,
         summary: String,
-        reason: String
+        reason: String,
+        storySpine: BackendStorySpineMemory? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -3741,8 +8320,24 @@ actor BackendMemoryAPI {
             "summary": summary,
             "reason": reason,
         ]
+        if let storySpine {
+            payload["story_spine"] = storySpine.payload
+        }
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/update", payload: payload)
+    }
+
+    func updateCharacterBibleMemory(
+        id: String,
+        key: String? = nil,
+        characterBible: BackendCharacterBibleMemory
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "card_id": id,
+            "character_bible": characterBible.payload
+        ]
+        if let key, !key.isEmpty { payload["key"] = key }
+        return try await runMemoryMutation(path: "/memories/character-bible/update", payload: payload)
     }
 
     func forgetMemoryCard(
@@ -3752,6 +8347,98 @@ actor BackendMemoryAPI {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+    }
+
+    func updateStoryMovePreference(
+        projectID: String,
+        projectTitle: String,
+        family: String,
+        action: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "action": action,
+        ]
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFamily = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanProjectID.isEmpty { payload["project_id"] = cleanProjectID }
+        if !cleanProjectTitle.isEmpty { payload["project_title"] = cleanProjectTitle }
+        if !cleanFamily.isEmpty { payload["family"] = cleanFamily }
+        return try await runMemoryMutation(
+            path: "/memories/story-preferences/update",
+            payload: payload
+        )
+    }
+
+    func correctStoryObligation(
+        projectID: String,
+        projectTitle: String,
+        change: BackendStoryObligationChange,
+        action: String,
+        note: String = ""
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "obligation": change.obligation,
+            "action": action,
+            "source_change_id": change.id,
+            "source_status": change.status,
+        ]
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanProjectID.isEmpty { payload["project_id"] = cleanProjectID }
+        if !cleanProjectTitle.isEmpty { payload["project_title"] = cleanProjectTitle }
+        if !cleanNote.isEmpty { payload["note"] = String(cleanNote.prefix(240)) }
+        return try await runMemoryMutation(
+            path: "/memories/story-obligations/correct",
+            payload: payload
+        )
+    }
+
+    func undoCanonCorrection(
+        receiptID: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        return try await runMemoryMutation(
+            path: "/memories/corrections/undo",
+            payload: ["receipt_id": receiptID]
+        )
+    }
+
+    func resolveCanonCorrection(
+        ambiguityID: String,
+        selectedFacts: [String]
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var seen = Set<String>()
+        let cleanFacts = selectedFacts.compactMap { value -> String? in
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { return nil }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return String(clean.prefix(220))
+        }
+        guard !cleanFacts.isEmpty else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "Choose at least one accepted canon fact."
+            )
+        }
+        return try await runMemoryMutation(
+            path: "/memories/corrections/resolve",
+            payload: [
+                "ambiguity_id": ambiguityID,
+                "selected_facts": cleanFacts,
+            ]
+        )
+    }
+
+    func resolveCanonCorrection(
+        ambiguityID: String,
+        selectedFact: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        try await resolveCanonCorrection(
+            ambiguityID: ambiguityID,
+            selectedFacts: [selectedFact]
+        )
     }
 
     func promoteMemoryCard(
@@ -3825,46 +8512,6 @@ actor BackendMemoryAPI {
         let bodySync = syncFromTaskUpdatePayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
         updateSyncState(incoming, emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-    }
-
-    func composeSecretaryEmail(
-        to: String,
-        subject: String,
-        body: String,
-        provider: String = "mailto",
-        sendNow: Bool = true
-    ) async throws -> BackendReadResult<BackendSecretaryEmailResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/secretary/email")
-        let payload: [String: Any] = [
-            "to": to,
-            "subject": subject,
-            "body": body,
-            "target": provider,
-            "send_now": sendNow,
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendSecretaryEmailResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
-        updateSyncState(headerSync, emitTurnEvent: false)
-
-        if !(200...299).contains(http.statusCode),
-           (parsed.composeUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            throw BackendMemoryAPIError.server(
-                status: http.statusCode,
-                message: message.isEmpty ? decodeErrorMessage(from: data) : message
-            )
-        }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -3953,28 +8600,20 @@ actor BackendMemoryAPI {
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: "/realtime/turn_commit")
+        let normalizedRequestId = requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedRequestId.isEmpty {
+            request.setValue(
+                String(normalizedRequestId.prefix(128)),
+                forHTTPHeaderField: "X-Idempotency-Key"
+            )
+        }
         var payload: [String: Any] = [
             "transcript": userMessage,
             "reply": assistantMessage,
-            "request_id": requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            "request_id": normalizedRequestId
         ]
         if let studioMetadata, studioMetadata.isMeaningful {
-            payload["studio"] = [
-                "screenplay_project_id": studioMetadata.screenplayProjectId,
-                "screenplay_target": studioMetadata.screenplayTarget,
-                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
-                "screenplay_write_id": studioMetadata.screenplayWriteId,
-                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
-                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
-                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
-                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
-                "screenplay_note_body": studioMetadata.screenplayNoteBody,
-                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
-                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
-                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
-                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
-                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
-            ]
+            payload["studio"] = Self.studioTurnPayload(studioMetadata)
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
@@ -3989,6 +8628,20 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        if let resolution = parsed.screenplayQuestionResolution {
+            cachedSession = nil
+            cachedSessionAt = nil
+            postBackendNotificationOnMain(
+                name: .themScreenplayQuestionResolved,
+                userInfo: [
+                    "questionId": resolution.questionId,
+                    "responseStatus": resolution.responseStatus,
+                    "targetField": resolution.targetField ?? "",
+                    "learningPromoted": resolution.learningPromoted ?? false,
+                    "correctionProtected": resolution.correctionProtected ?? false,
+                ]
+            )
+        }
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
@@ -4028,27 +8681,7 @@ actor BackendMemoryAPI {
         var request = try makeWriteRequest(path: "/history/annotate_turn")
         let payload: [String: Any] = [
             "turn_id": normalizedTurnId,
-            "studio": [
-                "screenplay_project_id": studioMetadata.screenplayProjectId,
-                "screenplay_document_revision_id": studioMetadata.screenplayDocumentRevisionId,
-                "screenplay_target": studioMetadata.screenplayTarget,
-                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
-                "screenplay_write_id": studioMetadata.screenplayWriteId,
-                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
-                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
-                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
-                "screenplay_anchor_draft_scene_id": studioMetadata.screenplayAnchorDraftSceneId,
-                "screenplay_anchor_outline_scene_id": studioMetadata.screenplayAnchorOutlineSceneId,
-                "screenplay_anchor_outline_beat_ids": studioMetadata.screenplayAnchorOutlineBeatIds,
-                "screenplay_anchor_script_node_id": studioMetadata.screenplayAnchorScriptNodeId,
-                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
-                "screenplay_note_body": studioMetadata.screenplayNoteBody,
-                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
-                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
-                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
-                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
-                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
-            ]
+            "studio": Self.studioTurnPayload(studioMetadata)
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
@@ -4070,54 +8703,88 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
-    func fetchSecretaryEmailConnectURL(
-        provider: String = "gmail"
-    ) async throws -> BackendReadResult<BackendSecretaryEmailConnectResponse> {
-        _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(
-            path: "/secretary/email/connect-url",
-            extraQueryItems: [URLQueryItem(name: "provider", value: provider)]
-        )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendSecretaryEmailConnectResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
-        updateSyncState(headerSync, emitTurnEvent: false)
-
-        if !(200...299).contains(http.statusCode),
-           (parsed.connectUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            throw BackendMemoryAPIError.server(
-                status: http.statusCode,
-                message: message.isEmpty ? decodeErrorMessage(from: data) : message
-            )
-        }
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-    }
-
     private func runMemoryMutation(
         path: String,
         payload: [String: Any]
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        if baseURLOverride == nil, healthyBaseURL == nil {
+            _ = try? await fetchHealth()
+        }
         _ = try? await bootstrapSession(force: false)
+        let revisionProtectedPaths: Set<String> = [
+            "/memories/character-bible/update",
+            "/memories/story-preferences/update",
+            "/memories/story-obligations/correct",
+            "/memories/corrections/undo",
+            "/memories/corrections/resolve",
+            "/memories/forget",
+        ]
+        let stateProtectedPaths: Set<String> = [
+            "/memories/update",
+            "/memories/forget",
+            "/memories/promote",
+            "/memories/feedback",
+        ]
+        let needsCreativeRevision = revisionProtectedPaths.contains(path)
+        let needsStateVersion = stateProtectedPaths.contains(path)
+        if (needsCreativeRevision && latestCreativeMemoryRevision.isEmpty) ||
+            (needsStateVersion && latestSeenStateVersion.isEmpty) {
+            _ = try await fetchMemories(limit: 1, force: true)
+        }
+        var outgoingPayload = payload
+        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
+            outgoingPayload["expected_creative_memory_revision"] = latestCreativeMemoryRevision
+        }
+        if needsStateVersion, !latestSeenStateVersion.isEmpty {
+            outgoingPayload["expected_state_version"] = latestSeenStateVersion
+        }
         var request = try makeWriteRequest(path: path)
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        if needsCreativeRevision, !latestCreativeMemoryRevision.isEmpty {
+            request.setValue(
+                latestCreativeMemoryRevision,
+                forHTTPHeaderField: "X-Creative-Memory-Revision"
+            )
+        }
+        if needsStateVersion, !latestSeenStateVersion.isEmpty {
+            request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
+        }
+        adoptCreativeMemoryRevision(nil, response: http, errorData: data)
+        if http.statusCode == 409 {
+            updateSyncState(
+                syncFromHeaders(http, fallbackStatus: "degraded"),
+                emitTurnEvent: false
+            )
         }
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data) else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
+        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendMemoryMutationResponse.self, from: data)
+        let parsed: BackendMemoryMutationResponse
+        do {
+            parsed = try decoder.decode(BackendMemoryMutationResponse.self, from: data)
+        } catch {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend returned an incompatible API response. Please try again."
+            )
+        }
+        adoptCreativeMemoryRevision(parsed.creativeMemoryRevision, response: http)
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromMemoryMutationPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
@@ -4447,7 +9114,11 @@ actor BackendMemoryAPI {
     }
 
     private func makeRequest(path: String) throws -> URLRequest {
-        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+        try makeRequest(path: path, baseURL: baseURL())
+    }
+
+    private func makeRequest(path: String, baseURL: URL) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
         components.path = path
@@ -4510,6 +9181,9 @@ actor BackendMemoryAPI {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
+        let identity = BackendAuthClient.requestIdentitySnapshot(
+            generateUserIDIfMissing: includeUserIdentity
+        )
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -4517,14 +9191,14 @@ actor BackendMemoryAPI {
         if let token = appToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        if includeUserIdentity, let userId = userID(), !userId.isEmpty {
-            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        if includeUserIdentity, !identity.userID.isEmpty {
+            request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
         }
-        if includeClientToken, let clientToken = clientToken(), !clientToken.isEmpty {
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if includeClientToken, !identity.clientToken.isEmpty {
+            request.setValue(identity.clientToken, forHTTPHeaderField: "X-Client-Token")
         }
-        if includeAuthToken, let token = BackendAuthClient.accessToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if includeAuthToken, !identity.accessToken.isEmpty {
+            request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.setValue(clientNameHeaderValue, forHTTPHeaderField: "X-Them-Client-Name")
         request.setValue(clientPlatformHeaderValue, forHTTPHeaderField: "X-Them-Client-Platform")
@@ -4535,6 +9209,25 @@ actor BackendMemoryAPI {
             request.setValue(clientBuildHeaderValue, forHTTPHeaderField: "X-Them-Client-Build")
         }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+    }
+
+    private func applyProjectOwnerHeaders(
+        to request: inout URLRequest,
+        includeUserIdentity: Bool,
+        includeAuthToken: Bool,
+        clientTokenOverride: String?
+    ) {
+        if !includeUserIdentity {
+            request.setValue(nil, forHTTPHeaderField: "X-User-Id")
+        }
+        if !includeAuthToken {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        let cleanClientToken = (clientTokenOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanClientToken.isEmpty {
+            request.setValue(cleanClientToken, forHTTPHeaderField: "X-Client-Token")
+        }
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
@@ -4924,9 +9617,8 @@ actor BackendMemoryAPI {
             latestSeenStateVersion = merged.stateVersion
         }
         if syncChanged {
-            NotificationCenter.default.post(
+            postBackendNotificationOnMain(
                 name: .themBackendSyncUpdated,
-                object: nil,
                 userInfo: [
                     NotificationKey.status: merged.status,
                     NotificationKey.sessionId: merged.sessionId,
@@ -4961,12 +9653,15 @@ actor BackendMemoryAPI {
     private func invalidateReadCaches(clearSyncState: Bool) {
         cachedSession = nil
         cachedSessionAt = nil
+        sessionBootstrapTask?.task.cancel()
+        sessionBootstrapTask = nil
         historyCacheByLimit.removeAll()
         memoriesCacheByLimit.removeAll()
         inFlightStateVersions.removeAll()
         if clearSyncState {
             syncState = .empty
             latestSeenStateVersion = ""
+            latestCreativeMemoryRevision = ""
         }
     }
 
@@ -5024,6 +9719,40 @@ actor BackendMemoryAPI {
             userInfo[NotificationKey.assistantMessage] = assistantMessage
         }
         if let studioMetadata {
+            let target = studioMetadata.screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !target.isEmpty {
+                userInfo[NotificationKey.screenplayTarget] = target
+            }
+            let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !promptSource.isEmpty {
+                userInfo[NotificationKey.screenplayPromptSource] = promptSource
+            }
+            let writeId = studioMetadata.screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !writeId.isEmpty {
+                userInfo[NotificationKey.screenplayWriteId] = writeId
+            }
+            if let anchorLine = studioMetadata.screenplayAnchorLine {
+                userInfo[NotificationKey.screenplayAnchorLine] = anchorLine
+            }
+            if let anchorEndLine = studioMetadata.screenplayAnchorEndLine {
+                userInfo[NotificationKey.screenplayAnchorEndLine] = anchorEndLine
+            }
+            let anchorSceneLabel = studioMetadata.screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !anchorSceneLabel.isEmpty {
+                userInfo[NotificationKey.screenplayAnchorSceneLabel] = anchorSceneLabel
+            }
+            let noteTitle = studioMetadata.screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteTitle.isEmpty {
+                userInfo[NotificationKey.screenplayNoteTitle] = noteTitle
+            }
+            let noteBody = studioMetadata.screenplayNoteBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteBody.isEmpty {
+                userInfo[NotificationKey.screenplayNoteBody] = noteBody
+            }
+            let insertedText = studioMetadata.screenplayInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !insertedText.isEmpty {
+                userInfo[NotificationKey.screenplayInsertedText] = insertedText
+            }
             userInfo[NotificationKey.screenplayReplacementApplied] = studioMetadata.screenplayReplacementApplied
             let replacedWriteId = studioMetadata.screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !replacedWriteId.isEmpty {
@@ -5038,7 +9767,7 @@ actor BackendMemoryAPI {
                 userInfo[NotificationKey.screenplayResolvedAnchorExcerpt] = resolvedAnchorExcerpt
             }
         }
-        NotificationCenter.default.post(name: .themTurnCommitted, object: nil, userInfo: userInfo)
+        postBackendNotificationOnMain(name: .themTurnCommitted, userInfo: userInfo)
     }
 
     private func normalizedEtag(from http: HTTPURLResponse, fallbackStateVersion: String) -> String {
@@ -5056,6 +9785,30 @@ actor BackendMemoryAPI {
             print(
                 "[BackendMemoryAPI] persona contract mismatch path=\(path) response=\(responsePersona) expected=\(personaFlowKey)"
             )
+        }
+    }
+
+    private func adoptCreativeMemoryRevision(
+        _ payloadRevision: String?,
+        response: HTTPURLResponse,
+        errorData: Data? = nil
+    ) {
+        var revision = payloadRevision?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if revision.isEmpty {
+            revision = headerValue(response, "x-creative-memory-revision")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if revision.isEmpty,
+           let errorData,
+           let object = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any] {
+            revision = String(
+                describing: object["current_creative_memory_revision"] ??
+                    object["creative_memory_revision"] ?? ""
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if !revision.isEmpty {
+            latestCreativeMemoryRevision = revision
         }
     }
 
@@ -5136,39 +9889,91 @@ actor BackendMemoryAPI {
                 return error
             }
         }
-        return String(data: data, encoding: .utf8) ?? "Request failed."
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
+    }
+
+    private func decodeScreenplayExportError(status: Int, data: Data) -> Error {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        if let payload = try? decoder.decode(BackendScreenplayExportRejection.self, from: data) {
+            return BackendScreenplayExportError.rejected(status: status, payload: payload)
+        }
+        return BackendMemoryAPIError.server(status: status, message: decodeErrorMessage(from: data))
     }
 
     private func baseURL() -> URL {
         if let baseURLOverride {
             return baseURLOverride
         }
-        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
+        if let healthyBaseURL {
+            return healthyBaseURL
+        }
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
+        }
+        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
+        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
+        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
-#if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-#else
-        return URL(string: "https://api.them.io")!
-#endif
+        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
+            UserDefaults.standard.synchronize()
+        }
+        return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
+    }
+
+    private func healthBaseURLCandidates() -> [URL] {
+        if let baseURLOverride {
+            return [baseURLOverride]
+        }
+        var candidates = [baseURL()]
+        let storedRaw = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(storedRaw),
+           let stored = URL(string: storedRaw),
+           isUsableBackendURL(stored) {
+            candidates.append(canonicalizeLoopbackURL(stored))
+        }
+        candidates.append(BackendDefaultBaseURLPolicy.currentFallbackBaseURL)
+
+        var seen = Set<String>()
+        return candidates.filter { candidate in
+            seen.insert(candidate.absoluteString.lowercased()).inserted
+        }
+    }
+
+    private func adoptHealthyBaseURL(_ url: URL) {
+        let resolved = canonicalizeLoopbackURL(url)
+        healthyBaseURL = resolved
+        UserDefaults.standard.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
+        UserDefaults.standard.synchronize()
     }
 
     private func canonicalizeLoopbackURL(_ url: URL) -> URL {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -5178,8 +9983,31 @@ actor BackendMemoryAPI {
         return components.url ?? url
     }
 
+    private func isUsableBackendURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
+        return true
+    }
+
+    private func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
+    }
+
     private func appToken() -> String? {
-        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.appToken)
+        let fromDefaults = UserDefaults.standard.string(forKey: "app_token") ?? ""
         if isUsableConfigValue(fromDefaults) {
             return fromDefaults
         }
@@ -5190,6 +10018,12 @@ actor BackendMemoryAPI {
         let envValue = ProcessInfo.processInfo.environment["APP_TOKEN"] ?? ""
         if isUsableConfigValue(envValue) {
             return envValue
+        }
+        if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
+            return fallback
+        }
+        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         return devFallbackAppToken
     }
@@ -5203,17 +10037,16 @@ actor BackendMemoryAPI {
     }
 
     private func clientToken() -> String? {
-        let token = UserDefaults.standard.string(forKey: DefaultsKey.clientToken) ?? ""
-        return token.isEmpty ? nil : token
+        BackendAuthClient.sharedClientToken()
     }
 
     private func userID() -> String? {
-        let current = normalizedUserID(UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
+        let current = normalizedUserID(BackendAuthClient.sharedUserID() ?? "")
         if !current.isEmpty {
             return current
         }
         let generated = generatedUserID()
-        UserDefaults.standard.set(generated, forKey: DefaultsKey.userId)
+        BackendAuthClient.persistSharedUserID(generated)
         return generated
     }
 
@@ -5236,14 +10069,6 @@ actor BackendMemoryAPI {
     private func cacheSession(_ sessionPayload: BackendSessionResponse) {
         cachedSession = sessionPayload
         cachedSessionAt = Date()
-
-        UserDefaults.standard.set(sessionPayload.clientToken, forKey: DefaultsKey.clientToken)
-        if let userId = sessionPayload.userId {
-            let normalized = normalizedUserID(userId)
-            if !normalized.isEmpty {
-                UserDefaults.standard.set(normalized, forKey: DefaultsKey.userId)
-            }
-        }
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
            !assistant.isEmpty {
             UserDefaults.standard.set(assistant, forKey: DefaultsKey.assistantName)

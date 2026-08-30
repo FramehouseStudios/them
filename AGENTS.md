@@ -27,6 +27,17 @@ Every change should move the app closer to a stable, usable, emotionally cinemat
 9. Keep commits small, readable, and reversible.
 10. When blocked by human-only authority, document the exact clearance step and continue with the next safe unblocked task.
 
+## Self-checking loop
+
+Every meaningful implementation pass follows the same strict loop:
+
+1. **Plan** — state the single next target and its binary success criteria.
+2. **Do** — implement or improve the real product behavior.
+3. **Verify** — run the strongest relevant checks and report every failure or skip honestly.
+4. **Decide** — if every criterion passes, commit and continue; otherwise fix the weakest result first and repeat.
+
+Do not call work complete until it is connected, verified, and usable, or a specific external or human-authority blocker is documented.
+
 ## Continue behavior
 
 When the human says `continue`:

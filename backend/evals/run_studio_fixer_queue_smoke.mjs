@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
+import {
+  cleanupStudioEvalSessionsWithHelper,
+  createStudioOwnedAppController,
+  relaunchStudioAppWithHelper,
+} from "./studio_eval_debug_utils.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -28,6 +33,8 @@ function runOptional(command, args, options = {}) {
     stderr: (result.stderr || "").trim(),
   };
 }
+
+const ownedApp = createStudioOwnedAppController({ runOptional });
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,12 +81,6 @@ function findDebugAppPath() {
   return discovered;
 }
 
-function osascript(lines) {
-  const args = [];
-  for (const line of lines) args.push("-e", line);
-  return run("osascript", args);
-}
-
 function readDefaultString(key) {
   const result = runOptional("defaults", ["read", "io.them.them", key]);
   return result.status === 0 ? result.stdout.trim() : "";
@@ -103,41 +104,29 @@ function deleteDefaultKey(key) {
 }
 
 function appHasWindow() {
-  const output = osascript([
-    "try",
-    'tell application "System Events"',
-    'tell process "them"',
-    'return count of windows',
-    'end tell',
-    'end tell',
-    'on error',
-    'return "0"',
-    'end try',
-  ]);
-  return Number(output) > 0;
+  return ownedApp.hasWindow();
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return ownedApp.isRunning();
 }
 
-function activateApp() {
-  osascript(['tell application "them" to activate']);
+function activateApp(appPath = "", appSession = null) {
+  ownedApp.activate(appPath, appSession);
 }
 
 function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  const appSession = relaunchStudioAppWithHelper({ appPath, runOptional });
+  ownedApp.bindSession(appPath, appSession);
+  return appSession;
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"]);
+  cleanupStudioEvalSessionsWithHelper({ runOptional });
 }
 
 async function ensureAppStopped() {
-  if (!appIsRunning()) return;
   quitApp();
-  await waitFor(() => !appIsRunning(), "THEM process to quit before fixer queue smoke", 15000, 300);
 }
 
 async function ensureStudioVisible() {
@@ -150,9 +139,9 @@ async function ensureStudioVisible() {
 
 async function relaunchApp(appPath) {
   await ensureAppStopped();
-  launchApp(appPath);
+  const appSession = launchApp(appPath);
   await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
+  activateApp(appPath, appSession);
   await ensureStudioVisible();
 }
 

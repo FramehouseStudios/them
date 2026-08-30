@@ -53,21 +53,16 @@ async function createFailingRealtimeEndpoint() {
   };
 }
 
-// Day 1 Backend Exposure Lock: /realtime/client_secret is a
-// cost-attached provider path and now requires an authenticated user.
-// These route tests must drive it through the auth gate (the failover
-// behavior is unchanged — only the entry is now authenticated).
-async function signUpAndAuthHeader(server, email) {
+// Day 1 Backend Exposure Lock: /realtime/* now requires authenticated
+// identity. Tests that hit the live failover route need a real bearer
+// token from a signup round-trip.
+async function signupAndGetToken(server, email = "realtime-failover@example.com") {
   const signup = await apiRequest(server, "/auth/signup", {
     method: "POST",
-    json: { email, password: "failover-test-password-123" },
+    json: { email, password: "failover-password-123" },
   });
-  assert.equal(signup.status, 201, "auth signup must succeed for the failover route test");
-  assert.ok(
-    typeof signup.json?.token === "string" && signup.json.token.length > 20,
-    "signup must return an access token",
-  );
-  return { Authorization: "Bearer " + signup.json.token };
+  assert.equal(signup.status, 201, "auth/signup should succeed");
+  return String(signup.json?.access_token || signup.json?.token || "");
 }
 
 // ---------- shouldAttemptFallback ----------
@@ -78,6 +73,10 @@ test("[failover] shouldAttemptFallback returns false when allowFallback is false
 
 test("[failover] shouldAttemptFallback returns false for 400-class codes (unknown_provider)", () => {
   assert.equal(shouldAttemptFallback(true, { code: "realtime_supplier_unknown_provider" }), false);
+});
+
+test("[failover] shouldAttemptFallback returns false for missing or rejected credentials", () => {
+  assert.equal(shouldAttemptFallback(true, { code: "realtime_supplier_unauthorized" }), false);
 });
 
 test("[failover] shouldAttemptFallback returns true for generic 502-class failures", () => {
@@ -251,19 +250,17 @@ test("[failover-route] unpinned provider falls back to stub when OpenAI mint fai
     },
   });
   try {
-    // The cost path must reject anonymous callers (end-to-end proof
-    // of the Day 1 lock through the real spawned server).
-    const anon = await apiRequest(server, "/realtime/client_secret", {
+    const anonymous = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
       json: { instructions: "Keep it spare.", voice: "marin" },
     });
-    assert.equal(anon.status, 401, "cost path must reject anonymous callers");
-    assert.equal(anon.json?.error, "user_auth_required");
+    assert.equal(anonymous.status, 401, "cost path must reject anonymous callers");
+    assert.equal(anonymous.json?.error, "user_auth_required");
 
-    const auth = await signUpAndAuthHeader(server, "failover-unpinned@example.com");
+    const token = await signupAndGetToken(server, "failover-unpinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
-      headers: auth,
+      headers: { Authorization: "Bearer " + token },
       json: { instructions: "Keep it spare.", voice: "marin" },
     });
     assert.equal(r.status, 201);
@@ -288,10 +285,10 @@ test("[failover-route] pinned provider does not fall back", async () => {
     },
   });
   try {
-    const auth = await signUpAndAuthHeader(server, "failover-pinned@example.com");
+    const token = await signupAndGetToken(server, "failover-pinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
-      headers: auth,
+      headers: { Authorization: "Bearer " + token },
       json: { provider: "openai", instructions: "Keep it spare." },
     });
     assert.equal(r.status, 500);

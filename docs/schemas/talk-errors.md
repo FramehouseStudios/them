@@ -39,14 +39,14 @@ in the module header of `talk_error_counter.js`.
   "schemaVersion": 1,
   "total": 42,
   "counts": {
-    "supplier_unavailable": 12,
-    "supplier_timeout": 8,
-    "mint_failed": 5,
-    "recovery_invoked": 17
+    "provider_unavailable": 12,
+    "provider_timeout": 8,
+    "provider_rate_limited": 5,
+    "response_invalid": 17
   },
   "lastOccurrence": {
-    "supplier_unavailable": 1715620920000,
-    "supplier_timeout": 1715620080000
+    "provider_unavailable": 1715620920000,
+    "provider_timeout": 1715620080000
   },
   "sinceMs": 1715520000000,
   "observedAtMs": 1715620920000,
@@ -86,3 +86,5 @@ in the module header of `talk_error_counter.js`.
 ## Changelog
 
 - v1 — initial documented shape.
+- 2026-05-26 — `/talk` provider diagnostics now increment
+  `provider_*`, `response_invalid`, and `talk_server_error` classes.

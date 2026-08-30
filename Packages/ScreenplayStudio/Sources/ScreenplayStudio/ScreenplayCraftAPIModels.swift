@@ -507,3 +507,124 @@ public nonisolated struct ScreenplayFormatLintSuggestion: Codable, Hashable, Ide
         ].joined(separator: ":")
     }
 }
+
+public nonisolated struct ScreenplayCraftCoverageSimulationRequest: Codable, Hashable {
+    public let text: String
+    public let pageCount: Int?
+    public let frameworkId: String?
+
+    public init(text: String, pageCount: Int?, frameworkId: String?) {
+        self.text = text
+        self.pageCount = pageCount
+        self.frameworkId = frameworkId
+    }
+}
+
+public nonisolated struct ScreenplayCraftCoverageSimulationReport: Codable, Hashable {
+    public let schemaVersion: Int
+    public let overview: ScreenplayCraftCoverageOverview
+    public let pacing: ScreenplayCraftCoveragePacing
+    public let characters: [ScreenplayCraftCoverageCharacter]
+    public let warnings: [ScreenplayCraftCoverageWarning]
+    public let frameworkId: String?
+    public let summary: String
+
+    public init(
+        schemaVersion: Int,
+        overview: ScreenplayCraftCoverageOverview,
+        pacing: ScreenplayCraftCoveragePacing,
+        characters: [ScreenplayCraftCoverageCharacter],
+        warnings: [ScreenplayCraftCoverageWarning],
+        frameworkId: String?,
+        summary: String
+    ) {
+        self.schemaVersion = schemaVersion
+        self.overview = overview
+        self.pacing = pacing
+        self.characters = characters
+        self.warnings = warnings
+        self.frameworkId = frameworkId
+        self.summary = summary
+    }
+}
+
+public nonisolated struct ScreenplayCraftCoverageOverview: Codable, Hashable {
+    public let pageCount: Int
+    public let sceneCount: Int
+    public let dialogueRatio: Double
+    public let avgSceneLengthLines: Double
+
+    public init(pageCount: Int, sceneCount: Int, dialogueRatio: Double, avgSceneLengthLines: Double) {
+        self.pageCount = pageCount
+        self.sceneCount = sceneCount
+        self.dialogueRatio = dialogueRatio
+        self.avgSceneLengthLines = avgSceneLengthLines
+    }
+}
+
+public nonisolated struct ScreenplayCraftCoveragePacing: Codable, Hashable {
+    public let intensity: String
+    public let peakScenes: [ScreenplayCraftCoverageSceneSignal]
+    public let longScenes: [ScreenplayCraftCoverageSceneSignal]
+    public let shortScenes: [ScreenplayCraftCoverageSceneSignal]
+
+    public init(
+        intensity: String,
+        peakScenes: [ScreenplayCraftCoverageSceneSignal],
+        longScenes: [ScreenplayCraftCoverageSceneSignal],
+        shortScenes: [ScreenplayCraftCoverageSceneSignal]
+    ) {
+        self.intensity = intensity
+        self.peakScenes = peakScenes
+        self.longScenes = longScenes
+        self.shortScenes = shortScenes
+    }
+}
+
+public nonisolated struct ScreenplayCraftCoverageSceneSignal: Codable, Hashable, Identifiable {
+    public let idx: Int
+    public let heading: String
+    public let lineCount: Int
+
+    public init(idx: Int, heading: String, lineCount: Int) {
+        self.idx = idx
+        self.heading = heading
+        self.lineCount = lineCount
+    }
+
+    public var id: String {
+        "\(idx):\(heading)"
+    }
+}
+
+public nonisolated struct ScreenplayCraftCoverageCharacter: Codable, Hashable, Identifiable {
+    public let name: String
+    public let lineCount: Int
+    public let sceneCount: Int
+    public let share: Double
+
+    public init(name: String, lineCount: Int, sceneCount: Int, share: Double) {
+        self.name = name
+        self.lineCount = lineCount
+        self.sceneCount = sceneCount
+        self.share = share
+    }
+
+    public var id: String { name }
+}
+
+public nonisolated struct ScreenplayCraftCoverageWarning: Codable, Hashable, Identifiable {
+    public let severity: String
+    public let code: String
+    public let message: String
+
+    public init(severity: String, code: String, message: String) {
+        self.severity = severity
+        self.code = code
+        self.message = message
+    }
+
+    public var id: String {
+        "\(code):\(message)"
+    }
+}

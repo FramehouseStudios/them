@@ -84,7 +84,12 @@ has no recorded history, the route returns:
 }
 ```
 
-with HTTP 200 — never 401/403/404 for this surface.
+with HTTP 200 for authenticated cold users. Unauthenticated callers
+receive HTTP 401:
+
+```json
+{ "stage": "memory_block_signal_history", "error": "user_auth_required" }
+```
 
 ## Error envelope
 
@@ -136,3 +141,5 @@ is the discriminator.
   and a richer level set (`flow / pending / block`) that the
   live code does not emit; this version corrects all of those
   against the actual route.
+- 2026-05-26 — Auth/privacy hardening: unauthenticated callers now
+  receive 401 instead of the zero envelope.

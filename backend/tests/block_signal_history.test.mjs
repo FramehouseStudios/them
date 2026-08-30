@@ -192,12 +192,12 @@ test("[block-history] GET /memory/block-signal appends a sample to the user's hi
   });
 });
 
-test("[block-history] cold user with no record gets no history append (no userId → empty snapshot)", async () => {
+test("[block-history] unauthenticated request returns 401 and appends no history", async () => {
   await withTestServer(
     async ({ baseURL, store }) => {
       const r = await get(baseURL, "/memory/block-signal");
-      assert.equal(r.status, 200);
-      assert.equal(r.body.level, "low");
+      assert.equal(r.status, 401);
+      assert.equal(r.body.error, "user_auth_required");
       const habits = await store.getHabitsForUser("");
       assert.equal(habits, null);
     },

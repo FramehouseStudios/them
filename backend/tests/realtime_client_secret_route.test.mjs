@@ -6,7 +6,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
 
-import { mountRealtimeClientSecretRoute, CLIENT_SECRET_BODY_LIMIT } from "../lib/realtime_client_secret_route.js";
+import {
+  mountRealtimeClientSecretRoute,
+  CLIENT_SECRET_BODY_LIMIT,
+  PROJECT_GROUNDING_BODY_LIMIT,
+  buildRealtimeProjectGroundedInstructions,
+} from "../lib/realtime_client_secret_route.js";
 
 function fakeSupplier({ kind = "openai", mintImpl, shouldThrow = null, sessionConfig = null } = {}) {
   return {
@@ -74,6 +79,82 @@ async function postJson(baseURL, path, body) {
 
 test("[realtime-client-secret] CLIENT_SECRET_BODY_LIMIT exported as 512kb", () => {
   assert.equal(CLIENT_SECRET_BODY_LIMIT, "512kb");
+  assert.equal(PROJECT_GROUNDING_BODY_LIMIT, "512kb");
+});
+
+test("[realtime-client-secret] oversized memory stays bounded without losing question or closing contracts", () => {
+  const instructions = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    creativeMemoryBlock: `<memory>\n${"canon ".repeat(4_000)}\n</memory>`,
+    pendingQuestion: {
+      id: "question-ending",
+      targetField: "project.ending_image",
+      question: "What final image proves Mara changed?",
+    },
+    projectId: "project-a",
+  });
+
+  assert.ok(instructions.length <= "Base voice contract.".length + 2 + 8_000);
+  assert.match(instructions, /question_id: question-ending/);
+  assert.match(instructions, /<memory>/);
+  assert.match(instructions, /<\/memory>/);
+  assert.match(instructions, /<\/realtime_project_grounding>$/);
+});
+
+test("[realtime-client-secret] screenplay uncertainty stays provisional until an explicit option selection", () => {
+  const initial = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    pendingQuestion: {
+      id: "question-tactic",
+      targetField: "character.current_tactic",
+      targetLabel: "Mara's Act II tactic",
+      question: "What tactic does Mara keep using after it starts failing?",
+      actKey: "act2",
+      sequenceKey: "midpoint",
+    },
+    projectId: "project-a",
+    projectMemory: {
+      act: "Act II",
+      protagonistWant: "Mara wants June to choose her freely.",
+      questionEffectiveness: Array.from({ length: 3 }, (_, index) => ({
+        questionId: `taste-${index}`,
+        targetField: "character.current_tactic",
+        responseStatus: "answered",
+        selectedMoveFamily: "relationship_pressure",
+        offeredMoveFamilies: [
+          "relationship_pressure",
+          "reversal_pressure",
+          "obstacle_pressure",
+        ],
+        acceptedPageCount: 1,
+        answeredAt: 3_000 - index,
+      })),
+    },
+  });
+  assert.match(initial, /exactly three mutually exclusive, canon-compatible choices/i);
+  assert.match(initial, /Option 1 \(recommended\)/);
+  assert.match(initial, /Keep all three provisional/i);
+  assert.match(initial, /option_1_private_engine: relationship_pressure/i);
+
+  const choosing = buildRealtimeProjectGroundedInstructions({
+    baseInstructions: "Base voice contract.",
+    pendingQuestion: {
+      id: "question-tactic-options",
+      targetField: "character.current_tactic",
+      targetLabel: "Mara's Act II tactic",
+      question: "Which path should become true: Option 1, 2, or 3?",
+      provisionalOptions: [
+        { id: "option-1", rank: 1, value: "Mara steals the harbor keys." },
+        { id: "option-2", rank: 2, value: "Mara tells June the truth." },
+        { id: "option-3", rank: 3, value: "Mara destroys the manifest." },
+      ],
+    },
+    projectId: "project-a",
+  });
+  assert.match(choosing, /provisional_option_1: Mara steals the harbor keys/);
+  assert.match(choosing, /provisional_option_2: Mara tells June the truth/);
+  assert.match(choosing, /proposals, not canon/i);
+  assert.match(choosing, /explicitly selects one/i);
 });
 
 test("[realtime-client-secret] mount fails without Express app", () => {
@@ -117,7 +198,262 @@ test("[realtime-client-secret] primary_ok: 201 with canonical envelope", async (
     assert.ok(r.body.client_secret?.expires_at);
     assert.equal(r.body.session.type, "realtime");
     assert.ok(Array.isArray(r.body.session.output_modalities));
+    assert.equal(typeof r.body.session.input_transcription_model, "string");
     assert.ok(r.body.issued_at);
+  });
+});
+
+test("[realtime-client-secret] emotion lane directs the voice at session creation", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Stay close and playful.",
+      emotion_lane: "bright_playful",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "coral");
+    assert.equal(r.body.voice, "coral");
+    assert.equal(r.body.emotion_lane, "bright_playful");
+  });
+});
+
+test("[realtime-client-secret] clients without an emotion lane retain the configured default", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "alloy");
+    assert.equal(r.body.voice, "alloy");
+  });
+});
+
+test("[realtime-client-secret] explicit voice still overrides emotion-directed default", async () => {
+  let capturedMintParams = null;
+  const deps = defaultDeps({
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      emotion_lane: "calm_grounded_safe",
+      voice: "marin",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(capturedMintParams.voice, "marin");
+    assert.equal(r.body.voice, "marin");
+    assert.equal(r.body.emotion_lane, "calm_grounded_safe");
+  });
+});
+
+test("[realtime-client-secret] grounds screenplay sessions in authenticated project memory and one pending question", async () => {
+  let capturedMintParams = null;
+  let capturedRecallOptions = null;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: (userId) => {
+      assert.equal(userId, "user-a");
+      return {
+        pendingScreenplayLearningQuestions: [
+          {
+            id: "question-wound",
+            projectId: "project-a",
+            projectTitle: "Ferry Light",
+            targetField: "character.wound",
+            targetLabel: "Mara's wound",
+            anchor: "MARA",
+            question: "What old wound makes Mara leave before she can be left?",
+            askedAtTurn: 7,
+            expiresAfterTurn: 9,
+            askedAt: 1_800_000_000_000,
+          },
+          {
+            id: "question-other",
+            projectId: "project-b",
+            projectTitle: "Other Film",
+            targetField: "project.theme_argument",
+            question: "What does the other film argue?",
+            askedAtTurn: 8,
+            expiresAfterTurn: 10,
+            askedAt: 1_800_000_001_000,
+          },
+        ],
+      };
+    },
+    getCreativeMemoryForPrompt: async (options) => {
+      capturedRecallOptions = options;
+      return {
+        projectContinuity: {
+          projectId: "project-a",
+          protagonistWant: "Mara wants to save both sisters.",
+        },
+      };
+    },
+    buildCreativeMemoryBlock: () => [
+      "<memory>",
+      "project-continuity:",
+      "  protagonist_want: Mara wants to save both sisters.",
+      "  authoritative_corrections: Mara returns for Eli and June.",
+      "</memory>",
+    ].join("\n"),
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedMintParams = mintParams;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+      screenplay_project_title: "Ferry Light",
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(capturedRecallOptions.userId, "user-a");
+    assert.equal(capturedRecallOptions.projectId, "project-a");
+    assert.equal(capturedRecallOptions.projectTitle, "Ferry Light");
+    assert.match(capturedRecallOptions.query, /old wound makes Mara/i);
+    assert.match(capturedMintParams.instructions, /<realtime_project_grounding>/);
+    assert.match(capturedMintParams.instructions, /question_id: question-wound/);
+    assert.match(capturedMintParams.instructions, /Mara returns for Eli and June/);
+    assert.doesNotMatch(capturedMintParams.instructions, /question-other|other film argue/i);
+    assert.equal(r.body.memory_grounding.project_id, "project-a");
+    assert.equal(r.body.memory_grounding.pending_question_id, "question-wound");
+    assert.equal(r.body.memory_grounding.memory_applied, true);
+    assert.equal(r.body.session.instructions, capturedMintParams.instructions);
+  });
+});
+
+test("[realtime-project-grounding] refreshes instructions without minting another credential", async () => {
+  let mintCalls = 0;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => ({
+      pendingScreenplayLearningQuestions: [
+        {
+          id: "question-ending",
+          projectId: "project-a",
+          projectTitle: "Ferry Light",
+          targetField: "project.ending_image",
+          targetLabel: "the ending image",
+          question: "What final image proves Mara changed?",
+          askedAtTurn: 9,
+          expiresAfterTurn: 11,
+          askedAt: 1_800_000_000_000,
+        },
+      ],
+    }),
+    getCreativeMemoryForPrompt: async () => ({
+      projectContinuity: {
+        projectId: "project-a",
+        correctedTerms: ["Mara returns for Eli and June."],
+      },
+    }),
+    buildCreativeMemoryBlock: () => [
+      "<memory>",
+      "authoritative_corrections: Mara returns for Eli and June.",
+      "</memory>",
+    ].join("\n"),
+    mintWithFailover: async (args) => {
+      mintCalls += 1;
+      return defaultDeps().mintWithFailover(args);
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/project_grounding", {
+      system_prompt: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+      screenplay_project_title: "Ferry Light",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.action, "realtime_project_grounding");
+    assert.equal(r.body.client_secret, undefined);
+    assert.equal(mintCalls, 0);
+    assert.match(r.body.instructions, /Mara returns for Eli and June/);
+    assert.match(r.body.instructions, /question_id: question-ending/);
+    assert.equal(r.body.memory_grounding.project_id, "project-a");
+    assert.equal(r.body.memory_grounding.pending_question_id, "question-ending");
+  });
+});
+
+test("[realtime-project-grounding] fails closed when authenticated memory cannot be read", async () => {
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => {
+      throw new Error("memory unavailable");
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/project_grounding", {
+      system_prompt: "Stay cinematic.",
+      is_screenplay_mode: true,
+      screenplay_project_id: "project-a",
+    });
+
+    assert.equal(r.status, 503);
+    assert.equal(r.body.stage, "realtime_project_grounding");
+    assert.equal(r.body.code, "realtime_project_grounding_failed");
+  });
+});
+
+test("[realtime-client-secret] never applies project memory outside screenplay mode", async () => {
+  let memoryReads = 0;
+  let capturedInstructions = "";
+  const deps = defaultDeps({
+    resolveUserId: () => "user-a",
+    getPersistedUserMemoryForUserId: () => {
+      memoryReads += 1;
+      return {};
+    },
+    getCreativeMemoryForPrompt: async () => {
+      memoryReads += 1;
+      return {};
+    },
+    buildCreativeMemoryBlock: () => "<memory>private screenplay</memory>",
+    mintWithFailover: async ({ primarySupplier, mintParams }) => {
+      capturedInstructions = mintParams.instructions;
+      const minted = await primarySupplier.mintClientSecret(mintParams);
+      return { minted, supplierUsed: primarySupplier, fallbackReason: null };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "Companion conversation.",
+      is_screenplay_mode: false,
+      screenplay_project_id: "project-a",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(memoryReads, 0);
+    assert.equal(capturedInstructions, "Companion conversation.");
+    assert.equal(r.body.memory_grounding, undefined);
   });
 });
 
@@ -142,6 +478,87 @@ test("[realtime-client-secret] primary_fail_fallback_ok: 201 with fallback keys"
     // `supplier` was request-local. The fact that the response
     // still reports realtime_provider: "stub" proves the rotation
     // happened request-locally without persistence.
+  });
+});
+
+test("[realtime-client-secret] production primary failure returns degraded 503 without stub fallback", async () => {
+  const primaryErr = Object.assign(new Error("OpenAI mint failed"), {
+    code: "realtime_supplier_request_failed",
+    status: 502,
+  });
+  let seenAllowFallback = null;
+  let stubLoaded = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    mintWithFailover: async ({ allowFallback }) => {
+      seenAllowFallback = allowFallback;
+      throw primaryErr;
+    },
+    loadStubSupplier: async () => {
+      stubLoaded = true;
+      return fakeSupplier({ kind: "stub" });
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 503);
+    assert.equal(seenAllowFallback, false);
+    assert.equal(stubLoaded, false);
+    assert.equal(r.body.code, "realtime_supplier_request_failed");
+    assert.equal(r.body.realtime_provider, "openai");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_supplier_request_failed"]);
+  });
+});
+
+test("[realtime-client-secret] production env-selected stub is refused before mint", async () => {
+  let mintCalled = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    mintWithFailover: async () => {
+      mintCalled = true;
+      throw new Error("should not mint");
+    },
+  });
+  deps._setSupplier(fakeSupplier({ kind: "stub" }));
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 503);
+    assert.equal(mintCalled, false);
+    assert.equal(r.body.code, "realtime_stub_disabled_in_production");
+    assert.equal(r.body.realtime_provider, "stub");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_stub_disabled_in_production"]);
+  });
+});
+
+test("[realtime-client-secret] production request-pinned stub is refused before mint", async () => {
+  let mintCalled = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    createRealtimeSupplier: async ({ provider }) => fakeSupplier({ kind: provider }),
+    mintWithFailover: async () => {
+      mintCalled = true;
+      throw new Error("should not mint");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "hi",
+      realtime_provider: "stub",
+    });
+    assert.equal(r.status, 503);
+    assert.equal(mintCalled, false);
+    assert.equal(r.body.code, "realtime_stub_disabled_in_production");
+    assert.equal(r.body.realtime_provider, "stub");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_stub_disabled_in_production"]);
   });
 });
 

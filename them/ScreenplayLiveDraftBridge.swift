@@ -1,12 +1,269 @@
 import SwiftUI
 import Combine
 import ScreenplayStudio
+import os.log
 #if os(macOS)
 import AppKit
 #endif
 #if os(iOS)
 import UIKit
 #endif
+
+nonisolated struct ScreenplayFeatureSpine: Codable, Equatable {
+    var logline: String = ""
+    var themeArgument: String = ""
+    var centralQuestion: String = ""
+    var protagonistWant: String = ""
+    var protagonistNeed: String = ""
+    var antagonisticForce: String = ""
+    var actPosition: String = ""
+    var endingImage: String = ""
+    var unresolvedSetups: [String] = []
+
+    static let empty = ScreenplayFeatureSpine()
+
+    init(
+        logline: String = "",
+        themeArgument: String = "",
+        centralQuestion: String = "",
+        protagonistWant: String = "",
+        protagonistNeed: String = "",
+        antagonisticForce: String = "",
+        actPosition: String = "",
+        endingImage: String = "",
+        unresolvedSetups: [String] = []
+    ) {
+        self.logline = Self.clean(logline, limit: 500)
+        self.themeArgument = Self.clean(themeArgument, limit: 500)
+        self.centralQuestion = Self.clean(centralQuestion, limit: 500)
+        self.protagonistWant = Self.clean(protagonistWant, limit: 500)
+        self.protagonistNeed = Self.clean(protagonistNeed, limit: 500)
+        self.antagonisticForce = Self.clean(antagonisticForce, limit: 500)
+        self.actPosition = Self.clean(actPosition, limit: 80)
+        self.endingImage = Self.clean(endingImage, limit: 500)
+        self.unresolvedSetups = Self.cleanList(unresolvedSetups, limit: 24, itemLimit: 220)
+    }
+
+    init(project: BackendScreenplayProjectSummary?) {
+        self.init(
+            logline: project?.logline ?? "",
+            themeArgument: project?.themeArgument ?? "",
+            centralQuestion: project?.centralQuestion ?? "",
+            protagonistWant: project?.protagonistWant ?? "",
+            protagonistNeed: project?.protagonistNeed ?? "",
+            antagonisticForce: project?.antagonisticForce ?? "",
+            actPosition: project?.actPosition ?? "",
+            endingImage: project?.endingImage ?? "",
+            unresolvedSetups: project?.unresolvedSetups ?? []
+        )
+    }
+
+    var isEmpty: Bool {
+        logline.isEmpty &&
+            themeArgument.isEmpty &&
+            centralQuestion.isEmpty &&
+            protagonistWant.isEmpty &&
+            protagonistNeed.isEmpty &&
+            antagonisticForce.isEmpty &&
+            actPosition.isEmpty &&
+            endingImage.isEmpty &&
+            unresolvedSetups.isEmpty
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+
+    private static func cleanList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = Self.clean(value, limit: itemLimit)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(clean)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+}
+
+enum ScreenplayQualityResolution: String, Equatable {
+    case accepted
+    case repaired
+    case needsRepair
+    case blocked
+}
+
+struct ScreenplayQualityStatus: Equatable {
+    let resolution: ScreenplayQualityResolution
+    let reason: String
+    let confidence: String
+    let source: String
+    let featureAct: String
+    let matchedTokens: [String]
+    let minimumSpecificActions: Int?
+    let repairDirectives: [String]
+    let updatedAt: Date
+
+    init?(
+        quality: BackendTalkScreenplayQuality?,
+        output: BackendTalkScreenplayOutput?,
+        updatedAt: Date = Date()
+    ) {
+        let resolvedQuality = quality ?? output?.quality
+        let cleanTarget = (output?.target ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let writesToPage = output?.writesToPage == true
+        guard resolvedQuality != nil || !cleanTarget.isEmpty else { return nil }
+
+        let cleanConfidence = (resolvedQuality?.confidence ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let cleanSource = (resolvedQuality?.source ?? output?.source ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let ok = resolvedQuality?.ok ?? writesToPage
+        if ok {
+            self.resolution = cleanConfidence.contains("repair") || cleanSource.contains("repair")
+                ? .repaired
+                : .accepted
+        } else if cleanConfidence == "blocked" || cleanTarget == "voice_pin" || cleanTarget == "voicepin" {
+            self.resolution = .blocked
+        } else {
+            self.resolution = .needsRepair
+        }
+
+        self.reason = (resolvedQuality?.reason ?? (ok ? "ok" : "unknown"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.confidence = cleanConfidence
+        self.source = cleanSource
+        self.featureAct = (resolvedQuality?.featureAct ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.matchedTokens = (resolvedQuality?.matchedTokens ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.minimumSpecificActions = resolvedQuality?.minimumSpecificActions
+        self.repairDirectives = (resolvedQuality?.repairDirectives ?? [])
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            }
+            .filter { !$0.isEmpty }
+        self.updatedAt = updatedAt
+    }
+
+    var chipTitle: String {
+        switch resolution {
+        case .accepted:
+            return featureAct.isEmpty ? "Page accepted" : "\(displayFeatureAct) accepted"
+        case .repaired:
+            return featureAct.isEmpty ? "Page repaired" : "\(displayFeatureAct) repaired"
+        case .needsRepair:
+            return "Page needs repair"
+        case .blocked:
+            return "Voice pin"
+        }
+    }
+
+    var title: String {
+        switch resolution {
+        case .accepted:
+            return "Page accepted"
+        case .repaired:
+            return "Page repaired"
+        case .needsRepair:
+            return "Page needs revision"
+        case .blocked:
+            return "Saved as voice note"
+        }
+    }
+
+    var detail: String {
+        let cleanReason = Self.displayReason(reason)
+        let actSuffix = featureAct.isEmpty ? "." : " for \(displayFeatureAct)."
+        let directiveSuffix = primaryRepairDirective.isEmpty ? "" : " Repair focus: \(primaryRepairDirective)"
+        switch resolution {
+        case .accepted:
+            return "Clementine passed the screenplay guard\(actSuffix)"
+        case .repaired:
+            return "Clementine repaired the page before it reached the draft\(actSuffix)\(directiveSuffix)"
+        case .needsRepair:
+            return cleanReason.isEmpty
+                ? "The page guard rejected the draft before it could write to the script.\(directiveSuffix)"
+                : "The page guard rejected it: \(cleanReason).\(directiveSuffix)"
+        case .blocked:
+            return cleanReason.isEmpty
+                ? "The turn stayed conversational instead of writing to the page.\(directiveSuffix)"
+                : "The turn stayed conversational: \(cleanReason).\(directiveSuffix)"
+        }
+    }
+
+    private var primaryRepairDirective: String {
+        repairDirectives.first ?? ""
+    }
+
+    private var displayFeatureAct: String {
+        switch featureAct.lowercased() {
+        case "act1":
+            return "Act I"
+        case "act2":
+            return "Act II"
+        case "act3":
+            return "Act III"
+        default:
+            return featureAct
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    private static func displayReason(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean.lowercased() != "ok" else { return "" }
+        switch clean {
+        case "empty_page_text":
+            return "empty page text"
+        case "non_screenplay_output":
+            return "not screenplay-formatted"
+        case "outline_or_craft_artifact":
+            return "outline or craft notes instead of playable pages"
+        case "placeholder_page_text":
+            return "placeholder page text"
+        case "low_dramatic_density":
+            return "low dramatic density"
+        case "underfilled_page_text":
+            return "underfilled requested pages"
+        case "summary_like_page_batch":
+            return "summary instead of playable pages"
+        case "thin_long_page_batch":
+            return "not enough concrete page turns"
+        case "static_dialogue_batch":
+            return "static dialogue without enough visible action"
+        case "on_the_nose_dialogue":
+            return "on-the-nose dialogue"
+        case "missing_playable_content":
+            return "missing playable scene behavior"
+        case "missing_screenplay_shape":
+            return "missing screenplay shape"
+        case "missing_act_one_commitment":
+            return "missing Act I commitment pressure"
+        case "missing_act_two_reversal":
+            return "missing Act II reversal pressure"
+        case "missing_act_three_payoff":
+            return "missing Act III payoff"
+        case "missing_act_three_changed_behavior":
+            return "missing changed behavior in the payoff"
+        case "voice_pin_target":
+            return "voice pin target"
+        default:
+            return clean.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+}
 
 #if os(macOS)
 private func screenplayDebugMirroredDomains() -> [String] {
@@ -155,6 +412,9 @@ struct ScreenplayPageAnchor: Codable, Equatable {
     let pageIndex: Int?
     let rangeStart: Int
     let rangeEnd: Int
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let insertMode: String?
 }
 
 struct ScreenplayRevealUnit: Codable, Equatable {
@@ -514,6 +774,8 @@ struct ScreenplayStudioActionPreview: Identifiable, Equatable {
 struct ScreenplayCommittedWrite: Identifiable, Equatable {
     let id: UUID
     let writeID: String
+    let projectID: String
+    let versionID: String
     let previousDraft: String
     let committedDraft: String
     let insertedText: String
@@ -523,8 +785,44 @@ struct ScreenplayCommittedWrite: Identifiable, Equatable {
     let endLine: Int
     let committedAt: Date
 
+    init(
+        id: UUID,
+        writeID: String,
+        projectID: String = "",
+        versionID: String = "",
+        previousDraft: String,
+        committedDraft: String,
+        insertedText: String,
+        replacementApplied: Bool,
+        replacedWriteID: String?,
+        startLine: Int,
+        endLine: Int,
+        committedAt: Date
+    ) {
+        self.id = id
+        self.writeID = writeID
+        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.previousDraft = previousDraft
+        self.committedDraft = committedDraft
+        self.insertedText = insertedText
+        self.replacementApplied = replacementApplied
+        self.replacedWriteID = replacedWriteID
+        self.startLine = startLine
+        self.endLine = endLine
+        self.committedAt = committedAt
+    }
+
     var normalizedWriteID: String {
         writeID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var normalizedProjectID: String {
+        projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var normalizedVersionID: String {
+        versionID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var isPlaceholderWrite: Bool {
@@ -619,6 +917,23 @@ struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
     let currentText: String
 }
 
+private func screenplayEditorPreparedInsertionCoreText(
+    _ raw: String,
+    existing: String,
+    insertionRange: NSRange,
+    replacementTarget: ScreenplayPendingReplacementTarget?
+) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+    return FountainFormatter.removingDuplicateLeadingSceneHeading(
+        from: trimmed,
+        existingDraft: existing,
+        insertionUTF16Location: insertionRange.location,
+        replacementText: replacementTarget?.currentText ?? ""
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 struct ScreenplayReplacementTraceEvent: Codable, Equatable {
     let kind: String
     let requestID: String
@@ -662,6 +977,799 @@ struct ScreenplayAssistantPinState: Equatable {
         actionSummary: "",
         updatedAt: .distantPast
     )
+}
+
+struct ScreenplayStudioAppliedMemoryInlineCorrection: Equatable {
+    let correctionLine: String
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+}
+
+struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
+    let id: UUID
+    let source: String
+    let projectId: String?
+    let projectTitle: String?
+    let act: String?
+    let featureSequence: String?
+    let currentBeat: String?
+    let nextScenePlan: String?
+    let nextThreeTurns: [String]?
+    let actThreePayoffPath: [String]?
+    let unresolvedSetups: [String]?
+    let unresolvedStoryThreads: [String]?
+    let characterArcTurns: [String]?
+    let imageMotifs: [String]?
+    let storyObligationChanges: [BackendStoryObligationChange]?
+    let characters: [String]
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+    let characterBibleApplied: Bool
+    let correctionAppliedToPrompt: Bool
+    let lastSavedCorrection: String
+    let updatedAt: Date
+
+    init(
+        id: UUID,
+        source: String,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        act: String? = nil,
+        featureSequence: String? = nil,
+        currentBeat: String? = nil,
+        nextScenePlan: String? = nil,
+        nextThreeTurns: [String]? = nil,
+        actThreePayoffPath: [String]? = nil,
+        unresolvedSetups: [String]? = nil,
+        unresolvedStoryThreads: [String]? = nil,
+        characterArcTurns: [String]? = nil,
+        imageMotifs: [String]? = nil,
+        storyObligationChanges: [BackendStoryObligationChange]? = nil,
+        characters: [String],
+        correctedTerms: [String],
+        correctionReplacements: [String],
+        characterBibleApplied: Bool,
+        correctionAppliedToPrompt: Bool,
+        lastSavedCorrection: String,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.projectId = Self.cleanOptional(projectId)
+        self.projectTitle = Self.cleanOptional(projectTitle)
+        self.act = Self.cleanOptional(act)
+        self.featureSequence = Self.cleanOptional(featureSequence)
+        self.currentBeat = Self.cleanOptional(currentBeat)
+        self.nextScenePlan = Self.cleanOptional(nextScenePlan)
+        self.nextThreeTurns = Self.cleanOptionalList(nextThreeTurns, limit: 3)
+        self.actThreePayoffPath = Self.cleanOptionalList(actThreePayoffPath, limit: 5)
+        self.unresolvedSetups = Self.cleanOptionalList(unresolvedSetups, limit: 5)
+        self.unresolvedStoryThreads = Self.cleanOptionalList(unresolvedStoryThreads, limit: 5)
+        self.characterArcTurns = Self.cleanOptionalList(characterArcTurns, limit: 5)
+        self.imageMotifs = Self.cleanOptionalList(imageMotifs, limit: 5)
+        let cleanedChanges = Self.cleanStoryObligationChanges(storyObligationChanges)
+        self.storyObligationChanges = cleanedChanges.isEmpty ? nil : cleanedChanges
+        self.characters = Self.cleanList(characters)
+        self.correctedTerms = Self.cleanList(correctedTerms)
+        self.correctionReplacements = Self.cleanList(correctionReplacements)
+        self.characterBibleApplied = characterBibleApplied
+        self.correctionAppliedToPrompt = correctionAppliedToPrompt
+        self.lastSavedCorrection = lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.updatedAt = updatedAt
+    }
+
+    var hasContent: Bool {
+        characterBibleApplied ||
+        correctionAppliedToPrompt ||
+        storyMemoryHasContent ||
+        !characters.isEmpty ||
+        !correctedTerms.isEmpty ||
+        !correctionReplacements.isEmpty ||
+        !lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var storyMemoryHasContent: Bool {
+        !(projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(act ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(featureSequence ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(currentBeat ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !Self.cleanList(nextThreeTurns ?? []).isEmpty ||
+            !Self.cleanList(actThreePayoffPath ?? []).isEmpty ||
+            !Self.cleanList(unresolvedSetups ?? []).isEmpty ||
+            !Self.cleanList(unresolvedStoryThreads ?? []).isEmpty ||
+            !Self.cleanList(characterArcTurns ?? []).isEmpty ||
+            !Self.cleanList(imageMotifs ?? []).isEmpty ||
+            currentStoryObligationChange?.isMeaningful == true
+    }
+
+    var primaryCharacter: String {
+        characters.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    var summary: String {
+        let cleanCharacters = characters
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let cleanReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !cleanCharacters.isEmpty, !cleanReplacements.isEmpty {
+            return "\(cleanCharacters.joined(separator: ", ")): \(cleanReplacements.prefix(2).joined(separator: " / "))"
+        }
+        if !cleanCharacters.isEmpty {
+            return cleanCharacters.joined(separator: ", ")
+        }
+        if let nextStoryMove = storyRunwayLines.first {
+            return nextStoryMove
+        }
+        if !cleanReplacements.isEmpty {
+            return cleanReplacements.prefix(2).joined(separator: " / ")
+        }
+        return correctionAppliedToPrompt ? "Latest correction" : "Project memory"
+    }
+
+    var storyRunwayLines: [String] {
+        var lines: [String] = []
+        if let change = currentStoryObligationChange {
+            lines.append("\(change.statusLabel): \(change.result)")
+        }
+        let nextTurn = Self.cleanList(nextThreeTurns ?? [], limit: 3).first
+            ?? (nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nextTurn.isEmpty {
+            lines.append("Next: \(nextTurn)")
+        }
+        if let payoff = Self.cleanList(actThreePayoffPath ?? [], limit: 3).first {
+            lines.append("Payoff: \(payoff)")
+        }
+        if let thread = Self.cleanList(unresolvedStoryThreads ?? [], limit: 3).first
+            ?? Self.cleanList(unresolvedSetups ?? [], limit: 3).first {
+            lines.append("Thread: \(thread)")
+        }
+        if let arc = Self.cleanList(characterArcTurns ?? [], limit: 3).first {
+            lines.append("Arc: \(arc)")
+        }
+        if let motif = Self.cleanList(imageMotifs ?? [], limit: 3).first, lines.count < 4 {
+            lines.append("Image: \(motif)")
+        }
+        return Array(lines.prefix(4))
+    }
+
+    var currentStoryObligationChange: BackendStoryObligationChange? {
+        Self.cleanStoryObligationChanges(storyObligationChanges).first
+    }
+
+    var featureMemoryBrief: String {
+        guard hasContent else { return "" }
+        var parts: [String] = []
+        let cleanCharacters = Self.cleanList(characters)
+        let cleanReplacements = Self.cleanList(correctionReplacements)
+        let cleanTerms = Self.cleanList(correctedTerms)
+        if !cleanCharacters.isEmpty {
+            parts.append("Characters: \(cleanCharacters.prefix(4).joined(separator: ", "))")
+        }
+        if !cleanReplacements.isEmpty {
+            parts.append("Authoritative corrections: \(cleanReplacements.prefix(4).joined(separator: " / "))")
+        } else if !cleanTerms.isEmpty {
+            parts.append("Do not repeat outdated terms: \(cleanTerms.prefix(4).joined(separator: ", "))")
+        }
+        let cleanNextTurns = Self.cleanList(nextThreeTurns ?? [], limit: 3)
+        let cleanPayoffs = Self.cleanList(actThreePayoffPath ?? [], limit: 3)
+        let cleanThreads = Self.cleanList(unresolvedStoryThreads ?? [], limit: 3)
+        let cleanArcTurns = Self.cleanList(characterArcTurns ?? [], limit: 3)
+        if let change = currentStoryObligationChange {
+            parts.append(
+                "Accepted-page \(change.kindLabel.lowercased()) \(change.statusLabel.lowercased()): " +
+                    "\(change.result) Evidence: \(change.evidence)"
+            )
+        }
+        if !cleanNextTurns.isEmpty {
+            parts.append("Next turns: \(cleanNextTurns.joined(separator: " -> "))")
+        }
+        if !cleanPayoffs.isEmpty {
+            parts.append("Act III payoff path: \(cleanPayoffs.joined(separator: " / "))")
+        }
+        if !cleanThreads.isEmpty {
+            parts.append("Story threads: \(cleanThreads.joined(separator: " / "))")
+        }
+        if !cleanArcTurns.isEmpty {
+            parts.append("Arc turns: \(cleanArcTurns.joined(separator: " / "))")
+        }
+        if characterBibleApplied {
+            parts.append("Use character bible continuity before inventing new facts.")
+        }
+        if correctionAppliedToPrompt {
+            parts.append("Honor corrections before continuing Act I / Act II / Act III pages.")
+        }
+        let brief = parts.joined(separator: " | ")
+        return String(brief.prefix(700))
+    }
+
+    static let empty = ScreenplayStudioAppliedMemoryState(
+        id: UUID(),
+        source: "",
+        projectId: nil,
+        projectTitle: nil,
+        act: nil,
+        featureSequence: nil,
+        currentBeat: nil,
+        nextScenePlan: nil,
+        nextThreeTurns: nil,
+        actThreePayoffPath: nil,
+        unresolvedSetups: nil,
+        unresolvedStoryThreads: nil,
+        characterArcTurns: nil,
+        imageMotifs: nil,
+        characters: [],
+        correctedTerms: [],
+        correctionReplacements: [],
+        characterBibleApplied: false,
+        correctionAppliedToPrompt: false,
+        lastSavedCorrection: "",
+        updatedAt: .distantPast
+    )
+
+    static func from(
+        _ memory: BackendRealtimeStudioMemoryApplied?,
+        source: String,
+        previousSavedCorrection: String = ""
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard let memory else { return .empty }
+        let characters = Self.cleanList(memory.characters)
+        let correctedTerms = Self.cleanList(memory.correctedTerms)
+        let replacements = Self.cleanList(memory.correctionReplacements)
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            projectId: nil,
+            projectTitle: nil,
+            act: nil,
+            featureSequence: nil,
+            currentBeat: nil,
+            nextScenePlan: nil,
+            nextThreeTurns: nil,
+            actThreePayoffPath: nil,
+            unresolvedSetups: nil,
+            unresolvedStoryThreads: nil,
+            characterArcTurns: nil,
+            imageMotifs: nil,
+            characters: characters,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements,
+            characterBibleApplied: memory.characterBible == true,
+            correctionAppliedToPrompt: memory.correctionAppliedToPrompt == true,
+            lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
+            updatedAt: Date()
+        )
+    }
+
+    static func from(
+        _ trace: BackendTalkCreativeMemoryTrace,
+        source: String,
+        previousSavedCorrection: String = ""
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard trace.applied else { return .empty }
+        let characterNames = Self.cleanList(
+            trace.characters.map { $0.name } +
+            trace.episodic.flatMap { $0.characters }
+        )
+        let correctedTerms = Self.cleanList(
+            trace.correctedTerms +
+            trace.characters.flatMap(\.correctedTerms)
+        )
+        let replacements = Self.cleanList(
+            trace.correctionReplacements +
+            trace.characters.flatMap(\.correctionReplacements)
+        )
+        let projectMemory = trace.screenplayProjectMemory
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            projectId: projectMemory?.projectId,
+            projectTitle: projectMemory?.projectTitle,
+            act: projectMemory?.act,
+            featureSequence: projectMemory?.featureSequence,
+            currentBeat: projectMemory?.currentBeat,
+            nextScenePlan: projectMemory?.nextScenePlan,
+            nextThreeTurns: projectMemory?.nextThreeTurns,
+            actThreePayoffPath: projectMemory?.actThreePayoffPath,
+            unresolvedSetups: projectMemory?.unresolvedSetups,
+            unresolvedStoryThreads: projectMemory?.unresolvedStoryThreads,
+            characterArcTurns: projectMemory?.characterArcTurns,
+            imageMotifs: projectMemory?.imageMotifs,
+            storyObligationChanges: trace.storyObligationChange.map { [$0] },
+            characters: characterNames,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements,
+            characterBibleApplied: !characterNames.isEmpty,
+            correctionAppliedToPrompt: trace.correctionCount > 0 || !correctedTerms.isEmpty || !replacements.isEmpty,
+            lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
+            updatedAt: Date()
+        )
+    }
+
+    static func from(
+        _ snapshot: BackendSessionContinuitySnapshot,
+        source: String,
+        previous: ScreenplayStudioAppliedMemoryState
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard snapshot.isMeaningful else { return previous }
+        let changes = snapshot.storyObligationLedger.isEmpty
+            ? snapshot.currentStoryObligationChange.map { [$0] }
+            : snapshot.storyObligationLedger
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source,
+            projectId: snapshot.projectId,
+            projectTitle: snapshot.projectTitle,
+            act: snapshot.act,
+            featureSequence: snapshot.featureSequence,
+            currentBeat: snapshot.currentBeat,
+            nextScenePlan: snapshot.nextScenePlan,
+            nextThreeTurns: snapshot.nextThreeTurns,
+            actThreePayoffPath: snapshot.actThreePayoffPath,
+            unresolvedSetups: snapshot.unresolvedSetups,
+            unresolvedStoryThreads: snapshot.unresolvedStoryThreads,
+            characterArcTurns: snapshot.characterArcTurns,
+            imageMotifs: snapshot.imageMotifs,
+            storyObligationChanges: changes,
+            characters: snapshot.characterFocus,
+            correctedTerms: previous.correctedTerms,
+            correctionReplacements: previous.correctionReplacements,
+            characterBibleApplied: previous.characterBibleApplied || !snapshot.characterFocus.isEmpty,
+            correctionAppliedToPrompt: previous.correctionAppliedToPrompt || snapshot.isCorrection,
+            lastSavedCorrection: previous.lastSavedCorrection,
+            updatedAt: Date()
+        )
+    }
+
+    static func inlineCorrection(
+        character: String,
+        correction: String
+    ) -> ScreenplayStudioAppliedMemoryInlineCorrection {
+        let cleanCharacter = cleanInlineCorrectionFragment(character)
+        let cleanCorrection = cleanInlineCorrectionFragment(correction)
+        let line = cleanCharacter.isEmpty
+            ? "Authoritative correction: \(cleanCorrection)"
+            : "Authoritative correction for \(cleanCharacter): \(cleanCorrection)"
+        guard !cleanCorrection.isEmpty else {
+            return ScreenplayStudioAppliedMemoryInlineCorrection(
+                correctionLine: line,
+                correctedTerms: [],
+                correctionReplacements: []
+            )
+        }
+
+        let pair = inlineCorrectionReplacementPair(
+            character: cleanCharacter,
+            correction: cleanCorrection
+        )
+        let correctedTerms = pair.map { Self.cleanList([$0.old]) } ?? []
+        let replacements = pair.map { Self.cleanList(["\($0.old) -> \($0.new)"]) } ?? []
+        return ScreenplayStudioAppliedMemoryInlineCorrection(
+            correctionLine: line,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements
+        )
+    }
+
+    static func conversationalCorrection(from text: String) -> String? {
+        let cleanText = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !cleanText.isEmpty else { return nil }
+
+        if let directReplacement = conversationalDirectReplacement(from: cleanText) {
+            return directReplacement
+        }
+
+        let cuePatterns = [
+            #"(?i)^(?:actually\s*,?\s*no|no\s*,?\s*actually|correction|retcon|scratch\s+that|not\s+that)\b\s*[,;:\-]?\s*(.+)$"#,
+            #"(?i)^no\b\s*[,;:\-]\s*(.+\bnot\b.+)$"#,
+            #"(?i)^actually\b\s*[,;:\-]?\s*(.+\bnot\b.+)$"#,
+            #"(?i)^(?:change|make)\s+(?:it|this|that)\s+(?:so\s+)?(?:to\s+)?(.+)$"#
+        ]
+
+        for pattern in cuePatterns {
+            guard
+                let groups = regexGroups(pattern: pattern, in: cleanText),
+                let rawCorrection = groups.first
+            else { continue }
+
+            let correction = cleanInlineCorrectionFragment(rawCorrection)
+            guard isLikelyConversationalMemoryCorrection(correction) else { continue }
+            return correction
+        }
+
+        return nil
+    }
+
+    static func mergedMemoryList(_ values: [String]) -> [String] {
+        cleanList(values)
+    }
+
+    func applyingStoryObligationCorrection(
+        change: BackendStoryObligationChange,
+        action: String,
+        updatedAt: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        let obligation = change.obligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = obligation.lowercased()
+        let cleanAction = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let remainingChanges = (storyObligationChanges ?? []).filter {
+            $0.obligation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != key
+        }
+        func removingObligation(_ values: [String]?) -> [String]? {
+            let filtered = Self.cleanList(values ?? []).filter { $0.lowercased() != key }
+            return filtered.isEmpty ? nil : filtered
+        }
+        var nextSetups = removingObligation(unresolvedSetups)
+        var nextThreads = removingObligation(unresolvedStoryThreads)
+        var nextPayoffs = removingObligation(actThreePayoffPath)
+        if cleanAction == "keep_open", !obligation.isEmpty {
+            if change.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "promised_payoff" {
+                nextPayoffs = Self.cleanList((nextPayoffs ?? []) + [obligation])
+            } else if change.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "accepted_consequence" {
+                nextThreads = Self.cleanList((nextThreads ?? []) + [obligation])
+            } else {
+                nextSetups = Self.cleanList((nextSetups ?? []) + [obligation])
+            }
+        }
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "story_obligation_correction",
+            projectId: projectId,
+            projectTitle: projectTitle,
+            act: act,
+            featureSequence: featureSequence,
+            currentBeat: currentBeat,
+            nextScenePlan: nextScenePlan,
+            nextThreeTurns: nextThreeTurns,
+            actThreePayoffPath: nextPayoffs,
+            unresolvedSetups: nextSetups,
+            unresolvedStoryThreads: nextThreads,
+            characterArcTurns: characterArcTurns,
+            imageMotifs: imageMotifs,
+            storyObligationChanges: remainingChanges,
+            characters: characters,
+            correctedTerms: correctedTerms,
+            correctionReplacements: correctionReplacements,
+            characterBibleApplied: characterBibleApplied,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanAction == "retire"
+                ? "Retired story obligation: \(obligation)"
+                : "Kept story obligation open: \(obligation)",
+            updatedAt: updatedAt
+        )
+    }
+
+    func applyingCanonCorrection(
+        correctionText: String,
+        retiredFacts: [String],
+        projectIdOverride: String? = nil,
+        projectTitleOverride: String? = nil,
+        source: String = "canon_correction_resolution",
+        updatedAt: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        let cleanCorrection = correctionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: cleanSource.isEmpty ? self.source : cleanSource,
+            projectId: projectIdOverride ?? projectId,
+            projectTitle: projectTitleOverride ?? projectTitle,
+            act: act,
+            featureSequence: featureSequence,
+            currentBeat: currentBeat,
+            nextScenePlan: nextScenePlan,
+            nextThreeTurns: nextThreeTurns,
+            actThreePayoffPath: actThreePayoffPath,
+            unresolvedSetups: unresolvedSetups,
+            unresolvedStoryThreads: unresolvedStoryThreads,
+            characterArcTurns: characterArcTurns,
+            imageMotifs: imageMotifs,
+            storyObligationChanges: storyObligationChanges,
+            characters: characters,
+            correctedTerms: Self.cleanList(retiredFacts + correctedTerms),
+            correctionReplacements: correctionReplacements,
+            characterBibleApplied: characterBibleApplied,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanCorrection.isEmpty ? lastSavedCorrection : cleanCorrection,
+            updatedAt: updatedAt
+        )
+    }
+
+    private static func conversationalDirectReplacement(from text: String) -> String? {
+        let patterns = [
+            #"(?i)^(?:correction|retcon)?\s*[:\-]?\s*(?:change|replace|swap)\s+(.+?)\s+(?:to|with|into)\s+(.+)$"#,
+            #"(?i)^(.+?)\s+(?:instead\s+of|rather\s+than)\s+(.+)$"#
+        ]
+        for pattern in patterns {
+            guard let groups = regexGroups(pattern: pattern, in: text), groups.count == 2 else { continue }
+            let first = cleanInlineCorrectionFragment(groups[0])
+            let second = cleanInlineCorrectionFragment(groups[1])
+            guard !first.isEmpty, !second.isEmpty else { continue }
+
+            if pattern.contains("instead") || pattern.contains("rather") {
+                guard isLikelyConversationalMemoryCorrection("\(first), not \(second)") else { continue }
+                return "\(second) -> \(first)"
+            }
+
+            let placeholderTerms: Set<String> = ["it", "this", "that"]
+            guard !placeholderTerms.contains(first.lowercased()) else { continue }
+            return "\(first) -> \(second)"
+        }
+        return nil
+    }
+
+    private static func isLikelyConversationalMemoryCorrection(_ correction: String) -> Bool {
+        let clean = correction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 5 else { return false }
+        let normalized = " \(clean.lowercased()) "
+            .replacingOccurrences(of: "’", with: "'")
+        let markers = [
+            " not ",
+            " -> ",
+            " => ",
+            " instead of ",
+            " rather than ",
+            " is ",
+            " are ",
+            " was ",
+            " were ",
+            " should be ",
+            "'s "
+        ]
+        return markers.contains { normalized.contains($0) }
+    }
+
+    private static func inlineCorrectionReplacementPair(
+        character: String,
+        correction: String
+    ) -> (old: String, new: String)? {
+        if let direct = directReplacementPair(from: correction) {
+            return direct
+        }
+        guard let notPair = notReplacementPair(character: character, correction: correction) else {
+            return nil
+        }
+        let old = cleanInlineCorrectionOldTerm(notPair.old)
+        let new = cleanInlineCorrectionNewTerm(notPair.new, character: character)
+        guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else {
+            return nil
+        }
+        return (old, new)
+    }
+
+    private static func directReplacementPair(from correction: String) -> (old: String, new: String)? {
+        let separators = ["->", "=>"]
+        for separator in separators where correction.contains(separator) {
+            let parts = correction.components(separatedBy: separator)
+            guard parts.count >= 2 else { continue }
+            let old = cleanInlineCorrectionOldTerm(parts[0])
+            let new = cleanInlineCorrectionNewTerm(parts.dropFirst().joined(separator: separator), character: "")
+            guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else { continue }
+            return (old, new)
+        }
+        return nil
+    }
+
+    private static func notReplacementPair(
+        character: String,
+        correction: String
+    ) -> (old: String, new: String)? {
+        let patterns = [
+            #"(?i)^(.+?)\s*,?\s+not\s+(.+?)$"#,
+            #"(?i)^not\s+(.+?)[,;]\s*(.+?)$"#
+        ]
+        for pattern in patterns {
+            guard let groups = regexGroups(pattern: pattern, in: correction), groups.count == 2 else {
+                continue
+            }
+            if pattern.contains("^not") {
+                return (old: groups[0], new: groups[1])
+            }
+            return (old: groups[1], new: groups[0])
+        }
+        return nil
+    }
+
+    private static func regexGroups(pattern: String, in value: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, range: range), match.numberOfRanges > 1 else {
+            return nil
+        }
+        var groups: [String] = []
+        for index in 1..<match.numberOfRanges {
+            guard let groupRange = Range(match.range(at: index), in: value) else { continue }
+            groups.append(String(value[groupRange]))
+        }
+        return groups
+    }
+
+    private static func cleanInlineCorrectionNewTerm(_ value: String, character: String) -> String {
+        var clean = cleanInlineCorrectionFragment(value)
+        let cleanCharacter = cleanInlineCorrectionFragment(character)
+        if !cleanCharacter.isEmpty {
+            let escaped = NSRegularExpression.escapedPattern(for: cleanCharacter)
+            let patterns = [
+                #"(?i)^\#(escaped)\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^she\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^he\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^they\s+(?:are actually|were actually|should be|become|became|are|were)\s+"#
+            ]
+            for pattern in patterns {
+                clean = clean.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+        }
+        return cleanInlineCorrectionFragment(clean)
+    }
+
+    private static func cleanInlineCorrectionOldTerm(_ value: String) -> String {
+        var clean = cleanInlineCorrectionFragment(value)
+        let patterns = [
+            #"(?i)^(?:his|her|their|its|the|a|an)\s+"#,
+            #"(?i)^that\s+(?:he|she|they|it)\s+(?:is|was|are|were)\s+"#,
+            #"(?i)^(?:he|she|they|it)\s+(?:is|was|are|were)\s+"#
+        ]
+        for pattern in patterns {
+            clean = clean.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return cleanInlineCorrectionFragment(clean)
+    }
+
+    private static func cleanInlineCorrectionFragment(_ value: String) -> String {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " .,!?:;\"'()[]{}"))
+        return String(trimmed.prefix(160))
+    }
+
+    private static func cleanOptional(_ value: String?) -> String? {
+        let clean = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression) ?? ""
+        return clean.isEmpty ? nil : String(clean.prefix(220))
+    }
+
+    private static func cleanOptionalList(_ values: [String]?, limit: Int) -> [String]? {
+        let clean = cleanList(values, limit: limit)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private static func cleanStoryObligationChanges(
+        _ values: [BackendStoryObligationChange]?
+    ) -> [BackendStoryObligationChange] {
+        var seen = Set<String>()
+        var out: [BackendStoryObligationChange] = []
+        for value in values ?? [] where value.isMeaningful {
+            let key = value.obligation
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            out.append(value)
+            if out.count >= 6 { break }
+        }
+        return out
+    }
+
+    private static func cleanList(_ values: [String]?, limit: Int = 12) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values ?? [] {
+            let clean = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(String(clean.prefix(160)))
+            if out.count >= limit { break }
+        }
+        return out
+    }
+}
+
+struct ScreenplayStudioAppliedMemoryPersistencePolicy {
+    static let restoredMaxAge: TimeInterval = 14 * 24 * 60 * 60
+
+    static func payloadForStorage(_ state: ScreenplayStudioAppliedMemoryState?) -> String? {
+        guard let state, state.hasContent else { return nil }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(state) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredState(
+        from stored: String?,
+        now: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard let stored,
+              let data = stored.data(using: .utf8) else {
+            return .empty
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let state = try? decoder.decode(ScreenplayStudioAppliedMemoryState.self, from: data),
+              state.hasContent,
+              isFreshForRestore(state, now: now) else {
+            return .empty
+        }
+        return state
+    }
+
+    static func isFreshForRestore(
+        _ state: ScreenplayStudioAppliedMemoryState,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(state.updatedAt) >= 0 &&
+            now.timeIntervalSince(state.updatedAt) < restoredMaxAge
+    }
+}
+
+struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
+    let userID: String
+    let memories: [BackendScreenplayCharacterVoiceMemory]
+    let updatedAt: Date
+
+    var isMeaningful: Bool {
+        !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        memories.contains(where: \.isMeaningful)
+    }
+}
+
+struct ScreenplayCharacterVoiceMemoryPersistencePolicy {
+    static let restoredMaxAge: TimeInterval = 30 * 24 * 60 * 60
+
+    static func payloadForStorage(
+        userID: String,
+        memories: [BackendScreenplayCharacterVoiceMemory],
+        updatedAt: Date = Date()
+    ) -> String? {
+        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanMemories = Array(memories.filter(\.isMeaningful).prefix(24))
+        guard !cleanUserID.isEmpty, !cleanMemories.isEmpty else { return nil }
+        let snapshot = ScreenplayCharacterVoiceMemoryCacheSnapshot(
+            userID: cleanUserID,
+            memories: cleanMemories,
+            updatedAt: updatedAt
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredSnapshot(
+        from stored: String?,
+        currentUserID: String,
+        now: Date = Date()
+    ) -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
+        let cleanCurrentUserID = currentUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanCurrentUserID.isEmpty,
+              let stored,
+              let data = stored.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snapshot = try? decoder.decode(ScreenplayCharacterVoiceMemoryCacheSnapshot.self, from: data),
+              snapshot.isMeaningful,
+              snapshot.userID == cleanCurrentUserID,
+              isFreshForRestore(snapshot, now: now) else { return nil }
+        return snapshot
+    }
+
+    static func isFreshForRestore(
+        _ snapshot: ScreenplayCharacterVoiceMemoryCacheSnapshot,
+        now: Date = Date()
+    ) -> Bool {
+        let age = now.timeIntervalSince(snapshot.updatedAt)
+        return age >= 0 && age < restoredMaxAge
+    }
 }
 
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
@@ -747,7 +1855,7 @@ enum StudioCompanionMode: String, CaseIterable, Identifiable, Codable {
         case .coach:
             return "COMPANION MODE: Coach. Be calm, practical, and grounded. Name the user's state briefly, then offer one concrete next step. Avoid page-mode language unless they explicitly ask for screenplay work."
         case .coWriter:
-            return "COMPANION MODE: Co-writer. Stay warm and relational, but keep bringing the conversation back to story craft, scene choices, and actionable screenplay help. Treat drafted lines as optional collaboration, not commands."
+            return "COMPANION MODE: Co-writer. Stay warm, relational, emotionally present, and craft-aware. Keep bringing the conversation back to story choices, playable scene work, feature-length continuity, character want/need, setups/payoffs, and the next useful screenplay move. Treat drafted lines as optional collaboration, not commands."
         case .comfort:
             return "COMPANION MODE: Comfort. Be stabilizing, gentle, and reassuring. Do not pressure the user toward productivity. Do not speak in tool-state language or write to the screenplay page unless they explicitly ask."
         }
@@ -972,6 +2080,49 @@ struct ScreenplayStructuredDraft: Codable, Equatable, Hashable {
     )
 }
 
+extension ScreenplayStructuredDraft {
+    func activeScene(containingOrBefore line: Int) -> ScreenplayDraftSceneSnapshot? {
+        let target = max(1, line)
+        return scenes.last(where: {
+            target >= $0.line && target <= max($0.line, $0.endLine)
+        }) ?? scenes.last(where: { $0.line <= target }) ?? scenes.last
+    }
+
+    func recentActionBeatSequence(endingAtLine line: Int, limit: Int = 8) -> [String] {
+        let target = max(1, line)
+        var seen = Set<String>()
+        var beats: [String] = []
+        for paragraph in paragraphs where paragraph.line <= target && paragraph.element == .action {
+            let clean = Self.cleanPromptBeat(paragraph.text)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            beats.append(clean)
+        }
+        let capped = max(1, limit)
+        if beats.count > capped {
+            return Array(beats.suffix(capped))
+        }
+        if beats.isEmpty, let scene = activeScene(containingOrBefore: target) {
+            let label = Self.cleanPromptBeat(scene.slugline)
+            return label.isEmpty ? [] : [label]
+        }
+        return beats
+    }
+
+    func currentActionBeat(endingAtLine line: Int) -> String {
+        recentActionBeatSequence(endingAtLine: line, limit: 1).last ?? ""
+    }
+
+    private static func cleanPromptBeat(_ value: String) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(180))
+    }
+}
+
 struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
     let updatedAt: Date
     let projectID: String
@@ -999,6 +2150,33 @@ struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
         projectCharacterCount: 0,
         boundCharacterCount: 0,
         sceneBindings: []
+    )
+}
+
+struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
+    let updatedAt: Date
+    let projectID: String
+    let versionID: String
+
+    init(
+        updatedAt: Date = Date(),
+        projectID: String,
+        versionID: String
+    ) {
+        self.updatedAt = updatedAt
+        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isEmpty: Bool {
+        projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static let empty = ScreenplayLiveDraftOriginSnapshot(
+        updatedAt: .distantPast,
+        projectID: "",
+        versionID: ""
     )
 }
 
@@ -1139,12 +2317,37 @@ struct ScreenplayStackMetrics {
     static let pageSurfaceHorizontalPadding: CGFloat = 30
 
     static func paperGuidePositions(in pageWidth: CGFloat) -> (left: CGFloat, right: CGFloat) {
-        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal
+        let editorWidth = max(0, pageWidth - (pageSurfaceHorizontalPadding * 2))
+        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal(forEditorWidth: editorWidth)
         return (left: inset, right: max(inset, pageWidth - inset))
     }
 
     static func editor(containerWidth: CGFloat) -> ScreenplayStackMetrics {
-        calibrated(forPrintableWidth: min(max(containerWidth, 420), 520))
+        let printableWidth = min(max(containerWidth, 120), 520)
+        guard printableWidth < 420 else {
+            return calibrated(forPrintableWidth: printableWidth)
+        }
+
+        let desktopReference = calibrated(forPrintableWidth: 420)
+        let scale = printableWidth / 420
+        return ScreenplayStackMetrics(
+            printableWidth: printableWidth,
+            dialogueLeading: max(22, desktopReference.dialogueLeading * scale),
+            dialogueTrailing: max(18, desktopReference.dialogueTrailing * scale),
+            characterLeading: max(38, desktopReference.characterLeading * scale),
+            characterTrailing: max(22, desktopReference.characterTrailing * scale),
+            parentheticalLeading: max(30, desktopReference.parentheticalLeading * scale),
+            parentheticalTrailing: max(24, desktopReference.parentheticalTrailing * scale),
+            transitionTrailing: min(max(printableWidth * 0.035, 6), 18),
+            sceneHeadingSpacingAfter: min(max(printableWidth * 0.010, 3), 6),
+            actionCueSpacingAfter: min(max(printableWidth * 0.014, 4), 8),
+            transitionSpacingBefore: min(max(printableWidth * 0.012, 4), 8)
+        )
+    }
+
+    static func editorTextInsetHorizontal(forEditorWidth editorWidth: CGFloat) -> CGFloat {
+        guard editorWidth > 0 else { return editorTextInsetHorizontal }
+        return min(editorTextInsetHorizontal, max(16, (editorWidth - 140) * 0.20))
     }
 
     static let guideSample = calibrated(forPrintableWidth: 520)
@@ -1194,7 +2397,7 @@ private func screenplayParagraphStyle(
     style.lineHeightMultiple = 1.0
     style.tabStops = []
 
-    let metrics = ScreenplayStackMetrics.editor(containerWidth: max(containerWidth, 420))
+    let metrics = ScreenplayStackMetrics.editor(containerWidth: containerWidth)
 
     switch element {
     case .sceneHeading:
@@ -1503,9 +2706,179 @@ private func reconcileScreenplayParagraphElements(
     return result
 }
 
+nonisolated struct ScreenplayLiveDraftTextPersistencePolicy {
+    static func draftForStorage(_ draft: String) -> String? {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft
+    }
+
+    static func restoredDraft(from storedDraft: String?) -> String {
+        guard let storedDraft,
+              !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        return storedDraft
+    }
+}
+
+nonisolated struct ScreenplayLiveDraftFileStore {
+    private static let directoryName = "io.them"
+    private static let fileName = "live-screenplay-draft.fountain"
+
+    static func restoredDraft(fileManager: FileManager = .default) -> String {
+        guard let data = try? Data(contentsOf: draftURL(fileManager: fileManager)),
+              let draft = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: draft)
+    }
+
+    static func persist(_ draft: String?, fileManager: FileManager = .default) {
+        let url = draftURL(fileManager: fileManager)
+        guard let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft ?? "") else {
+            try? fileManager.removeItem(at: url)
+            return
+        }
+        do {
+            try fileManager.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(draft.utf8).write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "io.them.them", category: "ui")
+                .error("Live screenplay draft journal write failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func remove(fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: draftURL(fileManager: fileManager))
+    }
+
+    private static func draftURL(fileManager: FileManager) -> URL {
+        let applicationSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        return applicationSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+}
+
+struct ScreenplayLivePreferredContextPersistencePolicy {
+    static func valueForStorage(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func restoredProjectID(storedPreferredProjectID: String?, bindingProjectID: String) -> String {
+        restoredValue(storedPreferredValue: storedPreferredProjectID, bindingValue: bindingProjectID)
+    }
+
+    static func restoredVersionID(storedPreferredVersionID: String?, bindingVersionID: String) -> String {
+        restoredValue(storedPreferredValue: storedPreferredVersionID, bindingValue: bindingVersionID)
+    }
+
+    private static func restoredValue(storedPreferredValue: String?, bindingValue: String) -> String {
+        if let stored = valueForStorage(storedPreferredValue ?? "") {
+            return stored
+        }
+        return valueForStorage(bindingValue) ?? ""
+    }
+}
+
+struct ScreenplayFeatureWorkflowContextPersistencePolicy {
+    static let liveRequestMaxAge: TimeInterval = 180
+    static let restoredProjectMaxAge: TimeInterval = 14 * 24 * 60 * 60
+
+    static func payloadForStorage(_ context: ScreenplayFeatureWorkflowSessionContext?) -> String? {
+        guard let context, !context.isEmpty else { return nil }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(context) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredContext(
+        from stored: String?,
+        now: Date = Date()
+    ) -> ScreenplayFeatureWorkflowSessionContext? {
+        guard let stored,
+              let data = stored.data(using: .utf8) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let context = try? decoder.decode(ScreenplayFeatureWorkflowSessionContext.self, from: data),
+              !context.isEmpty,
+              isFreshForProjectFallback(context, now: now) else {
+            return nil
+        }
+        return context
+    }
+
+    static func isFreshForLiveRequest(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(context.createdAt) >= 0 &&
+            now.timeIntervalSince(context.createdAt) < liveRequestMaxAge
+    }
+
+    static func isFreshForProjectFallback(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(context.createdAt) >= 0 &&
+            now.timeIntervalSince(context.createdAt) < restoredProjectMaxAge
+    }
+
+    static func projectScopedContext(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        matchesProjectID projectID: String
+    ) -> Bool {
+        let contextProjectID = normalizedIdentifier(context.projectID)
+        let activeProjectID = normalizedIdentifier(projectID)
+        return !contextProjectID.isEmpty &&
+            !activeProjectID.isEmpty &&
+            contextProjectID == activeProjectID
+    }
+
+    static func shouldRefreshProjectRestoreContext(
+        current: ScreenplayFeatureWorkflowSessionContext?,
+        projectID: String,
+        versionID: String,
+        now: Date = Date()
+    ) -> Bool {
+        let activeProjectID = normalizedIdentifier(projectID)
+        guard !activeProjectID.isEmpty else { return false }
+        guard let current, !current.isEmpty else { return true }
+        guard isFreshForProjectFallback(current, now: now),
+              projectScopedContext(current, matchesProjectID: activeProjectID) else {
+            return true
+        }
+        if isFreshForLiveRequest(current, now: now) {
+            return false
+        }
+        let activeVersionID = normalizedIdentifier(versionID)
+        let currentVersionID = normalizedIdentifier(current.versionID)
+        if !activeVersionID.isEmpty,
+           !currentVersionID.isEmpty,
+           activeVersionID != currentVersionID {
+            return true
+        }
+        return false
+    }
+
+    private static func normalizedIdentifier(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
+    private static var globalSuppressSyncedVoiceInsertUntil: Date?
 
     private struct ProjectBindingContext {
         let projectID: String
@@ -1514,20 +2887,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let phase: String
         let outline: BackendScreenplayOutline
         let projectCharacters: [String]
+        let featureSpine: ScreenplayFeatureSpine
     }
 
     private static let autoInsertStorageKey = "studio_auto_insert"
     private static let activeElementStorageKey = "studio_active_screenplay_element_v1"
+    private static let draftTextStorageKey = "studio_live_draft_text_v1"
+    private static let draftOriginStorageKey = "studio_live_draft_origin_v1"
     private static let structuredDraftStorageKey = "studio_structured_draft_v1"
+    private static let preferredProjectIDStorageKey = "studio_live_preferred_project_id_v1"
+    private static let preferredVersionIDStorageKey = "studio_live_preferred_version_id_v1"
     private static let projectRecentTurnsStorageKey = "studio_project_recent_turns_v1"
     private static let companionRecentTurnsStorageKey = "studio_companion_recent_turns_v1"
     private static let companionModeStorageKey = "studio_companion_mode_v1"
+    private static let projectBindingStorageKey = "studio_project_binding_v1"
     private static let debugActiveElementRawStorageKey = "studio_debug_active_screenplay_element_raw"
     private static let debugActiveElementLabelStorageKey = "studio_debug_active_screenplay_element_label"
     private static let debugLastMemoryDomainStorageKey = "studio_debug_last_memory_domain"
     private static let debugLastPromptTargetStorageKey = "studio_debug_last_prompt_target"
     private static let debugLastPromptSourceStorageKey = "studio_debug_last_prompt_source"
     private static let debugProjectBindingStorageKey = "studio_debug_project_binding_json"
+    private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
+    private static let latestAppliedMemoryStorageKey = "studio_latest_applied_memory_v1"
+    private static let characterVoiceMemoriesStorageKey = "studio_character_voice_memories_v1"
 
     @Published var draftText: String = "" {
         didSet {
@@ -1539,11 +2921,23 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""
-    @Published var preferredProjectID: String = ""
-    @Published var preferredVersionID: String = ""
+    @Published var preferredProjectID: String = "" {
+        didSet {
+            guard preferredProjectID != oldValue else { return }
+            persistPreferredProjectContext()
+        }
+    }
+    @Published var preferredVersionID: String = "" {
+        didSet {
+            guard preferredVersionID != oldValue else { return }
+            persistPreferredProjectContext()
+        }
+    }
     @Published var debugProjectLoadToken: Int = 0
     @Published var debugRequestedProjectID: String = ""
     @Published var debugRequestedVersionID: String = ""
+    private var debugClientTokenOwnedProjectIDs: Set<String> = []
+    private var debugClientTokenOwnerTokensByProjectID: [String: String] = [:]
     @Published var structuredDraft: ScreenplayStructuredDraft = .empty {
         didSet {
             persistStructuredDraft()
@@ -1556,6 +2950,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             refreshIntelligenceReport()
         }
     }
+    @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
+    @Published var featureSpine: ScreenplayFeatureSpine = .empty
+    @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
+    private var characterVoiceMemoryUserID: String = ""
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -1566,6 +2964,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
+    @Published var latestVoicePinReply: String = ""
+    @Published var latestVoicePinPrompt: String = ""
+    @Published var latestVoicePinReplyUpdatedAt: Date = .distantPast
     @Published var projectRecentTurns: [ScreenplayConversationTurn] = [] {
         didSet {
             persistConversationTurns(projectRecentTurns, key: Self.projectRecentTurnsStorageKey)
@@ -1593,9 +2994,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistActiveElementDebugMirror()
         }
     }
+    @Published var latestScreenplayQualityStatus: ScreenplayQualityStatus?
     @Published var autoInsertStatusText: String = ""
     @Published var assistantPin: ScreenplayAssistantPinState = .empty
     @Published var assistantPinHistory: [ScreenplayAssistantPinState] = []
+    @Published var latestAppliedMemory: ScreenplayStudioAppliedMemoryState = .empty {
+        didSet {
+            persistLatestAppliedMemory()
+        }
+    }
     @Published var pendingInsertion: ScreenplayInsertionRequest?
     @Published var pendingLineJump: ScreenplayLineJumpRequest?
     @Published var pendingLineHighlight: ScreenplayLineHighlightRequest?
@@ -1608,6 +3015,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var editorSelection: ScreenplayEditorSelectionSnapshot?
     @Published var lastCommittedWrite: ScreenplayCommittedWrite? {
         didSet {
+            persistAuthoritativeCommittedDraft(lastCommittedWrite)
             refreshIntelligenceReport()
             recordFirstPageWrittenIfNeeded(lastCommittedWrite)
             recordReplySideCharacterMentionsIfNeeded(lastCommittedWrite)
@@ -1627,12 +3035,116 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
+    @Published var latestFeatureWorkflowContext: ScreenplayFeatureWorkflowSessionContext? {
+        didSet {
+            persistFeatureWorkflowContext()
+        }
+    }
+
+    static let latestVoicePinReplyStorageKey = "studio.latest_voice_pin_reply"
+    static let latestVoicePinPromptStorageKey = "studio.latest_voice_pin_prompt"
+    static let latestVoicePinReplyUpdatedAtStorageKey = "studio.latest_voice_pin_reply_updated_at"
 
     static let replySideCharacterMentionsEnabledKey = "memory.reply_character_mentions_enabled"
 
     static func replySideCharacterMentionsFeatureEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: Self.replySideCharacterMentionsEnabledKey) != nil else { return true }
         return defaults.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
+    }
+
+    static func resolvedCommittedWriteProjectID(
+        _ committedWrite: ScreenplayCommittedWrite,
+        preferredProjectID: String,
+        bindingProjectID: String
+    ) -> String {
+        let committedProjectID = committedWrite.normalizedProjectID
+        if !committedProjectID.isEmpty { return committedProjectID }
+        let preferred = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return bindingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func resolvedCommittedWriteVersionID(
+        _ committedWrite: ScreenplayCommittedWrite,
+        preferredVersionID: String,
+        bindingVersionID: String
+    ) -> String {
+        let committedVersionID = committedWrite.normalizedVersionID
+        if !committedVersionID.isEmpty { return committedVersionID }
+        let preferred = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return bindingVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func committedWriteProjectIDSnapshot() -> String {
+        let preferred = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return projectBinding.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func committedWriteVersionIDSnapshot() -> String {
+        let preferred = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func draftOriginProjectIDSnapshot() -> String {
+        draftOrigin.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func draftOriginVersionIDSnapshot() -> String {
+        draftOrigin.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func makeCommittedWrite(
+        id: UUID,
+        writeID: String? = nil,
+        previousDraft: String,
+        committedDraft: String,
+        insertedText: String,
+        replacementApplied: Bool,
+        replacedWriteID: String?,
+        startLine: Int,
+        endLine: Int,
+        committedAt: Date = Date()
+    ) -> ScreenplayCommittedWrite {
+        ScreenplayCommittedWrite(
+            id: id,
+            writeID: (writeID ?? id.uuidString.lowercased()).trimmingCharacters(in: .whitespacesAndNewlines),
+            projectID: committedWriteProjectIDSnapshot(),
+            versionID: committedWriteVersionIDSnapshot(),
+            previousDraft: previousDraft,
+            committedDraft: committedDraft,
+            insertedText: insertedText,
+            replacementApplied: replacementApplied,
+            replacedWriteID: replacedWriteID,
+            startLine: startLine,
+            endLine: endLine,
+            committedAt: committedAt
+        )
+    }
+
+    func rememberDebugClientTokenOwnedProjectID(_ projectID: String, clientToken: String? = nil) {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return }
+        debugClientTokenOwnedProjectIDs.insert(cleanProjectID)
+        let cleanClientToken = (clientToken ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanClientToken.isEmpty {
+            debugClientTokenOwnerTokensByProjectID[cleanProjectID] = cleanClientToken
+        }
+    }
+
+    func usesDebugClientTokenOwner(forProjectID projectID: String) -> Bool {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return false }
+        return debugClientTokenOwnedProjectIDs.contains(cleanProjectID)
+            || debugClientTokenOwnerTokensByProjectID[cleanProjectID] != nil
+    }
+
+    func debugClientTokenOwnerToken(forProjectID projectID: String) -> String? {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return nil }
+        return debugClientTokenOwnerTokensByProjectID[cleanProjectID]
     }
 
     private var lastIngestKey: String = ""
@@ -1663,10 +3175,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var projectBindingContext: ProjectBindingContext?
     private var isHydratingBackendCompanionState = false
     private var companionBackendSyncTask: Task<Void, Never>?
+    private var firstPageTelemetrySyncTask: Task<Void, Never>?
     private var activeSyncedVoiceInsertStartedAt: Date?
     private var activeSyncedVoiceLastPlaybackAdvanceAt: Date?
     private var activeSyncedVoiceLastObservedPlaybackTimeMs: Int = 0
     private var activeSyncedVoiceAnchorLineHint: Int?
+    private var suppressSyncedVoiceInsertUntil: Date?
     var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int, ScreenplaySyncedInsertInterruptionReason?) -> Void)?
 
 #if DEBUG
@@ -1700,18 +3214,49 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            let mode = StudioCompanionMode(rawValue: savedMode) {
             self.companionMode = mode
         }
+        let restoredDraftText = Self.restoreDraftText()
+        let restoredProjectBinding = Self.restoreProjectBindingSnapshot()
+        self.preferredProjectID = Self.restorePreferredProjectID(
+            bindingProjectID: restoredProjectBinding.projectID
+        )
+        self.preferredVersionID = Self.restorePreferredVersionID(
+            bindingVersionID: restoredProjectBinding.versionID
+        )
+        self.projectBinding = restoredProjectBinding
+        self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            restoredDraftText: restoredDraftText,
+            restoredProjectID: self.preferredProjectID,
+            restoredVersionID: self.preferredVersionID,
+            fallbackProjectID: restoredProjectBinding.projectID,
+            fallbackVersionID: restoredProjectBinding.versionID
+        )
         self.structuredDraft = Self.restoreStructuredDraft()
+        self.draftText = restoredDraftText
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
+        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
+        self.latestAppliedMemory = Self.restoreLatestAppliedMemory()
+        if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
+            self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
+            self.characterVoiceMemories = voiceMemorySnapshot.memories
+        }
+        persistPreferredProjectContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
+        reconcileFeatureWorkflowContextWithActiveProject()
+        if ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil {
+            syncStructuredDraftSnapshot(text: restoredDraftText)
+        }
         refreshIntelligenceReport()
     }
 
     private func persistActiveElementDebugMirror() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         UserDefaults.standard.set(activeScreenplayElement.rawValue, forKey: Self.debugActiveElementRawStorageKey)
         UserDefaults.standard.set(activeScreenplayElement.title, forKey: Self.debugActiveElementLabelStorageKey)
+        #endif
     }
 
     private static func restoreStructuredDraft() -> ScreenplayStructuredDraft {
@@ -1724,6 +3269,74 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayStructuredDraft.self, from: data)) ?? .empty
     }
 
+    private static func restoreDraftText() -> String {
+        let storedDraft = ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
+            from: UserDefaults.standard.string(forKey: draftTextStorageKey)
+        )
+        if !storedDraft.isEmpty {
+            return storedDraft
+        }
+        return ScreenplayLiveDraftFileStore.restoredDraft()
+    }
+
+    private static func restorePreferredProjectID(bindingProjectID: String) -> String {
+        ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+            storedPreferredProjectID: UserDefaults.standard.string(forKey: preferredProjectIDStorageKey),
+            bindingProjectID: bindingProjectID
+        )
+    }
+
+    private static func restorePreferredVersionID(bindingVersionID: String) -> String {
+        ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+            storedPreferredVersionID: UserDefaults.standard.string(forKey: preferredVersionIDStorageKey),
+            bindingVersionID: bindingVersionID
+        )
+    }
+
+    private static func restoreProjectBindingSnapshot() -> ScreenplayProjectBindingSnapshot {
+        let stored = ScreenplayProjectBindingStoragePolicy.restoredValue(
+            productValue: UserDefaults.standard.string(forKey: projectBindingStorageKey),
+            legacyDebugValue: UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
+            isAutomationSession: IOThemRuntime.isStudioAutomationSession
+        )
+        guard let stored,
+              let data = stored.data(using: .utf8) else {
+            return .empty
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(ScreenplayProjectBindingSnapshot.self, from: data)) ?? .empty
+    }
+
+    private static func restoreLiveDraftOriginSnapshot(
+        restoredDraftText: String,
+        restoredProjectID: String,
+        restoredVersionID: String,
+        fallbackProjectID: String,
+        fallbackVersionID: String
+    ) -> ScreenplayLiveDraftOriginSnapshot {
+        guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
+            return .empty
+        }
+        if let stored = UserDefaults.standard.string(forKey: draftOriginStorageKey),
+           let data = stored.data(using: .utf8) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let snapshot = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
+               !snapshot.isEmpty {
+                return snapshot
+            }
+        }
+        let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredProjectID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackProjectID)
+            ?? ""
+        let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredVersionID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackVersionID)
+            ?? ""
+        let snapshot = ScreenplayLiveDraftOriginSnapshot(projectID: projectID, versionID: versionID)
+        return snapshot.isEmpty ? .empty : snapshot
+    }
+
     private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
         guard let stored = UserDefaults.standard.string(forKey: key),
               let data = stored.data(using: .utf8) else {
@@ -1734,12 +3347,99 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode([ScreenplayConversationTurn].self, from: data)) ?? []
     }
 
+    private static func restoreFeatureWorkflowContext() -> ScreenplayFeatureWorkflowSessionContext? {
+        ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: UserDefaults.standard.string(forKey: featureWorkflowContextStorageKey)
+        )
+    }
+
+    private static func restoreLatestAppliedMemory() -> ScreenplayStudioAppliedMemoryState {
+        ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: UserDefaults.standard.string(forKey: latestAppliedMemoryStorageKey)
+        )
+    }
+
+    private static func currentAuthenticatedUserID() -> String {
+        BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func restoreCharacterVoiceMemorySnapshot() -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
+        ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+            from: UserDefaults.standard.string(forKey: characterVoiceMemoriesStorageKey),
+            currentUserID: currentAuthenticatedUserID()
+        )
+    }
+
+    private func persistCharacterVoiceMemories() {
+        let currentUserID = Self.currentAuthenticatedUserID()
+        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return }
+        if let payload = ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
+            userID: currentUserID,
+            memories: characterVoiceMemories
+        ) {
+            UserDefaults.standard.set(payload, forKey: Self.characterVoiceMemoriesStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
+        }
+    }
+
     private func persistStructuredDraft() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(structuredDraft),
               let encoded = String(data: data, encoding: .utf8) else { return }
         UserDefaults.standard.set(encoded, forKey: Self.structuredDraftStorageKey)
+    }
+
+    private func persistDraftText(_ text: String) {
+        if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
+            UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
+            persistDraftOriginForCurrentContext()
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
+            ScreenplayLiveDraftFileStore.remove()
+            draftOrigin = .empty
+            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+        }
+    }
+
+    private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
+        guard let committedWrite, committedWrite.isAuthoritativeWrite else { return }
+        persistDraftText(committedWrite.committedDraft)
+        ScreenplayLiveDraftFileStore.persist(committedWrite.committedDraft)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func persistDraftOriginForCurrentContext() {
+        let snapshot = ScreenplayLiveDraftOriginSnapshot(
+            projectID: committedWriteProjectIDSnapshot(),
+            versionID: committedWriteVersionIDSnapshot()
+        )
+        draftOrigin = snapshot
+        guard !snapshot.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        UserDefaults.standard.set(encoded, forKey: Self.draftOriginStorageKey)
+    }
+
+    private func persistPreferredProjectContext() {
+        if let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredProjectID) {
+            UserDefaults.standard.set(projectID, forKey: Self.preferredProjectIDStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.preferredProjectIDStorageKey)
+        }
+
+        if let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredVersionID) {
+            UserDefaults.standard.set(versionID, forKey: Self.preferredVersionIDStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.preferredVersionIDStorageKey)
+        }
     }
 
     private func persistConversationTurns(_ turns: [ScreenplayConversationTurn], key: String) {
@@ -1750,10 +3450,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.set(encoded, forKey: key)
     }
 
+    private func persistFeatureWorkflowContext() {
+        if let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(latestFeatureWorkflowContext) {
+            UserDefaults.standard.set(payload, forKey: Self.featureWorkflowContextStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.featureWorkflowContextStorageKey)
+        }
+    }
+
+    private func persistLatestAppliedMemory() {
+        if let payload = ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(latestAppliedMemory) {
+            UserDefaults.standard.set(payload, forKey: Self.latestAppliedMemoryStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.latestAppliedMemoryStorageKey)
+        }
+    }
+
     private func persistStudioRoutingDebugMirror() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         UserDefaults.standard.set(latestMemoryDomain.rawValue, forKey: Self.debugLastMemoryDomainStorageKey)
         UserDefaults.standard.set(latestStudioRouteTarget.rawValue, forKey: Self.debugLastPromptTargetStorageKey)
         UserDefaults.standard.set(latestStudioUserPrompt?.source.rawValue ?? "", forKey: Self.debugLastPromptSourceStorageKey)
+        #endif
     }
 
     private func persistProjectBindingDebugMirror() {
@@ -1761,11 +3480,36 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(projectBinding),
               let encoded = String(data: data, encoding: .utf8) else {
-            UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
+            if IOThemRuntime.isStudioAutomationSession {
+                UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
+                return
+            }
+            UserDefaults.standard.removeObject(forKey: Self.projectBindingStorageKey)
             return
         }
-        UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
+        if IOThemRuntime.isStudioAutomationSession {
+            UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
+            return
+        }
+        UserDefaults.standard.set(encoded, forKey: Self.projectBindingStorageKey)
     }
+
+    private func reconcileFeatureWorkflowContextWithActiveProject() {
+        guard let context = latestFeatureWorkflowContext else { return }
+        let activeProjectID = committedWriteProjectIDSnapshot()
+        if ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            context,
+            matchesProjectID: activeProjectID
+        ) {
+            return
+        }
+        if context.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           activeProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+        latestFeatureWorkflowContext = nil
+    }
+
 
     private func compactSceneLabel(_ label: String) -> String {
         let upper = label
@@ -1832,10 +3576,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
 
         let actTitlesByID = Dictionary(
-            uniqueKeysWithValues: context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) },
+            uniquingKeysWith: { first, _ in first }
         )
         let beatLabelsByID = Dictionary(
-            uniqueKeysWithValues: context.outline.beats.map { ($0.id, $0.label.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            context.outline.beats.map { ($0.id, $0.label.trimmingCharacters(in: .whitespacesAndNewlines)) },
+            uniquingKeysWith: { first, _ in first }
         )
         let outlineScenes = context.outline.scenes
         var usedOutlineSceneIDs = Set<String>()
@@ -1959,6 +3705,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         text: String,
         elements explicitElements: [ScreenplayEditorElement?]? = nil
     ) {
+        persistDraftText(text)
         let previousStructuredDraft = structuredDraft
         let resolvedElements = explicitElements ?? bootstrapScreenplayParagraphElements(for: text)
         let lines = screenplayLineTexts(text)
@@ -2294,7 +4041,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                         scriptNodeId: resolvedScriptNodeID,
                         pageIndex: segment.pageAnchor.pageIndex,
                         rangeStart: segment.pageAnchor.rangeStart,
-                        rangeEnd: segment.pageAnchor.rangeEnd
+                        rangeEnd: segment.pageAnchor.rangeEnd,
+                        anchorLine: lineNumber,
+                        anchorEndLine: lineNumber,
+                        insertMode: segment.pageAnchor.insertMode
                     ),
                     revealUnits: segment.revealUnits
                 )
@@ -2316,7 +4066,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             scriptNodeId: insertionParagraph?.id ?? timeline.insertionAnchor.scriptNodeId,
             pageIndex: timeline.insertionAnchor.pageIndex,
             rangeStart: timeline.insertionAnchor.rangeStart,
-            rangeEnd: timeline.insertionAnchor.rangeEnd
+            rangeEnd: timeline.insertionAnchor.rangeEnd,
+            anchorLine: timeline.insertionAnchor.anchorLine ?? insertionLineNumber,
+            anchorEndLine: timeline.insertionAnchor.anchorEndLine ?? insertionLineNumber,
+            insertMode: timeline.insertionAnchor.insertMode
         )
 
         if resolvedInsertionAnchor.scriptNodeId != timeline.insertionAnchor.scriptNodeId
@@ -2464,6 +4217,213 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
 
+    func applyRestoredSessionContinuitySignal(
+        _ snapshot: BackendSessionContinuitySnapshot,
+        persist: Bool = true
+    ) {
+        guard snapshot.isMeaningful else { return }
+        latestAppliedMemory = ScreenplayStudioAppliedMemoryState.from(
+            snapshot,
+            source: "session_continuity_restore",
+            previous: latestAppliedMemory
+        )
+        let now = Date()
+        let projectLabel = Self.firstRestoredContinuityValue(
+            [
+                snapshot.projectTitle,
+                snapshot.projectId,
+                snapshot.act
+            ],
+            fallback: "your screenplay"
+        )
+        let position = [
+            Self.restoredContinuityText(snapshot.act, limit: 80),
+            Self.restoredContinuityText(snapshot.featureSequence, limit: 160)
+        ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        let nextMove = Self.restoredContinuityNextMove(snapshot)
+        let rememberedThread = Self.firstRestoredContinuityValue(
+            [
+                snapshot.lastSceneOutcome,
+                snapshot.currentBeat,
+                snapshot.emotionalContinuity,
+                snapshot.memoryExcerpt
+            ]
+        )
+        let bindingCausalFact = Self.restoredContinuityCausalFact(snapshot)
+        let summary: String
+        if !nextMove.isEmpty {
+            summary = "Restored continuity for \(projectLabel). Next page target: \(nextMove)"
+        } else if !position.isEmpty {
+            summary = "Restored continuity for \(projectLabel). Active lane: \(position)."
+        } else {
+            summary = "Restored continuity for \(projectLabel); stay with the last living story thread."
+        }
+
+        let detailParts = [
+            position.isEmpty ? "" : "Act-aware target: \(position)",
+            rememberedThread.isEmpty ? "" : "Last live thread: \(rememberedThread)",
+            bindingCausalFact.isEmpty
+                ? ""
+                : "Binding accepted consequence: \(bindingCausalFact)"
+        ]
+            .filter { !$0.isEmpty }
+        let presenceDetail = detailParts.isEmpty
+            ? "Holding the restored feature context and ready to move straight back onto the page."
+            : detailParts.joined(separator: ". ")
+        let proactivePrompt = nextMove.isEmpty
+            ? "Say: continue where we left off and write the next honest beat"
+            : "Say: write the next page where \(nextMove)"
+        let reasonSeed = Self.firstRestoredContinuityValue(
+            [
+                snapshot.featureObligation,
+                snapshot.actPressureState,
+                snapshot.characterArcState,
+                position
+            ]
+        )
+        let reason = reasonSeed.isEmpty
+            ? "Restored session continuity should become the next writing move, not a passive memory."
+            : "Restored from \(reasonSeed)."
+
+        latestMemoryDomain = .project
+        applyCompanionSignalState(
+            CreativeCompanionSignalState(
+                intent: CreativeIntentSnapshot(
+                    kind: .screenplayPageWrite,
+                    label: "Restored Continuity",
+                    summary: String(summary.prefix(320)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    nextMove: nextMove.isEmpty
+                        ? "Continue the restored feature thread in Fountain with no generic reset."
+                        : nextMove,
+                    confidence: 0.94,
+                    sourceText: Self.firstRestoredContinuityValue(
+                        [
+                            snapshot.openingLine,
+                            snapshot.sceneSummary,
+                            snapshot.lastSceneOutcome,
+                            snapshot.memoryExcerpt
+                        ]
+                    ),
+                    updatedAt: now
+                ),
+                presence: CreativePresenceSnapshot(
+                    title: "Continuity Restored",
+                    detail: String(presenceDetail.prefix(360)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    updatedAt: now
+                ),
+                proactiveSuggestion: CreativeProactiveSuggestion(
+                    category: "Scene",
+                    prompt: String(proactivePrompt.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    reason: String(reason.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    updatedAt: now
+                )
+            ),
+            persist: persist
+        )
+    }
+
+    static func restoredContinuityNextMove(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let immediateMove = firstRestoredContinuityValue(
+            [
+                snapshot.nextScenePlan,
+                snapshot.nextSceneMoves.first ?? "",
+                snapshot.nextThreeTurns.first ?? "",
+                snapshot.actThreePayoffPath.first ?? ""
+            ],
+            fallback: ""
+        )
+        var move = immediateMove
+        if let due = snapshot.dueStoryThread, due.isMeaningful {
+            let setup = restoredContinuityClause(due.setup, limit: 180)
+            let setupPhrase = restoredContinuityMidSentencePhrase(setup)
+            let payoff = restoredContinuityClause(due.promisedPayoff, limit: 180)
+            let dueMove: String
+            if due.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "payoff",
+               !setup.isEmpty,
+               !payoff.isEmpty {
+                dueMove = "turning \(setupPhrase) into its promised payoff: \(payoff)"
+            } else if !setup.isEmpty, !payoff.isEmpty {
+                dueMove = "pressuring \(setupPhrase) toward this payoff: \(payoff)"
+            } else if !setup.isEmpty {
+                dueMove = "pressuring \(setupPhrase)"
+            } else {
+                dueMove = "delivering this promised payoff: \(payoff)"
+            }
+            let lowerMove = move.lowercased()
+            if move.isEmpty {
+                move = dueMove
+            } else if (!setup.isEmpty && lowerMove.contains(setup.lowercased())) ||
+                (!payoff.isEmpty && lowerMove.contains(payoff.lowercased())) {
+                move = immediateMove
+            } else {
+                move = "\(restoredContinuityClause(move, limit: 220)), while \(dueMove)"
+            }
+        }
+        let causalFact = restoredContinuityCausalFact(snapshot)
+        guard !causalFact.isEmpty else { return restoredContinuityText(move, limit: 320) }
+        if move.lowercased().contains(causalFact.lowercased()) {
+            return restoredContinuityText(move, limit: 320)
+        }
+        let causalKind = restoredContinuityCausalKind(
+            snapshot.acceptedCausalFacts.first(where: \.isMeaningful)?.kind ?? ""
+        )
+        let causalMove = "carry forward the accepted \(causalKind): \(causalFact), without resetting it"
+        guard !move.isEmpty else { return restoredContinuityText(causalMove, limit: 420) }
+        return restoredContinuityText("\(restoredContinuityClause(move, limit: 300)); \(causalMove)", limit: 420)
+    }
+
+    private static func restoredContinuityCausalFact(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        for item in snapshot.acceptedCausalFacts where item.isMeaningful {
+            let fact = restoredContinuityClause(item.fact, limit: 200)
+            if !fact.isEmpty { return fact }
+        }
+        return ""
+    }
+
+    private static func restoredContinuityCausalKind(_ value: String) -> String {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "relationship_change": return "relationship change"
+        case "irreversible_consequence": return "irreversible consequence"
+        case "revelation": return "revelation"
+        case "decision": return "decision"
+        default: return "story consequence"
+        }
+    }
+
+    private static func firstRestoredContinuityValue(
+        _ values: [String],
+        fallback: String = ""
+    ) -> String {
+        for value in values {
+            let clean = restoredContinuityText(value, limit: 260)
+            if !clean.isEmpty { return clean }
+        }
+        return fallback
+    }
+
+    private static func restoredContinuityText(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(max(0, limit))).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func restoredContinuityClause(_ value: String, limit: Int) -> String {
+        restoredContinuityText(value, limit: limit)
+            .replacingOccurrences(of: #"[.!?]+$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func restoredContinuityMidSentencePhrase(_ value: String) -> String {
+        for article in ["The ", "This ", "That ", "A ", "An "] where value.hasPrefix(article) {
+            return article.lowercased() + String(value.dropFirst(article.count))
+        }
+        return value
+    }
+
     func recentTurnPairs(for memoryDomain: StudioMemoryDomain) -> [(user: String, assistant: String)] {
         let source: [ScreenplayConversationTurn]
         switch memoryDomain {
@@ -2478,7 +4438,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func hydrateBackendCompanionState(force: Bool = false) async {
-        guard !IOThemRuntime.isRunningTests else { return }
+        guard !IOThemRuntime.isRunningTests, !IOThemRuntime.isRunningUITests else { return }
         if isHydratingBackendCompanionState && !force { return }
         isHydratingBackendCompanionState = true
         defer { isHydratingBackendCompanionState = false }
@@ -2490,6 +4450,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             companionRecentTurns = Array(result.payload.recentTurns.suffix(6))
             companionAnalytics = result.payload.analytics
             companionSignalState = result.payload.signals
+            if let occurredAt = companionAnalytics.firstPageWrittenAt {
+                scheduleFirstPageTelemetrySync(
+                    occurredAt: occurredAt,
+                    source: companionAnalytics.firstPageWrittenSourceRaw,
+                    projectId: companionAnalytics.firstPageWrittenProjectId,
+                    versionId: companionAnalytics.firstPageWrittenVersionId
+                )
+            }
         } catch {
             // Keep local state as fallback when the backend companion lane is unavailable.
         }
@@ -2535,10 +4503,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let normalizedPromptSource = promptSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedFallbackSource = companionAnalytics.lastSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceRaw = normalizedPromptSource.isEmpty ? normalizedFallbackSource : normalizedPromptSource
-        let projectId = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let versionId = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bindingProjectId = projectBinding.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bindingVersionId = projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = Self.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: preferredProjectID,
+            bindingProjectID: projectBinding.projectID
+        )
+        let versionId = Self.resolvedCommittedWriteVersionID(
+            committedWrite,
+            preferredVersionID: preferredVersionID,
+            bindingVersionID: projectBinding.versionID
+        )
 
         companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
             updatedAt: Date(),
@@ -2554,10 +4528,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             lastSourceRaw: companionAnalytics.lastSourceRaw,
             firstPageWrittenAt: committedWrite.committedAt,
             firstPageWrittenSourceRaw: sourceRaw,
-            firstPageWrittenProjectId: projectId.isEmpty ? bindingProjectId : projectId,
-            firstPageWrittenVersionId: versionId.isEmpty ? bindingVersionId : versionId
+            firstPageWrittenProjectId: projectId,
+            firstPageWrittenVersionId: versionId
         )
         schedulePersistBackendCompanionState()
+        scheduleFirstPageTelemetrySync(
+            occurredAt: committedWrite.committedAt,
+            source: sourceRaw,
+            projectId: projectId,
+            versionId: versionId
+        )
     }
 
     static func replySideCharacterMentions(
@@ -2582,12 +4562,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let recordKey = "\(writeID)|\(mentionKey)"
         guard recordKey != lastRecordedCharacterMentionKey else { return }
         lastRecordedCharacterMentionKey = recordKey
-        let projectID = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? projectBinding.projectID
-            : preferredProjectID
-        let versionID = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? projectBinding.versionID
-            : preferredVersionID
+        let projectID = Self.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: preferredProjectID,
+            bindingProjectID: projectBinding.projectID
+        )
+        let versionID = Self.resolvedCommittedWriteVersionID(
+            committedWrite,
+            preferredVersionID: preferredVersionID,
+            bindingVersionID: projectBinding.versionID
+        )
         Task {
             do {
                 try await BackendMemoryAPI.shared.recordCharacterMentionsFromScreenplayReply(
@@ -2619,6 +4603,49 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 signals: signals
             )
         }
+    }
+
+    private func scheduleFirstPageTelemetrySync(
+        occurredAt: Date,
+        source: String,
+        projectId: String,
+        versionId: String
+    ) {
+        firstPageTelemetrySyncTask?.cancel()
+        firstPageTelemetrySyncTask = Task {
+            let retryDelays: [UInt64] = [0, 1_000_000_000, 4_000_000_000]
+            for delay in retryDelays {
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                guard !Task.isCancelled else { return }
+                do {
+                    _ = try await BackendMemoryAPI.shared.recordFirstPageWritten(
+                        occurredAt: occurredAt,
+                        source: source,
+                        projectId: projectId,
+                        versionId: versionId
+                    )
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                }
+            }
+        }
+    }
+
+    func updateScreenplayQualityStatus(
+        quality: BackendTalkScreenplayQuality?,
+        output: BackendTalkScreenplayOutput?
+    ) {
+        latestScreenplayQualityStatus = ScreenplayQualityStatus(
+            quality: quality,
+            output: output
+        )
+    }
+
+    func clearScreenplayQualityStatus() {
+        latestScreenplayQualityStatus = nil
     }
 
     func ingestVoiceTurn(
@@ -2894,6 +4921,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         activeSyncedVoiceActiveSegmentID = nil
         activeSyncedVoiceAnchorLineHint = nil
         resetSyncedVoiceInsertWatchdog()
+        clearScreenplayQualityStatus()
         syncedVoiceTurnState = .idle
     }
 
@@ -2996,6 +5024,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
         let cleanText = stagedSyncedVoiceTurnAuthoritativeText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return nil }
@@ -3114,6 +5143,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
+        if let activeSyncedVoiceInsertPlan {
+            return activeSyncedVoiceInsertPlan
+        }
         cancelStream()
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3235,6 +5268,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func completeActiveSyncedVoiceInsertIfNeeded() {
         guard let plan = activeSyncedVoiceInsertPlan else { return }
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            syncedVoiceInsertTask?.cancel()
+            syncedVoiceInsertTask = nil
+            activeSyncedVoiceInsertPlan = nil
+            activeSyncedVoiceAppliedCueCount = 0
+            activeSyncedVoiceVisibleUTF16Length = 0
+            activeSyncedVoiceActiveSegmentID = nil
+            activeSyncedVoiceAnchorLineHint = nil
+            streamingProgress = 0
+            autoInsertStatusText = ""
+            resetSyncedVoiceInsertWatchdog()
+            refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
+            return
+        }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
         activeSyncedVoiceAppliedCueCount = plan.cueCount
@@ -3412,6 +5459,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         allowRegression: Bool,
         finalizeIfComplete: Bool
     ) -> Bool {
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            syncedVoiceInsertTask?.cancel()
+            syncedVoiceInsertTask = nil
+            activeSyncedVoiceInsertPlan = nil
+            activeSyncedVoiceAppliedCueCount = 0
+            activeSyncedVoiceVisibleUTF16Length = 0
+            activeSyncedVoiceActiveSegmentID = nil
+            activeSyncedVoiceAnchorLineHint = nil
+            streamingProgress = 0
+            autoInsertStatusText = ""
+            resetSyncedVoiceInsertWatchdog()
+            refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
+            return false
+        }
         let snapshot = plan.timeline.revealSnapshot(at: playbackTimeMs)
         let nextAppliedCount = min(snapshot.appliedRevealUnitCount, plan.cueCount)
         let nextVisibleUTF16Length = min(snapshot.visibleUTF16Length, (plan.fullText as NSString).length)
@@ -3464,6 +5525,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         reason: ScreenplaySyncedInsertInterruptionReason
     ) -> Bool {
         guard let plan = activeSyncedVoiceInsertPlan else { return false }
+        if reason == .manualTyping {
+            suppressSyncedVoiceInsertUntil = Date().addingTimeInterval(8)
+            Self.globalSuppressSyncedVoiceInsertUntil = suppressSyncedVoiceInsertUntil
+        }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
         if notifyCancellation {
@@ -3488,6 +5553,27 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
         return true
+    }
+
+    private func isSyncedVoiceInsertSuppressedAfterManualInterruption() -> Bool {
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            return true
+        }
+        guard let suppressUntil = suppressSyncedVoiceInsertUntil else { return false }
+        if Date() < suppressUntil {
+            return true
+        }
+        suppressSyncedVoiceInsertUntil = nil
+        return false
+    }
+
+    private static func isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() -> Bool {
+        guard let suppressUntil = globalSuppressSyncedVoiceInsertUntil else { return false }
+        if Date() < suppressUntil {
+            return true
+        }
+        globalSuppressSyncedVoiceInsertUntil = nil
+        return false
     }
 
     private func shouldFallbackActiveSyncedVoiceInsert(
@@ -3654,7 +5740,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                     scriptNodeId: "\(revisionID):node:\(offset)",
                     pageIndex: nil,
                     rangeStart: max(startUTF16, 0),
-                    rangeEnd: max(endUTF16, startUTF16)
+                    rangeEnd: max(endUTF16, startUTF16),
+                    anchorLine: nil,
+                    anchorEndLine: nil,
+                    insertMode: nil
                 ),
                 revealUnits: revealUnits
             ))
@@ -3673,7 +5762,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 scriptNodeId: revisionID + ":root",
                 pageIndex: nil,
                 rangeStart: 0,
-                rangeEnd: (trimmed as NSString).length
+                rangeEnd: (trimmed as NSString).length,
+                anchorLine: nil,
+                anchorEndLine: nil,
+                insertMode: nil
             ),
             segments: segments
         )
@@ -4030,25 +6122,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func setCompanionMode(_ mode: StudioCompanionMode) {
-        if companionMode != mode {
-            companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
-                updatedAt: Date(),
-                totalTurns: companionAnalytics.totalTurns,
-                homeTurns: companionAnalytics.homeTurns,
-                studioTurns: companionAnalytics.studioTurns,
-                voiceTurns: companionAnalytics.voiceTurns,
-                typedTurns: companionAnalytics.typedTurns,
-                modeSwitches: companionAnalytics.modeSwitches + 1,
-                memoryClears: companionAnalytics.memoryClears,
-                threadClears: companionAnalytics.threadClears,
-                lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
-                lastSourceRaw: companionAnalytics.lastSourceRaw,
-                firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
-                firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
-                firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
-                firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
-            )
-        }
+        guard companionMode != mode else { return }
+        companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
+            updatedAt: Date(),
+            totalTurns: companionAnalytics.totalTurns,
+            homeTurns: companionAnalytics.homeTurns,
+            studioTurns: companionAnalytics.studioTurns,
+            voiceTurns: companionAnalytics.voiceTurns,
+            typedTurns: companionAnalytics.typedTurns,
+            modeSwitches: companionAnalytics.modeSwitches + 1,
+            memoryClears: companionAnalytics.memoryClears,
+            threadClears: companionAnalytics.threadClears,
+            lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
+            lastSourceRaw: companionAnalytics.lastSourceRaw,
+            firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+            firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+            firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+            firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
+        )
         companionMode = mode
         if companionSignalState.hasContent {
             companionSignalState = CreativeCompanionSignalEngine.retone(
@@ -4061,6 +6152,47 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func clearCompanionMemory() {
+        applyLocalCompanionMemoryClear()
+        schedulePersistBackendCompanionState()
+    }
+
+    func clearCompanionMemoryAndSync() async throws {
+        let pendingSyncTask = companionBackendSyncTask
+        pendingSyncTask?.cancel()
+        companionBackendSyncTask = nil
+
+        let previousRecentTurns = companionRecentTurns
+        let previousSignalState = companionSignalState
+        let previousAnalytics = companionAnalytics
+
+        applyLocalCompanionMemoryClear()
+        let clearedAnalytics = companionAnalytics
+
+        // Drain the canceled write before sending the authoritative clear so an
+        // older snapshot cannot land after the cleared state.
+        if let pendingSyncTask {
+            await pendingSyncTask.value
+        }
+
+        guard !IOThemRuntime.isRunningTests, !IOThemRuntime.isRunningUITests else { return }
+
+        do {
+            _ = try await BackendMemoryAPI.shared.updateScreenplayCompanionState(
+                mode: companionMode,
+                recentTurns: [],
+                analytics: clearedAnalytics,
+                signals: .empty
+            )
+        } catch {
+            companionRecentTurns = previousRecentTurns
+            companionSignalState = previousSignalState
+            companionAnalytics = previousAnalytics
+            schedulePersistBackendCompanionState()
+            throw error
+        }
+    }
+
+    private func applyLocalCompanionMemoryClear() {
         companionRecentTurns = []
         companionSignalState = .empty
         companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
@@ -4080,7 +6212,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
             firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
         )
-        schedulePersistBackendCompanionState()
     }
 
     func clearCompanionPinHistory() {
@@ -4268,6 +6399,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         requestID: String? = nil
     ) {
 #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
         let resolvedRequestID = (requestID ?? debugActiveReplacementRequestID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let event = ScreenplayReplacementTraceEvent(
@@ -4312,12 +6444,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         versionID: String,
         phase: String,
         outline: BackendScreenplayOutline,
-        projectCharacters: [String]
+        projectCharacters: [String],
+        featureSpine: ScreenplayFeatureSpine = .empty
     ) {
         let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFeatureSpine = ScreenplayFeatureSpine(
+            logline: featureSpine.logline,
+            themeArgument: featureSpine.themeArgument,
+            centralQuestion: featureSpine.centralQuestion,
+            protagonistWant: featureSpine.protagonistWant,
+            protagonistNeed: featureSpine.protagonistNeed,
+            antagonisticForce: featureSpine.antagonisticForce,
+            actPosition: featureSpine.actPosition,
+            endingImage: featureSpine.endingImage,
+            unresolvedSetups: featureSpine.unresolvedSetups
+        )
         let normalizedCharacters = projectCharacters
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -4326,21 +6470,142 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            normalizedVersionID.isEmpty,
            normalizedTitle.isEmpty,
            outline.scenes.isEmpty,
-           normalizedCharacters.isEmpty {
+           normalizedCharacters.isEmpty,
+           normalizedFeatureSpine.isEmpty {
             projectBindingContext = nil
+            self.featureSpine = .empty
             projectBinding = .empty
+            reconcileFeatureWorkflowContextWithActiveProject()
             return
         }
 
+        self.featureSpine = normalizedFeatureSpine
         projectBindingContext = ProjectBindingContext(
             projectID: normalizedProjectID,
             projectTitle: normalizedTitle,
             versionID: normalizedVersionID,
             phase: normalizedPhase,
             outline: outline,
-            projectCharacters: normalizedCharacters
+            projectCharacters: normalizedCharacters,
+            featureSpine: normalizedFeatureSpine
         )
         refreshProjectBindingSnapshot()
+        reconcileFeatureWorkflowContextWithActiveProject()
+    }
+
+    func updateCharacterVoiceMemories(
+        from response: BackendCharacterTraitsResponse,
+        authenticatedUserID: String? = nil
+    ) {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let responseUserID = (response.userId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedUserID = responseUserID.isEmpty ? currentUserID : responseUserID
+        guard !resolvedUserID.isEmpty,
+              currentUserID.isEmpty || resolvedUserID == currentUserID else { return }
+
+        var seen = Set<String>()
+        var memories: [BackendScreenplayCharacterVoiceMemory] = []
+        for record in response.characters {
+            let character = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !character.isEmpty,
+                  let traits = record.traits,
+                  traits.voiceFingerprint.isMeaningful else { continue }
+            let key = Self.normalizedVoiceCharacterKey(character)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            memories.append(
+                BackendScreenplayCharacterVoiceMemory(
+                    character: character,
+                    voiceFingerprint: traits.voiceFingerprint
+                )
+            )
+            if memories.count >= 24 { break }
+        }
+        characterVoiceMemoryUserID = resolvedUserID
+        characterVoiceMemories = memories
+        persistCharacterVoiceMemories()
+    }
+
+    func reconcileCharacterVoiceMemoryAccount() {
+        let currentUserID = Self.currentAuthenticatedUserID()
+        guard currentUserID != characterVoiceMemoryUserID else { return }
+        if let snapshot = ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+            from: UserDefaults.standard.string(forKey: Self.characterVoiceMemoriesStorageKey),
+            currentUserID: currentUserID
+        ) {
+            characterVoiceMemoryUserID = snapshot.userID
+            characterVoiceMemories = snapshot.memories
+        } else {
+            characterVoiceMemoryUserID = currentUserID
+            characterVoiceMemories = []
+        }
+    }
+
+    func clearCharacterVoiceMemoryCache() {
+        characterVoiceMemoryUserID = ""
+        characterVoiceMemories = []
+        UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
+    }
+
+    func forgetCharacterVoiceMemory(
+        named characterName: String,
+        authenticatedUserID: String? = nil
+    ) {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetKey = Self.normalizedVoiceCharacterKey(characterName)
+        guard !currentUserID.isEmpty,
+              currentUserID == characterVoiceMemoryUserID,
+              !targetKey.isEmpty else { return }
+        let remaining = characterVoiceMemories.filter {
+            Self.normalizedVoiceCharacterKey($0.character) != targetKey
+        }
+        guard remaining.count != characterVoiceMemories.count else { return }
+        characterVoiceMemories = remaining
+        persistCharacterVoiceMemories()
+    }
+
+    func screenplayCharacterVoiceMemories(
+        matching characterNames: [String],
+        limit: Int = 8,
+        authenticatedUserID: String? = nil
+    ) -> [BackendScreenplayCharacterVoiceMemory] {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return [] }
+        let safeLimit = max(1, min(8, limit))
+        let memories = characterVoiceMemories.filter(\.isMeaningful)
+        guard !memories.isEmpty else { return [] }
+
+        var memoriesByCharacter: [String: BackendScreenplayCharacterVoiceMemory] = [:]
+        for memory in memories {
+            let key = Self.normalizedVoiceCharacterKey(memory.character)
+            if !key.isEmpty, memoriesByCharacter[key] == nil {
+                memoriesByCharacter[key] = memory
+            }
+        }
+
+        var selected: [BackendScreenplayCharacterVoiceMemory] = []
+        var selectedKeys = Set<String>()
+        for characterName in characterNames {
+            let key = Self.normalizedVoiceCharacterKey(characterName)
+            guard !key.isEmpty,
+                  selectedKeys.insert(key).inserted,
+                  let memory = memoriesByCharacter[key] else { continue }
+            selected.append(memory)
+            if selected.count >= safeLimit { return selected }
+        }
+        if !selected.isEmpty { return selected }
+        return characterNames.isEmpty ? Array(memories.prefix(safeLimit)) : []
+    }
+
+    private static func normalizedVoiceCharacterKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .lowercased()
     }
 
     func recordStudioUserPrompt(
@@ -4364,6 +6629,31 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             memoryDomain: memoryDomain.promptMemoryDomain,
             recordedAt: Date()
         )
+    }
+
+    func recordFeatureWorkflowContext(_ context: ScreenplayFeatureWorkflowSessionContext) {
+        guard !context.isEmpty else { return }
+        latestFeatureWorkflowContext = context
+    }
+
+    func featureWorkflowContext(for requestID: String?) -> ScreenplayFeatureWorkflowSessionContext? {
+        let cleanRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let context = latestFeatureWorkflowContext else { return nil }
+        let now = Date()
+        if !cleanRequestID.isEmpty,
+           context.requestID == cleanRequestID,
+           ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(context, now: now) {
+            return context
+        }
+
+        guard ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForProjectFallback(context, now: now),
+              ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+                context,
+                matchesProjectID: committedWriteProjectIDSnapshot()
+              ) else {
+            return nil
+        }
+        return context
     }
 
     private func sceneSnapshot(atOrBeforeLine line: Int) -> ScreenplayDraftSceneSnapshot? {
@@ -4469,7 +6759,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             return
         }
 
-        let draftScenesByID = Dictionary(uniqueKeysWithValues: structuredDraft.scenes.map { ($0.id, $0) })
+        let draftScenesByID = Dictionary(structuredDraft.scenes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let normalizedProjectCharacters = Set(context.projectCharacters.map(normalizedCharacterCue).filter { !$0.isEmpty })
 
         var continuityIssues: [ScreenplayIntelligenceIssue] = []
@@ -6085,6 +8375,155 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
 
+    func updateLatestVoicePinReply(_ text: String, prompt: String = "") {
+        let cleanReply = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedAt = Date()
+        latestVoicePinReply = cleanReply
+        latestVoicePinPrompt = cleanPrompt
+        latestVoicePinReplyUpdatedAt = updatedAt
+        UserDefaults.standard.set(cleanReply, forKey: Self.latestVoicePinReplyStorageKey)
+        UserDefaults.standard.set(cleanPrompt, forKey: Self.latestVoicePinPromptStorageKey)
+        UserDefaults.standard.set(updatedAt.timeIntervalSince1970, forKey: Self.latestVoicePinReplyUpdatedAtStorageKey)
+    }
+
+    func noteStudioAppliedMemory(
+        _ memory: BackendRealtimeStudioMemoryApplied?,
+        source: String
+    ) {
+        guard let memory, memory.hasSignal else { return }
+        let previousSavedCorrection = latestAppliedMemory.lastSavedCorrection
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            memory,
+            source: source,
+            previousSavedCorrection: previousSavedCorrection
+        )
+        guard state.hasContent else { return }
+        latestAppliedMemory = state
+    }
+
+    func noteTalkCreativeMemoryTrace(
+        _ trace: BackendTalkCreativeMemoryTrace,
+        source: String
+    ) {
+        let previousSavedCorrection = latestAppliedMemory.lastSavedCorrection
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
+            source: source,
+            previousSavedCorrection: previousSavedCorrection
+        )
+        guard state.hasContent else { return }
+        latestAppliedMemory = state
+    }
+
+    func noteResolvedCanonCorrection(
+        correctionText: String,
+        retiredFacts: [String],
+        projectId: String? = nil,
+        projectTitle: String? = nil
+    ) {
+        latestAppliedMemory = latestAppliedMemory.applyingCanonCorrection(
+            correctionText: correctionText,
+            retiredFacts: retiredFacts,
+            projectIdOverride: projectId,
+            projectTitleOverride: projectTitle
+        )
+    }
+
+    @discardableResult
+    func correctStoryObligation(
+        _ change: BackendStoryObligationChange,
+        action: String
+    ) async throws -> String {
+        let projectID = (latestAppliedMemory.projectId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectTitle = (latestAppliedMemory.projectTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectID.isEmpty || !projectTitle.isEmpty else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "No applied screenplay project is active for this correction."
+            )
+        }
+        let result = try await BackendMemoryAPI.shared.correctStoryObligation(
+            projectID: projectID,
+            projectTitle: projectTitle,
+            change: change,
+            action: action
+        )
+        latestAppliedMemory = latestAppliedMemory.applyingStoryObligationCorrection(
+            change: change,
+            action: action
+        )
+        return result.payload.message ?? (action == "retire"
+            ? "Story obligation retired."
+            : "Story obligation kept open.")
+    }
+
+    @discardableResult
+    func saveInlineAppliedMemoryCorrection(_ correction: String) async throws -> String {
+        let cleanCorrection = correction
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !cleanCorrection.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "Enter the character correction first.")
+        }
+        let character = latestAppliedMemory.primaryCharacter
+        guard !character.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "No applied character memory is active for this draft.")
+        }
+        let inlineCorrection = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: character,
+            correction: cleanCorrection
+        )
+        let nextCorrectedTerms = ScreenplayStudioAppliedMemoryState.mergedMemoryList(
+            latestAppliedMemory.correctedTerms + inlineCorrection.correctedTerms
+        )
+        let nextCorrectionReplacements = ScreenplayStudioAppliedMemoryState.mergedMemoryList(
+            latestAppliedMemory.correctionReplacements + inlineCorrection.correctionReplacements
+        )
+        let bible = BackendCharacterBibleMemory(
+            character: character,
+            canon: [],
+            corrections: [inlineCorrection.correctionLine],
+            correctedTerms: nextCorrectedTerms,
+            correctionReplacements: nextCorrectionReplacements,
+            arc: nil,
+            voice: nil,
+            tags: ["correction", "studio_inline"]
+        )
+        _ = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
+            id: "character-\(character)",
+            key: "character:\(character)",
+            characterBible: bible
+        )
+        latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: latestAppliedMemory.source,
+            projectId: latestAppliedMemory.projectId,
+            projectTitle: latestAppliedMemory.projectTitle,
+            act: latestAppliedMemory.act,
+            featureSequence: latestAppliedMemory.featureSequence,
+            currentBeat: latestAppliedMemory.currentBeat,
+            nextScenePlan: latestAppliedMemory.nextScenePlan,
+            nextThreeTurns: latestAppliedMemory.nextThreeTurns,
+            actThreePayoffPath: latestAppliedMemory.actThreePayoffPath,
+            unresolvedSetups: latestAppliedMemory.unresolvedSetups,
+            unresolvedStoryThreads: latestAppliedMemory.unresolvedStoryThreads,
+            characterArcTurns: latestAppliedMemory.characterArcTurns,
+            imageMotifs: latestAppliedMemory.imageMotifs,
+            storyObligationChanges: latestAppliedMemory.storyObligationChanges,
+            characters: latestAppliedMemory.characters,
+            correctedTerms: nextCorrectedTerms,
+            correctionReplacements: nextCorrectionReplacements,
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanCorrection,
+            updatedAt: Date()
+        )
+        return character
+    }
+
     func restoreAssistantPin(_ pin: ScreenplayAssistantPinState) {
         assistantPin = pin
     }
@@ -6391,11 +8830,13 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         var streamingPreviewPrefix: String = ""
         var streamingPreviewSuffix: String = ""
         var streamingPreviewBaseText: String = ""
+        var streamingPreviewReplacementTarget: ScreenplayPendingReplacementTarget?
         var streamingInsertRange: NSRange?
         var streamingInsertOriginalSelection: NSRange = NSRange(location: 0, length: 0)
         var streamingInsertPrefix: String = ""
         var streamingInsertSuffix: String = ""
         var streamingInsertBaseText: String = ""
+        var streamingInsertReplacementTarget: ScreenplayPendingReplacementTarget?
         var voiceRevealInsertedRange: NSRange?
         var voiceRevealContentRange: NSRange?
         var voiceRevealOriginalSelection: NSRange = NSRange(location: 0, length: 0)
@@ -6792,7 +9233,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
         private func refreshTypingAttributesOnly() {
             guard let textView else { return }
-            let containerWidth = max(textView.textContainer?.size.width ?? 560, 420)
+            let containerWidth = textView.textContainer?.size.width ?? 560
             let context = currentLineContext(in: textView)
             let paragraphStyle = screenplayParagraphStyle(
                 for: parent.activeScreenplayElement,
@@ -6811,7 +9252,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullText = textView.string
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            let containerWidth = max(textView.textContainer?.size.width ?? 560, 420)
+            let containerWidth = textView.textContainer?.size.width ?? 560
             applyScreenplayParagraphAttributes(
                 to: textStorage,
                 fullText: fullText,
@@ -7010,7 +9451,6 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         private func applyStandardInsertion(_ request: ScreenplayInsertionRequest) {
             guard let textView else { return }
             let current = textView.string
-            let trimmed = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let fallbackSelection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
             let insertionContext = resolvedInsertionContext(
                 raw: request.text,
@@ -7020,6 +9460,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
+            let committedText = insertion.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !insertion.isEmpty else {
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
@@ -7042,9 +9483,9 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             let nextText = String(mutable)
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
-                ? NSRange(location: selection.location, length: (trimmed as NSString).length)
+                ? NSRange(location: selection.location, length: (committedText as NSString).length)
                 : committedHighlightRange(
-                    trimmedText: trimmed,
+                    trimmedText: committedText,
                     insertion: insertion,
                     selection: selection
                 )
@@ -7062,12 +9503,11 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied standard insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: current,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: insertionContext.isReplacement,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -7103,10 +9543,19 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let previewText: String
             let replacementRange: NSRange
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
 
             if let existingRange = streamingPreviewRange {
                 replacementRange = existingRange
-                previewText = streamingPreviewPrefix + trimmed + streamingPreviewSuffix
+                let baseText = streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: baseText,
+                    insertionRange: streamingPreviewOriginalSelection,
+                    replacementTarget: streamingPreviewReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                previewText = streamingPreviewPrefix + prepared + streamingPreviewSuffix
             } else {
                 let selection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
@@ -7127,8 +9576,16 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                     : ""
                 streamingPreviewPrefix = affixes.prefix
                 streamingPreviewSuffix = affixes.suffix
+                streamingPreviewReplacementTarget = replacementContext.isReplacement ? replacementTarget : nil
                 replacementRange = replacementContext.range
-                previewText = affixes.prefix + trimmed + affixes.suffix
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: current,
+                    insertionRange: replacementContext.range,
+                    replacementTarget: streamingPreviewReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                previewText = affixes.prefix + prepared + affixes.suffix
             }
 
             let mutable = NSMutableString(string: current)
@@ -7178,7 +9635,17 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let current = textView.string
             guard let replacementRange = streamingPreviewRange else { return }
-            let previewText = streamingPreviewPrefix + trimmed + streamingPreviewSuffix
+            let committedText = screenplayEditorPreparedInsertionCoreText(
+                trimmed,
+                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                insertionRange: streamingPreviewOriginalSelection,
+                replacementTarget: streamingPreviewReplacementTarget
+            )
+            guard !committedText.isEmpty else {
+                cancelStreamingPreview()
+                return
+            }
+            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: replacementRange, with: previewText)
             let nextText = String(mutable)
@@ -7186,7 +9653,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
             let highlightRange = NSRange(
                 location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (trimmed as NSString).length
+                length: (committedText as NSString).length
             )
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
@@ -7202,12 +9669,11 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streaming commit."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -7248,10 +9714,19 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             let current = textView.string
             let replacementRange: NSRange
             let renderedText: String
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
 
             if let existingRange = streamingInsertRange {
                 replacementRange = existingRange
-                renderedText = streamingInsertPrefix + trimmed + streamingInsertSuffix
+                let baseText = streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: baseText,
+                    insertionRange: streamingInsertOriginalSelection,
+                    replacementTarget: streamingInsertReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                renderedText = streamingInsertPrefix + prepared + streamingInsertSuffix
             } else {
                 let selection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
@@ -7260,7 +9735,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                     requestReplacementTarget: request.replacementTarget
                 )
                 streamingInsertBaseText = current
-                streamingInsertOriginalSelection = selection
+                streamingInsertOriginalSelection = replacementContext.range
                 let affixes: (prefix: String, suffix: String)
                 if replacementContext.isReplacement {
                     affixes = ("", "")
@@ -7269,8 +9744,16 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
+                streamingInsertReplacementTarget = replacementContext.isReplacement ? replacementTarget : nil
                 replacementRange = replacementContext.range
-                renderedText = affixes.prefix + trimmed + affixes.suffix
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: current,
+                    insertionRange: replacementContext.range,
+                    replacementTarget: streamingInsertReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                renderedText = affixes.prefix + prepared + affixes.suffix
             }
 
             let mutable = NSMutableString(string: current)
@@ -7320,7 +9803,17 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let current = textView.string
             guard let replacementRange = streamingInsertRange else { return }
-            let finalText = streamingInsertPrefix + trimmed + streamingInsertSuffix
+            let committedText = screenplayEditorPreparedInsertionCoreText(
+                trimmed,
+                existing: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
+                insertionRange: streamingInsertOriginalSelection,
+                replacementTarget: streamingInsertReplacementTarget
+            )
+            guard !committedText.isEmpty else {
+                cancelStreamingInsert()
+                return
+            }
+            let finalText = streamingInsertPrefix + committedText + streamingInsertSuffix
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: replacementRange, with: finalText)
             let nextText = String(mutable)
@@ -7328,7 +9821,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
             let highlightRange = NSRange(
                 location: replacementRange.location + (streamingInsertPrefix as NSString).length,
-                length: (trimmed as NSString).length
+                length: (committedText as NSString).length
             )
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
@@ -7344,12 +9837,11 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streamed line insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -7452,6 +9944,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             streamingPreviewPrefix = ""
             streamingPreviewSuffix = ""
             streamingPreviewBaseText = ""
+            streamingPreviewReplacementTarget = nil
         }
 
         private func resetStreamingInsertState() {
@@ -7460,6 +9953,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             streamingInsertPrefix = ""
             streamingInsertSuffix = ""
             streamingInsertBaseText = ""
+            streamingInsertReplacementTarget = nil
         }
 
         private func applyVoiceRevealPrepare(_ request: ScreenplayInsertionRequest) {
@@ -7493,13 +9987,14 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
+            let committedText = insertion.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !insertion.isEmpty else { return }
 
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
-            let coreText = trimmed.isEmpty ? request.text : trimmed
+            let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = ((insertion as NSString).range(of: coreText))
             let resolvedCoreRange = coreRange.location != NSNotFound
                 ? NSRange(location: insertedRange.location + coreRange.location, length: coreRange.length)
@@ -7569,9 +10064,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let committedLines = committedLineRange(for: safeRange, in: current)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
                 committedDraft: current,
                 insertedText: insertedText,
@@ -7985,18 +10479,31 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard !trimmed.isEmpty else { return (fallbackSelection, "", false) }
             guard !existing.isEmpty else { return (fallbackSelection, trimmed, false) }
 
+            let replacementTarget = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             let replacement = resolvedReplacementContext(
                 existing: existing,
                 fallbackSelection: fallbackSelection,
                 requestReplacementTarget: requestReplacementTarget
             )
             if replacement.isReplacement {
-                return (replacement.range, trimmed, true)
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: existing,
+                    insertionRange: replacement.range,
+                    replacementTarget: replacementTarget
+                )
+                return (replacement.range, prepared, true)
             }
 
+            let prepared = screenplayEditorPreparedInsertionCoreText(
+                raw,
+                existing: existing,
+                insertionRange: fallbackSelection,
+                replacementTarget: nil
+            )
             return (
                 fallbackSelection,
-                insertionText(for: raw, existing: existing, selection: fallbackSelection),
+                insertionText(for: prepared, existing: existing, selection: fallbackSelection),
                 false
             )
         }
@@ -8009,6 +10516,16 @@ private final class HollywoodScreenplayUITextView: UITextView {
     var draftProvider: () -> String = { "" }
     var onElementShortcut: ((ScreenplayEditorElement) -> Void)?
     var onCycleElement: ((Bool) -> Void)?
+    var onLayoutWidthChange: ((CGFloat) -> Void)?
+    private var lastReportedLayoutWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width
+        guard width > 0, abs(width - lastReportedLayoutWidth) > 0.5 else { return }
+        lastReportedLayoutWidth = width
+        onLayoutWidthChange?(width)
+    }
 
     override var keyCommands: [UIKeyCommand]? {
         let elements: [(String, ScreenplayEditorElement)] = [
@@ -8168,6 +10685,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         textView.onCycleElement = { backward in
             context.coordinator.cycleActiveElement(backward: backward)
         }
+        textView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
+            coordinator?.updateEditorLayout(width: width)
+        }
         context.coordinator.textView = textView
         context.coordinator.primeParagraphElements(
             for: textView.text ?? "",
@@ -8201,6 +10721,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
         uiView.onCycleElement = { backward in
             context.coordinator.cycleActiveElement(backward: backward)
+        }
+        uiView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
+            coordinator?.updateEditorLayout(width: width)
         }
 
         if context.coordinator.lastKnownActiveElement != activeScreenplayElement {
@@ -8268,11 +10791,13 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var streamingPreviewPrefix: String = ""
         var streamingPreviewSuffix: String = ""
         var streamingPreviewBaseText: String = ""
+        var streamingPreviewReplacementTarget: ScreenplayPendingReplacementTarget?
         var streamingInsertRange: NSRange?
         var streamingInsertOriginalSelection: NSRange = NSRange(location: 0, length: 0)
         var streamingInsertPrefix: String = ""
         var streamingInsertSuffix: String = ""
         var streamingInsertBaseText: String = ""
+        var streamingInsertReplacementTarget: ScreenplayPendingReplacementTarget?
         var voiceRevealInsertedRange: NSRange?
         var voiceRevealContentRange: NSRange?
         var voiceRevealOriginalSelection: NSRange = NSRange(location: 0, length: 0)
@@ -8291,6 +10816,22 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+        }
+
+        func updateEditorLayout(width: CGFloat) {
+            guard let textView else { return }
+            let horizontalInset = ScreenplayStackMetrics.editorTextInsetHorizontal(
+                forEditorWidth: width
+            )
+            if abs(textView.textContainerInset.left - horizontalInset) > 0.5 ||
+                abs(textView.textContainerInset.right - horizontalInset) > 0.5 {
+                var insets = textView.textContainerInset
+                insets.left = horizontalInset
+                insets.right = horizontalInset
+                textView.textContainerInset = insets
+            }
+            refreshScreenplayPresentationAndTyping()
+            refreshAnchoredTextRectSnapshot()
         }
 
         func primeParagraphElements(for text: String, attributedText: NSAttributedString? = nil) {
@@ -8639,7 +11180,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 for: parent.activeScreenplayElement,
                 previousElement: context.previousElement,
                 nextElement: nil,
-                containerWidth: max(textView.textContainer.size.width, 420)
+                containerWidth: textView.textContainer.size.width
             )
             textView.typingAttributes = [
                 .font: hollywoodScreenplayEditorUIFont(),
@@ -8655,7 +11196,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 to: textView.textStorage,
                 fullText: textView.text ?? "",
                 elements: paragraphElements,
-                containerWidth: max(textView.textContainer.size.width, 420),
+                containerWidth: textView.textContainer.size.width,
                 font: hollywoodScreenplayEditorUIFont(),
                 foregroundColor: UIColor.black
             )
@@ -8859,7 +11400,6 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func applyStandardInsertion(_ request: ScreenplayInsertionRequest) {
             guard let textView else { return }
             let current = textView.text ?? ""
-            let trimmed = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let fallbackSelection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
             let insertionContext = resolvedInsertionContext(
                 raw: request.text,
@@ -8869,6 +11409,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
+            let committedText = insertion.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !insertion.isEmpty else {
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
@@ -8891,8 +11432,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let nextText = String(mutable)
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
-                ? NSRange(location: selection.location, length: (trimmed as NSString).length)
-                : committedHighlightRange(trimmedText: trimmed, insertion: insertion, selection: selection)
+                ? NSRange(location: selection.location, length: (committedText as NSString).length)
+                : committedHighlightRange(trimmedText: committedText, insertion: insertion, selection: selection)
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
             isApplyingProgrammaticChange = true
@@ -8907,12 +11448,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied standard insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: current,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: insertionContext.isReplacement,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -8948,10 +11488,19 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let previewText: String
             let replacementRange: NSRange
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
 
             if let existingRange = streamingPreviewRange {
                 replacementRange = existingRange
-                previewText = streamingPreviewPrefix + trimmed + streamingPreviewSuffix
+                let baseText = streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: baseText,
+                    insertionRange: streamingPreviewOriginalSelection,
+                    replacementTarget: streamingPreviewReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                previewText = streamingPreviewPrefix + prepared + streamingPreviewSuffix
             } else {
                 let selection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
@@ -8972,8 +11521,16 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     : ""
                 streamingPreviewPrefix = affixes.prefix
                 streamingPreviewSuffix = affixes.suffix
+                streamingPreviewReplacementTarget = replacementContext.isReplacement ? replacementTarget : nil
                 replacementRange = replacementContext.range
-                previewText = affixes.prefix + trimmed + affixes.suffix
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: current,
+                    insertionRange: replacementContext.range,
+                    replacementTarget: streamingPreviewReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                previewText = affixes.prefix + prepared + affixes.suffix
             }
 
             let mutable = NSMutableString(string: current)
@@ -9023,7 +11580,17 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let current = textView.text ?? ""
             guard let replacementRange = streamingPreviewRange else { return }
-            let previewText = streamingPreviewPrefix + trimmed + streamingPreviewSuffix
+            let committedText = screenplayEditorPreparedInsertionCoreText(
+                trimmed,
+                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                insertionRange: streamingPreviewOriginalSelection,
+                replacementTarget: streamingPreviewReplacementTarget
+            )
+            guard !committedText.isEmpty else {
+                cancelStreamingPreview()
+                return
+            }
+            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: replacementRange, with: previewText)
             let nextText = String(mutable)
@@ -9031,7 +11598,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
             let highlightRange = NSRange(
                 location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (trimmed as NSString).length
+                length: (committedText as NSString).length
             )
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
@@ -9047,12 +11614,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streaming commit."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -9093,10 +11659,19 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let current = textView.text ?? ""
             let replacementRange: NSRange
             let renderedText: String
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
 
             if let existingRange = streamingInsertRange {
                 replacementRange = existingRange
-                renderedText = streamingInsertPrefix + trimmed + streamingInsertSuffix
+                let baseText = streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: baseText,
+                    insertionRange: streamingInsertOriginalSelection,
+                    replacementTarget: streamingInsertReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                renderedText = streamingInsertPrefix + prepared + streamingInsertSuffix
             } else {
                 let selection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
@@ -9105,7 +11680,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     requestReplacementTarget: request.replacementTarget
                 )
                 streamingInsertBaseText = current
-                streamingInsertOriginalSelection = selection
+                streamingInsertOriginalSelection = replacementContext.range
                 let affixes: (prefix: String, suffix: String)
                 if replacementContext.isReplacement {
                     affixes = ("", "")
@@ -9114,8 +11689,16 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
+                streamingInsertReplacementTarget = replacementContext.isReplacement ? replacementTarget : nil
                 replacementRange = replacementContext.range
-                renderedText = affixes.prefix + trimmed + affixes.suffix
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: current,
+                    insertionRange: replacementContext.range,
+                    replacementTarget: streamingInsertReplacementTarget
+                )
+                guard !prepared.isEmpty else { return }
+                renderedText = affixes.prefix + prepared + affixes.suffix
             }
 
             let mutable = NSMutableString(string: current)
@@ -9165,7 +11748,17 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let current = textView.text ?? ""
             guard let replacementRange = streamingInsertRange else { return }
-            let finalText = streamingInsertPrefix + trimmed + streamingInsertSuffix
+            let committedText = screenplayEditorPreparedInsertionCoreText(
+                trimmed,
+                existing: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
+                insertionRange: streamingInsertOriginalSelection,
+                replacementTarget: streamingInsertReplacementTarget
+            )
+            guard !committedText.isEmpty else {
+                cancelStreamingInsert()
+                return
+            }
+            let finalText = streamingInsertPrefix + committedText + streamingInsertSuffix
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: replacementRange, with: finalText)
             let nextText = String(mutable)
@@ -9173,7 +11766,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
             let highlightRange = NSRange(
                 location: replacementRange.location + (streamingInsertPrefix as NSString).length,
-                length: (trimmed as NSString).length
+                length: (committedText as NSString).length
             )
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
@@ -9189,12 +11782,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streamed line insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
                 committedDraft: nextText,
-                insertedText: trimmed,
+                insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
                 replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? replacementTarget?.sourceWriteID
@@ -9297,6 +11889,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             streamingPreviewPrefix = ""
             streamingPreviewSuffix = ""
             streamingPreviewBaseText = ""
+            streamingPreviewReplacementTarget = nil
         }
 
         private func resetStreamingInsertState() {
@@ -9305,6 +11898,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             streamingInsertPrefix = ""
             streamingInsertSuffix = ""
             streamingInsertBaseText = ""
+            streamingInsertReplacementTarget = nil
         }
 
         private func applyVoiceRevealPrepare(_ request: ScreenplayInsertionRequest) {
@@ -9338,13 +11932,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
+            let committedText = insertion.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !insertion.isEmpty else { return }
 
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
-            let coreText = trimmed.isEmpty ? request.text : trimmed
+            let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = (insertion as NSString).range(of: coreText)
             let resolvedCoreRange = coreRange.location != NSNotFound
                 ? NSRange(location: insertedRange.location + coreRange.location, length: coreRange.length)
@@ -9414,9 +12009,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let committedLines = committedLineRange(for: safeRange, in: current)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
                 committedDraft: current,
                 insertedText: insertedText,
@@ -9805,18 +12399,31 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard !trimmed.isEmpty else { return (fallbackSelection, "", false) }
             guard !existing.isEmpty else { return (fallbackSelection, trimmed, false) }
 
+            let replacementTarget = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             let replacement = resolvedReplacementContext(
                 existing: existing,
                 fallbackSelection: fallbackSelection,
                 requestReplacementTarget: requestReplacementTarget
             )
             if replacement.isReplacement {
-                return (replacement.range, trimmed, true)
+                let prepared = screenplayEditorPreparedInsertionCoreText(
+                    trimmed,
+                    existing: existing,
+                    insertionRange: replacement.range,
+                    replacementTarget: replacementTarget
+                )
+                return (replacement.range, prepared, true)
             }
 
+            let prepared = screenplayEditorPreparedInsertionCoreText(
+                raw,
+                existing: existing,
+                insertionRange: fallbackSelection,
+                replacementTarget: nil
+            )
             return (
                 fallbackSelection,
-                insertionText(for: raw, existing: existing, selection: fallbackSelection),
+                insertionText(for: prepared, existing: existing, selection: fallbackSelection),
                 false
             )
         }

@@ -46,6 +46,64 @@ final class FountainFormatterTests: XCTestCase {
         )
     }
 
+    func testFormatCompletesSplitSceneHeadingTimeBeforeAction() {
+        let raw = """
+        INT. KITCHEN -
+        DAY
+        A sun - drenched kitchen waits in silence.
+        """
+
+        let result = FountainFormatter.format(rawText: raw)
+
+        XCTAssertEqual(
+            result,
+            """
+            INT. KITCHEN - DAY
+
+            A sun-drenched kitchen waits in silence.
+            """
+        )
+    }
+
+    func testFormatSplitsGluedSceneHeadingTimeFromAction() {
+        let raw = """
+        INT. KITCHEN - DAYA sun - drenched kitchen waits in silence.
+        SARAH
+        I need the truth.
+        """
+
+        let result = FountainFormatter.format(rawText: raw)
+
+        XCTAssertEqual(
+            result,
+            """
+            INT. KITCHEN - DAY
+
+            A sun-drenched kitchen waits in silence.
+
+            SARAH
+            I need the truth.
+            """
+        )
+    }
+
+    func testFormatSplitsDoubleSpacedSceneHeadingTimeFromUppercaseAction() {
+        let raw = """
+        INT. KITCHEN - DAY  A SUN - DRENCHED KITCHEN WAITS IN SILENCE.
+        """
+
+        let result = FountainFormatter.format(rawText: raw)
+
+        XCTAssertEqual(
+            result,
+            """
+            INT. KITCHEN - DAY
+
+            A sun-drenched kitchen waits in silence.
+            """
+        )
+    }
+
     func testFormatDoesNotTreatMetaInstructionAsCharacterDialogue() {
         let raw = "Write one tense screenplay action line: She reaches the door before he can answer"
 

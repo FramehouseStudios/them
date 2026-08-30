@@ -1,0 +1,53 @@
+# io.them backend .dockerignore.
+#
+# Anything listed here is NEVER copied into the image. Goals:
+#   1. Keep image small (no node_modules, no test artifacts).
+#   2. Never bake secrets (.env*).
+#   3. Never bake JSON dev stores (production runs on Postgres only).
+
+# Dependencies — installed inside the image
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Secrets — never copy into the image
+.env
+.env.*
+!.env.example
+
+# Local dev / legacy JSON stores. Production uses Postgres via DATABASE_URL.
+screenplay_store.json
+user_memory_store.json
+user_store.json
+outbox_store.json
+knowledge_cards.json
+data/
+
+# Audio fixtures / large blobs from early prototyping
+response.mp3
+test.aiff
+test.wav
+
+# Test + eval output artifacts
+coverage/
+.nyc_output/
+evals/baselines/.cache/
+tests/__output__/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Git metadata isn't needed at runtime
+.git
+.gitignore
+.github
+
+# Docs and runtime scripts that aren't required to serve traffic.
+# (Keep app.js, index.js, lib/, middleware/, migrations/, services/, package*.json)
+*.md
+!DEPLOY.md
+run.production.sh
+smoke.sh
