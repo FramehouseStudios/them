@@ -112,7 +112,7 @@ git tag -d "$TAG"
 Automation stops until a release owner:
 
 1. Reviews and approves the branch's Email Address declaration in `PrivacyInfo.xcprivacy` plus the Tier-3 auth/release PR.
-2. Enables Sign in with Apple for `io.them.them` in the Apple Developer portal, creates/approves a dedicated iOS entitlement containing `com.apple.developer.applesignin = [Default]`, regenerates provisioning, and wires it only to iPhone Release. Do not reuse the macOS sandbox entitlement file.
+2. Enables Sign in with Apple for `io.them.them` in the Apple Developer portal, confirms the checked-in `them-iOS.entitlements` capability is approved for the App ID, and regenerates provisioning. The iPhone target already wires this dedicated file; do not replace it with the macOS sandbox entitlement file.
 3. Deploys the backend using `backend/DEPLOY.md`: provision Postgres, apply every migration, deliberately establish the canonical auth-store marker, keep V1 at one instance, and set `DATABASE_URL`, `JWT_SECRET`, `OPENAI_API_KEY`, `APP_TOKEN`, and `AUTH_APPLE_AUDIENCE`. Backend `APP_TOKEN` must match app `APP_TOKEN_RELEASE`.
 4. Publishes `https://api.them.io` and the privacy URL in `Info-Release.plist` as direct HTTP 200 io.them surfaces without redirects or parked-domain content.
 5. Supplies the Apple Team ID and repository secrets named above without committing or pasting them into tickets. `APP_TOKEN_RELEASE` ships inside the app and is extractable, so it is an app-install identifier—not a user secret or sole authorization boundary.

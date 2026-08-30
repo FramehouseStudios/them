@@ -1,6 +1,6 @@
 # io.them iPhone TestFlight Submission Checklist
 
-Last updated: 2026-08-28
+Last updated: 2026-08-30
 
 ## 1. Blocking Config (must pass before archive)
 - Create ignored local release config from the checked-in template:
@@ -17,7 +17,7 @@ chmod 600 them/Release.local.env
 ## 2. Security + Entitlements
 - Human-review and approve the branch's Email Address declaration in `them/PrivacyInfo.xcprivacy`; then confirm microphone/network behavior and every collected-data declaration match App Store Connect privacy answers.
 - Enable Sign in with Apple for `io.them.them` in the Apple Developer portal.
-- Create and approve a dedicated iOS entitlement containing `com.apple.developer.applesignin = [Default]`, then wire it to iPhone Release. Do not reuse `them/them.entitlements`, which contains macOS sandbox keys.
+- Confirm the checked-in `them/them-iOS.entitlements` capability is approved for the App ID and present in regenerated provisioning. The iPhone target already wires this dedicated file; do not replace it with `them/them.entitlements`, which contains macOS sandbox keys.
 - Confirm the iPhone TestFlight lane remains iPhone-only.
 - Keep the Mac Studio scaffold outside V1; run `RUN_MAC_DESKTOP_PREFLIGHT=1 scripts/run_release_preflight.sh` only for a separate desktop handoff or demo.
 
