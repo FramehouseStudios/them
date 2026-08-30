@@ -124,6 +124,19 @@ scripts/run_release_preflight.sh
 | [`docs/`](docs/) | API contracts, architecture decisions, launch evidence, product specs, and runbooks. |
 | [`tasks/`](tasks/) | Reviewable project task records and implementation history. |
 
+## Product and architecture references
+
+- [`docs/product/founder-product-brief.md`](docs/product/founder-product-brief.md)
+  explains the product vision, first customer, boundaries, phases, and company
+  proof.
+- [`docs/product/platform-proposal.md`](docs/product/platform-proposal.md)
+  connects that vision to the V1 scope and continuous verification bar.
+- [`docs/architecture/technical-blueprint.md`](docs/architecture/technical-blueprint.md)
+  records the current modular-monolith boundary, authoritative data flow, and
+  measured triggers for adding complexity.
+- [`docs/README.md`](docs/README.md) is the documentation map and authority
+  guide. Accepted decisions remain in [`DECISIONS.md`](DECISIONS.md).
+
 ## Run locally
 
 ### Prerequisites
