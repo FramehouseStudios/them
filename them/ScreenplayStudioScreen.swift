@@ -2232,6 +2232,15 @@ Replace is best when this file should become the script you edit. Append is safe
                     }
                 }
             }
+            .onChange(of: studioPromptFocused) { _, isFocused in
+                guard isFocused else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeOut(duration: 0.20)) {
+                        proxy.scrollTo("studio.prompt.anchor", anchor: .center)
+                    }
+                }
+            }
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil
@@ -2330,6 +2339,7 @@ Replace is best when this file should become the script you edit. Append is safe
                         studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
                 }
+                .id("studio.prompt.anchor")
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
                 .background(
