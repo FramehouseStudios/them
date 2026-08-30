@@ -20,6 +20,39 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         super.tearDown()
     }
 
+    func testNavigatorRootUsesDedicatedApplicationSupportFolderOnMacOS() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/io-them-application-support", isDirectory: true)
+        let documents = URL(fileURLWithPath: "/tmp/io-them-documents", isDirectory: true)
+        let temporary = URL(fileURLWithPath: "/tmp", isDirectory: true)
+
+        XCTAssertEqual(
+            ScreenplayNavigatorRootPolicy.preferredRootURL(
+                isMacOS: true,
+                applicationSupportURL: applicationSupport,
+                documentsURL: documents,
+                temporaryURL: temporary
+            ),
+            applicationSupport
+                .appendingPathComponent("io.them", isDirectory: true)
+                .appendingPathComponent("Screenplays", isDirectory: true)
+        )
+    }
+
+    func testNavigatorRootKeepsTheAppDocumentsFolderOnIOS() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/io-them-application-support", isDirectory: true)
+        let documents = URL(fileURLWithPath: "/tmp/io-them-documents", isDirectory: true)
+
+        XCTAssertEqual(
+            ScreenplayNavigatorRootPolicy.preferredRootURL(
+                isMacOS: false,
+                applicationSupportURL: applicationSupport,
+                documentsURL: documents,
+                temporaryURL: URL(fileURLWithPath: "/tmp", isDirectory: true)
+            ),
+            documents
+        )
+    }
+
     func testSaveWritesLocalRecoverySnapshot() {
         let draft = """
         INT. MOTEL ROOM - NIGHT
