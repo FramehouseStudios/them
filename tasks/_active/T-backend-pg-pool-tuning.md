@@ -1,7 +1,7 @@
 ---
 id: T-backend-pg-pool-tuning
 title: Production-tune the Postgres connection pool
-owner: claude
+owner: support
 status: ready
 branch: -
 pillar: infra (enables all)

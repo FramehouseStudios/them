@@ -1,9 +1,9 @@
 ---
 id: T-backend-deploy-image
 title: Containerize the backend and document a deploy recipe
-owner: claude
+owner: support
 status: review
-branch: claude/backend-deploy-image
+branch: support/backend-deploy-image
 pillar: infra (enables all)
 v1_pillar: ios
 v1_effect: closes V1 'no deploy manifest in repo' gap (audit finding 2026-05-14); production builds are reproducible from `backend/Dockerfile` and `backend/render.yaml`, and refuse to boot without required env per `assertProductionEnv`.

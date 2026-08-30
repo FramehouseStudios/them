@@ -22,7 +22,7 @@ iOS keys off the field set itself.
 
 ## Owner
 
-- **Backend**: Claude. Inline handler in `backend/index.js`
+- **Backend**: support agent. Inline handler in `backend/index.js`
   (no extraction yet; not in any phase of the 5b/6 decomp
   chain).
 - **iOS**: Codex. Captures the screenshot, base64-encodes,

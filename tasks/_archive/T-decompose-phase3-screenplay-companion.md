@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase3-screenplay-companion
 title: Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase3-screenplay-companion
+branch: support/T-decompose-phase3-screenplay-companion
 pillar: infra (backend architecture)
 ---
 

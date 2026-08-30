@@ -1,9 +1,9 @@
 ---
 id: T-outbox-routes-schema-doc
 title: docs/schemas/outbox-routes.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-outbox-routes-schema-doc-fresh
+branch: support/T-outbox-routes-schema-doc-fresh
 pillar: infra (schema discipline)
 v1_pillar: infra
 v1_effect: documents the operator-facing /outbox HTTP envelopes (list + retry) — pairs with outbox-event.md (record shape) so ops dashboards have a fixed contract

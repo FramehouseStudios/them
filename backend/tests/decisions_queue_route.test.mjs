@@ -33,7 +33,7 @@ test("[decisions-queue] parses an open entry with all fields", () => {
 ## Open
 
 ### D-voice-supplier — Pick the default realtime voice supplier
-- **Asked by:** claude
+- **Asked by:** codex
 - **Asked at:** 2026-05-09
 - **Why it matters:** unblocks the failover rollout.
 - **Question:** OpenAI vs ElevenLabs as primary?
@@ -49,7 +49,7 @@ _(empty)_
   const entry = r.open[0];
   assert.equal(entry.id, "D-voice-supplier");
   assert.equal(entry.title, "Pick the default realtime voice supplier");
-  assert.equal(entry.asked_by, "claude");
+  assert.equal(entry.asked_by, "codex");
   assert.equal(entry.asked_at, "2026-05-09");
   assert.match(entry.why_it_matters, /failover rollout/);
   assert.match(entry.question, /OpenAI vs ElevenLabs/);
@@ -60,7 +60,7 @@ test("[decisions-queue] parses multiple open entries", () => {
   const md = `## Open
 
 ### D-a — first
-- **Asked by:** claude
+- **Asked by:** codex
 
 ### D-b — second
 - **Asked by:** codex
@@ -75,7 +75,7 @@ test("[decisions-queue] segregates open vs resolved", () => {
   const md = `## Open
 
 ### D-a — open one
-- **Asked by:** claude
+- **Asked by:** codex
 
 ## Resolved
 
@@ -95,7 +95,7 @@ test("[decisions-queue] no Open section yields empty open list", () => {
   const md = `# header
 Some preamble.
 ## Other
-- **Asked by:** claude
+- **Asked by:** codex
 `;
   const r = parseDecisionsQueueMarkdown(md);
   assert.equal(r.open.length, 0);
@@ -115,7 +115,7 @@ test("[decisions-queue] tolerates entries with no fields", () => {
 test("[decisions-queue] determinism: same input → same output", () => {
   const md = `## Open
 ### D-x — q
-- **Asked by:** claude
+- **Asked by:** codex
 `;
   const a = parseDecisionsQueueMarkdown(md);
   const b = parseDecisionsQueueMarkdown(md);
@@ -152,7 +152,7 @@ test("[decisions-queue] GET /coordination/decisions-queue returns parsed queue",
   const md = `## Open
 
 ### D-real — Should we ship?
-- **Asked by:** claude
+- **Asked by:** codex
 - **Asked at:** 2026-05-10
 - **Question:** yes or no
 - **Default if no answer:** no
@@ -168,7 +168,7 @@ _(empty)_
       assert.equal(r.body.counts.open, 1);
       assert.equal(r.body.counts.resolved, 0);
       assert.equal(r.body.open[0].id, "D-real");
-      assert.equal(r.body.open[0].asked_by, "claude");
+      assert.equal(r.body.open[0].asked_by, "codex");
     },
     { fileContents: md },
   );

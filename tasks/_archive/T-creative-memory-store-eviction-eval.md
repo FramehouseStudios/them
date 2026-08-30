@@ -1,9 +1,9 @@
 ---
 id: T-creative-memory-store-eviction-eval
 title: Pathological-input guard on creative-memory character roster
-owner: claude
+owner: support
 status: merged
-branch: claude/T-creative-memory-store-eviction-eval
+branch: support/T-creative-memory-store-eviction-eval
 pillar: evals (contract stability)
 ---
 

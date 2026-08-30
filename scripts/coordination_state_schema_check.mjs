@@ -17,7 +17,7 @@
 // PR object required fields:
 //   - number: integer
 //   - title: non-empty string
-//   - owner: "claude" | "codex" | "human"
+//   - owner: "support" | "codex" | "human"
 //   - tier: 1 | 2 | 3
 //   - status: non-empty string
 //   - branch: non-empty string
@@ -58,7 +58,7 @@ check("openPullRequests is an array", Array.isArray(state.openPullRequests));
 check("blockers is an array", Array.isArray(state.blockers));
 check("decisionsPending is an array", Array.isArray(state.decisionsPending));
 
-const allowedOwners = new Set(["claude", "codex", "human"]);
+const allowedOwners = new Set(["support", "codex", "human"]);
 const allowedTiers = new Set([1, 2, 3]);
 
 if (Array.isArray(state.openPullRequests)) {
@@ -66,7 +66,7 @@ if (Array.isArray(state.openPullRequests)) {
     const label = `pr #${pr?.number ?? "??"}`;
     check(`${label}: number is integer`, Number.isInteger(pr?.number));
     check(`${label}: title non-empty`, typeof pr?.title === "string" && pr.title.length > 0);
-    check(`${label}: owner is claude|codex|human`, allowedOwners.has(pr?.owner), `got ${pr?.owner}`);
+    check(`${label}: owner is support|codex|human`, allowedOwners.has(pr?.owner), `got ${pr?.owner}`);
     check(`${label}: tier in {1,2,3}`, allowedTiers.has(pr?.tier), `got ${pr?.tier}`);
     check(`${label}: status non-empty`, typeof pr?.status === "string" && pr.status.length > 0);
     check(`${label}: branch non-empty`, typeof pr?.branch === "string" && pr.branch.length > 0);
@@ -77,7 +77,7 @@ if (Array.isArray(state.blockers)) {
   for (const b of state.blockers) {
     const label = `blocker ${b?.id ?? "??"}`;
     check(`${label}: id non-empty`, typeof b?.id === "string" && b.id.length > 0);
-    check(`${label}: owner is claude|codex|human`, allowedOwners.has(b?.owner), `got ${b?.owner}`);
+    check(`${label}: owner is support|codex|human`, allowedOwners.has(b?.owner), `got ${b?.owner}`);
     check(`${label}: summary non-empty`, typeof b?.summary === "string" && b.summary.length > 0);
   }
 }

@@ -20,7 +20,7 @@ Body limit on `/tasks/update`: `256kb`.
 
 ## Owner
 
-- **Backend**: Claude. Inline handlers in `backend/index.js`.
+- **Backend**: support agent. Inline handlers in `backend/index.js`.
   Not in any current decomp phase.
 - **iOS**: Codex. Powers the task list + add/complete UI.
 

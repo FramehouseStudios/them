@@ -17,11 +17,11 @@ Record the post-round-20 merge train:
 - #207 `T-outbox-store-smoke-test`
 
 Refresh `docs/coordination.json`, `docs/codex-inbox.md`,
-`docs/agent-events-2026-W20.jsonl`, and generated `TASKS.md` so Claude
+`docs/agent-events-2026-W20.jsonl`, and generated `TASKS.md` so support agent
 can continue from repo state without human copy/paste.
 
 ## Done when
 
 `node scripts/coordination_state.mjs validate` passes; `agent_next`
-shows no reviewable Claude PRs; the inbox says only human-gated PRs
+shows no reviewable support agent PRs; the inbox says only human-gated PRs
 remain and names the next safe backend coverage targets.

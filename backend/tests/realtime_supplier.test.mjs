@@ -1,6 +1,6 @@
 // T13: realtime supplier interface contract tests.
 // Same suite runs against every implementation so a future real
-// second supplier (ElevenLabs / Anthropic / etc.) just adds a
+// second supplier just adds a
 // factory entry and the same tests apply.
 
 import assert from "node:assert/strict";

@@ -1,9 +1,9 @@
 ---
 id: T-memory-quality-eval
 title: Multi-turn creative-memory recall eval
-owner: claude
+owner: support
 status: merged
-branch: claude/T-memory-quality-eval
+branch: support/T-memory-quality-eval
 pillar: evals (layer-3-living)
 ---
 

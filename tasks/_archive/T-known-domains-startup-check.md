@@ -1,9 +1,9 @@
 ---
 id: T-known-domains-startup-check
 title: Boot-time invariant check on KNOWN_DOMAINS
-owner: claude
+owner: support
 status: merged
-branch: claude/T-known-domains-startup-check
+branch: support/T-known-domains-startup-check
 pillar: infra (persistence)
 ---
 

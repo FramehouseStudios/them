@@ -1,9 +1,9 @@
 ---
 id: T-backend-structured-logs
 title: Structured JSON logger + request-id propagation
-owner: claude
+owner: support
 status: review
-branch: claude/backend-structured-logs-phase0
+branch: support/backend-structured-logs-phase0
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: enables V1 ops triage; today every backend log line is console.log and there is no request_id propagation. Production troubleshooting relies on humans grepping raw stdout.

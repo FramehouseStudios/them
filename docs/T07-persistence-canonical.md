@@ -1,8 +1,8 @@
 # T07 — Backend Persistence Canonical (Postgres + JSON Adapter)
 
 **Status:** in-progress (this PR ships the foundation; per-store wiring is follow-up rows)
-**Owner:** claude
-**Branch:** `claude/T07-postgres-canonical`
+**Owner:** support
+**Branch:** `support/T07-postgres-canonical`
 **Pillar:** longitudinal learning
 
 ## Problem
@@ -167,7 +167,7 @@ the persistence-canonical foundation is exercised end-to-end.
 - `workflow_dispatch` — run manually from the Actions tab. Optional
   `keep_data` input keeps the migrated data after the run for
   debugging (default: drop the schema after the run).
-- `push` to `claude/T07*` or `claude/backend-T07*` branches — auto-runs
+- `push` to `support/T07*` or `support/backend-T07*` branches — auto-runs
   the gate when persistence-related branches change.
 - `schedule` — nightly at 09:00 UTC so the gate stays green even when
   no PR touched persistence today.
@@ -232,7 +232,7 @@ short soak (~7 days, captured in the T07-cutover row), promote by:
 
 1. Adding a `workflow_call` to it in `release-preflight.yml` so RC
    runs invoke it.
-2. Marking the `claude/T07-cutover` row's blocker as cleared.
+2. Marking the `support/T07-cutover` row's blocker as cleared.
 3. Removing the legacy `*_store.json` write paths (T07-cutover scope).
 
 ## Verification
@@ -251,7 +251,7 @@ short soak (~7 days, captured in the T07-cutover row), promote by:
 
 ## Final shipped state (T07 foundation PR contents)
 
-Three reviewable commits on `claude/T07-postgres-canonical`:
+Three reviewable commits on `support/T07-postgres-canonical`:
 
 1. **T07 row claim** — TASKS.md update with scope split.
 2. **Adapter + JSON + Postgres + schema + tests** — the foundation.

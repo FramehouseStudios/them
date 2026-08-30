@@ -17,7 +17,7 @@ routes: `POST /auth/request_email_verification` (issue token) and
 
 ## Owner
 
-- **Backend**: Claude. Token generation + consume + `emailVerified`
+- **Backend**: support agent. Token generation + consume + `emailVerified`
   flip live in `backend/lib/user_auth.js`.
 - **iOS UI**: Codex. Triggers request when `pending_email_verification`
   is true on the auth envelope; presents the verified-state UI.

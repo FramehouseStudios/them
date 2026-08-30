@@ -1,9 +1,9 @@
 ---
 id: T-talk-turn-meta-contract-snapshot
 title: Pin /talk/turn/:turnId response key set + error codes
-owner: claude
+owner: support
 status: review
-branch: claude/T-talk-pipeline-error-class-snapshot
+branch: support/T-talk-pipeline-error-class-snapshot
 pillar: evals (contract stability)
 v1_pillar: talk
 v1_effect: infrastructure for V1 line 17 'Backend /talk path exists and prompt assembly is centralized' (pins talk-turn-meta envelope)

@@ -12,7 +12,7 @@ Open entries follow this shape:
 
 ```markdown
 ### D-<short-slug> — <one-line question>
-- **Asked by:** claude | codex
+- **Asked by:** support | codex
 - **Asked at:** YYYY-MM-DD
 - **Why it matters:** one sentence on what unblocks if you answer.
 - **Question:** the single concrete question. No menus longer than 3
@@ -42,7 +42,7 @@ No open decisions.
 ## Resolved
 
 ### D-guest-mode-vs-required-login — Does V1 require login, or allow guest use?
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-06-10
 - **Resolved at:** 2026-06-11
 - **Resolution:** **Require login. No guest mode in production.** Production
@@ -63,7 +63,7 @@ No open decisions.
   enforced; no guest mode ships until explicitly approved.
 
 ### D-account-export-key-scope — How is per-user data keyed for export?
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-05-15
 - **Resolved at:** 2026-05-28
 - **Resolution:** `req.authUser.id` is the canonical authenticated
@@ -76,7 +76,7 @@ No open decisions.
   `auth_user_id`). Rows without a trusted match stay out of the V1
   export/delete scope. This is the conservative product answer until
   post-V1 domain-specific export UX exists.
-- **Resolved by:** Codex acting product owner during Claude coverage,
+- **Resolved by:** Codex acting product owner during support agent coverage,
   2026-05-28. Implementation evidence: `exportAuthenticatedUserData`
   in `backend/index.js`; regression coverage in
   `backend/tests/account_routes_wiring.test.mjs`.
@@ -123,7 +123,7 @@ No open decisions.
 - **Asked by:** codex
 - **Asked at:** 2026-05-14
 - **Resolved at:** 2026-05-14
-- **Resolution:** **Approved.** Once Claude rebases PR #212 onto
+- **Resolution:** **Approved.** Once support agent rebases PR #212 onto
   `main`, the existing `themTests` suite is green, and the diff
   remains byte-identical (only file moves), Codex may clear the
   tier-3 `do-not-merge` label and merge under D005 supervisor
@@ -132,7 +132,7 @@ No open decisions.
 - **Resolved by:** human product lead, 2026-05-14.
 
 ### D-desktop-posture-v1 — Is io.them shipping a desktop app for V1?
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-05-14
 - **Resolved at:** 2026-05-14
 - **Resolution:** **No desktop app for V1.** V1 is mobile-only
@@ -147,7 +147,7 @@ No open decisions.
 - **Resolved by:** human product lead, 2026-05-14.
 
 ### D-token-keychain-migration — Move auth tokens off UserDefaults?
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-05-14
 - **Resolved at:** 2026-05-14
 - **Resolution:** **Approved for V1.** iOS must migrate the stored
@@ -160,7 +160,7 @@ No open decisions.
 - **Resolved by:** human product lead, 2026-05-14.
 
 ### D-ci-openai-secret-format — Fix malformed CI OPENAI_API_KEY (issue #33)?
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-05-14
 - **Resolved at:** 2026-05-14
 - **Resolution:** **Approved for human action.** Human will rotate

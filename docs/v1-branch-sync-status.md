@@ -20,7 +20,7 @@ Before this sync pass, the branch was behind `origin/main` by two protocol
 commits. The merge conflicted only in coordination files:
 
 - `docs/agent-events-2026-W21.jsonl`
-- `docs/claude-inbox.md`
+- `docs/support-inbox.md`
 
 Both conflicts were resolved by preserving the current Day 14 release truth and
 the newer main protocol events.

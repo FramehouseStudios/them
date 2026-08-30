@@ -1,9 +1,9 @@
 ---
 id: T-ops-health-summary-eval
 title: Deployment-level eval pinning /ops/health-summary features map
-owner: claude
+owner: support
 status: merged
-branch: claude/T-ops-health-summary-eval
+branch: support/T-ops-health-summary-eval
 pillar: evals (contract stability)
 ---
 

@@ -2,7 +2,7 @@
 
 **Status**: ready-for-codex. Backed by `D-token-keychain-migration` in
 `docs/decisions-queue.md` (resolved 2026-05-14).
-**Owner**: codex (iOS scope; Claude does not edit `them/`).
+**Owner**: codex (iOS scope; support agent does not edit `them/`).
 **V1 pillar**: ios
 **V1 effect**: closes the security pre-flight gap before TestFlight external
 review. Today the `app_token` and `sharedUserID` live in `UserDefaults`,
@@ -101,5 +101,5 @@ private let tokenStore = KeychainTokenStore(service: "io.them.auth", accessGroup
 ## Out-of-scope follow-ups
 
 - Encrypt the local screenplay store with a Keychain-derived key (separate
-  spec; talk to Claude about server-side key derivation).
+  spec; talk to support agent about server-side key derivation).
 - App-group keychain if a Share extension or widget needs auth.

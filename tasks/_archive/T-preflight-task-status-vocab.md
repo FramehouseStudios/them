@@ -1,9 +1,9 @@
 ---
 id: T-preflight-task-status-vocab
 title: Pre-flight rule task-status-vocabulary
-owner: claude
+owner: support
 status: merged
-branch: claude/T-preflight-task-status-vocab
+branch: support/T-preflight-task-status-vocab
 pillar: infra (pre-flight rule)
 v1_pillar: infra
 v1_effect: closes the silent-status-typo gap — a task file with `status: shipped` (typo for `merged`) would silently drop from V1 status rollups; this rule catches the typo before it propagates
@@ -18,7 +18,7 @@ Adds two new pre-flight checks under `scripts/pre_flight.mjs`:
 - `task-invalid-status` — task file has a `status:` value that
   isn't one of the canonical workflow statuses or grandfathered
   coordination values:
-  `ready | ready-for-claude | in-progress | review | merged |
+  `ready | ready-for-support | in-progress | review | merged |
    planned | open | blocked | parked | closed | draft`.
 
 Same grandfathering rules as `checkTaskV1Pillar`:
@@ -49,7 +49,7 @@ status-reporting bug.
   statuses, and legacy/coord-refresh skips.
 - `node scripts/pre_flight.mjs` → 0 findings on current branch.
 - Rule body: validates against the set
-  `{ready, ready-for-claude, in-progress, review, merged, planned,
+  `{ready, ready-for-support, in-progress, review, merged, planned,
   open, blocked, parked, closed, draft}`.
 - Skip behavior matches `checkTaskV1Pillar` precedent for legacy
   non-YAML files and coord-refresh files.
@@ -66,10 +66,10 @@ same branch before re-review:
 
 2. **Canonical set was too narrow.** Once the filter widened,
    Codex-owned tasks surfaced `in-progress` and `planned`; AGENTS.md
-   also documents `ready` and `ready-for-claude`. Shipping the
+   also documents `ready` and `ready-for-support`. Shipping the
    narrow set would force noisy unrelated cleanup and incorrectly
    reject real workflow states. Widened the accepted set to:
-   `ready | ready-for-claude | in-progress | review | merged |
+   `ready | ready-for-support | in-progress | review | merged |
     planned | open | blocked | parked | closed | draft`.
 
 3. **No fixture coverage.** Added regression tests for missing

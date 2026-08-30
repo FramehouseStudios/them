@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase6-memories-design
 title: Phase 6 design note — /memories/* cluster (6 routes)
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (gating note; Phase 6 code opens only after Codex accepts)
 pillar: infra (backend architecture)

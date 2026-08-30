@@ -1,9 +1,9 @@
 ---
 id: T-preflight-schema-doc-missing-endpoint
 title: pre-flight rule: warn when schema doc references a missing backend route
-owner: claude
+owner: support
 status: merged
-branch: claude/T-preflight-schema-doc-missing-endpoint
+branch: support/T-preflight-schema-doc-missing-endpoint
 pillar: infra
 v1_pillar: infra
 v1_effect: closes the reverse-direction schema-doc-vs-code drift gap so docs/schemas/*.md can't silently document a route that was removed or never shipped.

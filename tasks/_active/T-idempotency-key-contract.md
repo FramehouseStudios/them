@@ -1,9 +1,9 @@
 ---
 id: T-idempotency-key-contract
 title: Cross-route idempotency-key contract + reusable envelope
-owner: claude
+owner: support
 status: review
-branch: claude/backend-idempotency-envelope
+branch: support/backend-idempotency-envelope
 pillar: talk
 v1_pillar: talk
 v1_effect: makes the iOS offline outbox safe across all retry-prone routes; without this, retried screenplay saves / memory writes would create duplicates.

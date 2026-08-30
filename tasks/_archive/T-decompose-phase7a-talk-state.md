@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase7a-talk-state
 title: Phase 7a — extract talk-state guards into backend/lib/talk_state.js
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase7a-talk-state
+branch: support/T-decompose-phase7a-talk-state
 pillar: infra (backend architecture)
 v1_pillar: talk
 v1_effect: extracts the talk pipeline's load-bearing guard middleware seam (rate limit, idempotency, per-session serialization, global concurrency) per merged design note #293. The talk path is the V1 voice-to-page route; the guard seam is the prerequisite for Phase 7b (handler extraction).

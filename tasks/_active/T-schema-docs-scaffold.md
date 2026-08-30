@@ -1,9 +1,9 @@
 ---
 id: T-schema-docs-scaffold
 title: Bootstrap docs/schemas/ with README + 3 first envelope docs
-owner: claude
+owner: support
 status: review
-branch: claude/T-schema-docs-scaffold
+branch: support/T-schema-docs-scaffold
 pillar: infra (cross-agent contracts)
 v1_pillar: infra
 v1_effect: infrastructure for every iOS-consumer V1 checklist item; prevents backend ↔ iOS envelope drift

@@ -9,8 +9,8 @@ pillar: infra (coordination)
 
 ## Scope
 
-Record the post-round-17 cleanup after Codex closed stale Claude
-coordination PR #191 and merged Claude PR #192, the Phase 2a
+Record the post-round-17 cleanup after Codex closed stale support agent
+coordination PR #191 and merged support agent PR #192, the Phase 2a
 backend-index decomposition for read-only `/screenplay/projects/*`
 routes.
 
@@ -18,6 +18,6 @@ routes.
 
 `docs/coordination.json`, `docs/codex-inbox.md`, the agent-event lane,
 and `TASKS.md` agree that #191 is closed, #192 is merged, and the only
-remaining open Claude PRs are human-gated (#33, #63, #94, #99).
+remaining open support agent PRs are human-gated (#33, #63, #94, #99).
 Coordination validation, agent-next, task generation, event tail, and
 diff checks pass.

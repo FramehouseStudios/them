@@ -2,7 +2,7 @@
 //
 // scripts/agent_event.mjs
 //
-// Append-only event lane between Claude and Codex.
+// Append-only event lane between support agent and Codex.
 //
 // File: docs/agent-events.jsonl — one JSON object per line. Every
 // state transition either agent wants the other to see in
@@ -12,7 +12,7 @@
 //
 // Commands:
 //
-//   append --by=claude|codex --kind=<event_kind> [--pr=N]
+//   append --by=support|codex --kind=<event_kind> [--pr=N]
 //          [--comment="..."] [--blocker-kind=...] [--blocker-against=N]
 //          [--extra='{"key":"value"}']
 //
@@ -57,7 +57,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const eventsDir = path.join(repoRoot, "docs");
 
-const ALLOWED_BY = new Set(["claude", "codex", "human"]);
+const ALLOWED_BY = new Set(["support", "codex", "human"]);
 const ALLOWED_KINDS = new Set([
   "session_start",
   "pr_opened",

@@ -1,9 +1,9 @@
 ---
 id: T-v1-three-smoke-fixtures
 title: V1 smoke fixtures — screenplay export + memory recall + realtime failover
-owner: claude
+owner: support
 status: review
-branch: claude/T-v1-screenplay-smoke
+branch: support/T-v1-screenplay-smoke
 pillar: infra (V1 smoke)
 v1_pillar: infra
 v1_effect: closes the automatable subset of 3 V1 manual-smoke checklist items at once (lines 39, 55, 67)

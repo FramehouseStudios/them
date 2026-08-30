@@ -1,9 +1,9 @@
 ---
 id: T-tasks-active-stats
 title: At-a-glance counts over tasks/_active/
-owner: claude
+owner: support
 status: merged
-branch: claude/T-tasks-active-stats
+branch: support/T-tasks-active-stats
 pillar: infra (coordination)
 ---
 
@@ -17,7 +17,7 @@ tasks_active_stats: 41 task file(s)
 
 by owner:
     26  codex
-    15  claude
+    15  support
 
 by status:
     17  merged
@@ -39,7 +39,7 @@ front-matter loop, different report. Skips files that don't parse
 `unrecognized` instead of crashing.
 
 Useful for inbox refresh PRs ("queue has 26 codex tasks, 15
-claude") and for the human's at-a-glance read.
+support") and for the human's at-a-glance read.
 
 ## Done when
 

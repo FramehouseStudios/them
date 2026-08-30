@@ -9,7 +9,7 @@ pillar: coordination
 
 ## Scope
 
-Record the merged Claude tier-1 support PRs:
+Record the merged support agent tier-1 support PRs:
 
 - PR #154 `T-talk-turn-rate-limit-helper`
 - PR #155 `T-tasks-active-frontmatter-eval`
@@ -18,7 +18,7 @@ Record the merged Claude tier-1 support PRs:
 
 ## Done when
 
-`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
-`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect those PRs
+`TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`,
+`docs/support-inbox.md`, and `docs/codex-inbox.md` reflect those PRs
 merged; the task files are marked merged; and coordination prompt/check
 scripts pass.

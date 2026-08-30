@@ -1,9 +1,9 @@
 ---
 id: T-tasks-active-frontmatter-eval
 title: Validate every tasks/_active/T-*.md front-matter
-owner: claude
+owner: support
 status: merged
-branch: claude/T-tasks-active-frontmatter-eval
+branch: support/T-tasks-active-frontmatter-eval
 pillar: infra (coordination)
 ---
 
@@ -15,13 +15,13 @@ validates the **content** of each task file in `tasks/_active/`.
 
 Two accepted layouts:
 
-1. **YAML front matter** (Claude convention):
+1. **YAML front matter** (support agent convention):
 
    ```yaml
    ---
    id: T-<slug>
    title: ...
-   owner: claude | codex | human
+   owner: support | codex | human
    status: ready | in-progress | review | merged | blocked-...
    branch: ...
    ---
@@ -39,7 +39,7 @@ Two accepted layouts:
 
 Filename matching is lenient: `<id>.md` or `<id>-<slug>.md` both
 pass (Codex's `id: T60` + filename `T60-export-formats-picker.md`
-is accepted alongside Claude's strict `id == filename` convention).
+is accepted alongside support agent's strict `id == filename` convention).
 
 Default mode prints findings + exits 0. `--strict` exits 1 on any
 finding — flip to that in CI once both conventions are normalized.

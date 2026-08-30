@@ -1,9 +1,9 @@
 ---
 id: T-operating-protocol-narrative
 title: docs/operating-protocol.md — narrative complement to AGENTS.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-operating-protocol-narrative
+branch: support/T-operating-protocol-narrative
 pillar: infra (operator docs)
 v1_pillar: infra
 v1_effect: lowers the onboarding cost for new readers (or future agents) — one narrative doc explains the AGENTS.md rules in context instead of requiring three coordination files cross-read
@@ -14,7 +14,7 @@ v1_effect: lowers the onboarding cost for new readers (or future agents) — one
 Ships `docs/operating-protocol.md` — narrative complement to
 `AGENTS.md` that walks through:
 - The product (north star, V1 target).
-- The three roles (Codex / Claude / human) with scope.
+- The three roles (Codex / support agent / human) with scope.
 - The four coordination files (AGENTS.md, TASKS.md,
   DECISIONS.md, coordination.json + inboxes + event lane).
 - How a PR ships (8 numbered steps).
@@ -30,7 +30,7 @@ Ships `docs/operating-protocol.md` — narrative complement to
 
 `AGENTS.md` is the rules of record — dense, load-bearing, no
 slack. New readers (or a future agent) face a steep ramp:
-combine AGENTS.md + TASKS.md + DECISIONS.md + claude-inbox +
+combine AGENTS.md + TASKS.md + DECISIONS.md + support-inbox +
 v1-definition.md to build context.
 
 This narrative doc is the on-ramp. It does not replace any of
@@ -53,8 +53,8 @@ those — it points at them with context.
 - Pre-flight rule list matches the current rules in
   `scripts/pre_flight.mjs`.
 - V1 smoke list matches `scripts/v1_*_smoke.mjs` (4 smokes).
-- Merge authority language matches AGENTS.md/D005: Claude-owned
-  PRs wait for Codex review and Claude never self-merges.
+- Merge authority language matches AGENTS.md/D005: support agent-owned
+  PRs wait for Codex review and support agent never self-merges.
 
 ## Done when
 
@@ -69,7 +69,7 @@ those — it points at them with context.
 
 ## Self-audit revision
 
-Claude's first self-audit, written before #250 and #259 merged,
+support agent's first self-audit, written before #250 and #259 merged,
 caught that the initial draft listed `task-missing-status` /
 `task-invalid-status` as live too early. The draft also omitted
 `schema-doc-backend-drift` (added by Codex #257 to main).
@@ -91,7 +91,7 @@ the narrative match the current rules of record:
 - Updated the accepted task-status set to include AGENTS/TASKS
   workflow values plus grandfathered coordination statuses.
 - Replaced the incorrect "self-review-and-merge for backend-only
-  PRs" sentence with the AGENTS/D005 rule: Claude-owned PRs wait
-  for Codex review and Claude never self-merges.
+  PRs" sentence with the AGENTS/D005 rule: support agent-owned PRs wait
+  for Codex review and support agent never self-merges.
 - Replaced the non-canonical `note` event reference with canonical
   event-lane kinds.

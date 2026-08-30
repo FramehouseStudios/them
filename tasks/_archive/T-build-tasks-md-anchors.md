@@ -1,9 +1,9 @@
 ---
 id: T-build-tasks-md-anchors
 title: Add AUTOGEN anchors to TASKS.md + harden anchor matcher
-owner: claude
+owner: support
 status: merged
-branch: claude/T-build-tasks-md-anchors
+branch: support/T-build-tasks-md-anchors
 pillar: infra (coordination)
 ---
 

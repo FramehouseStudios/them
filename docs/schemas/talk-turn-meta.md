@@ -18,7 +18,7 @@ meaning-changes bump to v2 with an explicit `schema_version`.
 
 ## Owner
 
-- **Backend / envelope shape**: Claude. The envelope is built in
+- **Backend / envelope shape**: support agent. The envelope is built in
   `backend/lib/talk_pipeline.js`'s `GET /talk/turn/:turnId`
   handler from a record stored by `storeTalkTurnMeta(...)` in the
   talk pipeline.

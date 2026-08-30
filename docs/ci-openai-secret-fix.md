@@ -6,7 +6,7 @@ stray newline, or pasted from a wrapped editor). This blocks the
 quality gate and any merge that depends on `eval:gate`.
 
 This is a **human-only** action: rotating the GitHub Actions secret
-requires repository admin access, which neither Claude nor Codex has.
+requires repository admin access, which neither support agent nor Codex has.
 
 ## Symptoms
 
@@ -88,5 +88,5 @@ malformed instead of a cryptic 401 inside the eval gate.
 
 The CI workflow is configured by the human and the secret is in the
 GitHub admin UI. No agent has permission to rotate it. Once the new
-key is in place, the validation step above can be added by Claude in
+key is in place, the validation step above can be added by support agent in
 a follow-up PR.

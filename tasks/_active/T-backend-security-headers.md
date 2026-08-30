@@ -1,7 +1,7 @@
 ---
 id: T-backend-security-headers
 title: Set HSTS / nosniff / Referrer-Policy / frame-ancestors headers
-owner: claude
+owner: support
 status: ready
 branch: -
 pillar: infra (enables all)

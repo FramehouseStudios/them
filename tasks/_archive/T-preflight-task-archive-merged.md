@@ -1,9 +1,9 @@
 ---
 id: T-preflight-task-archive-merged
 title: pre-flight rule: warn when status:merged tasks linger in tasks/_active/
-owner: claude
+owner: support
 status: merged
-branch: claude/T-preflight-task-archive-merged
+branch: support/T-preflight-task-archive-merged
 pillar: infra
 v1_pillar: infra
 v1_effect: extends the pre-flight rule set so the task workbench doesn't drown in finished work — nudges merged-but-not-archived tasks toward tasks/_archive/, which this PR also establishes.
@@ -23,7 +23,7 @@ merged-in-active tasks shipped before the rule landed.
 
 ## Rule design
 
-- File scope: `tasks/_active/T*.md` (Claude `T-` prefix or
+- File scope: `tasks/_active/T*.md` (support agent `T-` prefix or
   Codex `T<digit>` prefix) with YAML front matter.
 - Trigger: `status: merged` declared in YAML.
 - Grandfather logic, in order:
@@ -70,7 +70,7 @@ one commit.
   coordination refresh.
 - Make the rule `--strict` mode default. Warn-only avoids
   breaking the pre-flight gate while the backlog is cleared.
-- Touch `coordination.json` or `docs/claude-inbox.md`. Pure
+- Touch `coordination.json` or `docs/support-inbox.md`. Pure
   rule + directory + README.
 
 ## Done when

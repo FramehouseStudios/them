@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase7-talk-pipeline-design
 title: Phase 7 design note — talk pipeline decomposition
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (gating note; sub-phases open only after Codex accepts)
 pillar: infra (backend architecture)

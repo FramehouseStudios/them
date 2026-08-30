@@ -32,7 +32,7 @@ remain valid history and can be archived in a follow-up cleanup PR.
 
 - Files with `status: review` — those stay in `_active/` until
   merge.
-- Files with `status: in-progress` / `ready-for-claude` / `planned`
+- Files with `status: in-progress` / `ready-for-support` / `planned`
   — live work always stays in `_active/`.
 - Coord-refresh task files where the refresh is currently in
   flight — those stay in `_active/` until they land.

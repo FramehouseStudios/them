@@ -1,7 +1,7 @@
 ---
 id: T-archive-legacy-json-stores
 title: Move backend/*_store.json into backend/data/_legacy/
-owner: claude
+owner: support
 status: ready
 branch: -
 pillar: infra (enables all)

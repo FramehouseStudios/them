@@ -29,7 +29,7 @@ removals / meaning-changes bump to v2 and add an explicit
 
 ## Owner
 
-- **Backend / envelope shape**: Claude. The envelope is built in
+- **Backend / envelope shape**: support agent. The envelope is built in
   `backend/lib/user_auth.js`'s `buildAuthEnvelope` helper.
 - **iOS decoder**: Codex. `BackendAuthEnvelope` decoder in the iOS
   project.

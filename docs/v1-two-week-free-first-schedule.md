@@ -13,16 +13,16 @@ backend changes.
 
 - Codex owns V1 completion, app smoke, launch truth, reviews, merges, and
   final release readiness.
-- Claude works one deep task at a time and only from this schedule or a direct
+- support agent works one deep task at a time and only from this schedule or a direct
   Codex assignment.
-- Claude's backend-specific daily execution plan lives in
-  `docs/claude-backend-two-week-plan.md`. When a full day-task is complete,
-  Claude appends proof, checks Launch Room/agent_next, and starts the next
+- support agent's backend-specific daily execution plan lives in
+  `docs/support-backend-two-week-plan.md`. When a full day-task is complete,
+  support agent appends proof, checks Launch Room/agent_next, and starts the next
   incomplete day-task automatically unless Codex has posted a blocker, review
   request, or emergency smoke failure.
-- Claude must not open net-new schema-only, decomposition-only, release-config,
+- support agent must not open net-new schema-only, decomposition-only, release-config,
   memory-delete, or polish work while audit launch blockers wait.
-- Claude must not touch Apple signing, `them/Release.local.env`, production
+- support agent must not touch Apple signing, `them/Release.local.env`, production
   tokens, hosted release secrets, or release metadata unless Codex explicitly
   assigns a concrete repo-only support task.
 - Any auth, privacy, security, CI, migration, release, entitlement, or App
@@ -35,7 +35,7 @@ backend changes.
 
 - V1 is 20/25.
 - Open PRs: none.
-- Claude active work: none.
+- support agent active work: none.
 - Launch Doctor: `failed`, 0/5 passed, failed=1 because local `/talk` reached
   STT and hit OpenAI `401 invalid_api_key` with a dummy local key.
 - Deterministic V1 smokes passed for Talk subset, Studio subset, Memory subset,
@@ -104,7 +104,7 @@ Codex:
 - Add or run secret scanning/preflight checks if the repo lacks them.
 - Record only presence/absence, never secret values.
 
-Claude:
+support agent:
 - Stand by.
 
 Exit:
@@ -113,7 +113,7 @@ Exit:
 
 ### Day 1: Backend Exposure Lock
 
-Claude:
+support agent:
 - Own one deep backend task only.
 - Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route
   libs, visual context mount path, and focused backend tests.
@@ -136,7 +136,7 @@ Exit:
 
 ### Day 2: Rate Limits And Spend Guard
 
-Claude:
+support agent:
 - Wire the existing rate limiter on `/auth/*`, `/realtime/*`, `/talk`, and
   `/visual/context`.
 - Use per-user identity where authenticated; fall back to trusted `req.ip` only
@@ -161,7 +161,7 @@ Codex:
 - Confirm destructive flow is explicit, reversible only where true, and not
   confused with PR #99 memory-delete semantics.
 
-Claude:
+support agent:
 - Fix backend account route/mount/test gaps only if Codex assigns them.
 
 Exit:
@@ -169,7 +169,7 @@ Exit:
 
 ### Day 4: Apple/Auth Hardening
 
-Claude:
+support agent:
 - Replace production Apple static-key/test-HMAC risk with JWK `kid` verification
   and nonce verification.
 - Hard-disable `AUTH_APPLE_TEST_JWT_SECRET` in production.
@@ -195,7 +195,7 @@ Codex:
   auto-merge of workflows/secrets/release/privacy/auth paths.
 - Add tests or static checks for the deny list if possible.
 
-Claude:
+support agent:
 - Stand by unless Codex asks for workflow review only.
 
 Exit:
@@ -212,7 +212,7 @@ Codex:
 - Decide V1 stance on romantic/love-mode behavior: remove/disable unsolicited
   modes for V1 or explicitly mark rating/privacy implications.
 
-Claude:
+support agent:
 - Stand by unless a backend privacy endpoint bug is assigned.
 
 Exit:
@@ -227,7 +227,7 @@ Codex:
 - Update Launch Doctor, proof docs, and event lane.
 - Merge only blocker-clearing PRs.
 
-Claude:
+support agent:
 - Emergency fixes only.
 
 Exit:
@@ -243,7 +243,7 @@ Codex:
 - Ensure production cannot return a fake stub secret as success.
 - Record real vs stubbed proof.
 
-Claude:
+support agent:
 - Fix only assigned realtime supplier/failover defects with focused tests.
 
 Exit:
@@ -256,7 +256,7 @@ Codex:
   the exact credential blocker.
 - Verify record/type turn -> reply -> audio or explicit fallback -> saved turn.
 
-Claude:
+support agent:
 - Fix only an assigned backend Talk failure.
 
 Exit:
@@ -270,7 +270,7 @@ Codex:
   Controls remains plain-language and support-safe.
 - Record Launch Doctor proof.
 
-Claude:
+support agent:
 - Fix only assigned screenplay/memory backend failures.
 
 Exit:
@@ -286,7 +286,7 @@ Codex:
   proof exists.
 - Run unsigned iOS/macOS build checks.
 
-Claude:
+support agent:
 - Stand by.
 
 Exit:
@@ -299,7 +299,7 @@ Codex:
 - Verify local/free config mimics production shape without committing secrets.
 - Keep `them/Release.local.env` ignored and uncommitted.
 
-Claude:
+support agent:
 - Harden backend config validation only if Codex assigns a concrete ambiguity.
 
 Exit:
@@ -318,7 +318,7 @@ Codex:
   - release config status/preflight expected-red documentation.
 - Freeze non-critical work.
 
-Claude:
+support agent:
 - Emergency blocker fixes only.
 
 Exit:
@@ -341,7 +341,7 @@ Codex:
 - Produce signed build/TestFlight path only if the above passes.
 - Run final Launch Doctor against intended release path.
 
-Claude:
+support agent:
 - Frozen except emergency backend/support failures assigned by Codex.
 
 Exit:
@@ -356,8 +356,8 @@ Codex:
 3. Prefer clearing one audit launch blocker over opening side work.
 4. Update Launch Doctor/proof docs/event lane before stopping.
 
-Claude:
-1. Read this file, `docs/claude-inbox.md`, Launch Room, and `agent_next`.
+support agent:
+1. Read this file, `docs/support-inbox.md`, Launch Room, and `agent_next`.
 2. Work only on the current Codex-assigned deep task.
 3. If assigned, fix exactly that blocker, run named tests, append event-lane
    status, and stop.

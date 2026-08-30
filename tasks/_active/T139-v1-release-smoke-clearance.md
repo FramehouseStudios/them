@@ -24,7 +24,7 @@ Launch Doctor evidence, and document exact results.
   real value/blocker.
 - Launch Doctor either has a real smoke report or records why a truthful report
   cannot be generated.
-- Claude has a precise backend support instruction for any smoke failure.
+- support agent has a precise backend support instruction for any smoke failure.
 
 ## Verification
 

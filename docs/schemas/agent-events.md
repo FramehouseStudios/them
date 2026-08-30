@@ -13,7 +13,7 @@ review-blocker call.
 
 ## Owner
 
-- **Both agents write.** Claude appends after every backend PR
+- **Both agents write.** support agent appends after every backend PR
   state change. Codex appends after iOS merge-train activity and
   coord refreshes.
 - **Schema enforcement**: `scripts/agent_event.mjs` validates
@@ -32,7 +32,7 @@ secrets.
 ```json
 {
   "at": "2026-05-14T05:43:52.673Z",
-  "by": "claude",
+  "by": "support",
   "kind": "pr_opened",
   "pr": 254,
   "comment": "T-deeper-lib-tests-batch-3: 33 tests across..."
@@ -42,7 +42,7 @@ secrets.
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `at` | string | yes | ISO 8601 UTC timestamp, set by `agent_event.mjs` |
-| `by` | string | yes | `"claude"` or `"codex"` |
+| `by` | string | yes | `"support"` or `"codex"` |
 | `kind` | string | yes | one of the canonical kinds (see below) |
 | `pr` | int | no | PR number, when applicable to the kind |
 | `comment` | string | no | one-line human-readable summary when the appender supplies `--comment` |

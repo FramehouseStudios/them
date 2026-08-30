@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase6-1a-outbox-data-state
 title: Decompose backend long-tail Phase 6.1a routes
-owner: claude
-status: ready-for-claude
-branch: claude/T-decompose-phase6-1a-outbox-data-state
+owner: support
+status: ready-for-support
+branch: support/T-decompose-phase6-1a-outbox-data-state
 pillar: infra
 v1_pillar: infra
 v1_effect: continues the backend index decomposition toward the final-sweep target after Phase 7c landed

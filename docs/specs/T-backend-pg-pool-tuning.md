@@ -1,7 +1,7 @@
 # Spec: T-backend-pg-pool-tuning
 
-**Status**: ready (Claude can implement).
-**Owner**: claude.
+**Status**: ready (support agent can implement).
+**Owner**: support.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes a V1 deploy gap. The Postgres adapter
 (`backend/lib/persistence_postgres.js`) uses `new Pool({ connectionString })`

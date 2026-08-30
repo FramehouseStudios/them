@@ -14,7 +14,7 @@ Canonical shape for `GET /memory/stats`.
 
 ## Owner
 
-- **Backend**: Claude. `backend/lib/creative_memory_stats_route.js`.
+- **Backend**: support agent. `backend/lib/creative_memory_stats_route.js`.
 - **Consumer**: iOS plain-language memory summary (V1 line 53).
 
 ## Access-control posture

@@ -6,7 +6,7 @@ status: review
 branch: codex/T86-round22b-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: keeps Claude and Codex aligned after #223, #224, #226, and #227
+v1_effect: keeps support agent and Codex aligned after #223, #224, #226, and #227
 ---
 
 ## Scope

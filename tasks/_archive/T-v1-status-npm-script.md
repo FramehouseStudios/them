@@ -1,9 +1,9 @@
 ---
 id: T-v1-status-npm-script
 title: backend/package.json — npm run v1:status
-owner: claude
+owner: support
 status: merged
-branch: claude/T-v1-status-npm-script
+branch: support/T-v1-status-npm-script
 pillar: infra (V1 visibility)
 v1_pillar: infra
 v1_effect: gives both agents a one-command V1 status check from the backend dir — `npm run v1:status` — alongside the existing `npm run eval:canon`

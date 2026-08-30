@@ -22,7 +22,7 @@ Two response modes:
 
 ## Owner
 
-- **Backend**: Claude. Route in
+- **Backend**: support agent. Route in
   `backend/lib/fdx_export_route.js`; serializer in
   `backend/lib/fdx_export.js` (`exportToFDX`).
 - **iOS**: Codex. Consumes the FDX text for share / save to

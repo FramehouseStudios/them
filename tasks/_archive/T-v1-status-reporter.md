@@ -1,9 +1,9 @@
 ---
 id: T-v1-status-reporter
 title: V1 status reporter script
-owner: claude
+owner: support
 status: merged
-branch: claude/T-v1-status-reporter
+branch: support/T-v1-status-reporter
 pillar: infra (V1 checklist visibility)
 v1_pillar: infra
 v1_effect: infrastructure for every V1 checklist item — both agents (and the human) can answer "what's left to V1?" in one command without scrolling docs/v1-definition.md
@@ -25,7 +25,7 @@ report of the V1 checklist:
 ## Why this is parallel-safe
 
 Pure read of `docs/v1-definition.md` + stdout. Does not touch
-`coordination.json`, `claude-inbox/`, `backend/`, or any live
+`coordination.json`, `support-inbox/`, `backend/`, or any live
 route. Cannot conflict with any decomp PR in flight.
 
 ## Usage

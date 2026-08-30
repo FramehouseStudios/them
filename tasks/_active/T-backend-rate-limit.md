@@ -1,9 +1,9 @@
 ---
 id: T-backend-rate-limit
 title: Token-bucket rate limiter for auth, realtime mint, and default routes
-owner: claude
+owner: support
 status: review
-branch: claude/backend-rate-limit-phase0
+branch: support/backend-rate-limit-phase0
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: closes V1 production-readiness gap; today the backend has no global rate limiting beyond /talk, so a single misbehaving client can exhaust the OpenAI budget or DoS the single-instance deployment.

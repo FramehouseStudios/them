@@ -24,7 +24,7 @@ function extractSection(markdown, heading) {
   return (next === -1 ? rest : rest.slice(0, next)).trim();
 }
 
-const inboxPath = "docs/claude-inbox.md";
+const inboxPath = "docs/support-inbox.md";
 const inbox = readText(inboxPath);
 const coordination = readJson("docs/coordination.json");
 const currentCommand = extractSection(inbox, "Current Command");
@@ -50,16 +50,16 @@ function formatCoordinationState(state) {
 }
 
 const prompt = [
-  "Claude, read these files in order:",
+  "Support, read these files in order:",
   "1. AGENTS.md",
   "2. TASKS.md",
   "3. DECISIONS.md",
-  "4. docs/codex-claude-live-handoff.md",
+  "4. docs/live-handoff.md",
   "5. docs/coordination.json",
   `6. ${inboxPath}`,
   "",
   "First run:",
-  "node scripts/agent_next.mjs --role=claude",
+  "node scripts/agent_next.mjs --role=support",
   "node scripts/coordination_state.mjs read",
   "",
   "Machine-readable coordination state:",

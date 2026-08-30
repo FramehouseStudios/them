@@ -1,7 +1,7 @@
 ---
 id: T-backend-openai-cost-cap
 title: OpenAI per-day / per-user / per-hour budget cap
-owner: claude
+owner: support
 status: ready
 branch: -
 pillar: infra (enables all)

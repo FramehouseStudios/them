@@ -12,7 +12,7 @@ v1_effect: attempts the real Launch Doctor/manual smoke/release-preflight lane a
 ## Scope
 
 Run the current V1 launch room path: release config check, release preflight,
-manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
+manual-smoke/Launch Doctor evidence capture, and support agent handoff for any
 concrete backend failure.
 
 ## Done When
@@ -21,7 +21,7 @@ concrete backend failure.
 - `scripts/run_release_preflight.sh` has been run or is blocked with exact
   evidence.
 - Launch Doctor docs are current for the smoke attempt.
-- Claude's next action is concrete and does not invite net-new backend work.
+- support agent's next action is concrete and does not invite net-new backend work.
 - Verification commands are recorded.
 
 ## Verification
@@ -43,7 +43,7 @@ concrete backend failure.
 - `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
   reflected the updated launch state.
 - `gh pr list --state open` showed only PR #33 open at the time. T152 later
-  cleared the human-secret blocker and reclassified #33 as a Claude-owned
+  cleared the human-secret blocker and reclassified #33 as a support agent-owned
   eval-quality repair.
 - `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
   blocked manual-smoke evidence.

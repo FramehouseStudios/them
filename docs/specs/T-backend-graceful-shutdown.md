@@ -1,7 +1,7 @@
 # Spec: T-backend-graceful-shutdown
 
-**Status**: ready (Claude can implement).
-**Owner**: claude.
+**Status**: ready (support agent can implement).
+**Owner**: support.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes the V1 "deploy interrupts in-flight talk" gap.
 When Render/Fly sends SIGTERM during a deploy, the current `index.js`

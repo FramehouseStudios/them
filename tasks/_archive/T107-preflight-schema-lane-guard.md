@@ -1,6 +1,6 @@
 ---
 id: T107
-title: Block standalone schema-doc branches when the Claude inbox says they are out of lane
+title: Block standalone schema-doc branches when the support agent inbox says they are out of lane
 owner: codex
 status: merged
 branch: codex/T107-preflight-schema-lane-guard
@@ -12,13 +12,13 @@ v1_effect: prevents repeat schema-doc-only PR churn while Phase 7a talk work is 
 ## Scope
 
 Teach `scripts/pre_flight.mjs` to warn when a branch changes schema docs without
-implementation files while `docs/claude-inbox.md` says standalone schema-doc
+implementation files while `docs/support-inbox.md` says standalone schema-doc
 PRs are out of lane.
 
 ## Done When
 
 - `pre_flight` detects schema-doc-only branches using `origin/main...HEAD`.
-- The check is gated by the live `docs/claude-inbox.md` instruction, so the
+- The check is gated by the live `docs/support-inbox.md` instruction, so the
   rule can stand down when Codex explicitly reopens schema-doc work.
 - Branches that pair schema docs with backend/scripts/iOS implementation files
   are not flagged.

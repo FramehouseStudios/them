@@ -45,7 +45,7 @@ test("[tasks-sync-check] handles pipe characters inside title cells", () => {
     [
       "| ID | Title | Owner | Status |",
       "|---|---|---|---|",
-      "| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown | claude | review |",
+      "| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown | support | review |",
       "",
     ].join("\n"),
   );
@@ -55,9 +55,9 @@ test("[tasks-sync-check] handles pipe characters inside title cells", () => {
       "---",
       "id: T-screenplay-export-markdown",
       "title: POST /screenplay/export format=md|markdown",
-      "owner: claude",
+      "owner: support",
       "status: review",
-      "branch: claude/T-screenplay-export-markdown",
+      "branch: support/T-screenplay-export-markdown",
       "pillar: infra",
       "---",
       "",

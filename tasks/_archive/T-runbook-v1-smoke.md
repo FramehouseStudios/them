@@ -1,9 +1,9 @@
 ---
 id: T-runbook-v1-smoke
 title: Operator runbook for the V1 smoke suite
-owner: claude
+owner: support
 status: merged
-branch: claude/T-runbook-v1-smoke
+branch: support/T-runbook-v1-smoke
 pillar: infra (operator docs)
 v1_pillar: infra
 v1_effect: operator-facing reference for the V1 smoke suite — answers "what failed and where to look" without diving into 4 separate smoke scripts
@@ -32,7 +32,7 @@ which file probably broke it."
 - `V1 pillar: infra`
 - `V1 effect: operator-facing reference for the V1 smoke suite.
   Closes the gap between "smoke failed" and "here's which file
-  probably broke it." Both Claude and a human-on-call can use
+  probably broke it." Both support agent and a human-on-call can use
   this without reading 4 separate scripts.`
 
 ## Verification

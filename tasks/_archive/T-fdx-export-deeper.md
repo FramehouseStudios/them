@@ -1,9 +1,9 @@
 ---
 id: T-fdx-export-deeper
 title: Deeper tests for the FDX serializer
-owner: claude
+owner: support
 status: merged
-branch: claude/T-fdx-export-deeper
+branch: support/T-fdx-export-deeper
 pillar: infra (test coverage)
 v1_pillar: screenplay
 v1_effect: closes the deeper coverage gap for the FDX serializer that V1 line 38 ("iOS consumes FDX export...") depends on — pins per-line-kind serialization rules so iOS regressions surface in CI
@@ -51,7 +51,7 @@ existing smoke.
 ## Followups (not in this PR)
 
 - Schema doc `docs/schemas/fdx-export.md` lands separately
-  (claude/T-fdx-export-schema-doc, PR #265).
+  (support/T-fdx-export-schema-doc, PR #265).
 - Section level / synopsis paragraph support (the smoke + this
   deeper PR don't pin these — the FDX serializer may or may
   not emit them; check `serializeSection` / `serializeSynopsis`

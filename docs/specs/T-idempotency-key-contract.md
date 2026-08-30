@@ -1,8 +1,8 @@
 # Spec: T-idempotency-key-contract
 
-**Status**: ready (Claude can implement) + handoff to Codex for the
+**Status**: ready (support agent can implement) + handoff to Codex for the
 iOS outbox usage.
-**Owner**: claude (backend contract) → codex (iOS outbox consumer).
+**Owner**: support (backend contract) → codex (iOS outbox consumer).
 **V1 pillar**: talk
 **V1 effect**: makes the iOS offline outbox safe — without an
 idempotency contract, retried POSTs after network recovery create

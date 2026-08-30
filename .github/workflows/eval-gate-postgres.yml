@@ -15,8 +15,8 @@ on:
         default: false
   push:
     branches:
-      - "claude/T07*"
-      - "claude/backend-T07*"
+      - "codex/T07*"
+      - "codex/backend-T07*"
   schedule:
     # Nightly at 09:00 UTC so the gate stays green even when no PR
     # touched persistence today.

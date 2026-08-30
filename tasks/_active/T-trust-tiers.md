@@ -1,9 +1,9 @@
 ---
 id: T-trust-tiers
 title: Trust tiers + standing pre-approvals (AGENTS.md)
-owner: claude
+owner: support
 status: review
-branch: claude/T-trust-tiers
+branch: support/T-trust-tiers
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: operating-model trust tiers + standing pre-approvals (AGENTS.md)

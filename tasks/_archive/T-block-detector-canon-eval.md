@@ -1,9 +1,9 @@
 ---
 id: T-block-detector-canon-eval
 title: Pin block-detector envelope + SIGNAL_WEIGHTS + level thresholds
-owner: claude
+owner: support
 status: merged
-branch: claude/T-block-detector-canon-eval
+branch: support/T-block-detector-canon-eval
 pillar: evals (contract stability)
 ---
 

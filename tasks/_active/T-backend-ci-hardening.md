@@ -1,9 +1,9 @@
 ---
 id: T-backend-ci-hardening
 title: CI secret-format validation + Dockerfile build gate
-owner: claude
+owner: support
 status: review
-branch: claude/backend-ci-hardening
+branch: support/backend-ci-hardening
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: closes V1 CI gap; malformed OPENAI_API_KEY now fails fast with a clear message, and Dockerfile regressions are caught before deploy.

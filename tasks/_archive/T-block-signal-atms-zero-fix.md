@@ -1,9 +1,9 @@
 ---
 id: T-block-signal-atms-zero-fix
 title: Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-block-signal-atms-zero-fix
+branch: support/T-block-signal-atms-zero-fix
 pillar: bugfix (creative-memory)
 ---
 

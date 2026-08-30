@@ -2,7 +2,7 @@
 
 **Status**: post-V1 for dollar metering. V1 ships the simpler
 `backend/lib/provider_budget.js` daily provider-usage guard.
-**Owner**: claude.
+**Owner**: support.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes the V1 "one user with a script can burn the
 whole OpenAI budget" gap. Rate limiting (`T-backend-rate-limit`)

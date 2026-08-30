@@ -15,7 +15,7 @@ error-rate dashboard fed by `backend/lib/talk_error_counter.js`.
 
 ## Owner
 
-- **Backend**: Claude. Counter + envelope shape in
+- **Backend**: support agent. Counter + envelope shape in
   `talk_error_counter.js`.
 - **iOS**: not consumed by iOS — operator dashboard only.
 

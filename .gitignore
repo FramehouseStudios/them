@@ -41,9 +41,6 @@ xcuserdata/
 .LSOverride
 ._*
 
-# ── Claude Code worktrees ──
-.claude/worktrees/
-
 # ── Build artifacts ──
 build/
 *.o

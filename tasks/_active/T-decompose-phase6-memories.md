@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase6-memories
 title: Decompose backend/index.js — Phase 6 (/memories/* cluster)
-owner: claude
+owner: support
 status: review
-branch: claude/T-decompose-phase6-memories
+branch: support/T-decompose-phase6-memories
 pillar: infra (backend architecture)
 v1_pillar: memory
 v1_effect: closes V1 line 53 + 54 prerequisite by moving the /memories/* cluster (6 routes) into a testable lib — V1 memory pillar's iOS-facing contract now lives where decoders + tests can pin it

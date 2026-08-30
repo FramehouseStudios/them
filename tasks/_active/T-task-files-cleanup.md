@@ -1,9 +1,9 @@
 ---
 id: T-task-files-cleanup
 title: Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)
-owner: claude
+owner: support
 status: review
-branch: claude/T-task-files-cleanup
+branch: support/T-task-files-cleanup
 pillar: infra (coordination)
 v1_pillar: infra
 v1_effect: TASKS.md vs tasks/_active/ drift cleanup
@@ -14,7 +14,7 @@ v1_effect: TASKS.md vs tasks/_active/ drift cleanup
 `tasks/_active/` accumulated 16 task files with no matching rows in
 `TASKS.md`:
 
-- `T-trust-tiers.md` (Claude)
+- `T-trust-tiers.md` (support agent)
 - `T42-supervisor-merge-protocol.md` through
   `T56-refresh-after-talk-contract.md` (Codex, all merged via PRs on
   `main`)

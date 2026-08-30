@@ -9,14 +9,14 @@ pillar: infra (enables all)
 
 ## Scope
 
-Codex merged Claude PR #150 (`T-creative-memory-version-check-eval`) and
+Codex merged support agent PR #150 (`T-creative-memory-version-check-eval`) and
 PR #151 (`T-screenplay-export-pdf-error-clarity`). The repo-native
 coordination lane needs to record those merges and clean up T67's
-status detail so Claude and Codex read a consistent queue.
+status detail so support agent and Codex read a consistent queue.
 
 ## Done when
 
-`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
-`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and
+`TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`,
+`docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and
 PR #151 merged; T67 status is internally consistent; coordination prompt/check
 scripts pass.

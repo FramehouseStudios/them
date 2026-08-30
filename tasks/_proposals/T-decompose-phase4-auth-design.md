@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase4-auth-design
 title: Phase 4 design note — extract 11 /auth/* routes
-owner: claude
+owner: support
 status: proposed
 target_pr: #212 (do not merge until this design note is reviewed)
 pillar: infra (backend architecture)

@@ -18,7 +18,7 @@ test("[ci-merge-safety] quality gate runs on pull requests with secret-backed ga
 test("[ci-merge-safety] auto-merge refuses risky release/auth/privacy paths", () => {
   const requiredFragments = [
     "^\\.github/",
-    "^Dockerfile$",
+    "(^|/)Dockerfile$",
     "^backend/render\\.yaml$",
     "\\.entitlements$",
     "PrivacyInfo\\.xcprivacy$",
@@ -31,6 +31,9 @@ test("[ci-merge-safety] auto-merge refuses risky release/auth/privacy paths", ()
     "user_auth",
     "auth_routes",
     "account_routes",
+    "account_lifecycle_store",
+    "memory_route_auth",
+    "screenplay_route_auth",
     "memory-export-delete-decision-packet",
   ];
 
@@ -44,12 +47,10 @@ test("[ci-merge-safety] auto-merge refuses risky release/auth/privacy paths", ()
   assert.match(autoMerge, /touches risky path\(s\); refusing agent auto-merge/);
 });
 
-test("[ci-merge-safety] auto-merge requires non-author cross-agent approval", () => {
-  assert.match(autoMerge, /pr_author=\$\(echo "\$info" \| jq -r '\.author\.login \/\/ ""'\)/);
-  assert.ok(autoMerge.includes('((.author.login // \\"\\") != \\$author)'));
-  assert.match(autoMerge, /head_ref=\$\(echo "\$info" \| jq -r '\.headRefName \/\/ ""'\)/);
-  assert.match(autoMerge, /head_agent="claude"/);
-  assert.match(autoMerge, /head_agent="codex"/);
-  assert.ok(autoMerge.includes('\\$head_agent == \\"claude\\" and (.body | test(\\"^Codex supervisor update: approved\\"))'));
-  assert.ok(autoMerge.includes('\\$head_agent == \\"codex\\" and (.body | test(\\"^Claude supervisor update: approved\\"))'));
+test("[ci-merge-safety] auto-merge requires trusted project approval", () => {
+  assert.match(autoMerge, /approved_via_review=/);
+  assert.match(autoMerge, /OWNER.*MEMBER.*COLLABORATOR/);
+  assert.ok(autoMerge.includes('^(Codex|Project) supervisor update: approved'));
+  assert.match(autoMerge, /There is no quiet-time\s+# fallback/);
+  assert.match(autoMerge, /for forbidden in tier-2 tier-3 needs-human do-not-merge block-merge/);
 });

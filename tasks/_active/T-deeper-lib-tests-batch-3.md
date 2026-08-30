@@ -1,9 +1,9 @@
 ---
 id: T-deeper-lib-tests-batch-3
 title: Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats
-owner: claude
+owner: support
 status: review
-branch: claude/T-deeper-batch-3
+branch: support/T-deeper-batch-3
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: closes the test gap on 3 realtime + talk libs that gate V1 surfaces — realtime_supplier_stub backs the failover ladder, talk_error_counter feeds /talk/errors, talk_turn_stats feeds /talk/turn/stats

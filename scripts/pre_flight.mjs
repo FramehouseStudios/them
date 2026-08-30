@@ -2,7 +2,7 @@
 //
 // scripts/pre_flight.mjs
 //
-// One-shot self-check Claude runs BEFORE opening a PR. Catches the
+// One-shot self-check support agent runs BEFORE opening a PR. Catches the
 // recurring classes of review feedback locally so they don't cost
 // a full review cycle to surface and clear.
 //
@@ -93,8 +93,8 @@ function isGitRepo() {
   return gitOutput(["rev-parse", "--is-inside-work-tree"]) === "true";
 }
 
-function claudeInboxBlocksSchemaDocOnly() {
-  const inboxPath = path.join(repoRoot, "docs", "claude-inbox.md");
+function supportInboxBlocksSchemaDocOnly() {
+  const inboxPath = path.join(repoRoot, "docs", "support-inbox.md");
   if (!fs.existsSync(inboxPath)) return false;
   const text = fs.readFileSync(inboxPath, "utf8");
   return /Do not open (?:new )?schema-doc-only PRs/i.test(text)
@@ -117,11 +117,11 @@ function isImplementationFile(file) {
 
 function checkSchemaDocOnlyLane() {
   // Codex currently owns the iOS/product request channel. When
-  // docs/claude-inbox.md explicitly parks standalone schema-doc PRs,
-  // Claude should pair schema docs with implementation changes or wait
+  // docs/support-inbox.md explicitly parks standalone schema-doc PRs,
+  // support agent should pair schema docs with implementation changes or wait
   // for a direct request. This prevents repeated review/close cycles for
   // docs-only branches while the V1 talk pipeline is the critical path.
-  if (!claudeInboxBlocksSchemaDocOnly()) return;
+  if (!supportInboxBlocksSchemaDocOnly()) return;
   const changed = changedFilesAgainstOriginMain();
   if (changed.length === 0) return;
   const hasSchemaDoc = changed.some((file) => (
@@ -138,9 +138,9 @@ function checkSchemaDocOnlyLane() {
   if (!onlyDocsTasksOrCoord) return;
   add(
     "schema-doc-only-out-of-lane",
-    "docs/claude-inbox.md",
+    "docs/support-inbox.md",
     null,
-    "current Claude inbox says schema docs should be paired with code or explicitly requested; this branch changes schema docs without implementation files",
+    "current support agent inbox says schema docs should be paired with code or explicitly requested; this branch changes schema docs without implementation files",
   );
 }
 
@@ -269,7 +269,7 @@ function checkSecretHygiene() {
 }
 
 function checkV1LaunchHandoffHasNoStaleInstructions() {
-  // These files are the launch-room handoff path that Codex, Claude,
+  // These files are the launch-room handoff path that Codex, support agent,
   // and the human read first. Once a blocker/lane closes, stale text
   // here sends the next agent back into already-merged work. Keep the
   // patterns narrow and source-of-truth based; historical event logs
@@ -287,7 +287,7 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
     {
       file: "docs/v1-release-smoke-clearance.md",
       patterns: [
-        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; Claude should not be told to repair that lane"],
+        [/PR #33 is now support agent-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; support agent should not be told to repair that lane"],
         [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
         [/missing release `?BACKEND_URL|Provide the hosted release `?BACKEND_URL|Release `BACKEND_URL` is placeholder or unset/i, "Release BACKEND_URL is already hosted as https://api.them.io; do not list it as a missing private input"],
         [/production app token/i, "release smoke clearance must name APP_TOKEN_RELEASE, not vague production app token wording"],
@@ -313,11 +313,11 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       ],
     },
     {
-      file: "docs/claude-inbox.md",
+      file: "docs/support-inbox.md",
       patterns: [
-        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "Claude inbox must not reopen merged #33/#359 eval-quality work"],
-        [/\b0\/4\b|four-flow/i, "Claude inbox must describe the five-gate Launch Doctor state"],
-        [/hosted release\s+`BACKEND_URL`|production `APP_TOKEN`/i, "Claude inbox must not ask for stale release BACKEND_URL/APP_TOKEN inputs"],
+        [/PR #33 is now support agent-owned|eval-quality failures first|fix PR #33/i, "support agent inbox must not reopen merged #33/#359 eval-quality work"],
+        [/\b0\/4\b|four-flow/i, "support agent inbox must describe the five-gate Launch Doctor state"],
+        [/hosted release\s+`BACKEND_URL`|production `APP_TOKEN`/i, "support agent inbox must not ask for stale release BACKEND_URL/APP_TOKEN inputs"],
       ],
     },
     {
@@ -782,7 +782,7 @@ function checkTaskIdMatchesFilename() {
   // Every active task file in tasks/_active/T-*.md that uses YAML
   // front matter and declares an `id:` field must have the id
   // match the file's basename (without .md). Mismatched ids break
-  // cross-references in coordination.json / claude-inbox /
+  // cross-references in coordination.json / support-inbox /
   // sibling task files silently.
   const activeDir = path.join(repoRoot, "tasks", "_active");
   if (!fs.existsSync(activeDir)) return;
@@ -809,11 +809,11 @@ function checkTaskStatusVocabulary() {
   // Every active task file in tasks/_active/ that uses YAML
   // front matter must declare a `status:` field, and that field
   // must be one of the canonical or grandfathered values:
-  //   ready | ready-for-claude | in-progress | review | merged |
+  //   ready | ready-for-support | in-progress | review | merged |
   //   planned | open | blocked | parked | closed | draft
   //
   // File scope: any task file matching T<-or-digit>...
-  //   - T- prefix (Claude-style): T-foo, T-bar
+  //   - T- prefix (support agent-style): T-foo, T-bar
   //   - T<digit> prefix (Codex-style): T48, T85
   // Both lanes are audited so the canonical status vocabulary
   // is enforced across the whole repo. The original draft of
@@ -834,7 +834,7 @@ function checkTaskStatusVocabulary() {
   // catches typos without forcing an unrelated task-file migration.
   const validStatuses = new Set([
     "ready",
-    "ready-for-claude",
+    "ready-for-support",
     "in-progress",
     "review",
     "merged",

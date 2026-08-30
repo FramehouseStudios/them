@@ -27,10 +27,10 @@ function extractSection(markdown, heading) {
 const inboxPath = "docs/codex-inbox.md";
 const inbox = readText(inboxPath);
 const coordination = readJson("docs/coordination.json");
-const openPRs = extractSection(inbox, "Current Open Claude PRs");
+const openPRs = extractSection(inbox, "Current Open Support PRs");
 const contracts = extractSection(inbox, "Endpoint Contracts Ready to Consume");
 const blockers = extractSection(inbox, "Blockers Affecting Codex");
-const decisions = extractSection(inbox, "Decisions Claude Needs from Codex");
+const decisions = extractSection(inbox, "Decisions Support Needs from Codex");
 
 function formatCoordinationState(state) {
   const prs = state.openPullRequests
@@ -56,7 +56,7 @@ const prompt = [
   "1. AGENTS.md",
   "2. TASKS.md",
   "3. DECISIONS.md",
-  "4. docs/codex-claude-live-handoff.md",
+  "4. docs/live-handoff.md",
   "5. docs/coordination.json",
   `6. ${inboxPath}`,
   "",
@@ -67,7 +67,7 @@ const prompt = [
   "Machine-readable coordination state:",
   formatCoordinationState(coordination),
   "",
-  "Currently open Claude PRs awaiting Codex action:",
+  "Currently open support PRs awaiting Codex action:",
   openPRs,
   "",
   "Endpoint contracts ready for Codex iOS consumers:",
@@ -76,10 +76,10 @@ const prompt = [
   "Blockers affecting Codex:",
   blockers,
   "",
-  "Decisions Claude needs from Codex:",
+  "Decisions Support needs from Codex:",
   decisions,
   "",
-  "Rules: one branch per task, one PR per branch, do not modify Claude-owned branches except by review comments, and report exactly what you ran.",
+  "Rules: one branch per task, one PR per branch, do not modify support-owned branches except by review comments, and report exactly what you ran.",
 ].join("\n");
 
 console.log(prompt);

@@ -1,9 +1,9 @@
 ---
 id: T-prompt-assembly-snapshot-eval
 title: Pin canonical buildModelPrompt block order
-owner: claude
+owner: support
 status: merged
-branch: claude/T-prompt-assembly-snapshot-eval
+branch: support/T-prompt-assembly-snapshot-eval
 pillar: evals (layer-2-craft)
 ---
 

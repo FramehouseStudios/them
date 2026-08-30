@@ -1,8 +1,8 @@
 # T-format-linter — Hollywood Format Linter (rules v1)
 
 **Status:** in-progress
-**Owner:** claude
-**Branch:** `claude/T-format-linter`
+**Owner:** support
+**Branch:** `support/T-format-linter`
 **Pillar:** voice-to-scene + living companion (Craft Intelligence Suite, Layer 2)
 
 ## Goal

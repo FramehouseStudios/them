@@ -1,9 +1,9 @@
 ---
 id: T-account-deletion-and-export
 title: GET /account/export + DELETE /account (Apple/GDPR compliance)
-owner: claude
+owner: support
 status: review
-branch: claude/backend-account-routes
+branch: support/backend-account-routes
 pillar: ios
 v1_pillar: ios
 v1_effect: closes the App Store / GDPR compliance gap; Apple requires account deletion + data export for any app that collects personal information. V1 cannot pass App Store review without these.
@@ -20,7 +20,7 @@ in `DataControlsScreen.swift`.
 
 ## Progress
 
-Phase-0 DONE (branch `claude/backend-post-v1-audit`):
+Phase-0 DONE (branch `support/backend-post-v1-audit`):
 - `backend/lib/account_routes.js` + 10 tests — route shapes, deps injected.
 - `backend/lib/account_lifecycle_store.js` + 8 tests — table-backed
   store (read / markPendingDeletion / clearPendingDeletion /

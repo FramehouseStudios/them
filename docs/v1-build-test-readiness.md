@@ -5,8 +5,8 @@ the V1 release-readiness checklist item in `docs/v1-definition.md`.
 
 ## Last Verified
 
-2026-08-28 America/Los_Angeles on branch
-`codex/T-v1-human-clearance` after integrating current `main`.
+2026-08-30 America/Los_Angeles on branch
+`codex/T-v1-human-clearance`, immediately before integration into `main`.
 
 ## Commands
 
@@ -34,7 +34,7 @@ node scripts/coordination_state.mjs validate
   `0` failed. Tests run serially because the full suite contains shared
   process/port fixtures that race under file-level concurrency.
 - Backend dependency audit: `0` vulnerabilities across `126` dependencies.
-- Complete iOS `themTests`: `497` passed, `0` failed on iPhone 17 / iOS 26.2.
+- Complete iOS `themTests`: `506` passed, `0` failed on iPhone 17 / iOS 26.2.
 - Locally signed sequential iOS V1 UI suite: `31` total, `24` passed,
   `7` fixture/server-gated skips, `0` failed. This exercises the simulator's
   normal “Sign to Run Locally” path and real Keychain relaunch behavior; it is
@@ -42,15 +42,18 @@ node scripts/coordination_state.mjs validate
 - The UI pass includes local-demo/Apple separation, remembered credentials
   through Keychain, opt-out, Creative Partner reuse/Voice Pin/To Page routing,
   screenplay generation/export/restore, memory, realtime, and recovery states.
+- A focused Companion replay also passed `2` tests with `0` failures, covering
+  Live Intent routing and Creative Partner mode/reuse/page/clear behavior.
 - The seven explicit skips require external fixtures: backend restore server
   (`1`), cross-platform restore/learned-memory fixtures (`3`), screenplay-save
   recovery server (`2`), and writer-block instinct fixture (`1`).
 - Clean unsigned iPhone Release inside App Store preflight built successfully.
   AppIcon source and compiled rendition checks passed, no private config was
   bundled, and iPhone-only platform/device-family checks passed.
-- Dummy-value App Store preflight was expected red at `fail=1 warn=0`; the sole
-  failure is the missing human-owned dedicated iOS Sign in with Apple
-  entitlement. No valid distribution signing identity is installed locally.
+- App Store preflight without real local credentials was expected red at
+  `fail=2 warn=0`; only `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` are
+  missing. Dedicated iPhone Sign in with Apple entitlement wiring passed. No
+  valid distribution signing identity is installed locally.
 - Live production release checks remain red: `https://api.them.io/healthz` and
   `https://them.io/privacy` redirect to an unrelated parked-domain page.
 - Repository release secrets remain incomplete: `OPENAI_API_KEY` exists;
@@ -60,7 +63,7 @@ node scripts/coordination_state.mjs validate
 
 This proof is the current code-owned local build and automated test suite. It
 does not approve the branch's human-owned `PrivacyInfo.xcprivacy` declaration,
-Apple capability/entitlement/signing, production secrets or DNS, App Store
+Apple portal capability/provisioning/signing, production secrets or DNS, App Store
 Connect metadata, a signed archive, TestFlight upload, or physical-iPhone
 Launch Doctor signoff. Those remain covered by
 `docs/testflight-v1-preflight.md`.

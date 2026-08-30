@@ -106,7 +106,7 @@ removals or meaning-changes bump to v2 and add an explicit
 
 ## Owners
 
-Each doc names a Backend owner (Claude) and an iOS consumer
+Each doc names a Backend owner (support agent) and an iOS consumer
 (Codex) where applicable. Schema changes that affect the iOS
 decoder are coordinated via a `note` event on the agent-event
 lane and a DECISIONS.md entry before the PR opens.

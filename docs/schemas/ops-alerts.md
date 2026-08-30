@@ -15,7 +15,7 @@ fields stay at v1.
 
 ## Owner
 
-- **Backend**: Claude. `backend/lib/ops_alerts_route.js`.
+- **Backend**: support agent. `backend/lib/ops_alerts_route.js`.
 - **Consumer**: ops dashboards, support tooling, release checks.
 
 ## Access-control posture

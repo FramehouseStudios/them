@@ -30,10 +30,10 @@ function runIn(tmp, args) {
 
 test("[agent-event] append + tail round-trip", () => {
   const tmp = tempRepoWithScript();
-  const r = runIn(tmp, ["append", "--by=claude", "--kind=pr_rebased", "--pr=88", "--comment=clean rebase"]);
+  const r = runIn(tmp, ["append", "--by=support", "--kind=pr_rebased", "--pr=88", "--comment=clean rebase"]);
   assert.equal(r.status, 0, r.stderr);
   const emitted = JSON.parse(r.stdout);
-  assert.equal(emitted.by, "claude");
+  assert.equal(emitted.by, "support");
   assert.equal(emitted.kind, "pr_rebased");
   assert.equal(emitted.pr, 88);
   assert.equal(emitted.comment, "clean rebase");
@@ -54,7 +54,7 @@ test("[agent-event] append rejects unknown --by", () => {
 
 test("[agent-event] append rejects unknown --kind", () => {
   const tmp = tempRepoWithScript();
-  const r = runIn(tmp, ["append", "--by=claude", "--kind=lol"]);
+  const r = runIn(tmp, ["append", "--by=support", "--kind=lol"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--kind must be one of/);
 });
@@ -100,7 +100,7 @@ test("[agent-event] review_blocker accepts blocker-kind + blocker-against", () =
 test("[agent-event] --extra merges arbitrary JSON fields", () => {
   const tmp = tempRepoWithScript();
   const r = runIn(tmp, [
-    "append", "--by=claude", "--kind=note",
+    "append", "--by=support", "--kind=note",
     `--extra={"feature":"block-signal-history","spec_pr":174}`,
   ]);
   assert.equal(r.status, 0, r.stderr);
@@ -111,12 +111,12 @@ test("[agent-event] --extra merges arbitrary JSON fields", () => {
 
 test("[agent-event] tail --since filters by ISO timestamp", () => {
   const tmp = tempRepoWithScript();
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_opened", "--pr=1"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_opened", "--pr=1"]);
   // Capture a marker timestamp.
   const marker = new Date(Date.now() + 100).toISOString();
   // Wait a tiny bit so the next event is after `marker`.
   spawnSync("sleep", ["0.2"]);
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_merged", "--pr=2"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_merged", "--pr=2"]);
   const t = runIn(tmp, ["tail", `--since=${marker}`, "--n=10"]);
   assert.equal(t.status, 0);
   const lines = t.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -127,7 +127,7 @@ test("[agent-event] tail --since filters by ISO timestamp", () => {
 
 test("[agent-event] tail --by filters by agent", () => {
   const tmp = tempRepoWithScript();
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_opened", "--pr=10"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_opened", "--pr=10"]);
   runIn(tmp, ["append", "--by=codex", "--kind=pr_merged", "--pr=10"]);
   const t = runIn(tmp, ["tail", "--by=codex", "--n=5"]);
   assert.equal(t.status, 0);
@@ -137,8 +137,8 @@ test("[agent-event] tail --by filters by agent", () => {
 
 test("[agent-event] tail --kind filters by kind", () => {
   const tmp = tempRepoWithScript();
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_opened", "--pr=11"]);
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_merged", "--pr=11"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_opened", "--pr=11"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_merged", "--pr=11"]);
   const t = runIn(tmp, ["tail", "--kind=pr_merged", "--n=5"]);
   assert.equal(t.status, 0);
   const lines = t.stdout.split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -147,8 +147,8 @@ test("[agent-event] tail --kind filters by kind", () => {
 
 test("[agent-event] stats prints counts when events exist", () => {
   const tmp = tempRepoWithScript();
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_opened", "--pr=1"]);
-  runIn(tmp, ["append", "--by=claude", "--kind=pr_merged", "--pr=1"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_opened", "--pr=1"]);
+  runIn(tmp, ["append", "--by=support", "--kind=pr_merged", "--pr=1"]);
   runIn(tmp, ["append", "--by=codex", "--kind=pr_merged", "--pr=2"]);
   const r = runIn(tmp, ["stats"]);
   assert.equal(r.status, 0);
@@ -181,14 +181,14 @@ test("[agent-event] unknown subcommand exits 1", () => {
 
 test("[agent-event] --pr rejects non-integer", () => {
   const tmp = tempRepoWithScript();
-  const r = runIn(tmp, ["append", "--by=claude", "--kind=note", "--pr=not-a-number"]);
+  const r = runIn(tmp, ["append", "--by=support", "--kind=note", "--pr=not-a-number"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /pr must be a positive integer/);
 });
 
 test("[agent-event] --extra rejects invalid JSON", () => {
   const tmp = tempRepoWithScript();
-  const r = runIn(tmp, ["append", "--by=claude", "--kind=note", "--extra=not-json"]);
+  const r = runIn(tmp, ["append", "--by=support", "--kind=note", "--extra=not-json"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /extra must be valid JSON object/);
 });

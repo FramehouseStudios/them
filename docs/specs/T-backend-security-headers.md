@@ -1,7 +1,7 @@
 # Spec: T-backend-security-headers
 
-**Status**: ready (Claude can implement).
-**Owner**: claude.
+**Status**: ready (support agent can implement).
+**Owner**: support.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes a security-baseline gap that an external
 security review will flag. Today the backend sets no security

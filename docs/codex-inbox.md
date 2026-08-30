@@ -1,14 +1,14 @@
 # Codex Inbox
 
 This is the short handoff Codex should read after `AGENTS.md`, `TASKS.md`,
-`DECISIONS.md`, `docs/codex-claude-live-handoff.md`, and
+`DECISIONS.md`, `docs/codex-support-live-handoff.md`, and
 `docs/coordination.json`.
 
-Claude maintains this file. It is the symmetric reverse of
-`docs/claude-inbox.md` and removes the need for the human to copy/paste
-Claude→Codex handoffs after each Claude PR.
+support agent maintains this file. It is the symmetric reverse of
+`docs/support-inbox.md` and removes the need for the human to copy/paste
+support agent→Codex handoffs after each support agent PR.
 
-Claude updates this file at the end of every Claude task or PR. Each
+support agent updates this file at the end of every support agent task or PR. Each
 update should fit the standing PR template: task id, branch, PR URL,
 exact endpoints/files changed, exact tests run, what Codex should
 consume next, and any blockers.
@@ -21,8 +21,8 @@ node scripts/coordination_state.mjs read
 ```
 
 Codex supervisor note, 2026-05-17: for current launch state, prefer
-`docs/coordination.json`, `docs/claude-inbox.md`, and
-`docs/codex-claude-live-handoff.md`. There are no open PRs after #33 and #358
+`docs/coordination.json`, `docs/support-inbox.md`, and
+`docs/codex-support-live-handoff.md`. There are no open PRs after #33 and #358
 merged; PR #99 is closed/out of V1 and PR #94/#212 are merged.
 
 Throughput rules live in `docs/agent-throughput-protocol.md`. Routine green
@@ -45,7 +45,7 @@ What changed:
 | [#298](https://github.com/FramehouseStudios/them/pull/298) | T-decompose-phase7b-handler-design | Closed as premature until Phase 7a guard extraction lands. |
 | [#299](https://github.com/FramehouseStudios/them/pull/299) | T-session-schema-doc | Closed as standalone schema-doc-only work outside the current supervisor lane. |
 
-Current action for Claude: open Phase 7a talk-state guard extraction from the
+Current action for support agent: open Phase 7a talk-state guard extraction from the
 merged #293 design note. Do not open Phase 7b, schema-only, or coordination
 PRs before Phase 7a lands.
 
@@ -70,7 +70,7 @@ Verification for #288:
 - `git diff --check` — pass
 - `cd backend && npm test` — 1096 pass / 1 skipped / 0 fail
 
-Current action for Claude: Phase 5b is complete. Start Phase 6 memories
+Current action for support agent: Phase 5b is complete. Start Phase 6 memories
 route extraction from `tasks/_proposals/T-decompose-phase6-memories-design.md`.
 Do not open more schema-doc-only PRs; Codex closed #287/#289/#291/#292/#294
 and merged #293 only after correcting the Phase 7a design drift.
@@ -92,7 +92,7 @@ What changed:
 | [#294](https://github.com/FramehouseStudios/them/pull/294) | T-linkedin-analyze-schema-doc | Closed as schema-only and not on the current V1 critical path. |
 | [#293](https://github.com/FramehouseStudios/them/pull/293) | T-decompose-phase7a-helpers-design | Merged after Codex patch; the design now matches live guard behavior and remains gated behind Phase 6 memories. |
 
-Current action for Claude: open the Phase 6 memories extraction, not more
+Current action for support agent: open the Phase 6 memories extraction, not more
 standalone docs. If a route extraction changes an envelope, include the schema
 doc in that implementation PR.
 
@@ -108,7 +108,7 @@ What changed:
 | PR | Task | What changed |
 | --- | --- | --- |
 | [#276](https://github.com/FramehouseStudios/them/pull/276) | T-memories-list-schema-doc | Merged after Codex patch; `GET /memories` schema now states token/session/IP scope and 304 read-state headers accurately. |
-| [#277](https://github.com/FramehouseStudios/them/pull/277) | T100-agent-next-inbox-backlog | Merged; `agent_next` now parks human-gated PRs and surfaces `docs/claude-inbox.md` backlog items when no reviewable Claude PR exists. |
+| [#277](https://github.com/FramehouseStudios/them/pull/277) | T100-agent-next-inbox-backlog | Merged; `agent_next` now parks human-gated PRs and surfaces `docs/support-inbox.md` backlog items when no reviewable support agent PR exists. |
 | [#278](https://github.com/FramehouseStudios/them/pull/278) | T-visual-context-schema-doc | Merged after Codex patch; visual-context schema now reflects `requireClientTokenForTalk` bootstrap/pass-through behavior without overstating bearer auth. |
 | [#279](https://github.com/FramehouseStudios/them/pull/279) | T101-agent-event-kind-sync | Merged; `agent_event` now accepts the documented event kinds used by AGENTS and the throughput protocol. |
 | [#280](https://github.com/FramehouseStudios/them/pull/280) | T-realtime-routes-deeper | Merged; adds 9 deeper tests for `mountRealtimeRoutes`. |
@@ -119,8 +119,8 @@ What changed:
 | [#285](https://github.com/FramehouseStudios/them/pull/285) | T-history-schema-doc | Merged after Codex patch; history schema now reflects duplicate-turn annotation behavior and validation-response headers. |
 | [#286](https://github.com/FramehouseStudios/them/pull/286) | T-outbox-routes-schema-doc | Merged after Codex patch; outbox schema now matches raw `status_filter` echo behavior and the task id matches its filename. |
 
-Current action for Claude: stop opening schema-doc-only PRs for now. The next
-backend implementation lane is still `docs/claude-inbox.md` priority 1:
+Current action for support agent: stop opening schema-doc-only PRs for now. The next
+backend implementation lane is still `docs/support-inbox.md` priority 1:
 Phase 5b.4 `POST /realtime/call`. Append live events instead of refresh PRs.
 
 ## Recently Cleared (T98 — 2026-05-14)
@@ -156,8 +156,8 @@ npm run eval:v1-smokes`, and `node scripts/coordination_state.mjs validate`
 all pass. Codex also ran `cd backend && npm test` on #273 before merge:
 1069 pass / 1 skipped / 0 fail.
 
-Current action for Claude: no net-new curiosity work. Proceed only on the
-next Codex-requested V1 backend lane in `docs/claude-inbox.md`:
+Current action for support agent: no net-new curiosity work. Proceed only on the
+next Codex-requested V1 backend lane in `docs/support-inbox.md`:
 Phase 5b.4 `POST /realtime/call`, then wait for Codex's next lane. Rebase
 #212 only if the human clears auth-route extraction; keep #94/#99/#33 parked.
 
@@ -176,9 +176,9 @@ One schema-doc batch is blocked for code/doc drift:
 
 | PR | Task | What changed |
 | --- | --- | --- |
-| [#245](https://github.com/FramehouseStudios/them/pull/245) | T-schema-docs-batch-3 | Blocked; `docs/schemas/outbox-event.md` does not match `backend/lib/outbox_store.js`. The doc uses `kind`, snake_case timestamps, `completed_at`, and statuses like `succeeded`/`failed_permanent`; the code writes `type`, `actionKey`, camelCase timestamps, `result`, `lastError`, and statuses like `pending`/`completed`/`failed`. Claude should revise docs against live code and add a small drift check or code-cited field list. |
+| [#245](https://github.com/FramehouseStudios/them/pull/245) | T-schema-docs-batch-3 | Blocked; `docs/schemas/outbox-event.md` does not match `backend/lib/outbox_store.js`. The doc uses `kind`, snake_case timestamps, `completed_at`, and statuses like `succeeded`/`failed_permanent`; the code writes `type`, `actionKey`, camelCase timestamps, `result`, `lastError`, and statuses like `pending`/`completed`/`failed`. support agent should revise docs against live code and add a small drift check or code-cited field list. |
 
-Current action for Claude: fix #245, #243, and #238 before opening more net-new
+Current action for support agent: fix #245, #243, and #238 before opening more net-new
 backend/docs work.
 
 ## Recently Cleared (round 22g — 2026-05-13/14)
@@ -192,7 +192,7 @@ One more auth coverage PR merged, and one V1 status tool PR is blocked:
 | [#242](https://github.com/FramehouseStudios/them/pull/242) | T-user-auth-roundtrip-tests | Merged; adds 13 full handler round-trip tests over signup/login/refresh/logout/password reset/email verification with real `user_store` + HS256 JWT. Codex ran the targeted node test locally: 13/13 pass. |
 | [#243](https://github.com/FramehouseStudios/them/pull/243) | T-v1-status-reporter | Blocked; `scripts/v1_status.mjs` truncates wrapped checkbox continuation lines. It must join continuation lines until the next checkbox/heading and include a regression assertion before merge. |
 
-Current action for Claude: fix #243 and #238; rebase #212 only after the
+Current action for support agent: fix #243 and #238; rebase #212 only after the
 human clears the auth-route extraction decision or explicitly asks us to keep
 reviewing it without merge.
 
@@ -210,9 +210,9 @@ realtime extraction:
 | [#239](https://github.com/FramehouseStudios/them/pull/239) | T-backfill-v1-pillar-legacy | Merged; backfills V1 pillar/effect metadata on 13 legacy task files. |
 | [#240](https://github.com/FramehouseStudios/them/pull/240) | T90-v1-memory-realtime-diagnostics | Merged; iOS Data Controls now decodes content-free `/memory/stats`, shows Memory Shape, exposes realtime provider selection, and preserves `/realtime/client_secret` fallback metadata. |
 | [#241](https://github.com/FramehouseStudios/them/pull/241) | T-deeper-memstore-and-user-auth-tests | Merged; adds 22 deeper memory-store/user-auth tests. Codex reran targeted tests locally after installing backend deps in the review worktree: 22/22 pass. |
-| [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | Blocked; the extracted `/realtime/client_secret` route writes fallback/created supplier state back through `setRealtimeSupplier(supplier)`, but the old inline handler only reassigned the local supplier variable. Claude should remove the write-back for a true extraction or rescope the PR as an intentional behavior change with design/schema/tests. |
+| [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | Blocked; the extracted `/realtime/client_secret` route writes fallback/created supplier state back through `setRealtimeSupplier(supplier)`, but the old inline handler only reassigned the local supplier variable. support agent should remove the write-back for a true extraction or rescope the PR as an intentional behavior change with design/schema/tests. |
 
-Current action for Claude: fix/rebase #238 before it can merge; rebase #212 on
+Current action for support agent: fix/rebase #238 before it can merge; rebase #212 on
 current main if continuing auth extraction; leave #94/#99/#33 human-gated.
 
 ## Recently Cleared (round 22e — 2026-05-13/14)
@@ -241,7 +241,7 @@ The V1 smoke-fixture pack merged after round 22c:
 
 V1 now has deterministic smoke coverage for voice-to-page prompt path (#224),
 screenplay export, memory recall, and realtime failover (#231). The full human
-TestFlight smoke still gates V1 sign-off. Claude's next safe backend
+TestFlight smoke still gates V1 sign-off. support agent's next safe backend
 implementation remains Phase 5b.1 `/realtime/client_secret`; #212 remains
 auth/tier-3 blocked.
 
@@ -256,7 +256,7 @@ The memory and long-tail design notes merged after round 22b:
 | [#228](https://github.com/FramehouseStudios/them/pull/228) | T-decompose-phase6-memories-design | Merged; Codex accepted the Phase 6 memories split as one implementation PR after the realtime turn-commit memory-write path is stable. Constraint: wait for Phase 5b.3 unless Codex explicitly reassigns the order; `/memories/export` remains tier-3/privacy-gated and must keep `requireMemoryExportAuth`. |
 | [#229](https://github.com/FramehouseStudios/them/pull/229) | T-decompose-phase6-1-long-tail-design | Merged; Codex accepted the Phase 6.1 long-tail grouping and method-guards sweep. Constraint: begin after Phase 5b and Phase 6 unless Codex explicitly reorders it. |
 
-Claude's next safe backend implementation remains Phase 5b.1
+support agent's next safe backend implementation remains Phase 5b.1
 `/realtime/client_secret`. Phase 6 and Phase 6.1 are accepted designs, not the
 next active implementation lane yet. The current open queue is #212, #33, #63,
 #94, and #99; all are auth/policy/privacy/human-gated.
@@ -274,7 +274,7 @@ The follow-up design/smoke/schema mini-train merged after round 22:
 | [#226](https://github.com/FramehouseStudios/them/pull/226) | T-schema-docs-scaffold | Merged after a Codex README correction; `docs/schemas/` now has canonical starter docs for auth, talk-turn-meta, and ops-metrics envelopes. |
 | [#227](https://github.com/FramehouseStudios/them/pull/227) | T-decompose-phase5b-realtime-design | Merged; Codex accepted serial 5b.1 client_secret, 5b.2 studio render/stream, 5b.3 turn_commit, 5b.4 realtime/call. Constraint: 5b.3 needs explicit memory-write round-trip tests and must not race Phase 6 memory work. |
 
-Claude may proceed with Phase 5b.1 as the next safe backend decomp
+support agent may proceed with Phase 5b.1 as the next safe backend decomp
 implementation when no other decomp PR is in flight. Talk-pipeline Phase 7
 implementation remains gated behind the accepted design note plus the realtime
 Phase 5b work. #212 remains separately blocked/tier-3.
@@ -339,26 +339,26 @@ Important round-20 details:
 | [#207](https://github.com/FramehouseStudios/them/pull/207) | T-outbox-store-smoke-test | Merged; `backend/lib/outbox_store.js` now has direct enqueue, retry, batch, single-item, and worker gate coverage. |
 
 The `ops-surface-access-control` cross-PR blocker remains fully cleared
-(merged into main via #97 + #100). The generic Claude do-not-merge
+(merged into main via #97 + #100). The generic support agent do-not-merge
 queue is also cleared; the remaining open blockers are human-owned.
 Round 20 is clear: #197/#199/#200/#201/#202/#204/#205/#206/#207 are
-all merged. The only open PRs are human-gated. Claude's next safe
+all merged. The only open PRs are human-gated. support agent's next safe
 backend coverage targets are `memory_store`, `user_store`, and
 `user_auth`; Codex's highest-leverage next work is app-visible iOS
 consumption of the already-merged backend contracts.
 
-## Current Open Claude PRs
+## Current Open support agent PRs
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; Claude must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
+| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; support agent must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
 | [#99](https://github.com/FramehouseStudios/them/pull/99) | T-creative-memory-delete-endpoint | 3 | needs-human | Labeled tier-3/needs-human/do-not-merge; memory deletion is privacy/data-control work. Needs explicit human approval, including whether V1 may delete only `creative_memory` while leaving project-scoped artifacts. |
 
-All other Claude PRs from the schema/support merge train through #286 are
+All other support agent PRs from the schema/support merge train through #286 are
 merged. Codex's next review target should be the next non-human-gated PR
-Claude opens for Phase 5b.4 realtime call extraction.
+support agent opens for Phase 5b.4 realtime call extraction.
 
 ## Endpoint Contracts Ready to Consume
 
@@ -366,7 +366,7 @@ PR #119's `POST /screenplay/export` Markdown path is consumed by `codex/T59-ios-
 
 PR #135's `GET /screenplay/export/formats` path is consumed by merged PR #137 / `codex/T60-export-formats-picker`: the Studio export menu decodes the format list, filters unsupported backend entries, and keeps local fallback export options. PR #139 / `codex/T62-studio-offline-refresh-quiet` keeps automatic discovery quiet during XCTest/offline launches while preserving manual Refresh Formats error reporting.
 
-Codex T64 / PR #146 / `codex/T64-session-evolution-quiet` is merged and extends the same offline/XCTest quieting to automatic session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator probes. Backend-backed/manual refresh paths remain available. No Claude action is needed.
+Codex T64 / PR #146 / `codex/T64-session-evolution-quiet` is merged and extends the same offline/XCTest quieting to automatic session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator probes. Backend-backed/manual refresh paths remain available. No support agent action is needed.
 
 PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue-template.md`, and PR #144's `node scripts/coordination_state.mjs validate` are merged. PR #145 is closed as a stale conflicting inbox-only refresh. PR #142 is merged after the known-domains startup-check fix.
 
@@ -395,7 +395,7 @@ PR #97's `GET /talk/stats` and PR #100's `GET /talk/errors` are consumed by PR #
 
 PR #175's `scripts/agent_event.mjs` live lane is merged. Start Codex sessions with `node scripts/agent_event.mjs tail --n=20` after `agent_next`, and append `pr_merged`, `pr_closed`, `review_blocker`, and `coord_refresh` events as the merge train moves.
 
-PR #177's `scripts/pre_flight.mjs` self-check is merged. Claude should run it before backend/script PRs; Codex should use it when reproducing recurring route-parser, middleware-error, frozen-constant, or console-log findings.
+PR #177's `scripts/pre_flight.mjs` self-check is merged. support agent should run it before backend/script PRs; Codex should use it when reproducing recurring route-parser, middleware-error, frozen-constant, or console-log findings.
 
 PR #173 was closed as stale so it cannot rewind the current handoff state.
 
@@ -407,7 +407,7 @@ PR #183's Phase 0 `/health` + `/bridge` extraction is merged as a one-off Codex-
 
 PR #186 / T79 is merged. The second-pass efficiency protocol is the active
 operating mode: `agent_next` shows recent event-lane entries, blocker-clearing
-mode raises Claude's temporary cap to six, `coordination_state` supports
+mode raises support agent's temporary cap to six, `coordination_state` supports
 structured blocker metadata, `pre_flight` catches determinism/schema-version
 warnings, and multi-PR features start with a spec before backend/iOS parallel
 tracks begin.
@@ -425,8 +425,8 @@ Newly ready app-facing backend contracts: PR #88 (`POST /craft/coverage/simulate
 With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordination loop is now repo-native:
 
 1. **Trust tiers** (PR #63 / `AGENTS.md`) — every Codex PR gets a tier label:
-   - **Tier 1** (default, merge-eligible after explicit trusted approval): routine iOS feature work consuming a merged Claude contract, doc fixes, conflict refreshes, status flips.
-   - **Tier 2**: edits to `AGENTS.md` / `DECISIONS.md` / `KNOWN_DOMAINS` / CI workflows / response-shape changes Claude consumes.
+   - **Tier 1** (default, merge-eligible after explicit trusted approval): routine iOS feature work consuming a merged support agent contract, doc fixes, conflict refreshes, status flips.
+   - **Tier 2**: edits to `AGENTS.md` / `DECISIONS.md` / `KNOWN_DOMAINS` / CI workflows / response-shape changes support agent consumes.
    - **Tier 3**: anything human-owned (auth, secrets, deploys, entitlements, gate weakening, new `DECISIONS.md` row).
 2. **Auto-merge workflow** (merged PR #64, hardened by PR #72) — merges Tier 1 PRs only after green checks, `tier-1`, no blocker label, and explicit trusted approval. There is no quiet-time fallback.
 3. **Coordination state** (merged PR #65 / `docs/coordination.json` + `scripts/coordination_state.mjs`) — fast read of open PRs / blockers / decisions. Run `export COORD_AGENT=codex`. Update on PR open/close: `node scripts/coordination_state.mjs add-pr --number=N --title=T --owner=codex --tier=1 --branch=B`.
@@ -435,7 +435,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 
 ## Rebase intel + self-review (2026-05-15, batch 5)
 
-Convergent batch — no new features. Branch `claude/backend-post-v1-audit`
+Convergent batch — no new features. Branch `support/backend-post-v1-audit`
 is now 6 commits; full backend `npm test` green (1225/1).
 
 Key intelligence from an actual (aborted, fully-restored) rebase onto
@@ -468,7 +468,7 @@ backward-compatible).
 ## Landing + App Store prep (2026-05-15, batch 4)
 
 The ~60 moves from batches 1–3 are now **committed** on local branch
-`claude/backend-post-v1-audit` (4 themed commits + 1 App Store prep
+`support/backend-post-v1-audit` (4 themed commits + 1 App Store prep
 commit). NOT pushed — human chose local-commit-only landing. The
 branch is based on an older `main` (main advanced to #323 via other
 agents while this ran); **it needs a rebase before it can become a
@@ -495,15 +495,15 @@ App Store prep (the chosen next-focus) — Phase-0 done:
   by user id.
 
 Recommended next actions:
-1. Human/Codex: review + rebase `claude/backend-post-v1-audit` onto
+1. Human/Codex: review + rebase `support/backend-post-v1-audit` onto
    current main, split into PRs (themed commits make this clean), merge.
-2. Claude/Codex: keep account export/delete scoped through the resolved
+2. support agent/Codex: keep account export/delete scoped through the resolved
    per-row ownership policy; add domain-specific ownership tests when
    new persisted domains enter the account export surface.
 
 ---
 
-## Post-V1-audit batch 3 (2026-05-14, third batch — all Claude-lane)
+## Post-V1-audit batch 3 (2026-05-14, third batch — all support agent-lane)
 
 Third 20-move batch. No override needed — all backend/scripts/docs/CI.
 Full `npm test` green after the batch (run the final gate to confirm).
@@ -530,14 +530,14 @@ Full `npm test` green after the batch (run the final gate to confirm).
 - `docs/api/idempotency-key.md` — client-facing contract doc for the
   iOS outbox.
 
-**New ready-for-Claude specs (4):**
+**New ready-for-support agent specs (4):**
 - `T-backend-openai-cost-cap` — dollar-spend budget cap
   (complements rate-limit). Spec + task filed.
 - `T-backend-graceful-shutdown` — drain in-flight talk on SIGTERM.
 - `T-backend-security-headers` — HSTS/nosniff/frame-ancestors/etc.
 - `T-backend-pg-pool-tuning` — production pg.Pool config.
 
-Updated Claude-lane execution order (after V1 ships):
+Updated support agent-lane execution order (after V1 ships):
 1. `T-account-deletion-and-export` real wiring (App Store blocker).
 2. `T-backend-rate-limit` Phase 1 (wire /auth/*).
 3. `T-backend-security-headers` (external-review blocker, 1 file).
@@ -554,9 +554,9 @@ offline outbox → XCUITest → decomp).
 ## Post-V1-audit batch 2 (2026-05-14, second human-authorized batch)
 
 The second batch from the V1 audit landed alongside the first.
-20 more moves; same authorization window. All Claude-lane. Highlights:
+20 more moves; same authorization window. All support agent-lane. Highlights:
 
-**Backend code shipped** (Claude lane):
+**Backend code shipped** (support agent lane):
 - `GET /api/version` — lightweight dependency-free version endpoint
   (`backend/lib/api_version_route.js` + 4 tests).
 - `GET /healthz` — orchestrator readiness probe pinging persistence
@@ -569,7 +569,7 @@ The second batch from the V1 audit landed alongside the first.
   checksum tracking. (The existing `migrate_stores_to_postgres.mjs`
   only applied migrations/001.)
 
-**CI hardening** (Claude lane):
+**CI hardening** (support agent lane):
 - `quality-gate.yml`: new `Validate OPENAI_API_KEY format` step that
   fails fast with a one-line message when the secret is malformed.
 - `docker-build.yml`: PRs touching the backend image build the image
@@ -582,14 +582,14 @@ The second batch from the V1 audit landed alongside the first.
 2. `T-decompose-screenplay-studio-screen` — split the 1.1 MB studio
    file. Spec: `docs/specs/T-decompose-screenplay-studio-screen.md`.
 
-**Ready-for-Claude specs** (Claude can implement):
+**Ready-for-support agent specs** (support agent can implement):
 3. `T-backend-rate-limit` — token-bucket limiter for auth + realtime + default routes.
 4. `T-backend-structured-logs` — JSON logger + request-id propagation.
 5. `T-account-deletion-and-export` — Apple/GDPR compliance endpoints.
 6. `T-archive-legacy-json-stores` — move 3.6 MB of dev JSON out of repo root.
 7. `T-idempotency-key-contract` — helper already extracted; adoptions follow per-route.
 
-Suggested execution order (Claude lane, after V1 ships):
+Suggested execution order (support agent lane, after V1 ships):
 1. `T-account-deletion-and-export` (App Store reviewer blocker).
 2. `T-backend-rate-limit` (production-safety blocker).
 3. `T-backend-structured-logs` (ops-triage enabler; unblocks alerting).
@@ -608,7 +608,7 @@ Suggested execution order (Codex lane, post-TestFlight):
 ## Post-V1-audit handoff (2026-05-14, human-authorized batch)
 
 The human ran an end-to-end V1 audit (`/audit`) on 2026-05-14 and granted
-Claude a one-time override to resolve the parked decisions and prep the
+support agent a one-time override to resolve the parked decisions and prep the
 infra and spec stubs for the iOS work below. Outputs landed in this
 single batch:
 
@@ -630,7 +630,7 @@ single batch:
 4. `T-ios-xcuitest-v1-smoke` — five thin XCUITests covering the V1
    manual smoke checklist. Spec: `docs/specs/T-ios-xcuitest-v1-smoke.md`.
 
-**Claude-side infra landing in this same window** (`T-backend-deploy-image`):
+**support agent-side infra landing in this same window** (`T-backend-deploy-image`):
 - `backend/Dockerfile` + `.dockerignore`
 - `backend/render.yaml`
 - `backend/DEPLOY.md`
@@ -650,11 +650,11 @@ Suggested Codex order (after current Phase 7b design):
 
 - D005 now authorizes Codex supervisor self-merges under the recorded guardrails.
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned. Fix steps: `docs/ci-openai-secret-fix.md`.
-- Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
-- Claude PRs #94 and #99 are **unblocked** as of 2026-05-14 (decisions resolved above). #212 is **unblocked** pending Claude's rebase.
-- The generic Claude engineering blocker queue is clear. Only human-gated items remain: #33 (secret repair — human action documented) and #63 (trust-policy approval).
+- support agent PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
+- support agent PRs #94 and #99 are **unblocked** as of 2026-05-14 (decisions resolved above). #212 is **unblocked** pending support agent's rebase.
+- The generic support agent engineering blocker queue is clear. Only human-gated items remain: #33 (secret repair — human action documented) and #63 (trust-policy approval).
 
-## Decisions Claude Needs from Codex
+## Decisions support agent Needs from Codex
 
 - PR #63 (`T-trust-tiers`) still requires explicit human acceptance before merge if it changes standing trust/pre-approval policy beyond D005.
 
@@ -663,9 +663,9 @@ Suggested Codex order (after current Phase 7b design):
 Instead of copy/pasting a long handoff, send Codex this:
 
 ```text
-Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
+Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-support-live-handoff.md,
 docs/coordination.json, then docs/codex-inbox.md. Pick the next Codex action
-from the open Claude PRs section and the coordination queue. Start by running
+from the open support agent PRs section and the coordination queue. Start by running
 node scripts/agent_next.mjs --role=codex.
 ```
 

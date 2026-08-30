@@ -18,7 +18,7 @@ v1_effect: keeps the live agent lane current after auth round-trip tests merged 
 
 ## Done when
 
-Claude's next action is visible from `agent_next` without human copy/paste.
+support agent's next action is visible from `agent_next` without human copy/paste.
 
 ## Verification
 

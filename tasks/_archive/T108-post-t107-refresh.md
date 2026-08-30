@@ -11,7 +11,7 @@ v1_effect: keeps TASKS accurate after the pre-flight schema lane guard merged
 
 ## Scope
 
-Mark T107 merged after PR #303 landed and leave Claude's next command unchanged:
+Mark T107 merged after PR #303 landed and leave support agent's next command unchanged:
 Phase 7a talk guard extraction remains the active backend priority.
 
 ## Done When

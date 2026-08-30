@@ -11,7 +11,7 @@ v1_effect: unblocks the V1 human privacy decision for full memory export/delete
 
 ## Scope
 
-Make the parked privacy decisions for Claude PRs #94 and #99 answerable
+Make the parked privacy decisions for support agent PRs #94 and #99 answerable
 without asking the human to inspect old PR bodies. Keep the routes parked until
 the human explicitly approves the privacy/data-control policy.
 

@@ -29,14 +29,14 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   const payload = JSON.parse(r.stdout);
   assert.ok(payload.v1.total > 0);
   assert.ok(payload.v1.done <= payload.v1.total);
-  assert.match(payload.claudeNext.request, /Support V1 manual smoke failures/);
-  assert.match(payload.codexNext.action, /V1 smoke handoff|Review Claude PR|human smoke/);
+  assert.match(payload.supportNext.request, /Manual smoke blockers/);
+  assert.match(payload.codexNext.action, /V1 smoke handoff|Review support PR|human smoke/);
   assert.ok(payload.humanOptions.some((option) => option.command.includes("v1_manual_qa_checklist")));
   assert.ok(payload.humanOptions.some((option) => option.command.includes("V1 Launch Doctor")));
   assert.ok(payload.humanOptions.some((option) => option.why.includes("iOS Release Readiness")));
   assert.equal(payload.launchDoctor.status, "missing");
   assert.ok(Array.isArray(payload.release.blockers));
-  assert.match(payload.release.result, /fail=1, warn=0/);
+  assert.match(payload.release.result, /fail=2, warn=0/);
   assert.ok(payload.release.blockers.some((blocker) => blocker.includes("DEVELOPMENT_TEAM_ID")));
   assert.ok(!payload.release.blockers.some((blocker) => /BACKEND_URL.*(?:missing|unset|placeholder)/i.test(blocker)));
   assert.ok(payload.release.blockers.some((blocker) => blocker.includes("https://api.them.io")));
@@ -45,12 +45,12 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   assert.ok(!payload.humanGated.some((pr) => pr.status === "closed"));
 });
 
-test("[v1-launch-room] Claude role prints one deep backend task", () => {
-  const r = run(["--role=claude"]);
+test("[v1-launch-room] support role prints one deep backend task", () => {
+  const r = run(["--role=support"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^io\.them V1 Launch Room/);
-  assert.match(r.stdout, /Claude Launch Options/);
-  assert.match(r.stdout, /Do now: Support V1 manual smoke failures/);
+  assert.match(r.stdout, /Support Launch Options/);
+  assert.match(r.stdout, /Do now: Manual smoke blockers/);
   assert.doesNotMatch(r.stdout, /Human Launch Options/);
 });
 
@@ -64,7 +64,7 @@ test("[v1-launch-room] human role prints choices and decision queue", () => {
   assert.match(r.stdout, /Launch Doctor: no report yet/);
   assert.match(r.stdout, /Release local config: missing/);
   assert.match(r.stdout, /Open decisions:/);
-  assert.doesNotMatch(r.stdout, /Claude Launch Options/);
+  assert.doesNotMatch(r.stdout, /Support Launch Options/);
 });
 
 test("[v1-launch-room] reads the latest Launch Doctor report when present", () => {

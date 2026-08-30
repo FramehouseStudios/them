@@ -1,9 +1,9 @@
 ---
 id: T-coordination-state-mutate-eval
 title: Round-trip eval over coordination_state.mjs mutate subcommands
-owner: claude
+owner: support
 status: merged
-branch: claude/T-coordination-state-mutate-eval
+branch: support/T-coordination-state-mutate-eval
 pillar: infra (coordination)
 ---
 

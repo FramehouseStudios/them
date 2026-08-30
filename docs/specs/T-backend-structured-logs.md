@@ -1,7 +1,7 @@
 # Spec: T-backend-structured-logs
 
-**Status**: ready (Claude can implement).
-**Owner**: claude (backend scope).
+**Status**: ready (support agent can implement).
+**Owner**: support (backend scope).
 **V1 pillar**: infra (enables all)
 **V1 effect**: enables V1 ops triage. Today every backend log line is
 `console.log(...)`; an incident requires `grep`-by-eyeball through

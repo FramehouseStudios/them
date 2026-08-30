@@ -6,7 +6,7 @@ status: review
 branch: codex/T91-round22f-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: keeps Claude/Codex routing current after the V1 diagnostics merge and blocked PR triage
+v1_effect: keeps support agent/Codex routing current after the V1 diagnostics merge and blocked PR triage
 ---
 
 ## Scope
@@ -18,7 +18,7 @@ v1_effect: keeps Claude/Codex routing current after the V1 diagnostics merge and
 
 ## Done when
 
-The coordination files route Claude toward rebase/action work without reopening
+The coordination files route support agent toward rebase/action work without reopening
 settled policy, and the generated task index is current.
 
 ## Verification

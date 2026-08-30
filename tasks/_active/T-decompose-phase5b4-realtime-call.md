@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase5b4-realtime-call
 title: Decompose backend/index.js — Phase 5b.4 (/realtime/call)
-owner: claude
+owner: support
 status: review
-branch: claude/T-decompose-phase5b4-realtime-call
+branch: support/T-decompose-phase5b4-realtime-call
 pillar: infra (backend architecture)
 v1_pillar: realtime
 v1_effect: closes the realtime route decomposition required by docs/v1-definition.md line 68 — extracts the last route in the 5b chain (WebRTC SDP proxy) so Phase 7 (talk-pipeline decomposition) is unblocked per the spec

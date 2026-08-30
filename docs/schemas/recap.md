@@ -22,7 +22,7 @@ common case.
 
 ## Owner
 
-- **Backend**: Claude. Inline handler in `backend/index.js`
+- **Backend**: support agent. Inline handler in `backend/index.js`
   (route + `sendRecapResponse` helper). Not in any current
   decomp phase.
 - **iOS**: Codex. Surfaces the daily recap UI.

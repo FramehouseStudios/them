@@ -15,7 +15,7 @@ fields stay at v1.
 
 ## Owner
 
-- **Backend / envelope shape**: Claude.
+- **Backend / envelope shape**: support agent.
   `backend/lib/ops_metrics_route.js` `mountOpsMetricsRoute`.
 - **Consumer**: ops dashboards, support tooling. Not iOS-facing.
 

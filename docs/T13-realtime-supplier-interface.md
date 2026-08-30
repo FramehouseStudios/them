@@ -1,8 +1,8 @@
 # T13 — Realtime Supplier Interface (foundation)
 
 **Status:** in-progress (foundation in this PR; endpoint integration + real second supplier are follow-ups)
-**Owner:** claude
-**Branch:** `claude/T13-realtime-supplier-interface`
+**Owner:** support
+**Branch:** `support/T13-realtime-supplier-interface`
 **Pillar:** living companion (resilience)
 
 ## Problem
@@ -11,7 +11,7 @@ Realtime voice today routes through a single supplier (OpenAI Realtime API). Sin
 
 ## Decision
 
-Extract a `RealtimeSupplier` interface so a second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) can be slotted behind the same backend surface. Configure the active supplier via env (`REALTIME_PROVIDER=openai` is the default).
+Extract a `RealtimeSupplier` interface so a second realtime supplier can be slotted behind the same backend surface. Configure the active supplier via env (`REALTIME_PROVIDER=openai` is the default).
 
 ## What this PR ships (foundation)
 

@@ -1,7 +1,7 @@
 ---
 id: T-creative-memory-export-projectids-ownership
 title: Post-V1 — project-linked memory export with screenplay-store ownership scoping
-owner: claude
+owner: support
 status: proposed
 branch: -
 pillar: infra (backend architecture)

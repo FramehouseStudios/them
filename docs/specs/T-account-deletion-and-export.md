@@ -1,7 +1,7 @@
 # Spec: T-account-deletion-and-export
 
-**Status**: ready (Claude can implement) + iOS surface via Codex.
-**Owner**: claude (backend) → codex (iOS UI surface).
+**Status**: ready (support agent can implement) + iOS surface via Codex.
+**Owner**: support (backend) → codex (iOS UI surface).
 **V1 pillar**: ios
 **V1 effect**: closes the App Store / privacy compliance gap. Apple
 requires both account deletion and data export for any app that
@@ -109,7 +109,7 @@ Out:
 
 ## Wiring plan (precise — verified against index.js 2026-05-15)
 
-Phase-0 (DONE, on `claude/backend-post-v1-audit`):
+Phase-0 (DONE, on `support/backend-post-v1-audit`):
 - `lib/account_routes.js` + 10 tests — route shapes, deps injected.
 - `lib/account_lifecycle_store.js` + 8 tests — table-backed store
   (`createAccountLifecycleStore({ client })`), pg-style client

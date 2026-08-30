@@ -7,5 +7,5 @@ Tier: 1
 
 Done when:
 - The handoff ledger records PR #103 as merged.
-- `docs/coordination.json`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` show PRs #104, #105, #106, and #107 as blocked on rebase/stale coordination.
+- `docs/coordination.json`, `docs/support-inbox.md`, and `docs/codex-inbox.md` show PRs #104, #105, #106, and #107 as blocked on rebase/stale coordination.
 - Coordination prompt scripts and `git diff --check` pass.

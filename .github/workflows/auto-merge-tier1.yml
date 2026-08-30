@@ -13,19 +13,19 @@ name: auto-merge-tier1
 #   3. It does not touch risky paths such as workflows, release config,
 #      entitlements, migrations, auth/privacy code, or gate scripts.
 #   4. The backend test suite is green on the head SHA.
-#   5. Explicit cross-agent approval from someone other than the PR author:
+#   5. Explicit project approval:
 #        a. A formal Approve review from a trusted OWNER/MEMBER/COLLABORATOR.
 #        b. A trusted OWNER/MEMBER/COLLABORATOR comment beginning with
 #           "Codex supervisor update: approved" or
-#           "Claude supervisor update: approved" from the opposite agent lane.
+#           "Project supervisor update: approved".
 #
 # There is NO quiet-time fallback. Per the human's rule (2026-05-11),
 # the auto-merger never merges anything without an explicit approval
-# signal from the other agent. An idle PR sits idle.
+# signal from a trusted project reviewer. An idle PR sits idle.
 #
-# Either agent can escalate a PR by replacing the label with `tier-2` /
+# A reviewer can escalate a PR by replacing the label with `tier-2` /
 # `tier-3` and leaving a comment. Escalation cannot be reversed by an
-# agent — only the human may downgrade.
+# automated workflow — only the human may downgrade.
 #
 # Tier 3 PRs are never auto-merged regardless of other gates.
 
@@ -122,7 +122,7 @@ jobs:
           # a human or explicit heavy-lane merge because they can change release,
           # auth/privacy, entitlement, migration, secret, or CI enforcement state.
           changed_files=$(gh pr diff "$PR" --repo "$REPO" --name-only)
-          risky_path_re='^\.github/|^Dockerfile$|^backend/render\.yaml$|(^|/)[^/]*\.entitlements$|(^|/)PrivacyInfo\.xcprivacy$|^backend/config\.js$|^backend/migrations/|^scripts/(appstore_preflight|run_release_preflight|release_config_status|quality_gate|pre_flight)(\.|_|$)|(^|/)Release\.local\.env$|(^|/)\.env[^/]*$|^backend/lib/(user_auth|auth_routes|account_routes)\.js$|^docs/(privacy|app-store|release|memory-export-delete-decision-packet)'
+          risky_path_re='^\.github/|(^|/)Dockerfile$|^backend/render\.yaml$|(^|/)[^/]*\.entitlements$|(^|/)PrivacyInfo\.xcprivacy$|^backend/config\.js$|^backend/migrations/|^scripts/(appstore_preflight|run_release_preflight|release_config_status|quality_gate|pre_flight)(\.|_|$)|(^|/)Release\.local\.env$|(^|/)\.env[^/]*$|^backend/lib/(user_auth|auth_routes|account_routes|account_lifecycle_store|memory_route_auth|screenplay_route_auth)\.js$|^docs/(privacy|app-store|release|memory-export-delete-decision-packet)'
           risky_files=$(printf '%s\n' "$changed_files" | grep -E "$risky_path_re" || true)
           if [[ -n "$risky_files" ]]; then
             echo "PR #$PR touches risky path(s); refusing agent auto-merge:"
@@ -145,25 +145,14 @@ jobs:
               echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0 ;;
           esac
 
-          # Cross-agent approval check. Strict: an explicit signal from a
-          # trusted OWNER/MEMBER/COLLABORATOR is required. It must not come
-          # from the PR author, and supervisor comments must come from the
-          # opposite agent lane when the branch prefix makes that lane clear.
-          # There is no quiet-time fallback.
-          pr_author=$(echo "$info" | jq -r '.author.login // ""')
-          head_ref=$(echo "$info" | jq -r '.headRefName // ""')
-          head_agent="unknown"
-          if [[ "$head_ref" == claude/* ]]; then
-            head_agent="claude"
-          elif [[ "$head_ref" == codex/* ]]; then
-            head_agent="codex"
-          fi
-
-          approved_via_review=$(echo "$info" | jq --arg author "$pr_author" -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and ((.author.login // \"\") != \$author))] | length")
-          approved_via_comment=$(echo "$info" | jq --arg author "$pr_author" --arg head_agent "$head_agent" -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and ((.author.login // \"\") != \$author) and ((\$head_agent == \"claude\" and (.body | test(\"^Codex supervisor update: approved\"))) or (\$head_agent == \"codex\" and (.body | test(\"^Claude supervisor update: approved\"))) or (\$head_agent == \"unknown\" and (.body | test(\"^(Codex|Claude) supervisor update: approved\")))))] | length")
+          # Project approval check. Strict: an explicit signal from a trusted
+          # OWNER/MEMBER/COLLABORATOR is required. There is no quiet-time
+          # fallback, and risky paths were already rejected above.
+          approved_via_review=$(echo "$info" | jq -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)))] | length")
+          approved_via_comment=$(echo "$info" | jq -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and (.body | test(\"^(Codex|Project) supervisor update: approved\")))] | length")
 
           if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 ]]; then
-            echo "PR #$PR has no explicit cross-agent approval (review=0, comment=0); skipping."
+            echo "PR #$PR has no explicit project approval (review=0, comment=0); skipping."
             exit 0
           fi
 

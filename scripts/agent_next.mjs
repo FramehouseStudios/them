@@ -2,7 +2,7 @@
 //
 // scripts/agent_next.mjs
 //
-// Prints the next high-leverage actions for Codex and Claude from
+// Prints the next high-leverage actions for Codex and the support lane from
 // docs/coordination.json, plus the recent live event tape from
 // docs/agent-events-*.jsonl. This is intentionally small and deterministic:
 // no GitHub API calls, no network, no dependencies. The coordination file
@@ -20,14 +20,14 @@ const repoRoot = process.env.AGENT_NEXT_REPO_ROOT
   : path.resolve(__dirname, "..");
 const DEFAULT_STATE = path.join(repoRoot, "docs/coordination.json");
 const DEFAULT_EVENTS_DIR = path.join(repoRoot, "docs");
-const DEFAULT_CLAUDE_INBOX = path.join(repoRoot, "docs/claude-inbox.md");
+const DEFAULT_SUPPORT_INBOX = path.join(repoRoot, "docs/support-inbox.md");
 
 const DONE_STATUSES = new Set(["merged", "closed"]);
 const HUMAN_STATUSES = new Set(["needs-human", "policy-gated"]);
 const BLOCKED_STATUSES = new Set(["blocked"]);
 const REVIEW_STATUSES = new Set(["review", "ready", "ready-for-review"]);
 
-const CLAUDE_PRIORITY = new Map([
+const SUPPORT_PRIORITY = new Map([
   [163, 100],
   [164, 98],
   [161, 96],
@@ -65,7 +65,7 @@ function parseArgs(argv) {
     eventsDir: DEFAULT_EVENTS_DIR,
     eventsLimit: 5,
     eventsSince: null,
-    claudeInbox: DEFAULT_CLAUDE_INBOX,
+    supportInbox: DEFAULT_SUPPORT_INBOX,
     staleCheck: true,
     forceStaleCheck: false,
   };
@@ -82,7 +82,7 @@ function parseArgs(argv) {
     else if (key === "events-dir") args.eventsDir = path.resolve(value);
     else if (key === "events-limit") args.eventsLimit = Math.max(0, Number(value) || 0);
     else if (key === "events-since") args.eventsSince = value;
-    else if (key === "claude-inbox") args.claudeInbox = path.resolve(value);
+    else if (key === "support-inbox") args.supportInbox = path.resolve(value);
     else if (key === "no-stale-check") args.staleCheck = false;
     else if (key === "stale-check") args.forceStaleCheck = true;
   }
@@ -173,7 +173,7 @@ function stripMarkdownInline(text) {
     .trim();
 }
 
-function readClaudeInboxBacklog(file, limit) {
+function readSupportInboxBacklog(file, limit) {
   if (!file || !fs.existsSync(file)) return [];
   const lines = fs.readFileSync(file, "utf8").split("\n");
   const out = [];
@@ -210,7 +210,7 @@ function isHumanGated(pr) {
   if (HUMAN_STATUSES.has(pr.status) || /human/i.test(pr.blocker || "")) return true;
   if (pr.tier !== 3) return false;
   // Tier-3 still needs human/Codex merge clearance, but it may also carry
-  // concrete Claude-owned repair work. Do not park those PRs as "human"
+  // concrete support-owned repair work. Do not park those PRs as "human"
   // when the blocker metadata says the next action is an engineering fix.
   return !["needs_test_fix", "needs_rebase", "needs_scope_narrowing"].includes(pr.blocker_kind || "");
 }
@@ -220,15 +220,15 @@ function isBlocked(pr) {
 }
 
 function isReviewable(pr) {
-  return pr.owner === "claude"
+  return pr.owner === "support"
     && !isDone(pr)
     && !isBlocked(pr)
     && !isHumanGated(pr)
     && REVIEW_STATUSES.has(pr.status);
 }
 
-function scoreClaude(pr) {
-  const pinned = CLAUDE_PRIORITY.get(pr.number);
+function scoreSupport(pr) {
+  const pinned = SUPPORT_PRIORITY.get(pr.number);
   if (pinned) return pinned;
   let score = 10;
   if (isBlocked(pr)) score += 30;
@@ -250,26 +250,26 @@ function eventSummary(event) {
   return `${event.at} ${event.by}:${event.kind} ${pr}${blocker}${note}`.trim();
 }
 
-function buildNext(state, { limit, recentEvents = [], claudeInbox = null, checkout = null }) {
+function buildNext(state, { limit, recentEvents = [], supportInbox = null, checkout = null }) {
   const prs = state.openPullRequests || [];
   const active = prs.filter((pr) => !isDone(pr));
   const humanGated = active.filter(isHumanGated);
   const actionableActive = active.filter((pr) => !isHumanGated(pr));
   const activeByOwner = {
-    claude: actionableActive.filter((pr) => pr.owner === "claude").length,
+    support: actionableActive.filter((pr) => pr.owner === "support").length,
     codex: actionableActive.filter((pr) => pr.owner === "codex").length,
     human: actionableActive.filter((pr) => pr.owner === "human").length,
   };
-  const blockedClaude = active.filter((pr) => pr.owner === "claude" && isBlocked(pr) && !isHumanGated(pr));
-  const reviewableClaude = active.filter(isReviewable);
+  const blockedSupport = active.filter((pr) => pr.owner === "support" && isBlocked(pr) && !isHumanGated(pr));
+  const reviewableSupport = active.filter(isReviewable);
   const codexOwn = active.filter((pr) => pr.owner === "codex" && !isBlocked(pr));
-  const claudeInboxBacklog = readClaudeInboxBacklog(claudeInbox, limit);
-  const claudeBlockedRatio = activeByOwner.claude === 0
+  const supportInboxBacklog = readSupportInboxBacklog(supportInbox, limit);
+  const supportBlockedRatio = activeByOwner.support === 0
     ? 0
-    : blockedClaude.length / activeByOwner.claude;
+    : blockedSupport.length / activeByOwner.support;
 
-  const claude = blockedClaude
-    .sort((a, b) => scoreClaude(b) - scoreClaude(a) || a.number - b.number)
+  const support = blockedSupport
+    .sort((a, b) => scoreSupport(b) - scoreSupport(a) || a.number - b.number)
     .slice(0, limit)
     .map((pr) => ({
       pr: pr.number,
@@ -277,19 +277,19 @@ function buildNext(state, { limit, recentEvents = [], claudeInbox = null, checko
       reason: "clear-blocker",
       action: pr.expected_action || pr.blocker || "Clear blocker and request Codex review.",
     }));
-  if (claude.length === 0 && claudeInboxBacklog.length > 0) {
-    for (const item of claudeInboxBacklog.slice(0, limit)) {
-      claude.push({
+  if (support.length === 0 && supportInboxBacklog.length > 0) {
+    for (const item of supportInboxBacklog.slice(0, limit)) {
+      support.push({
         pr: null,
         title: item.request,
-        reason: "claude-inbox-backlog",
+        reason: "support-inbox-backlog",
         action: `${item.why} Expected: ${item.expectedShape}`,
       });
     }
   }
 
   const codex = [];
-  for (const pr of reviewableClaude.slice(0, limit)) {
+  for (const pr of reviewableSupport.slice(0, limit)) {
     codex.push({
       pr: pr.number,
       title: pr.title,
@@ -314,35 +314,35 @@ function buildNext(state, { limit, recentEvents = [], claudeInbox = null, checko
       action: endpoint.consumer || "Build the iOS consumer.",
     });
   }
-  if (codex.length === 0 && blockedClaude.length > 0) {
-    const top = blockedClaude.sort((a, b) => scoreClaude(b) - scoreClaude(a) || a.number - b.number)[0];
+  if (codex.length === 0 && blockedSupport.length > 0) {
+    const top = blockedSupport.sort((a, b) => scoreSupport(b) - scoreSupport(a) || a.number - b.number)[0];
     codex.push({
       pr: top.number,
       title: top.title,
       reason: "supervise-blocker",
-      action: "No clean Codex review candidates in coordination.json; press this Claude blocker or wait for Claude to update the queue.",
+      action: "No clean Codex review candidates in coordination.json; press this support blocker or wait for the support lane to update the queue.",
     });
   }
 
-  const wipLimit = claudeBlockedRatio >= 0.8 ? 6 : 3;
+  const wipLimit = supportBlockedRatio >= 0.8 ? 6 : 3;
   return {
     updatedAt: state.updatedAt,
     throughput: {
       wipLimit,
       wipMode: wipLimit === 6 ? "blocker-clearing" : "normal",
       activeByOwner,
-      claudeOverLimit: activeByOwner.claude > wipLimit,
-      blockedClaudeCount: blockedClaude.length,
-      claudeBlockedRatio,
+      supportOverLimit: activeByOwner.support > wipLimit,
+      blockedSupportCount: blockedSupport.length,
+      supportBlockedRatio,
       humanGatedCount: humanGated.length,
-      reviewableClaudeCount: reviewableClaude.length,
-      recommendation: activeByOwner.claude > wipLimit || blockedClaude.length > 0
-        ? "Claude should clear existing blockers before opening net-new backend work."
+      reviewableSupportCount: reviewableSupport.length,
+      recommendation: activeByOwner.support > wipLimit || blockedSupport.length > 0
+        ? "Support should clear existing blockers before opening net-new backend work."
         : humanGated.length > 0
-          ? "Human-gated PRs are parked; Claude can work from docs/claude-inbox.md."
-        : "Claude has room for one scoped backend/support task.",
+          ? "Human-gated PRs are parked; Support can work from docs/support-inbox.md."
+        : "Support has room for one scoped backend task.",
     },
-    claude,
+    support,
     codex,
     humanGated: humanGated.slice(0, limit).map((pr) => ({
       pr: pr.number,
@@ -359,10 +359,10 @@ function formatText(next, role) {
   lines.push(`agent_next: ${next.updatedAt}`);
   lines.push("");
   lines.push("Throughput");
-  lines.push(`- WIP limit per support agent: ${next.throughput.wipLimit} (${next.throughput.wipMode})`);
-  lines.push(`- Active PRs: claude ${next.throughput.activeByOwner.claude}, codex ${next.throughput.activeByOwner.codex}, human ${next.throughput.activeByOwner.human}`);
-  lines.push(`- Claude blockers: ${next.throughput.blockedClaudeCount}`);
-  lines.push(`- Reviewable Claude PRs in coordination.json: ${next.throughput.reviewableClaudeCount}`);
+  lines.push(`- WIP limit per support lane: ${next.throughput.wipLimit} (${next.throughput.wipMode})`);
+  lines.push(`- Active PRs: support ${next.throughput.activeByOwner.support}, codex ${next.throughput.activeByOwner.codex}, human ${next.throughput.activeByOwner.human}`);
+  lines.push(`- Support blockers: ${next.throughput.blockedSupportCount}`);
+  lines.push(`- Reviewable support PRs in coordination.json: ${next.throughput.reviewableSupportCount}`);
   lines.push(`- ${next.throughput.recommendation}`);
   if (next.checkout && ["behind", "diverged"].includes(next.checkout.state)) {
     lines.push("");
@@ -374,12 +374,12 @@ function formatText(next, role) {
     lines.push(`Recent Events ${next.recentEvents.length}`);
     for (const event of next.recentEvents) lines.push(`- ${eventSummary(event)}`);
   }
-  const includeClaude = role === "all" || role === "claude";
+  const includeSupport = role === "all" || role === "support";
   const includeCodex = role === "all" || role === "codex";
-  if (includeClaude) {
+  if (includeSupport) {
     lines.push("");
-    lines.push(`Claude Next ${next.claude.length || "(none)"}`);
-    for (const [i, item] of next.claude.entries()) {
+    lines.push(`Support Next ${next.support.length || "(none)"}`);
+    for (const [i, item] of next.support.entries()) {
       lines.push(`${i + 1}. ${item.pr ? `#${item.pr} ` : ""}${item.title}`);
       lines.push(`   ${item.action}`);
     }
@@ -398,7 +398,7 @@ function formatText(next, role) {
     for (const item of next.humanGated) lines.push(`- #${item.pr} ${item.title}: ${item.action}`);
   }
   lines.push("");
-  lines.push("Use: node scripts/agent_next.mjs --role=claude|codex --limit=5");
+  lines.push("Use: node scripts/agent_next.mjs --role=support|codex --limit=5");
   lines.push("Tip: add --events-since=<ISO time> to see only events after your last poll, or --no-events for quiet output.");
   return lines.join("\n");
 }

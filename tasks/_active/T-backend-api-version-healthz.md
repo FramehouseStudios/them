@@ -1,9 +1,9 @@
 ---
 id: T-backend-api-version-healthz
 title: Add /api/version and /healthz orchestrator endpoints
-owner: claude
+owner: support
 status: review
-branch: claude/backend-api-version-healthz
+branch: support/backend-api-version-healthz
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: closes deploy-readiness gap; orchestrators (Render/Fly/K8s) get a real readiness probe (/healthz with DB ping) and clients get a lightweight version probe (/api/version) distinct from the heavier /health.

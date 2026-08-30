@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase5b3-turn-commit
 title: Decompose backend/index.js — Phase 5b.3 (/realtime/turn_commit)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase5b3-turn-commit
+branch: support/T-decompose-phase5b3-turn-commit
 pillar: infra (backend architecture)
 v1_pillar: realtime
 v1_effect: continues the realtime route decomposition required by docs/v1-definition.md line 68 — extracts the memory-write commit route into its own testable lib; only 5b.4 (/realtime/call) remains in the 5b chain after this lands

@@ -4,7 +4,7 @@
 //
 // Small, dependency-free CLI for reading and updating
 // `docs/coordination.json` — the fast-path coordination state shared
-// by Claude, Codex, and the human. Replaces re-reading the long
+// by support agent, Codex, and the human. Replaces re-reading the long
 // ledgers when an agent just needs to know "what's open, what's
 // blocked, what's waiting on a decision".
 //
@@ -15,7 +15,7 @@
 //   blockers                        Print just the active blockers.
 //   decisions                       Print just the pending decisions.
 //
-//   add-pr --number=N --title=T --owner=claude|codex --tier=1|2|3 \
+//   add-pr --number=N --title=T --owner=support|codex --tier=1|2|3 \
 //          --branch=B [--status=review|in-progress] [--blocker=TEXT]
 //          [--blocker-kind=needs_rebase|needs_test_fix|needs_scope_narrowing|policy_gated|needs_human]
 //          [--blocker-against-pr=N] [--reviewer-note=TEXT] [--expected-action=TEXT]
@@ -24,17 +24,17 @@
 //          [--blocker-kind=...] [--blocker-against-pr=N] [--reviewer-note=TEXT]
 //          [--expected-action=TEXT]
 //
-//   add-blocker --id=ID --owner=human|claude|codex --summary=TEXT
+//   add-blocker --id=ID --owner=human|support|codex --summary=TEXT
 //   clear-blocker --id=ID
 //
-//   add-decision --id=ID --question=TEXT [--owner-needs=human|codex|claude]
+//   add-decision --id=ID --question=TEXT [--owner-needs=human|codex|support]
 //   clear-decision --id=ID
 //
 // Mutating commands stamp `updatedAt` (UTC ISO) and `updatedBy`.
 // `updatedBy` defaults to the value of the `COORD_AGENT` env var, or
 // "unknown" if unset. Each agent should export it once per session:
 //
-//   export COORD_AGENT=claude
+//   export COORD_AGENT=support
 //   export COORD_AGENT=codex
 //
 // The file is small enough that every mutation rewrites it; no lock
@@ -277,7 +277,7 @@ switch (cmd) {
     // is supposed to be the single source of truth).
     const state = readState();
     const errors = [];
-    const allowedOwners = new Set(["claude", "codex", "human"]);
+    const allowedOwners = new Set(["support", "codex", "human"]);
     const allowedTiers = new Set([1, 2, 3]);
     if (typeof state.schemaVersion !== "number" || state.schemaVersion < 1) {
       errors.push(`schemaVersion: must be a number >= 1 (got ${state.schemaVersion})`);
@@ -295,7 +295,7 @@ switch (cmd) {
       const label = `pr#${pr?.number ?? "??"}`;
       if (!Number.isInteger(pr?.number)) errors.push(`${label}: number must be an integer`);
       if (typeof pr?.title !== "string" || pr.title.length === 0) errors.push(`${label}: title required`);
-      if (!allowedOwners.has(pr?.owner)) errors.push(`${label}: owner must be claude|codex|human (got ${pr?.owner})`);
+      if (!allowedOwners.has(pr?.owner)) errors.push(`${label}: owner must be support|codex|human (got ${pr?.owner})`);
       if (!allowedTiers.has(pr?.tier)) errors.push(`${label}: tier must be 1|2|3 (got ${pr?.tier})`);
       if (typeof pr?.status !== "string" || pr.status.length === 0) errors.push(`${label}: status required`);
       if (typeof pr?.branch !== "string" || pr.branch.length === 0) errors.push(`${label}: branch required`);
@@ -315,7 +315,7 @@ switch (cmd) {
     for (const b of state.blockers || []) {
       const label = `blocker ${b?.id ?? "??"}`;
       if (typeof b?.id !== "string" || b.id.length === 0) errors.push(`${label}: id required`);
-      if (!allowedOwners.has(b?.owner)) errors.push(`${label}: owner must be claude|codex|human (got ${b?.owner})`);
+      if (!allowedOwners.has(b?.owner)) errors.push(`${label}: owner must be support|codex|human (got ${b?.owner})`);
       if (typeof b?.summary !== "string" || b.summary.length === 0) errors.push(`${label}: summary required`);
     }
     if (errors.length > 0) {

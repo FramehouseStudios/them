@@ -1,9 +1,9 @@
 ---
 id: T-screenplay-markdown-export-tests
 title: Direct tests for backend/lib/screenplay_markdown_export.js
-owner: claude
+owner: support
 status: merged
-branch: claude/T-screenplay-markdown-export-tests
+branch: support/T-screenplay-markdown-export-tests
 pillar: infra (test coverage)
 v1_pillar: screenplay
 v1_effect: closes a zero-coverage gap on the markdown-projection lib used by the POST /screenplay/export `format=md|markdown` branch; pins the paragraph-typing rules in the lib header

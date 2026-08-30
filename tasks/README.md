@@ -22,8 +22,8 @@ entirely.
 ---
 id: T-<slug>            # must match the filename without `.md`
 title: <one-line title>
-owner: claude | codex | human
-status: ready | ready-for-claude | in-progress | review | merged | blocked-<id>
+owner: support | codex | human
+status: ready | ready-for-support | in-progress | review | merged | blocked-<id>
 branch: <branch-name or - if not yet>
 pillar: <one of the north-star pillars or "infra (enables all)">
 ---

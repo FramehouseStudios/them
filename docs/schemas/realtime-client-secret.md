@@ -14,7 +14,7 @@ Canonical shape for `POST /realtime/client_secret`.
 
 ## Owner
 
-- **Backend**: Claude. Inline in `backend/index.js` today; will
+- **Backend**: support agent. Inline in `backend/index.js` today; will
   move to `lib/realtime_client_secret_route.js` in Phase 5b.1.
 - **iOS decoder**: Codex.
 

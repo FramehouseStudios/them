@@ -25,7 +25,7 @@ verbs, and per-route fields.
 
 ## Owner
 
-- **Backend**: Claude. Inline handlers in `backend/index.js`
+- **Backend**: support agent. Inline handlers in `backend/index.js`
   (will move to `backend/lib/memories_route.js` in Phase 6 per
   #228 design note).
 - **iOS**: Codex. Powers the memory-card UI (edit / delete /

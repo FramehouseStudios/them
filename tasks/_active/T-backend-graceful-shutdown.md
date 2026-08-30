@@ -1,7 +1,7 @@
 ---
 id: T-backend-graceful-shutdown
 title: Drain in-flight requests on SIGTERM before exit
-owner: claude
+owner: support
 status: ready
 branch: -
 pillar: infra (enables all)

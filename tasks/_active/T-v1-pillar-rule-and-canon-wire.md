@@ -1,9 +1,9 @@
 ---
 id: T-v1-pillar-rule-and-canon-wire
 title: Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon
-owner: claude
+owner: support
 status: review
-branch: claude/T-v1-pillar-rule-and-canon-wire
+branch: support/T-v1-pillar-rule-and-canon-wire
 pillar: infra
 v1_pillar: infra
 v1_effect: infrastructure for every V1 checklist item; pre-flight enforces V1 pillar declarations on new tasks + canon umbrella runs all 4 V1 smoke fixtures

@@ -1,7 +1,7 @@
 # Spec: T-decompose-backend-index
 
 **Status**: in flight. Phases 0, 1, 2a, 2b, and 3 merged.
-**Owner**: claude
+**Owner**: support
 **Scope**: backend
 **Acceptance**: human signed off on the problem framing; Codex
 approves the phasing + safety mechanisms before any phase-N
@@ -211,7 +211,7 @@ Each sub-phase is its own PR. Tested via the existing
 suite.
 
 Phase 7 is V1-critical and not a mechanical fast-lane extraction. Before 7a
-opens, Claude writes a design note under `tasks/_proposals/` covering state
+opens, support agent writes a design note under `tasks/_proposals/` covering state
 ownership, response-shape invariants, smoke commands, and what Codex should
 verify on iOS.
 

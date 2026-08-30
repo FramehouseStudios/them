@@ -1,9 +1,9 @@
 ---
 id: T-schema-docs-batch-2
 title: Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal
-owner: claude
+owner: support
 status: review
-branch: claude/T-schema-docs-batch-2
+branch: support/T-schema-docs-batch-2
 pillar: infra (cross-agent contracts)
 v1_pillar: infra
 v1_effect: infrastructure for every iOS-consumer V1 checklist item; prevents backend ↔ iOS envelope drift across 8 more envelopes

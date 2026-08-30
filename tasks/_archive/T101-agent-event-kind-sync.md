@@ -12,7 +12,7 @@ v1_effect: lets both agents emit the documented live-event kinds without falling
 ## Scope
 
 Bring `scripts/agent_event.mjs` in line with the canonical live-event kinds
-documented in `AGENTS.md`, `docs/claude-inbox.md`, and
+documented in `AGENTS.md`, `docs/support-inbox.md`, and
 `docs/agent-throughput-protocol.md`.
 
 ## Done when

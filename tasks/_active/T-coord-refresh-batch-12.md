@@ -1,9 +1,9 @@
 ---
 id: T-coord-refresh-batch-12
 title: Batched coordination refresh — round 17 (post merge train)
-owner: claude
+owner: support
 status: review
-branch: claude/T-coord-refresh-batch-12
+branch: support/T-coord-refresh-batch-12
 pillar: infra (coordination)
 v1_pillar: infra
 v1_effect: coordination refresh for round 17 merge train
@@ -13,7 +13,7 @@ v1_effect: coordination refresh for round 17 merge train
 
 Round-17 batched coordination refresh. Reflects the massive merge
 train that ran since the last on-main refresh: the original 25
-Claude PRs from round 16, plus the follow-on supervisor merges for
+support agent PRs from round 16, plus the follow-on supervisor merges for
 the coordination schema check, first-page telemetry sink, prompt
 context wiring, realtime failover, format-linter/eval umbrella, and
 ops route extraction.
@@ -37,13 +37,13 @@ Updates `docs/coordination.json`:
 - Round-16 and round-17 PRs moved from `blocked`/`review` → `merged`.
 - Cross-PR `ops-surface-access-control` blocker dropped (cleared
   via #97 + #100 already landed).
-- `claude-do-not-merge-queue` cleared. Remaining blockers are human-owned.
+- `support-do-not-merge-queue` cleared. Remaining blockers are human-owned.
 - `updatedAt` / `updatedBy` refreshed.
 
 Updates `docs/codex-inbox.md`:
 
 - New "Recently cleared" section summarizing the full merged train.
-- "Current Open Claude PRs" table trimmed to actual still-open,
+- "Current Open support agent PRs" table trimmed to actual still-open,
   human-gated PRs.
 
 ## Done when

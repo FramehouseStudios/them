@@ -1,9 +1,9 @@
 ---
 id: T-realtime-routes-deeper
 title: Deeper integration tests for mountRealtimeRoutes
-owner: claude
+owner: support
 status: merged
-branch: claude/T-realtime-routes-deeper
+branch: support/T-realtime-routes-deeper
 pillar: infra (test coverage)
 v1_pillar: realtime
 v1_effect: extends realtime_routes coverage with the edge cases the smoke skipped — V1 line 68 prerequisite stability

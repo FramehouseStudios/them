@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase5b1-realtime-client-secret
 title: Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase5b1-realtime-client-secret
+branch: support/T-decompose-phase5b1-realtime-client-secret
 pillar: infra (backend architecture)
 v1_pillar: realtime
 v1_effect: closes prerequisite for "Realtime route decomposition lands before talk-pipeline Phase 7" (docs/v1-definition.md line 68) — extracts the heaviest realtime route into its own lib.

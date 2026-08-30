@@ -1,8 +1,8 @@
 # T07a — Outbox Architecture (snapshot pattern, not migration)
 
 **Status:** in-progress
-**Owner:** claude
-**Branch:** `claude/T07a-outbox-snapshots`
+**Owner:** support
+**Branch:** `support/T07a-outbox-snapshots`
 **Pillar:** longitudinal learning + infra (enables all)
 **Builds on:** T07 (persistence adapter foundation)
 **Proposes:** a new entry in `DECISIONS.md` (human authors).

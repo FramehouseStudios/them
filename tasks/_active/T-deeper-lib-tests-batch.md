@@ -1,9 +1,9 @@
 ---
 id: T-deeper-lib-tests-batch
 title: Deeper direct tests for user_store (with planned followups for memory_store + user_auth)
-owner: claude
+owner: support
 status: review
-branch: claude/T-deeper-lib-tests-batch
+branch: support/T-deeper-lib-tests-batch
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: infrastructure for "iOS exposes a plain-language memory summary and refresh state" (V1 line 53) + tier-3 auth surface stability

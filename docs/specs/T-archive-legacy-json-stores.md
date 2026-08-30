@@ -1,7 +1,7 @@
 # Spec: T-archive-legacy-json-stores
 
-**Status**: ready (Claude can implement).
-**Owner**: claude (backend scope).
+**Status**: ready (support agent can implement).
+**Owner**: support (backend scope).
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes the "production runs Postgres but the repo
 still ships 3.6 MB of JSON dev data" gap. Today `screenplay_store.json`

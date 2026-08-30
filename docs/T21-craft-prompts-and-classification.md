@@ -1,8 +1,8 @@
 # T21 — Craft-aware Prompts & Beat Classification
 
 **Status:** in-progress
-**Owner:** claude
-**Branch:** `claude/T21-craft-prompts-classification`
+**Owner:** support
+**Branch:** `support/T21-craft-prompts-classification`
 **Pillars:** voice-to-scene + living companion
 **Builds on:** T17 (Swift models), T18 (backend schemas + endpoints), T22 (persistent reports + overrides), T08 (canonical prompt assembly)
 

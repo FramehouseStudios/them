@@ -6,7 +6,7 @@ status: review
 branch: codex/T87-round22c-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: keeps Claude and Codex aligned after #228 and #229
+v1_effect: keeps support agent and Codex aligned after #228 and #229
 ---
 
 ## Scope
@@ -20,7 +20,7 @@ merges:
 ## Done when
 
 `docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
-`TASKS.md` reflect the current queue and make the next Claude action clear.
+`TASKS.md` reflect the current queue and make the next support agent action clear.
 
 ## Verification
 

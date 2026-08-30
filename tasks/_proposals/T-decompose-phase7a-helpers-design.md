@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase7a-helpers-design
 title: Phase 7a sub-design — talk-state guards + shared helpers
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (sub-design refinement; opens after Phase 6 lands)
 pillar: infra (backend architecture)

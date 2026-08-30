@@ -17,7 +17,7 @@ operator-facing aggregate over talk-turn metadata fed by
 
 ## Owner
 
-- **Backend**: Claude. Aggregator + envelope shape in
+- **Backend**: support agent. Aggregator + envelope shape in
   `talk_turn_stats.js`.
 - **iOS**: not consumed by iOS — operator dashboard only.
 

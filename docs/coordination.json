@@ -16,20 +16,20 @@
     {
       "number": 94,
       "title": "T-creative-memory-export: GET /memory/export — V1 core-only",
-      "owner": "claude",
+      "owner": "support",
       "tier": 3,
       "status": "merged",
-      "branch": "claude/T-creative-memory-export",
+      "branch": "support/T-creative-memory-export",
       "blocker": null,
       "reviewer_note": "Merged by Codex under D005 after the V1 contract was narrowed to core-only. Codex rebased over PR #212, resolved the decisions-queue conflict, verified no projectIds/loglineHistory/acceptedTwists export path remains, ran pre_flight, focused memory-export tests 7/7, backend npm test 1188 pass / 1 skipped, and confirmed GitHub evaluate green."
     },
     {
       "number": 212,
       "title": "T-decompose-phase4-auth-routes: extract 11 /auth/* routes",
-      "owner": "claude",
+      "owner": "support",
       "tier": 3,
       "status": "merged",
-      "branch": "claude/T-decompose-phase4-auth-routes",
+      "branch": "support/T-decompose-phase4-auth-routes",
       "blocker": null,
       "reviewer_note": "Merged by Codex under D005 after one-time human auth clearance and Codex auth/security review. Byte-identical extraction only: same 256kb parser on POST routes, GET /auth/sessions parser-free, existing userAuth handlers injected unchanged. Local focused auth tests passed 44/44; backend npm test passed 1181 pass / 1 skipped."
     },
@@ -41,7 +41,7 @@
       "status": "merged",
       "branch": "codex/T143-memory-export-core-decision",
       "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Makes core-only the V1 decision for PR #94 and records the needs_scope_narrowing blocker for Claude."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Makes core-only the V1 decision for PR #94 and records the needs_scope_narrowing blocker for support agent."
     },
     {
       "number": 343,
@@ -66,10 +66,10 @@
     {
       "number": 335,
       "title": "Phase 7b: extract handleTalkRequest into lib/talk_handler.js (createTalkHandler)",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase7b-talk-handler",
+      "branch": "support/T-decompose-phase7b-talk-handler",
       "blocker": null,
       "reviewer_note": "Merged by Codex under D005 after rebase repair. Local proof: pre_flight passed, talk tests 121/121 passed, backend npm test 1171 pass / 1 skipped / 0 fail, git diff --check passed, and live local /talk dispatch smoke returned 200 with fixture audio. Full human/TestFlight app smoke remains a V1 release gate, not claimed here."
     },
@@ -121,307 +121,307 @@
     {
       "number": 202,
       "title": "T-snapshot-eval-accepted-twists",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-snapshot-eval-accepted-twists",
+      "branch": "support/T-snapshot-eval-accepted-twists",
       "blocker": null
     },
     {
       "number": 201,
       "title": "T-eval-canon-into-gate",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-eval-canon-into-gate",
+      "branch": "support/T-eval-canon-into-gate",
       "blocker": null
     },
     {
       "number": 200,
       "title": "T-utils-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-utils-smoke-test",
+      "branch": "support/T-utils-smoke-test",
       "blocker": null
     },
     {
       "number": 199,
       "title": "T-pre-flight-required-deps-rule",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-pre-flight-required-deps-rule",
+      "branch": "support/T-pre-flight-required-deps-rule",
       "blocker": null
     },
     {
       "number": 197,
       "title": "T-decompose-phase2b-screenplay-projects-writes",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase2b-screenplay-projects-writes",
+      "branch": "support/T-decompose-phase2b-screenplay-projects-writes",
       "blocker": null
     },
     {
       "number": 148,
       "title": "T-ops-routes-list-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-ops-routes-list-route",
+      "branch": "support/T-ops-routes-list-route",
       "blocker": null
     },
     {
       "number": 142,
       "title": "T-known-domains-startup-check",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-known-domains-startup-check",
+      "branch": "support/T-known-domains-startup-check",
       "blocker": null
     },
     {
       "number": 127,
       "title": "T-decisions-queue-md-lint",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decisions-queue-md-lint",
+      "branch": "support/T-decisions-queue-md-lint",
       "blocker": null
     },
     {
       "number": 124,
       "title": "T-block-signal-atms-zero-fix",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-block-signal-atms-zero-fix",
+      "branch": "support/T-block-signal-atms-zero-fix",
       "blocker": null
     },
     {
       "number": 117,
       "title": "T-coordination-state-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-coordination-state-eval",
+      "branch": "support/T-coordination-state-eval",
       "blocker": null
     },
     {
       "number": 115,
       "title": "T-known-domains-runtime-check",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-known-domains-runtime-check",
+      "branch": "support/T-known-domains-runtime-check",
       "blocker": null
     },
     {
       "number": 112,
       "title": "T-prompt-assembly-snapshot-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-prompt-assembly-snapshot-eval",
+      "branch": "support/T-prompt-assembly-snapshot-eval",
       "blocker": null
     },
     {
       "number": 111,
       "title": "T-creative-memory-stats-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-creative-memory-stats-route",
+      "branch": "support/T-creative-memory-stats-route",
       "blocker": null
     },
     {
       "number": 110,
       "title": "T-prompt-size-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-prompt-size-eval",
+      "branch": "support/T-prompt-size-eval",
       "blocker": null
     },
     {
       "number": 107,
       "title": "T-tasks-sync-check",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-tasks-sync-check",
+      "branch": "support/T-tasks-sync-check",
       "blocker": null
     },
     {
       "number": 105,
       "title": "T-memory-quality-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-memory-quality-eval",
+      "branch": "support/T-memory-quality-eval",
       "blocker": null
     },
     {
       "number": 104,
       "title": "T-decisions-queue-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decisions-queue-route",
+      "branch": "support/T-decisions-queue-route",
       "blocker": null
     },
     {
       "number": 100,
       "title": "T-talk-error-rate-tracker",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-talk-error-rate-tracker",
+      "branch": "support/T-talk-error-rate-tracker",
       "blocker": null
     },
     {
       "number": 97,
       "title": "T-talk-turn-meta-stats",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-talk-turn-meta-stats",
+      "branch": "support/T-talk-turn-meta-stats",
       "blocker": null
     },
     {
       "number": 92,
       "title": "T-payoff-tracker",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-payoff-tracker",
+      "branch": "support/T-payoff-tracker",
       "blocker": null
     },
     {
       "number": 90,
       "title": "T-fdx-export-endpoint",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-fdx-export-endpoint",
+      "branch": "support/T-fdx-export-endpoint",
       "blocker": null
     },
     {
       "number": 88,
       "title": "T-coverage-simulator",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-coverage-simulator",
+      "branch": "support/T-coverage-simulator",
       "blocker": null
     },
     {
       "number": 87,
       "title": "T-screenplay-import-fountain",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-screenplay-import-fountain",
+      "branch": "support/T-screenplay-import-fountain",
       "blocker": null
     },
     {
       "number": 86,
       "title": "T-genre-classifier",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-genre-classifier",
+      "branch": "support/T-genre-classifier",
       "blocker": null
     },
     {
       "number": 85,
       "title": "T-backend-surface-smoke",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-backend-surface-smoke",
+      "branch": "support/T-backend-surface-smoke",
       "blocker": null
     },
     {
       "number": 84,
       "title": "T-realtime-supplier-failover",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-realtime-supplier-failover",
+      "branch": "support/T-realtime-supplier-failover",
       "blocker": null
     },
     {
       "number": 83,
       "title": "T-fountain-export-endpoint",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-fountain-export-endpoint",
+      "branch": "support/T-fountain-export-endpoint",
       "blocker": null
     },
     {
       "number": 82,
       "title": "T-realtime-supplier-health",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-realtime-supplier-health",
+      "branch": "support/T-realtime-supplier-health",
       "blocker": null
     },
     {
       "number": 81,
       "title": "T-block-signal-clears-on-completion",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-block-signal-clears-on-completion",
+      "branch": "support/T-block-signal-clears-on-completion",
       "blocker": null
     },
     {
       "number": 80,
       "title": "T-craft-frameworks-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-craft-frameworks-eval",
+      "branch": "support/T-craft-frameworks-eval",
       "blocker": null
     },
     {
       "number": 79,
       "title": "T-first-page-telemetry-sink",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-first-page-telemetry-sink",
+      "branch": "support/T-first-page-telemetry-sink",
       "blocker": null
     },
     {
       "number": 76,
       "title": "T-logline-drift-alert",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-logline-drift-alert",
+      "branch": "support/T-logline-drift-alert",
       "blocker": null
     },
     {
       "number": 74,
       "title": "T-prompt-wire-traits-and-twists",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-prompt-wire-traits-and-twists",
+      "branch": "support/T-prompt-wire-traits-and-twists",
       "blocker": null
     },
     {
       "number": 63,
       "title": "T-trust-tiers",
-      "owner": "claude",
+      "owner": "support",
       "tier": 3,
       "status": "closed",
-      "branch": "claude/T-trust-tiers",
+      "branch": "support/T-trust-tiers",
       "blocker": "closed: superseded by accepted D005/D006 and current AGENTS.md supervisor guardrails",
       "blocker_kind": "policy_gated",
       "reviewer_note": "Codex closed PR #63 as stale policy after confirming D005/D006 already record the current supervisor authority.",
@@ -430,19 +430,19 @@
     {
       "number": 133,
       "title": "T-build-tasks-md-anchors",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-build-tasks-md-anchors",
+      "branch": "support/T-build-tasks-md-anchors",
       "blocker": null
     },
     {
       "number": 134,
       "title": "T-ops-health-summary-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-ops-health-summary-route",
+      "branch": "support/T-ops-health-summary-route",
       "blocker": null
     },
     {
@@ -493,46 +493,46 @@
     {
       "number": 141,
       "title": "T-prompt-assembly-block-signal-cap-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-prompt-assembly-block-signal-cap-eval",
+      "branch": "support/T-prompt-assembly-block-signal-cap-eval",
       "blocker": null
     },
     {
       "number": 143,
       "title": "T-decisions-queue-fixture-template",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decisions-queue-fixture-template",
+      "branch": "support/T-decisions-queue-fixture-template",
       "blocker": null
     },
     {
       "number": 144,
       "title": "T-coordination-state-cli-validate",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-coordination-state-cli-validate",
+      "branch": "support/T-coordination-state-cli-validate",
       "blocker": null
     },
     {
       "number": 145,
       "title": "T-codex-inbox-refresh-round11",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-codex-inbox-refresh-round11",
+      "branch": "support/T-codex-inbox-refresh-round11",
       "blocker": "closed: conflicting inbox-only refresh superseded by current coordination docs"
     },
     {
       "number": 149,
-      "title": "T66-refresh-after-claude-pr-triage",
+      "title": "T66-refresh-after-support-pr-triage",
       "owner": "codex",
       "tier": 1,
       "status": "merged",
-      "branch": "codex/T66-refresh-after-claude-pr-triage",
+      "branch": "codex/T66-refresh-after-support-pr-triage",
       "blocker": null
     },
     {
@@ -547,19 +547,19 @@
     {
       "number": 150,
       "title": "T-creative-memory-version-check-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-creative-memory-version-check-eval",
+      "branch": "support/T-creative-memory-version-check-eval",
       "blocker": null
     },
     {
       "number": 151,
       "title": "T-screenplay-export-pdf-error-clarity",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-screenplay-export-pdf-error-clarity",
+      "branch": "support/T-screenplay-export-pdf-error-clarity",
       "blocker": null
     },
     {
@@ -583,37 +583,37 @@
     {
       "number": 154,
       "title": "T-talk-turn-rate-limit-helper",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-talk-turn-rate-limit-helper",
+      "branch": "support/T-talk-turn-rate-limit-helper",
       "blocker": null
     },
     {
       "number": 155,
       "title": "T-tasks-active-frontmatter-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-tasks-active-frontmatter-eval",
+      "branch": "support/T-tasks-active-frontmatter-eval",
       "blocker": null
     },
     {
       "number": 156,
       "title": "T-prompt-assembly-readme",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-prompt-assembly-readme",
+      "branch": "support/T-prompt-assembly-readme",
       "blocker": null
     },
     {
       "number": 158,
       "title": "T-tasks-active-stats",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-tasks-active-stats",
+      "branch": "support/T-tasks-active-stats",
       "blocker": null
     },
     {
@@ -637,109 +637,109 @@
     {
       "number": 160,
       "title": "T-archetype-engine-canon-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-archetype-engine-canon-eval",
+      "branch": "support/T-archetype-engine-canon-eval",
       "blocker": null
     },
     {
       "number": 168,
       "title": "T-creative-memory-store-eviction-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-creative-memory-store-eviction-eval",
+      "branch": "support/T-creative-memory-store-eviction-eval",
       "blocker": null
     },
     {
       "number": 169,
       "title": "T-coordination-state-mutate-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-coordination-state-mutate-eval",
+      "branch": "support/T-coordination-state-mutate-eval",
       "blocker": null
     },
     {
       "number": 170,
       "title": "T-talk-turn-rate-limit-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-talk-turn-rate-limit-route",
+      "branch": "support/T-talk-turn-rate-limit-route",
       "blocker": null
     },
     {
       "number": 159,
       "title": "T-ops-health-summary-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-ops-health-summary-eval",
+      "branch": "support/T-ops-health-summary-eval",
       "blocker": null
     },
     {
       "number": 161,
       "title": "T-trait-library-canon-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-trait-library-canon-eval",
+      "branch": "support/T-trait-library-canon-eval",
       "blocker": null
     },
     {
       "number": 163,
       "title": "T-twist-engine-canon-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-twist-engine-canon-eval",
+      "branch": "support/T-twist-engine-canon-eval",
       "blocker": null
     },
     {
       "number": 164,
       "title": "T-block-detector-canon-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-block-detector-canon-eval",
+      "branch": "support/T-block-detector-canon-eval",
       "blocker": null
     },
     {
       "number": 166,
       "title": "T-format-linter-rules-canon-eval",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-format-linter-rules-canon-eval",
+      "branch": "support/T-format-linter-rules-canon-eval",
       "blocker": null
     },
     {
       "number": 171,
       "title": "T-eval-gate-add-canon-evals",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-eval-gate-add-canon-evals",
+      "branch": "support/T-eval-gate-add-canon-evals",
       "blocker": null
     },
     {
       "number": 165,
       "title": "T-codex-inbox-refresh-round12",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-codex-inbox-refresh-round12",
+      "branch": "support/T-codex-inbox-refresh-round12",
       "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
     },
     {
       "number": 172,
       "title": "T-codex-inbox-refresh-round13",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-codex-inbox-refresh-round13",
+      "branch": "support/T-codex-inbox-refresh-round13",
       "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
     },
     {
@@ -781,28 +781,28 @@
     {
       "number": 175,
       "title": "T-agent-events-jsonl-live-lane",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-agent-events-jsonl-live-lane",
+      "branch": "support/T-agent-events-jsonl-live-lane",
       "blocker": null
     },
     {
       "number": 177,
       "title": "T-pre-flight-self-check-script",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-pre-flight-self-check-script",
+      "branch": "support/T-pre-flight-self-check-script",
       "blocker": null
     },
     {
       "number": 173,
       "title": "T-coord-refresh-clear-148-142-133-87-90",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-coord-refresh-clear-148-142-133-87-90",
+      "branch": "support/T-coord-refresh-clear-148-142-133-87-90",
       "blocker": "closed: stale coordination refresh superseded by T72/T73/T74/T75 and the T76 efficiency merge refresh"
     },
     {
@@ -817,19 +817,19 @@
     {
       "number": 180,
       "title": "T-pre-flight-outbox-console-cleanup",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-pre-flight-outbox-console-cleanup",
+      "branch": "support/T-pre-flight-outbox-console-cleanup",
       "blocker": null
     },
     {
       "number": 181,
       "title": "T-decompose-backend-index",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-backend-index",
+      "branch": "support/T-decompose-backend-index",
       "blocker": null
     },
     {
@@ -844,10 +844,10 @@
     {
       "number": 183,
       "title": "T-decompose-phase0-health-route",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase0-health-route",
+      "branch": "support/T-decompose-phase0-health-route",
       "blocker": null
     },
     {
@@ -871,154 +871,154 @@
     {
       "number": 190,
       "title": "T-decompose-phase1-ops-routes",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase1-ops-routes",
+      "branch": "support/T-decompose-phase1-ops-routes",
       "blocker": null
     },
     {
       "number": 192,
       "title": "T-decompose-phase2a-screenplay-projects-reads",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase2-screenplay-projects",
+      "branch": "support/T-decompose-phase2-screenplay-projects",
       "blocker": null
     },
     {
       "number": 191,
       "title": "T-coord-refresh-batch-13",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-coord-refresh-batch-13",
+      "branch": "support/T-coord-refresh-batch-13",
       "blocker": "closed: stale duplicate superseded by merged PR #189"
     },
     {
       "number": 193,
       "title": "T-route-local-parsers",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-route-local-parsers",
+      "branch": "support/T-route-local-parsers",
       "blocker": null
     },
     {
       "number": 194,
       "title": "T-decompose-spec-update",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-spec-update",
+      "branch": "support/T-decompose-spec-update",
       "blocker": null
     },
     {
       "number": 195,
       "title": "T-coord-refresh-batch-14",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-coord-refresh-batch-14",
+      "branch": "support/T-coord-refresh-batch-14",
       "blocker": "closed: stale duplicate superseded by PR #196 and later #193/#194 merges"
     },
     {
       "number": 204,
       "title": "T-decompose-phase3-screenplay-companion",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase3-screenplay-companion",
+      "branch": "support/T-decompose-phase3-screenplay-companion",
       "blocker": null
     },
     {
       "number": 205,
       "title": "T-persona-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-persona-smoke-test",
+      "branch": "support/T-persona-smoke-test",
       "blocker": null
     },
     {
       "number": 206,
       "title": "T-screenplay-store-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-screenplay-store-smoke-test",
+      "branch": "support/T-screenplay-store-smoke-test",
       "blocker": null
     },
     {
       "number": 207,
       "title": "T-outbox-store-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-outbox-store-smoke-test",
+      "branch": "support/T-outbox-store-smoke-test",
       "blocker": null
     },
     {
       "number": 214,
       "title": "T-protocol-infra-batch",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-protocol-infra-batch",
+      "branch": "support/T-protocol-infra-batch",
       "blocker": null
     },
     {
       "number": 215,
       "title": "T-decompose-phase5a-realtime-reads",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5-realtime-routes",
+      "branch": "support/T-decompose-phase5-realtime-routes",
       "blocker": null
     },
     {
       "number": 216,
       "title": "T-memory-store-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-memory-store-smoke-test",
+      "branch": "support/T-memory-store-smoke-test",
       "blocker": null
     },
     {
       "number": 217,
       "title": "T-user-store-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-user-store-smoke-test",
+      "branch": "support/T-user-store-smoke-test",
       "blocker": null
     },
     {
       "number": 218,
       "title": "T-user-auth-smoke-test",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-user-auth-smoke-test",
+      "branch": "support/T-user-auth-smoke-test",
       "blocker": null
     },
     {
       "number": 220,
       "title": "T-fix-214-audit-and-readme",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-fix-214-audit-and-readme",
+      "branch": "support/T-fix-214-audit-and-readme",
       "blocker": null
     },
     {
       "number": 221,
       "title": "T-decompose-phase4-auth-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase4-auth-design-note",
+      "branch": "support/T-decompose-phase4-auth-design-note",
       "blocker": null
     },
     {
@@ -1033,100 +1033,100 @@
     {
       "number": 223,
       "title": "T-decompose-phase7-talk-pipeline-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase7-talk-pipeline-design",
+      "branch": "support/T-decompose-phase7-talk-pipeline-design",
       "blocker": null
     },
     {
       "number": 224,
       "title": "T-v1-voice-to-page-smoke",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-voice-to-page-smoke",
+      "branch": "support/T-v1-voice-to-page-smoke",
       "blocker": null
     },
     {
       "number": 226,
       "title": "T-schema-docs-scaffold",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-schema-docs-scaffold",
+      "branch": "support/T-schema-docs-scaffold",
       "blocker": null
     },
     {
       "number": 227,
       "title": "T-decompose-phase5b-realtime-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5b-realtime-design",
+      "branch": "support/T-decompose-phase5b-realtime-design",
       "blocker": null
     },
     {
       "number": 228,
       "title": "T-decompose-phase6-memories-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase6-memories-design",
+      "branch": "support/T-decompose-phase6-memories-design",
       "blocker": null
     },
     {
       "number": 229,
       "title": "T-decompose-phase6-1-long-tail-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase6-1-long-tail-design",
+      "branch": "support/T-decompose-phase6-1-long-tail-design",
       "blocker": null
     },
     {
       "number": 231,
       "title": "T-v1-three-smoke-fixtures",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-screenplay-smoke",
+      "branch": "support/T-v1-screenplay-smoke",
       "blocker": null
     },
     {
       "number": 233,
       "title": "T-schema-docs-batch-2",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-schema-docs-batch-2",
+      "branch": "support/T-schema-docs-batch-2",
       "blocker": null
     },
     {
       "number": 235,
       "title": "T-v1-pillar-rule-and-canon-wire",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-pillar-rule-and-canon-wire",
+      "branch": "support/T-v1-pillar-rule-and-canon-wire",
       "blocker": null
     },
     {
       "number": 237,
       "title": "T-deeper-lib-tests-batch",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-deeper-lib-tests-batch",
+      "branch": "support/T-deeper-lib-tests-batch",
       "blocker": null
     },
     {
       "number": 239,
       "title": "T-backfill-v1-pillar-legacy",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-backfill-v1-pillar-legacy",
+      "branch": "support/T-backfill-v1-pillar-legacy",
       "blocker": null
     },
     {
@@ -1141,19 +1141,19 @@
     {
       "number": 241,
       "title": "T-deeper-memstore-and-user-auth-tests",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-deeper-memory-store-tests",
+      "branch": "support/T-deeper-memory-store-tests",
       "blocker": null
     },
     {
       "number": 238,
       "title": "T-decompose-phase5b1-realtime-client-secret",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5b1-realtime-client-secret",
+      "branch": "support/T-decompose-phase5b1-realtime-client-secret",
       "blocker": null,
       "blocker_kind": null,
       "reviewer_note": null,
@@ -1162,19 +1162,19 @@
     {
       "number": 242,
       "title": "T-user-auth-roundtrip-tests",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-user-auth-roundtrip-tests",
+      "branch": "support/T-user-auth-roundtrip-tests",
       "blocker": null
     },
     {
       "number": 243,
       "title": "T-v1-status-reporter",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-status-reporter",
+      "branch": "support/T-v1-status-reporter",
       "blocker": null,
       "blocker_kind": null,
       "reviewer_note": null,
@@ -1183,10 +1183,10 @@
     {
       "number": 245,
       "title": "T-schema-docs-batch-3",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-schema-docs-batch-3",
+      "branch": "support/T-schema-docs-batch-3",
       "blocker": null,
       "blocker_kind": null,
       "reviewer_note": null,
@@ -1195,154 +1195,154 @@
     {
       "number": 250,
       "title": "T-preflight-task-status-vocab",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-preflight-task-status-vocab",
+      "branch": "support/T-preflight-task-status-vocab",
       "blocker": null
     },
     {
       "number": 251,
       "title": "T-runbook-v1-smoke",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-runbook-v1-smoke",
+      "branch": "support/T-runbook-v1-smoke",
       "blocker": null
     },
     {
       "number": 253,
       "title": "T-operating-protocol-narrative",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-operating-protocol-narrative",
+      "branch": "support/T-operating-protocol-narrative",
       "blocker": null
     },
     {
       "number": 256,
       "title": "T-schema-docs-batch-4",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-schema-docs-batch-4",
+      "branch": "support/T-schema-docs-batch-4",
       "blocker": null
     },
     {
       "number": 259,
       "title": "T-preflight-task-id-matches-filename",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-preflight-task-id-matches-filename",
+      "branch": "support/T-preflight-task-id-matches-filename",
       "blocker": null
     },
     {
       "number": 261,
       "title": "T-talk-response-doc-drift-fix",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-talk-response-doc-drift-fix",
+      "branch": "support/T-talk-response-doc-drift-fix",
       "blocker": null
     },
     {
       "number": 262,
       "title": "T-runbook-smoke-section-drift-fix",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-runbook-smoke-section-drift-fix",
+      "branch": "support/T-runbook-smoke-section-drift-fix",
       "blocker": null
     },
     {
       "number": 264,
       "title": "T-decompose-phase5b2-studio-render",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5b2-studio-render",
+      "branch": "support/T-decompose-phase5b2-studio-render",
       "blocker": null
     },
     {
       "number": 265,
       "title": "T-fdx-export-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-fdx-export-schema-doc",
+      "branch": "support/T-fdx-export-schema-doc",
       "blocker": null
     },
     {
       "number": 266,
       "title": "T-fdx-export-deeper",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-fdx-export-deeper",
+      "branch": "support/T-fdx-export-deeper",
       "blocker": null
     },
     {
       "number": 267,
       "title": "T-persistence-json-tests",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-persistence-json-tests",
+      "branch": "support/T-persistence-json-tests",
       "blocker": null
     },
     {
       "number": 268,
       "title": "T-screenplay-markdown-export-tests",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-screenplay-markdown-export-tests",
+      "branch": "support/T-screenplay-markdown-export-tests",
       "blocker": null
     },
     {
       "number": 269,
       "title": "T-v1-status-diff-flag",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-status-diff-flag",
+      "branch": "support/T-v1-status-diff-flag",
       "blocker": null
     },
     {
       "number": 270,
       "title": "T-v1-status-md-comment-flag",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-status-md-comment-flag",
+      "branch": "support/T-v1-status-md-comment-flag",
       "blocker": null
     },
     {
       "number": 271,
       "title": "T-v1-status-npm-script",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-v1-status-npm-script",
+      "branch": "support/T-v1-status-npm-script",
       "blocker": null
     },
     {
       "number": 273,
       "title": "T-decompose-phase5b3-turn-commit",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5b3-turn-commit",
+      "branch": "support/T-decompose-phase5b3-turn-commit",
       "blocker": null
     },
     {
       "number": 276,
       "title": "T-memories-list-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-memories-list-schema-doc",
+      "branch": "support/T-memories-list-schema-doc",
       "blocker": null
     },
     {
@@ -1357,10 +1357,10 @@
     {
       "number": 278,
       "title": "T-visual-context-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-visual-context-schema-doc",
+      "branch": "support/T-visual-context-schema-doc",
       "blocker": null
     },
     {
@@ -1375,73 +1375,73 @@
     {
       "number": 280,
       "title": "T-realtime-routes-deeper",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-realtime-routes-deeper",
+      "branch": "support/T-realtime-routes-deeper",
       "blocker": null
     },
     {
       "number": 281,
       "title": "T-memories-mutate-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-memories-mutate-schema-doc",
+      "branch": "support/T-memories-mutate-schema-doc",
       "blocker": null
     },
     {
       "number": 282,
       "title": "T-memories-export-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-memories-export-schema-doc",
+      "branch": "support/T-memories-export-schema-doc",
       "blocker": null
     },
     {
       "number": 283,
       "title": "T-recap-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-recap-schema-doc",
+      "branch": "support/T-recap-schema-doc",
       "blocker": null
     },
     {
       "number": 284,
       "title": "T-tasks-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-tasks-schema-doc2",
+      "branch": "support/T-tasks-schema-doc2",
       "blocker": null
     },
     {
       "number": 285,
       "title": "T-history-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-history-schema-doc",
+      "branch": "support/T-history-schema-doc",
       "blocker": null
     },
     {
       "number": 286,
       "title": "T-outbox-routes-schema-doc",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-outbox-routes-schema-doc-fresh",
+      "branch": "support/T-outbox-routes-schema-doc-fresh",
       "blocker": null
     },
     {
       "number": 288,
       "title": "T-decompose-phase5b4-realtime-call",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase5b4-realtime-call",
+      "branch": "support/T-decompose-phase5b4-realtime-call",
       "blocker": null
     },
     {
@@ -1450,7 +1450,7 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-state-schema-doc",
+      "branch": "support/T-state-schema-doc",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
@@ -1459,7 +1459,7 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-screenplay-companion-schema-doc",
+      "branch": "support/T-screenplay-companion-schema-doc",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
@@ -1468,7 +1468,7 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-screenplay-prompt-build-schema-doc-v2",
+      "branch": "support/T-screenplay-prompt-build-schema-doc-v2",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
@@ -1477,16 +1477,16 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-screenplay-export-formats-schema",
+      "branch": "support/T-screenplay-export-formats-schema",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
       "number": 293,
       "title": "T-decompose-phase7a-helpers-design",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase7a-helpers-design",
+      "branch": "support/T-decompose-phase7a-helpers-design",
       "blocker": null
     },
     {
@@ -1495,16 +1495,16 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-linkedin-analyze-schema-doc-v2",
+      "branch": "support/T-linkedin-analyze-schema-doc-v2",
       "blocker": "closed-out-of-lane-schema-doc-only-and-not-current-V1-critical-path"
     },
     {
       "number": 296,
       "title": "T-decompose-phase6-memories",
-      "owner": "claude",
+      "owner": "support",
       "tier": 2,
       "status": "merged",
-      "branch": "claude/T-decompose-phase6-memories",
+      "branch": "support/T-decompose-phase6-memories",
       "blocker": null
     },
     {
@@ -1513,7 +1513,7 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-decompose-phase7b-handler-design",
+      "branch": "support/T-decompose-phase7b-handler-design",
       "blocker": "closed-premature-until-Phase-7a-guard-extraction-lands"
     },
     {
@@ -1522,7 +1522,7 @@
       "owner": "codex",
       "tier": 1,
       "status": "closed",
-      "branch": "claude/T-session-schema-doc",
+      "branch": "support/T-session-schema-doc",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
@@ -1629,29 +1629,29 @@
     {
       "number": 349,
       "title": "Phase 7c design note — talk supplier glue",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase7c-design",
+      "branch": "support/T-decompose-phase7c-design",
       "blocker": null,
       "reviewer_note": "Merged by Codex after review. Design note only; approves the 3-factory Phase 7c implementation shape but does not pre-approve the implementation merge."
     },
     {
       "number": 358,
       "title": "Phase 6.1a: extract /outbox/*, /state, /data/* routes",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T-decompose-phase6-1a-outbox-data-state",
+      "branch": "support/T-decompose-phase6-1a-outbox-data-state",
       "blocker": null
     },
     {
       "number": 359,
       "title": "eval-quality repair: fix knowledge + playful routing root causes",
-      "owner": "claude",
+      "owner": "support",
       "tier": 1,
       "status": "merged",
-      "branch": "claude/T07-eval-quality-repair",
+      "branch": "support/T07-eval-quality-repair",
       "blocker": null,
       "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
     },

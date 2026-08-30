@@ -1,6 +1,6 @@
-# Self-review — branch `claude/backend-post-v1-audit`
+# Self-review — branch `support/backend-post-v1-audit`
 
-Author: Claude. Purpose: shrink reviewer time on the ~60-move backend
+Author: support agent. Purpose: shrink reviewer time on the ~60-move backend
 batch. This is an honest critique of my own work, not a sign-off.
 Severity: **H** blocks merge, **M** fix before prod, **L** nit/follow-up.
 

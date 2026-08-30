@@ -1,7 +1,7 @@
 # Spec: T-backend-rate-limit
 
 **Status**: implemented for the V1 launch lane.
-**Owner**: claude (backend scope).
+**Owner**: support (backend scope).
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes a V1 production-readiness gap — today the
 backend previously had no global rate limiting. A single misbehaving client (or
@@ -85,6 +85,6 @@ uses Express `req.ip` rather than parsing raw `X-Forwarded-For` headers.
 3. **Phase 2**: Wire to `/realtime/call`. Add integration test.
 4. **Phase 3**: Wire to remaining routes via default bucket.
 
-Phase 0 is a Claude-only PR (small, testable in isolation). Phases
+Phase 0 is a support agent-only PR (small, testable in isolation). Phases
 1–3 can land in sequence or as a single follow-up PR once the
 helper is reviewed.

@@ -1,9 +1,9 @@
 ---
 id: T-fix-214-audit-and-readme
 title: Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar
-owner: claude
+owner: support
 status: review
-branch: claude/T-fix-214-audit-and-readme
+branch: support/T-fix-214-audit-and-readme
 pillar: infra
 v1_pillar: infra
 v1_effect: infrastructure for "Backend `/talk` path exists and prompt assembly is centralized" + every other decomp checklist item
@@ -60,7 +60,7 @@ Round-22 review of merged #214 surfaced three fixes:
 - The `backend/lib/README.md` accepted-precedents list contains only
   merged phases.
 - `node --check scripts/audit_inline_routes.mjs` passes.
-- `node scripts/agent_event.mjs append --by=claude --kind=pr_opened
+- `node scripts/agent_event.mjs append --by=support --kind=pr_opened
   --pr=N --comment="..."` will fire on PR open.
 
 ## Done when

@@ -5,8 +5,8 @@
 // Asserts that every file in `tasks/_active/` either:
 //
 //   (a) opens with a YAML-style `---` front-matter block carrying
-//       id, title, owner ∈ {claude, codex, human}, status, branch,
-//       AND the id matches the filename — the canonical Claude
+//       id, title, owner ∈ {support, codex, human}, status, branch,
+//       AND the id matches the filename — the canonical support agent
 //       layout shipped by PR #67; or
 //
 //   (b) opens with `# Tn — <title>` and includes Owner: / Status: /
@@ -27,7 +27,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const activeDir = path.join(repoRoot, "tasks/_active");
 
-const ALLOWED_OWNERS = new Set(["claude", "codex", "human"]);
+const ALLOWED_OWNERS = new Set(["support", "codex", "human"]);
 const ALLOWED_STATUSES_PREFIX = [
   "ready",
   "in-progress",
@@ -78,7 +78,7 @@ function validateOne(filename, text) {
     // (a) YAML path
     if (!yaml.id) findings.push("missing front-matter `id`");
     if (yaml.id) {
-      // Accept either `<id>.md` (Claude convention) or `<id>-<slug>.md`
+      // Accept either `<id>.md` (support agent convention) or `<id>-<slug>.md`
       // (Codex convention for numbered Txx tasks).
       const exact = yaml.id + ".md" === filename;
       const prefixed = filename.startsWith(yaml.id + "-");
@@ -89,7 +89,7 @@ function validateOne(filename, text) {
     if (!yaml.title) findings.push("missing front-matter `title`");
     if (!yaml.owner) findings.push("missing front-matter `owner`");
     else if (!ALLOWED_OWNERS.has(yaml.owner)) {
-      findings.push(`owner "${yaml.owner}" not in {claude, codex, human}`);
+      findings.push(`owner "${yaml.owner}" not in {support, codex, human}`);
     }
     if (!yaml.status) findings.push("missing front-matter `status`");
     else if (!ALLOWED_STATUSES_PREFIX.some((p) => yaml.status.startsWith(p))) {
@@ -106,7 +106,7 @@ function validateOne(filename, text) {
     }
     if (!legacy.owner) findings.push("missing legacy `Owner:` line");
     else if (!ALLOWED_OWNERS.has(legacy.owner)) {
-      findings.push(`legacy owner "${legacy.owner}" not in {claude, codex, human}`);
+      findings.push(`legacy owner "${legacy.owner}" not in {support, codex, human}`);
     }
     if (!legacy.status) findings.push("missing legacy `Status:` line");
     return findings;

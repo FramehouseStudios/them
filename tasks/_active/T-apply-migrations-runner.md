@@ -1,9 +1,9 @@
 ---
 id: T-apply-migrations-runner
 title: scripts/apply_migrations.mjs — apply all backend/migrations/*.sql in order
-owner: claude
+owner: support
 status: review
-branch: claude/backend-apply-migrations
+branch: support/backend-apply-migrations
 pillar: infra (enables all)
 v1_pillar: infra
 v1_effect: closes V1 deploy gap; before this script, only migrations/001 was ever applied by automation. Migrations 002-007 had to be applied manually.
