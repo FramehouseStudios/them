@@ -789,7 +789,6 @@
 | T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | support | review            |
 | T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | support | planned           |
 | T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | support | review            |
-| T-v1-human-clearance                    | Integrate V1 release line to the human-clearance boundary                                | codex   | review            |
 | T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | support | review            |
 | T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | support | review            |
 | T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | support | review            |
@@ -3430,51 +3429,6 @@ The 7 stateful libs (utils, persona, screenplay_store, outbox_store,
 memory_store, user_store, user_auth) are now covered at smoke +
 deeper + (for user_auth) round-trip tiers. Pre-flight's
 `lib-missing-test` rule is clean on main.
-
-### T-v1-human-clearance — Integrate V1 release line to the human-clearance boundary
-- **Owner:** codex
-- **Branch:** codex/T-v1-human-clearance
-- **Pillar:** mobile-first
-- **Status:** review
-
-## Scope
-
-Integrate the Reader Preview, stable UI smoke, durable auth, local demo/Keychain
-login, current-main backend safety fixes, and iPhone release tooling into one
-Tier-3 review branch. Run the full code-owned verification story and stop at
-the Apple/deployment/App Store/physical-device boundary without inventing
-credentials or weakening release gates.
-
-## Done When
-
-- Current `main` is integrated without dropping the stacked V1 work.
-- Providerless local startup, production fail-closed behavior, PII-safe logs,
-  account isolation, durable auth, and the DEBUG-loopback demo path are covered.
-- Remember Me and password saving are opt-in, use Apple Keychain, and survive a
-  real locally signed simulator relaunch.
-- Full backend, iOS unit, signed sequential UI, script-contract, audit, and
-  clean unsigned iPhone Release gates are recorded.
-- The final PR is labeled Tier 3 / do-not-merge and names every remaining
-  human-owned action, including approval of the inherited Email Address
-  privacy-manifest declaration.
-
-## Verification
-
-- Backend: `2,269` total, `2,268` passed, `1` skipped, `0` failed; npm audit
-  reported `0` vulnerabilities across `126` dependencies.
-- iOS unit: `497/497` passed on iPhone 17 / iOS 26.2.
-- Locally signed sequential UI: `31` total, `24` passed, `7` explicit
-  fixture/server-gated skips, `0` failed; Keychain relaunch and Creative
-  Partner reuse/Voice Pin/To Page routing passed.
-- Focused release/security contracts: `37/37` passed after enforcing full-gate
-  defaults, mode-600/non-symlink inputs, persistent backend configuration, and
-  exact io.them public-surface identity.
-- Complete script-contract suite: `197/197` passed.
-- Clean unsigned iPhone Release with dummy private values: `fail=1 warn=0`;
-  only the dedicated human-owned iOS Sign in with Apple entitlement is absent.
-- Human-only files were not edited in the final working pass. The inherited
-  branch delta contains an Email Address declaration in
-  `them/PrivacyInfo.xcprivacy`; it remains explicitly human-gated.
 
 ### T-v1-pillar-rule-and-canon-wire — Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon
 - **Owner:** support

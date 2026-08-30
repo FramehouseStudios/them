@@ -2,7 +2,7 @@
 id: T-v1-human-clearance
 title: Integrate V1 release line to the human-clearance boundary
 owner: codex
-status: review
+status: merged
 branch: codex/T-v1-human-clearance
 pillar: mobile-first
 v1_pillar: ios
@@ -13,7 +13,7 @@ v1_effect: integrates the current V1 app/auth/release stack, closes every code-o
 
 Integrate the Reader Preview, stable UI smoke, durable auth, local demo/Keychain
 login, current-main backend safety fixes, and iPhone release tooling into one
-Tier-3 review branch. Run the full code-owned verification story and stop at
+verified integration branch. Run the full code-owned verification story and stop at
 the Apple/deployment/App Store/physical-device boundary without inventing
 credentials or weakening release gates.
 
@@ -26,9 +26,8 @@ credentials or weakening release gates.
   real locally signed simulator relaunch.
 - Full backend, iOS unit, signed sequential UI, script-contract, audit, and
   clean unsigned iPhone Release gates are recorded.
-- The final PR is labeled Tier 3 / do-not-merge and names every remaining
-  human-owned action, including approval of the inherited Email Address
-  privacy-manifest declaration.
+- The merged PR names every remaining human-owned action, including approval
+  of the inherited Email Address privacy-manifest declaration.
 
 ## Verification
 
@@ -42,8 +41,14 @@ credentials or weakening release gates.
   defaults, mode-600/non-symlink inputs, persistent backend configuration, and
   exact io.them public-surface identity.
 - Complete script-contract suite: `197/197` passed.
-- Clean unsigned iPhone Release with dummy private values: `fail=1 warn=0`;
-  only the dedicated human-owned iOS Sign in with Apple entitlement is absent.
+- Clean unsigned iPhone Release with dummy private values now reaches
+  `fail=2 warn=0`; only real `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE`
+  values are absent. The dedicated iOS Sign in with Apple entitlement is
+  checked in and resolves for iPhone Release; Apple portal capability,
+  provisioning, and distribution signing remain human-owned.
 - Human-only files were not edited in the final working pass. The inherited
   branch delta contains an Email Address declaration in
   `them/PrivacyInfo.xcprivacy`; it remains explicitly human-gated.
+- PR #374 merged the entitlement and release-clearance integration into
+  `main`; the former task branch is zero commits ahead of `main` and is kept
+  only as local historical state until its ignored runtime files are reviewed.

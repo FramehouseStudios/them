@@ -126,6 +126,13 @@ function describeSecret(value, source) {
   };
 }
 
+function isValidPrivateSecret(value, minimumLength = 16) {
+  const v = trimQuotes(value);
+  return !isPlaceholder(v)
+    && v.length >= minimumLength
+    && !/[\s\u0000-\u001f\u007f]/u.test(v);
+}
+
 function gitCheckIgnore(file) {
   const result = spawnSync("git", ["-C", repoRoot, "check-ignore", "-q", rel(file)], {
     encoding: "utf8",
@@ -206,6 +213,7 @@ function buildStatus(opts) {
   const teamInput = valueFrom("DEVELOPMENT_TEAM_ID", envFileValues, envFile);
   const backendInput = valueFrom("BACKEND_URL", envFileValues, envFile);
   const tokenInput = valueFrom("APP_TOKEN_RELEASE", envFileValues, envFile);
+  const openAIInput = valueFrom("OPENAI_API_KEY", envFileValues, envFile);
 
   const xcode = opts.noXcodebuild
     ? { ok: true, skipped: true, settings: {}, error: "" }
@@ -232,7 +240,9 @@ function buildStatus(opts) {
 
   const checks = [];
 
-  const directPrivateValuesAvailable = Boolean(teamInput.value && tokenInput.value);
+  const directPrivateValuesAvailable = Boolean(
+    teamInput.value && tokenInput.value && openAIInput.value,
+  );
   checks.push(makeCheck(
     "release-env-file",
     envFileExists || directPrivateValuesAvailable,
@@ -316,7 +326,7 @@ function buildStatus(opts) {
     { value: releaseBackendUrl, source: backendInput.value ? backendInput.source : buildSettingsSource },
   ));
 
-  const tokenOk = !isPlaceholder(releaseAppToken) && releaseAppToken.length >= 16;
+  const tokenOk = isValidPrivateSecret(releaseAppToken);
   checks.push(makeCheck(
     "app-token-release",
     tokenOk,
@@ -324,6 +334,16 @@ function buildStatus(opts) {
       ? "Release APP_TOKEN_RELEASE is configured."
       : "Release APP_TOKEN_RELEASE is missing, placeholder, or too short for production.",
     { secret: describeSecret(releaseAppToken, tokenInput.source) },
+  ));
+
+  const openAIOk = isValidPrivateSecret(openAIInput.value);
+  checks.push(makeCheck(
+    "openai-api-key",
+    openAIOk,
+    openAIOk
+      ? "OPENAI_API_KEY is configured for enabled release gates."
+      : "OPENAI_API_KEY is missing, placeholder, too short, or contains whitespace/control characters.",
+    { secret: describeSecret(openAIInput.value, openAIInput.source) },
   ));
 
   const buildSettingsUsable = Boolean(xcode.ok || xcode.skipped || xcode.fallback);
@@ -355,6 +375,7 @@ function buildStatus(opts) {
     failedIds.has("development-team") ? "DEVELOPMENT_TEAM_ID" : "",
     failedIds.has("backend-url") ? "BACKEND_URL" : "",
     failedIds.has("app-token-release") ? "APP_TOKEN_RELEASE" : "",
+    failedIds.has("openai-api-key") ? "OPENAI_API_KEY" : "",
   ].filter(Boolean);
   const nextSteps = [];
   if (failedIds.has("release-env-file")) {

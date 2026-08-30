@@ -25,6 +25,7 @@ test("[release-config-status] reports missing private release inputs without pri
     DEVELOPMENT_TEAM_ID: "",
     BACKEND_URL: "",
     APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
   });
   assert.equal(r.status, 1, r.stderr);
   const payload = JSON.parse(r.stdout);
@@ -34,14 +35,19 @@ test("[release-config-status] reports missing private release inputs without pri
   assert.ok(payload.blockers.some((line) => /missing local release config/.test(line)));
   assert.ok(payload.blockers.some((line) => /Development Team ID/.test(line)));
   assert.ok(payload.blockers.some((line) => /APP_TOKEN_RELEASE/.test(line)));
+  assert.ok(payload.blockers.some((line) => /OPENAI_API_KEY/.test(line)));
   assert.ok(!payload.blockers.some((line) => /Release APP_TOKEN is missing/.test(line)));
   assert.ok(payload.missingInputs.includes("them/Release.local.env"));
   assert.ok(payload.missingInputs.includes("DEVELOPMENT_TEAM_ID"));
   assert.ok(payload.missingInputs.includes("APP_TOKEN_RELEASE"));
+  assert.ok(payload.missingInputs.includes("OPENAI_API_KEY"));
   assert.ok(payload.nextSteps.some((line) => /Create them\/Release\.local\.env/.test(line)));
   const tokenCheck = payload.checks.find((check) => check.id === "app-token-release");
   assert.equal(tokenCheck.secret.present, false);
   assert.equal(tokenCheck.secret.placeholder, true);
+  const openAICheck = payload.checks.find((check) => check.id === "openai-api-key");
+  assert.equal(openAICheck.secret.present, false);
+  assert.equal(openAICheck.secret.placeholder, true);
   assert.doesNotMatch(r.stdout, /super-secret-release-token/);
 });
 
@@ -50,6 +56,7 @@ test("[release-config-status] text output gives the first env-file recovery step
     DEVELOPMENT_TEAM_ID: "",
     BACKEND_URL: "",
     APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
   });
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stdout, /Release setup still missing or invalid:/);
@@ -57,7 +64,7 @@ test("[release-config-status] text output gives the first env-file recovery step
   assert.match(r.stdout, /Next steps:/);
   assert.match(r.stdout, /Create them\/Release\.local\.env from them\/Release\.local\.env\.example/);
   assert.match(r.stdout, /chmod 600 them\/Release\.local\.env/);
-  assert.match(r.stdout, /Fill missing private inputs: DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN_RELEASE/);
+  assert.match(r.stdout, /Fill missing private inputs: DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN_RELEASE, OPENAI_API_KEY/);
 });
 
 test("[release-config-status] release env template stays secret-free and complete", () => {
@@ -99,6 +106,7 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
       "DEVELOPMENT_TEAM_ID=ABCDE12345",
       "BACKEND_URL=https://api.them.io",
       "APP_TOKEN_RELEASE=super-secret-release-token-123456",
+      "OPENAI_API_KEY=fake-openai-release-key-123456",
       "",
     ].join("\n"),
   );
@@ -109,6 +117,7 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
     DEVELOPMENT_TEAM_ID: "",
     BACKEND_URL: "",
     APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
   });
   assert.equal(r.status, 0, r.stderr);
   const payload = JSON.parse(r.stdout);
@@ -117,7 +126,92 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
   assert.equal(tokenCheck.secret.present, true);
   assert.equal(tokenCheck.secret.placeholder, false);
   assert.equal(tokenCheck.secret.length, "super-secret-release-token-123456".length);
+  const openAICheck = payload.checks.find((check) => check.id === "openai-api-key");
+  assert.equal(openAICheck.secret.present, true);
+  assert.equal(openAICheck.secret.placeholder, false);
   assert.doesNotMatch(r.stdout, /super-secret-release-token-123456/);
+  assert.doesNotMatch(r.stdout, /fake-openai-release-key-123456/);
+});
+
+test("[release-config-status] rejects a missing OpenAI key when every other input is valid", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-missing-openai-"));
+  const envFile = path.join(dir, "Release.local.env");
+  fs.writeFileSync(
+    envFile,
+    [
+      "DEVELOPMENT_TEAM_ID=ABCDE12345",
+      "BACKEND_URL=https://api.them.io",
+      "APP_TOKEN_RELEASE=valid-release-token-123456",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  fs.chmodSync(envFile, 0o600);
+
+  const r = run(["--json", "--no-xcodebuild", `--release-env-file=${envFile}`], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "",
+    APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
+  });
+  assert.equal(r.status, 1, r.stderr);
+  const payload = JSON.parse(r.stdout);
+  assert.deepEqual(payload.missingInputs, ["OPENAI_API_KEY"]);
+  assert.ok(payload.blockers.some((line) => /OPENAI_API_KEY/.test(line)));
+});
+
+test("[release-config-status] rejects placeholder, whitespace, and control-containing OpenAI keys without leaking them", () => {
+  for (const invalidKey of [
+    "REPLACE_WITH_OPENAI_KEY",
+    "fake openai key 1234567890",
+    "fake-openai\nkey-1234567890",
+  ]) {
+    const r = run(["--json", "--no-xcodebuild"], {
+      DEVELOPMENT_TEAM_ID: "ABCDE12345",
+      BACKEND_URL: "https://api.them.io",
+      APP_TOKEN_RELEASE: "valid-release-token-123456",
+      OPENAI_API_KEY: invalidKey,
+    });
+    assert.equal(r.status, 1, r.stderr);
+    const payload = JSON.parse(r.stdout);
+    const openAICheck = payload.checks.find((check) => check.id === "openai-api-key");
+    assert.equal(openAICheck.ok, false);
+    assert.doesNotMatch(r.stdout, new RegExp(invalidKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("[release-config-status] prefers and redacts a valid shell OpenAI key", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-openai-"));
+  const envFile = path.join(dir, "Release.local.env");
+  const fileKey = "fake-file-openai-key-123456";
+  const shellKey = "fake-shell-openai-key-654321";
+  fs.writeFileSync(
+    envFile,
+    [
+      "DEVELOPMENT_TEAM_ID=ABCDE12345",
+      "BACKEND_URL=https://api.them.io",
+      "APP_TOKEN_RELEASE=valid-release-token-123456",
+      `OPENAI_API_KEY=${fileKey}`,
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  fs.chmodSync(envFile, 0o600);
+
+  const r = run(["--json", "--no-xcodebuild", `--release-env-file=${envFile}`], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "",
+    APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: shellKey,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const payload = JSON.parse(r.stdout);
+  const openAICheck = payload.checks.find((check) => check.id === "openai-api-key");
+  assert.equal(openAICheck.ok, true);
+  assert.equal(openAICheck.secret.source, "environment");
+  assert.equal(openAICheck.secret.length, shellKey.length);
+  assert.doesNotMatch(r.stdout, new RegExp(fileKey));
+  assert.doesNotMatch(r.stdout, new RegExp(shellKey));
 });
 
 test("[release-config-status] rejects insecure permissions without reading private values", () => {
@@ -135,6 +229,7 @@ test("[release-config-status] rejects insecure permissions without reading priva
     DEVELOPMENT_TEAM_ID: "",
     BACKEND_URL: "",
     APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
   });
   assert.equal(r.status, 1, r.stderr);
   const payload = JSON.parse(r.stdout);
@@ -157,6 +252,7 @@ test("[release-config-status] rejects a symlink without reading its target", () 
     DEVELOPMENT_TEAM_ID: "",
     BACKEND_URL: "",
     APP_TOKEN_RELEASE: "",
+    OPENAI_API_KEY: "",
   });
   assert.equal(r.status, 1, r.stderr);
   const payload = JSON.parse(r.stdout);
@@ -196,6 +292,7 @@ test("[run-release-preflight] stops at config status without leaking sourced tok
       DEVELOPMENT_TEAM_ID: "",
       BACKEND_URL: "",
       APP_TOKEN_RELEASE: "",
+      OPENAI_API_KEY: "",
     },
     encoding: "utf8",
   });
@@ -228,6 +325,7 @@ test("[run-release-preflight] skips live backend and desktop preflight when conf
       DEVELOPMENT_TEAM_ID: "",
       BACKEND_URL: "",
       APP_TOKEN_RELEASE: "",
+      OPENAI_API_KEY: "",
       MAC_DESKTOP_DERIVED_DATA_PATH: desktopMarker,
     },
     encoding: "utf8",

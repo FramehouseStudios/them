@@ -5,8 +5,11 @@ the V1 release-readiness checklist item in `docs/v1-definition.md`.
 
 ## Last Verified
 
-2026-08-30 America/Los_Angeles on branch
-`codex/T-v1-human-clearance`, immediately before integration into `main`.
+2026-08-30 America/Los_Angeles. The broad app results below were recorded on
+`codex/T-v1-human-clearance` immediately before its verified integration into
+`main`. The 2026-08-30 release-clearance refresh changed only release-status
+scripts, their tests, and proof documentation; it did not rerun these broad app
+suites. See `docs/v1-release-preflight-proof.md` for the current focused rerun.
 
 ## Commands
 

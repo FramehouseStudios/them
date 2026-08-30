@@ -4,7 +4,7 @@ This artifact records the latest code-owned iPhone App Store/TestFlight proof. I
 
 ## Last Run
 
-2026-08-30 America/Los_Angeles on `codex/T-v1-human-clearance`, immediately before integration into `main`.
+2026-08-30 America/Los_Angeles on `codex/T-v1-release-clearance-refresh`, based on `main` at `eeea598`.
 
 ## Configuration Audit
 
@@ -12,6 +12,7 @@ The release path uses ignored, mode-600 local inputs:
 
 - `them/Release.local.env` is the operator input.
 - `scripts/run_release_preflight.sh` rejects symlinks, non-regular files, and any `Release.local.env` mode other than 600 before sourcing it. Its full quality gate defaults on.
+- `scripts/release_config_status.mjs` now enforces the wrapper's `OPENAI_API_KEY` requirement and reports only redacted source/length metadata. Missing, placeholder, short, whitespace/control-containing, and shell-precedence cases are covered.
 - `scripts/write_release_xcconfig.mjs` validates and atomically writes the Team ID, app token, and hosted HTTPS backend origin to ignored `them/Release.local.xcconfig` immediately before Xcode inspection/build. This keeps a later Organizer archive on the same backend that preflight checked.
 - `Release.local.xcconfig` is an exact synchronized-folder membership exception, is excluded from all four target configurations, and is a hard-fail artifact if present in the built app.
 - `APP_TOKEN_RELEASE` is never passed in `xcodebuild` argv. It is shipped as app configuration and is extractable, so user authentication—not this shared value—is the authorization boundary.
@@ -48,9 +49,22 @@ The two remaining failures are expected and human-owned:
 - `DEVELOPMENT_TEAM_ID` is not present in ignored local release input.
 - `APP_TOKEN_RELEASE` is not present in ignored local release input.
 
+The companion release-config status is separately blocked on four items: the missing protected env file, `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY`. The checked-in Release backend URL remains hosted and HTTPS. This is intentional parity with the full wrapper, which cannot run enabled paid/live gates without the OpenAI key.
+
 Focused release/security contracts passed, including mode-600/symlink rejection before secrets are sourced, canonical-policy success, unrelated-page rejection, and redirect rejection through localhost HTTP fixtures. The live production checks remain a human deployment blocker: on 2026-08-30 both `https://api.them.io/healthz` and `https://them.io/privacy` redirected to `https://introvert.com/?domain=them.io` instead of returning direct io.them responses.
 
-## Code-Owned Verification
+## Current Refresh Verification
+
+- Release-config and wrapper contracts: `25` passed, `0` failed.
+- Complete repository script-contract suite: `200` passed, `0` failed.
+- Deterministic V1 smoke chain: all `5` passed, including authenticated learned-answer voice continuity through the owned realtime bridge.
+- Current release-config status: `4` blockers, all expected private/human inputs; it no longer produces a false ready result without `OPENAI_API_KEY`.
+- Current public-surface checks: blocked because `api.them.io` and `them.io/privacy` redirect to unrelated parked-domain content.
+- App Store preflight on the same current-main base: unsigned Release build passed and the result remained `fail=2 warn=0`, with only Team ID and app token missing.
+
+## Integrated Baseline Evidence
+
+The following broader app results were recorded before this script-and-documentation-only refresh. They remain useful baseline evidence but were not rerun in this branch:
 
 - Focused providerless-startup, PII-safe request-logging, and screenplay-ownership tests: `45` passed, `0` failed.
 - Backend suite: `2,269` total; `2,268` passed, `1` intentionally skipped, `0` failed.
@@ -63,7 +77,7 @@ Focused release/security contracts passed, including mode-600/symlink rejection 
 - The seven explicit skips require external fixtures: backend restore server (`1`), cross-platform restore/learned-memory fixtures (`3`), screenplay-save recovery server (`2`), and writer-block instinct fixture (`1`).
 - Creative Partner's failed “To Page” route was caused by the reuse action re-focusing the Studio composer after reload, leaving the software keyboard over the button. Clearing focus after the reload transaction fixed the root cause; both the focused regression and full suite passed.
 - Optimized unsigned arm64 iPhone Release build passed, linked, generated dSYMs, and passed bundle validation.
-- App Store preflight with no real local credentials: `fail=2 warn=0`; only `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` remain missing.
+- App Store preflight with no real local credentials: `fail=2 warn=0`; only `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` were missing from that command.
 
 ## GitHub Configuration Audit
 
