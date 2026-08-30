@@ -11,8 +11,21 @@ Every change should move the app closer to a stable, usable, emotionally cinemat
 - The human is the product lead and final authority for product direction, privacy policy, release credentials, App Store metadata, and merges that materially change risk.
 - Codex is the active implementation owner. Build, verify, document, and keep moving.
 - Historical task records can contain older `support` ownership metadata. Treat that as history, not a live instruction to create or wait for another assistant lane.
+- Historical prompts addressed to another assistant are reference material only. Extract useful product or engineering intent, rewrite it as project-owned Codex guidance here, and never revive a separate named-agent workflow.
 - New work uses `codex/<task-id>-<short-name>` branches unless the human explicitly asks for a different branch.
 - Do not push directly to `main` during normal development. Use scoped PRs for implementation work.
+
+## Repository source-of-truth order
+
+For repository work, resolve local guidance in this order:
+
+1. the human's freshest explicit request;
+2. this `AGENTS.md`;
+3. accepted entries in `DECISIONS.md`;
+4. current, non-stale work in `TASKS.md` and release proof documents;
+5. historical prompts, task records, branches, and archived coordination material.
+
+Do not let an old roadmap, branch name, ownership label, or pasted prompt override verified current repository state. Surface a real contradiction instead of silently choosing the more convenient instruction.
 
 ## Execution rules
 
@@ -26,6 +39,8 @@ Every change should move the app closer to a stable, usable, emotionally cinemat
 8. Verify every meaningful change before calling it complete.
 9. Keep commits small, readable, and reversible.
 10. When blocked by human-only authority, document the exact clearance step and continue with the next safe unblocked task.
+11. Exhaust safe in-scope options before declaring a blocker; prefer the smallest viable path that preserves product behavior and user trust.
+12. Leave the code, tests, decisions, and handoff state clearer than you found them so the next Codex pass can continue without rediscovery.
 
 ## Self-checking loop
 
@@ -37,6 +52,57 @@ Every meaningful implementation pass follows the same strict loop:
 4. **Decide** — if every criterion passes, commit and continue; otherwise fix the weakest result first and repeat.
 
 Do not call work complete until it is connected, verified, and usable, or a specific external or human-authority blocker is documented.
+
+Each iteration fixes the weakest verified result first. A compile-only pass is not sufficient proof for an interactive flow, and a green test suite is not proof that the business or customer experience works.
+
+## Evidence and claim discipline
+
+Use these labels when a material claim is not self-evident from the cited code or command output:
+
+- **VERIFIED** — reproduced from current code, tests, runtime output, or stored events.
+- **DECIDED** — explicitly accepted by the human in `DECISIONS.md` or the current request.
+- **ASSUMPTION** — a reversible working assumption used to keep moving.
+- **ESTIMATE** — an uncertain quantity with its basis stated.
+- **RECOMMENDATION** — a proposed choice, not an accepted fact.
+- **HUMAN_INPUT_REQUIRED** — blocked on product authority, credentials, privacy, signing, money, or another genuinely human-only action.
+
+Every material product metric must be reproducible from stored source events and versioned calculation rules, or be explicitly labeled as an estimate. Never invent adoption, retention, quality, cost, revenue, or launch-readiness claims.
+
+Priority product evidence includes:
+
+- time from voice or fragment input to a usable formatted scene;
+- completed scenes per active writer;
+- retention after the first successful scene;
+- acceptance of continue, rewrite, and page-write results;
+- autosave and fresh-launch session-restore success;
+- fully loaded provider and storage cost per completed scene.
+
+Store only the evidence needed to improve reliability and product decisions. Do not log screenplay content, credentials, tokens, or personal data merely to make a metric easier.
+
+## Product and software decision gate
+
+Before building or merging a feature, confirm that it:
+
+1. advances at least one north-star pillar: mobile-first, voice-to-scene, living companion, or longitudinal learning;
+2. improves a concrete writer outcome instead of adding visible complexity;
+3. connects the full required path across UI, backend, persistence, and recovery rather than stopping at a shallow control;
+4. defines loading, cancellation, offline, permission, authentication, and failure behavior where applicable;
+5. preserves writer ownership, project isolation, and the distinction between fictional story content and real-world claims;
+6. has falsifiable success criteria and verification proportional to its risk;
+7. is the smallest stable change that proves the next product milestone.
+
+If a proposal fails this gate, narrow it, park it, or remove it.
+
+## Architecture and contract gates
+
+- Default to the existing modular monolith: SwiftUI client, Node backend, PostgreSQL-centered persistence, and owned provider adapters.
+- Domain and product code must depend on product-owned interfaces, not import vendor behavior directly. A provider change is incomplete until its adapter contract, failure mapping, cost/metering behavior, and fallback behavior are verified.
+- Keep unresolved pricing, packaging, model IDs, routing thresholds, voice providers, and retention targets configurable. Do not turn an open commercial decision into hard-coded product logic.
+- Treat identity, user/project authorization, and collaborator separation as structural constraints. Never rely on a caller-supplied identifier or UI convention as the only authorization boundary.
+- Preserve durable session, generation, mutation, and cost evidence where it is needed for reconciliation. User work must not disappear silently after crashes, retries, conflicts, or relaunches.
+- Do not add microservices, Kafka-style event buses, Kubernetes, a warehouse, predictive training pipelines, or a new native platform without a measured trigger and an accepted decision.
+
+Complexity is justified only when current evidence shows at least one of: independent scaling pressure, an isolation/security boundary, a distinct failure domain, sustained queue/backpressure loss, or an ownership/deployment bottleneck that the modular monolith cannot safely solve.
 
 ## Continue behavior
 
@@ -64,6 +130,8 @@ The app must help users:
 - understand loading, error, auth, and offline states without confusion;
 - finish real work faster than they could in a blank document.
 
+The product must never claim guaranteed screenplay success, ownership of writer IP, copyright or chain-of-title advice, automatic completion of every feature, or replacement of human creative relationships and professional collaborators.
+
 ## Verification expectations
 
 - Swift/UI changes: run focused `xcodebuild` tests when available; run a broader build or test target when risk is high.
@@ -73,6 +141,8 @@ The app must help users:
 - Documentation-only changes: run link/path/static checks where useful, and always run `git diff --check`.
 
 Report skipped verification plainly. Never claim a test passed if it was not run.
+
+For end-to-end claims, verify the strongest available chain: user action → app state → request contract → authorization → persistence → restored response. If credentials, paid providers, signing, or physical-device access are unavailable, verify the deterministic layers, label the live step unverified, and provide the exact clearance action.
 
 ## Human-only surfaces
 
