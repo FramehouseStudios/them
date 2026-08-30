@@ -1,9 +1,9 @@
 ---
 id: T-memories-route-deeper-tests
 title: Deeper test coverage for backend/lib/memories_route.js
-owner: claude
+owner: support
 status: merged
-branch: claude/T-memories-route-deeper-tests
+branch: support/T-memories-route-deeper-tests
 pillar: memory
 v1_pillar: memory
 v1_effect: pins boundary + edge-case behavior of the /memories/* cluster (body-limit enforcement, method guards, persistence call order, 304-vs-200 routing, backfill side-effect conditionality, export filename pattern). The base suite covered happy-path response shapes; this suite locks in the supporting invariants iOS depends on.

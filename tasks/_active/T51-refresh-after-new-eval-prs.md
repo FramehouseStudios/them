@@ -7,5 +7,5 @@ Tier: 1
 
 Done when:
 - PRs #110, #111, and #112 are represented in the coordination queue.
-- Claude-facing docs say each is `do-not-merge` until rebased after PR #103.
+- support agent-facing docs say each is `do-not-merge` until rebased after PR #103.
 - Coordination prompt scripts and `git diff --check` pass.

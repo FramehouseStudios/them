@@ -1,8 +1,8 @@
 # T08 — Prompt Centralization & Creative Memory Tier (Backend)
 
 **Status:** in-progress
-**Owner:** claude
-**Branch:** `claude/backend-T08-memory-tier`
+**Owner:** support
+**Branch:** `support/backend-T08-memory-tier`
 **Pillars:** living companion + longitudinal learning (D002)
 **Related:** D001, D002, D003. Sibling follow-up: iOS prompt-path consolidation through `ScreenplayPromptBuilder` — Codex to own when the dirty iOS state lands on `main`.
 
@@ -196,7 +196,7 @@ Each commit is independently reviewable. The PR opens after commit 5 and referen
 ## Open questions
 
 1. **Coexistence with `memory_store.js`.** The existing 559-line memory store models personality, social sparks, rememberedPeople. Should creative memory subsume it, or stay alongside? **Proposed: alongside.** Different domain (chat companion vs. creative-writing companion); subsumption requires refactoring 559 lines of working memory and is not in this task. The existing `rememberedPeople` may eventually inform `creativeMemory.characters`, but not in T08.
-2. **T07 ordering.** T07 (Postgres canonical) is independently `ready-for-claude`. If T07 lands first, T08's persistence adapter targets Postgres directly. If T07 lands second, T08 ships JSON and migrates later. Either order works.
+2. **T07 ordering.** T07 (Postgres canonical) is independently `ready-for-support`. If T07 lands first, T08's persistence adapter targets Postgres directly. If T07 lands second, T08 ships JSON and migrates later. Either order works.
 3. **Tone-signal source.** What's the trigger for tone preference detection — explicit user setting, or implicit signal from accept/reject patterns? **MVP assumes implicit.** Explicit setting can be added later without schema changes (a `tone.userOverride` field).
 4. **iOS coordination.** Once Codex centralizes iOS prompt assembly, the iOS-side `ScreenplayPromptBuilder` should call a backend endpoint that returns `{ prompt: string }` rather than constructing prompts client-side. This keeps the backend as the single source of truth. Not in T08; Codex follow-up will define the contract.
 
@@ -213,7 +213,7 @@ Each commit is independently reviewable. The PR opens after commit 5 and referen
 
 ## Final shipped state (this PR)
 
-Five reviewable commits on `claude/backend-T08-memory-tier`:
+Five reviewable commits on `support/backend-T08-memory-tier`:
 
 1. **T08 row claim** — TASKS.md update.
 2. **Design doc** — `docs/T08-prompt-centralization-and-memory-tier.md` (this file's pre-implementation version).

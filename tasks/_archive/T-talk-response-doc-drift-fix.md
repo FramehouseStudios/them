@@ -1,9 +1,9 @@
 ---
 id: T-talk-response-doc-drift-fix
 title: Remove non-emitted fields from talk-response.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-talk-response-doc-drift-fix
+branch: support/T-talk-response-doc-drift-fix
 pillar: infra (schema discipline)
 v1_pillar: talk
 v1_effect: corrects talk-response.md against the live `handleTalkRequest` body — removes `talk_status` and `recovery_applied` entries that the route does not emit; iOS decoders that key on these names would have crashed on missing-key in strict-decode mode

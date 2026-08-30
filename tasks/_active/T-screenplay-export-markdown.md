@@ -1,9 +1,9 @@
 ---
 id: T-screenplay-export-markdown
 title: POST /screenplay/export format=md|markdown
-owner: claude
+owner: support
 status: review
-branch: claude/T-screenplay-export-markdown
+branch: support/T-screenplay-export-markdown
 pillar: layer-1-craft (export)
 v1_pillar: screenplay
 v1_effect: infrastructure for V1 line 37 (Markdown export path)

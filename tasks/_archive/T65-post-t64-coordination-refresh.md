@@ -10,12 +10,12 @@ pillar: mobile-first + infra
 ## Scope
 
 PR #146 merged T64, so the repo-native coordination lane should mark the
-session-evolution launch quieting task as merged and keep Claude's immediate
+session-evolution launch quieting task as merged and keep support agent's immediate
 blockers precise against post-T64 `main`.
 
 ## Done when
 
-`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
-`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64
-merged; Claude's #133/#134 blockers remain current; coordination prompt/check
+`TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`,
+`docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64
+merged; support agent's #133/#134 blockers remain current; coordination prompt/check
 scripts pass.

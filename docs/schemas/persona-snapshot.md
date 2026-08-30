@@ -8,7 +8,7 @@ display the active persona surface.
 
 ## Owner
 
-- **Backend**: Claude. Snapshot shape defined in
+- **Backend**: support agent. Snapshot shape defined in
   `backend/lib/persona.js`.
 - **iOS**: Codex. Decoded into the persona-surface UI.
 

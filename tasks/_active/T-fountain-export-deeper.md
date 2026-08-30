@@ -1,9 +1,9 @@
 ---
 id: T-fountain-export-deeper
 title: Deeper tests for fountain_export
-owner: claude
+owner: support
 status: review
-branch: claude/T-fountain-export-deeper
+branch: support/T-fountain-export-deeper
 pillar: infra (test coverage)
 v1_pillar: screenplay
 v1_effect: closes the deeper coverage gap for fountain_export, the V1 screenplay-pillar export pipeline iOS depends on for share/save UX

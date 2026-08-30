@@ -1,9 +1,9 @@
 ---
 id: T-talk-error-counter-zero-fix
 title: Fix talk_error_counter falsy-zero bug in errorRatePerHour math
-owner: claude
+owner: support
 status: review
-branch: claude/T-talk-error-counter-zero-fix
+branch: support/T-talk-error-counter-zero-fix
 pillar: infra (bug fix)
 v1_pillar: infra
 v1_effect: corrects errorRatePerHour when the first event arrives at time=0 — the rate was off by 3600× (collapsed to the 1-second-minimum hours window) due to `earliestStampedAt || now` treating 0 as falsy

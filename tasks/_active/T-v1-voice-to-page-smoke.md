@@ -1,9 +1,9 @@
 ---
 id: T-v1-voice-to-page-smoke
 title: V1 voice-to-page smoke fixture + automated subset
-owner: claude
+owner: support
 status: review
-branch: claude/T-v1-voice-to-page-smoke
+branch: support/T-v1-voice-to-page-smoke
 pillar: infra (V1 smoke)
 v1_pillar: talk
 v1_effect: infrastructure for "Manual smoke: record voice -> get reply -> hear reply -> saved turn" (docs/v1-definition.md line 26)

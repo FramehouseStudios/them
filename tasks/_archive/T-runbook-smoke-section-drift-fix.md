@@ -1,9 +1,9 @@
 ---
 id: T-runbook-smoke-section-drift-fix
 title: Correct v1_voice_to_page and v1_screenplay smoke sections in runbook
-owner: claude
+owner: support
 status: merged
-branch: claude/T-runbook-smoke-section-drift-fix
+branch: support/T-runbook-smoke-section-drift-fix
 pillar: infra (operator docs)
 v1_pillar: infra
 v1_effect: corrects two smoke-section descriptions in `docs/runbook-v1-smoke.md` against the actual smoke bodies — operators were being sent to the wrong file when a smoke failed

@@ -1,9 +1,9 @@
 ---
 id: T-fdx-export-schema-doc
 title: docs/schemas/fdx-export.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-fdx-export-schema-doc
+branch: support/T-fdx-export-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: screenplay
 v1_effect: closes the schema-doc gap for the FDX export endpoint — V1 line 38 ("iOS consumes FDX export") needs the canonical envelope documented so iOS decoders + Codex review have a fixed contract to read against

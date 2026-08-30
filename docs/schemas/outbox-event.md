@@ -8,7 +8,7 @@ via the scale-backplane.
 
 ## Owner
 
-- **Backend / record shape**: Claude. Defined in
+- **Backend / record shape**: support agent. Defined in
   `backend/lib/outbox_store.js`. Persisted via the
   `scaleBackplane.enqueueOutbox / claimDueOutbox / updateOutbox /
   listOutbox` interface.

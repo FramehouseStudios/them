@@ -1,9 +1,9 @@
 ---
 id: T-tasks-per-row
 title: Per-row task files + TASKS.md regenerator (no canonical flip yet)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-tasks-per-row
+branch: support/T-tasks-per-row
 pillar: infra (enables all)
 ---
 

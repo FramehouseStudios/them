@@ -1,7 +1,7 @@
 ---
 id: T-untested-libs-followups
 title: Add tests for remaining untested infrastructure libs
-owner: claude
+owner: support
 status: planned
 branch: (not opened)
 pillar: infra (test coverage)

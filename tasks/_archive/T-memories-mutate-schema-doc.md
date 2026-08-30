@@ -1,9 +1,9 @@
 ---
 id: T-memories-mutate-schema-doc
 title: docs/schemas/memories-mutate.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-memories-mutate-schema-doc
+branch: support/T-memories-mutate-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the four /memories/* mutation endpoints (update/forget/promote/feedback) — gives iOS a fixed contract for the memory-card edit/delete/promote UX before Phase 6 extracts the routes

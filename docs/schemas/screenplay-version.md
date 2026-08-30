@@ -14,7 +14,7 @@ Canonical shape for `POST /screenplay/projects/:projectId/version`.
 
 ## Owner
 
-- **Backend**: Claude. `mountScreenplayProjectsRoutes` in
+- **Backend**: support agent. `mountScreenplayProjectsRoutes` in
   `backend/lib/screenplay_projects_routes.js` (PR #197).
 - **iOS decoder**: Codex.
 

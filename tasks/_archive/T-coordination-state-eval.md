@@ -1,9 +1,9 @@
 ---
 id: T-coordination-state-eval
 title: Schema check on docs/coordination.json
-owner: claude
+owner: support
 status: merged
-branch: claude/T-coordination-state-eval
+branch: support/T-coordination-state-eval
 pillar: infra (coordination)
 ---
 
@@ -19,7 +19,7 @@ which:
   `updatedBy`, `openPullRequests`, `blockers`, `decisionsPending`,
   `endpointsAwaitingIosConsumer`).
 - For each open PR, validates required fields and the `owner ∈
-  {claude, codex, human}` + `tier ∈ {1, 2, 3}` enums.
+  {support, codex, human}` + `tier ∈ {1, 2, 3}` enums.
 - For each blocker, validates `id`, `owner`, `summary`.
 
 A smoke test (`coordination_state_schema_check.test.mjs`) execs the

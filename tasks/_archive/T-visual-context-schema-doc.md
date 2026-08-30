@@ -1,9 +1,9 @@
 ---
 id: T-visual-context-schema-doc
 title: docs/schemas/visual-context.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-visual-context-schema-doc
+branch: support/T-visual-context-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: talk
 v1_effect: documents the POST /visual/context envelope iOS uses to ground talk-pipeline replies in what the user is looking at — TIER-3 SENSITIVE surface that needed a canonical contract

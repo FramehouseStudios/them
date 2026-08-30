@@ -19,7 +19,7 @@ field that appears inside `POST /screenplay/projects` /
 
 ## Owner
 
-- **Backend / envelope shape**: Claude.
+- **Backend / envelope shape**: support agent.
   `backend/lib/screenplay_projects_routes.js` (PR #192, #197).
 - **iOS decoder**: Codex.
 

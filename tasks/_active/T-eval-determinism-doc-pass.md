@@ -1,9 +1,9 @@
 ---
 id: T-eval-determinism-doc-pass
 title: Document determinism stance across 10 canon evals
-owner: claude
+owner: support
 status: review
-branch: claude/T-eval-determinism-doc-pass
+branch: support/T-eval-determinism-doc-pass
 pillar: infra (eval discipline)
 v1_pillar: infra
 v1_effect: closes the eval-missing-determinism-check pre-flight gap so the canon eval suite passes pre-flight clean (matters because eval:canon gates V1 ship)

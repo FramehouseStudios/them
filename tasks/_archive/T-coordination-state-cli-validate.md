@@ -1,9 +1,9 @@
 ---
 id: T-coordination-state-cli-validate
 title: Add `validate` subcommand to coordination_state.mjs
-owner: claude
+owner: support
 status: merged
-branch: claude/T-coordination-state-cli-validate
+branch: support/T-coordination-state-cli-validate
 pillar: infra (coordination)
 ---
 
@@ -26,7 +26,7 @@ Same invariant set as the standalone schema-check:
 - `updatedAt` is ISO-8601
 - `updatedBy` is non-empty
 - `openPullRequests`, `blockers`, `decisionsPending` are arrays
-- Per-PR: `number` (int), `title`, `owner ∈ {claude, codex, human}`,
+- Per-PR: `number` (int), `title`, `owner ∈ {support, codex, human}`,
   `tier ∈ {1, 2, 3}`, `status`, `branch`
 - Per-blocker: `id`, `owner`, `summary`
 

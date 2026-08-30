@@ -145,10 +145,10 @@ Apple signing setup, and an actual app run through:
    replace the current `not_started` report with the passing manual smoke
    export.
 
-## Claude Direction
+## support agent Direction
 
-Claude should stay in V1 manual-smoke support mode. PR #33, PR #354, PR #358,
+support agent should stay in V1 manual-smoke support mode. PR #33, PR #354, PR #358,
 and PR #359 are merged; do not reopen those lanes. If Codex or the human posts
 a concrete Talk, Studio, Memory, Realtime, or release-readiness smoke failure
-from the Launch Doctor/manual app run, Claude should fix only that assigned
+from the Launch Doctor/manual app run, support agent should fix only that assigned
 backend/support failure.

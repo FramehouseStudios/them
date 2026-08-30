@@ -1,9 +1,9 @@
 ---
 id: T-known-domains-runtime-check
 title: KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-known-domains-runtime-check
+branch: support/T-known-domains-runtime-check
 pillar: infra (persistence)
 ---
 

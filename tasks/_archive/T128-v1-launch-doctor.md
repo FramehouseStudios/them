@@ -24,7 +24,7 @@ launch room can read or point to during release readiness checks.
   state, notes, and a report/export shape.
 - Tests cover the report builder and launch-room handling of the report path.
 - `scripts/v1_launch_room.mjs` surfaces the current Launch Doctor report status.
-- Handoff files tell Claude that Phase 7b remains his lane and that this is
+- Handoff files tell support agent that Phase 7b remains his lane and that this is
   app-side smoke instrumentation only.
 
 ## Verification

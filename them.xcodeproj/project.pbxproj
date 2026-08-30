@@ -23,7 +23,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"Config.xcconfig",
-				".claude",
 				".codex_tmp",
 				"APP_REVIEW_NOTES_TEMPLATE.md",
 				"APP_STORE_PRIVACY_MAPPING.md",
@@ -458,8 +457,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
-					".claude",
-					".claude/*",
 					".codex_tmp",
 					".codex_tmp/*",
 					"*.md",
@@ -523,8 +520,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					"Config.xcconfig",
-					".claude",
-					".claude/*",
 					".codex_tmp",
 					".codex_tmp/*",
 					"*.md",

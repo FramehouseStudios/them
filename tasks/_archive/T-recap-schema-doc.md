@@ -1,9 +1,9 @@
 ---
 id: T-recap-schema-doc
 title: docs/schemas/recap.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-recap-schema-doc
+branch: support/T-recap-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the GET /recap + /recap/today daily-recap envelope iOS uses for the "look back at your day" surface — feeds the living-companion experience the memory + talk pillars rely on

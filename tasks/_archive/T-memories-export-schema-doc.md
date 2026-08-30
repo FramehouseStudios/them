@@ -1,9 +1,9 @@
 ---
 id: T-memories-export-schema-doc
 title: docs/schemas/memories-export.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-memories-export-schema-doc
+branch: support/T-memories-export-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the GET /memories/export full-dump envelope iOS uses for the V1 line 54 "human privacy decision is made for full memory export/delete" gate — canonicalizes the shape so the privacy decision can be applied additively

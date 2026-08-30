@@ -1,9 +1,9 @@
 ---
 id: T-deeper-lib-tests-batch-2
 title: Deeper tests for persona + utils + screenplay_store + outbox_store
-owner: claude
+owner: support
 status: review
-branch: claude/T-deeper-lib-tests-batch-2
+branch: support/T-deeper-lib-tests-batch-2
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: closes the deeper coverage gap for 4 of the 7 stateful libs the V1 surface depends on (persona drives talk pipeline; screenplay_store backs screenplay studio; outbox_store carries durable side-effects; utils is the shared toolbox)

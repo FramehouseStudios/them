@@ -1,9 +1,9 @@
 ---
 id: T-backfill-v1-pillar-legacy
 title: Backfill V1 pillar/effect on 13 legacy non-merged task files
-owner: claude
+owner: support
 status: review
-branch: claude/T-backfill-v1-pillar-legacy
+branch: support/T-backfill-v1-pillar-legacy
 pillar: infra
 v1_pillar: infra
 v1_effect: closes the 13 task-missing-v1-pillar pre-flight findings against current main (rule added in #235)

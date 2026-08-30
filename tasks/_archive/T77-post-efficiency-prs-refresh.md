@@ -9,13 +9,13 @@ pillar: infra (coordination)
 
 ## Scope
 
-Record the post-T76 efficiency follow-ups: Claude PR #180 cleaned the
-outbox `console.log` pre-flight findings, and Claude PR #181 landed the
+Record the post-T76 efficiency follow-ups: support agent PR #180 cleaned the
+outbox `console.log` pre-flight findings, and support agent PR #181 landed the
 backend-index decomposition spec with Codex's phasing decisions.
 
 ## Done when
 
 Task files and `TASKS.md` mark #180/#181 work merged; the live handoff,
-Codex inbox, Claude inbox, coordination JSON, and agent-events lane record
+Codex inbox, support agent inbox, coordination JSON, and agent-events lane record
 the merges; and coordination, agent-next, task-frontmatter, task-stats,
 task-generation, agent-event, and diff checks pass.

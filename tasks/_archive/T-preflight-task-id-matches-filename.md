@@ -1,12 +1,12 @@
 ---
 id: T-preflight-task-id-matches-filename
 title: Pre-flight rule task-id-mismatch-filename
-owner: claude
+owner: support
 status: merged
-branch: claude/T-preflight-task-id-matches-filename
+branch: support/T-preflight-task-id-matches-filename
 pillar: infra (pre-flight rule)
 v1_pillar: infra
-v1_effect: closes the silent cross-reference-break gap — a task file with `id: T-foo` saved as `T-bar.md` would silently break any reference from coordination.json / claude-inbox / sibling task files
+v1_effect: closes the silent cross-reference-break gap — a task file with `id: T-foo` saved as `T-bar.md` would silently break any reference from coordination.json / support-inbox / sibling task files
 ---
 
 ## Scope
@@ -21,7 +21,7 @@ Grandfather: files without YAML front matter; files without an
 
 ## Why
 
-`coordination.json`, `claude-inbox.md`, and sibling task files
+`coordination.json`, `support-inbox.md`, and sibling task files
 all cross-reference each other by task id. A typo where the
 file is named `T-foo-fix.md` but the front matter says
 `id: T-foo-fixed` silently breaks every cross-reference and

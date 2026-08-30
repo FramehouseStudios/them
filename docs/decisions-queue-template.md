@@ -7,7 +7,7 @@ PR #127's `decisions_queue_lint.mjs` validates).
 
 ```markdown
 ### D-<short-slug> — <one-line question>
-- **Asked by:** claude | codex
+- **Asked by:** support | codex
 - **Asked at:** YYYY-MM-DD
 - **Why it matters:** one sentence on what unblocks if you answer.
 - **Question:** the single concrete question. No menus longer than 3 options.
@@ -16,7 +16,7 @@ PR #127's `decisions_queue_lint.mjs` validates).
 
 ## Required field rules
 
-- `**Asked by:**` — must be `claude` | `codex` | (occasionally) `human`.
+- `**Asked by:**` — must be `support` | `codex` | (occasionally) `human`.
 - `**Asked at:**` — ISO 8601 calendar date (`YYYY-MM-DD`), no time.
 - `**Question:**` — exactly one question. If you have three questions,
   file three entries. Three options max if you offer them.
@@ -48,7 +48,7 @@ When the human answers:
 
 ```markdown
 ### D-voice-supplier — Pick the default realtime voice supplier
-- **Asked by:** claude
+- **Asked by:** support
 - **Asked at:** 2026-05-09
 - **Why it matters:** unblocks the failover rollout.
 - **Question:** OpenAI vs ElevenLabs as primary?

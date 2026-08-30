@@ -1,9 +1,9 @@
 ---
 id: T-decisions-queue-fixture-template
 title: docs/decisions-queue-template.md (copy-paste entry template)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decisions-queue-fixture-template
+branch: support/T-decisions-queue-fixture-template
 pillar: infra (coordination)
 ---
 

@@ -218,7 +218,7 @@ and remaining items.
 
 ## Updating the runbook
 
-This doc is owned by Claude. When a V1 smoke is added or its
+This doc is owned by support agent. When a V1 smoke is added or its
 invariants change, update both the smoke's header comment AND
 the matching section here. Schema doc references in this runbook
 must stay in lockstep with `docs/schemas/`.

@@ -1,9 +1,9 @@
 ---
 id: T-block-signal-history-bounds-eval
 title: Pathological-input guard on the block-signal history buffer
-owner: claude
+owner: support
 status: review
-branch: claude/T-block-signal-history-bounds-eval
+branch: support/T-block-signal-history-bounds-eval
 pillar: evals (layer-3-living)
 v1_pillar: memory
 v1_effect: infrastructure for V1 line 49 'Character mentions, traits, archetypes, accepted twists, and block history have backend/iOS surfaces' (guards block-signal history buffer)

@@ -19,7 +19,7 @@ proof work.
 
 - `docs/coordination.json` marks PR #338 and PR #339 merged.
 - The live event lane records the merge events.
-- The handoff ledger tells Claude to stay in V1 smoke-failure support mode.
+- The handoff ledger tells support agent to stay in V1 smoke-failure support mode.
 - `agent_next` and launch-room commands no longer point Codex at stale PR #338.
 
 ## Verification
@@ -27,6 +27,6 @@ proof work.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed and no longer points Codex at PR #338.
 - `node scripts/v1_launch_room.mjs --role=codex` passed.
-- `node scripts/v1_launch_room.mjs --role=claude` passed.
+- `node scripts/v1_launch_room.mjs --role=support` passed.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.

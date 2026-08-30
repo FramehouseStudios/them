@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase5b-realtime-design
 title: Phase 5b design note — 5 heavy /realtime/* write/streaming/call routes
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (gating note; sub-phases open only after Codex accepts)
 pillar: infra (backend architecture)

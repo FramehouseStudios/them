@@ -21,7 +21,7 @@ Two response modes:
 
 ## Owner
 
-- **Backend**: Claude. Route in
+- **Backend**: support agent. Route in
   `backend/lib/fountain_export_route.js`; serializer in
   `backend/lib/fountain_export.js` (`exportToFountain`).
 - **iOS**: Codex. Consumes the Fountain text for share / save

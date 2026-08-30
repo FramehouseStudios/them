@@ -1,9 +1,9 @@
 ---
 id: T-screenplay-export-pdf-error-clarity
 title: Add human-readable help payload to PDF export rejection
-owner: claude
+owner: support
 status: merged
-branch: claude/T-screenplay-export-pdf-error-clarity
+branch: support/T-screenplay-export-pdf-error-clarity
 pillar: layer-1-craft (export)
 ---
 

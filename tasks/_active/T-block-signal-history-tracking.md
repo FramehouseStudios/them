@@ -1,9 +1,9 @@
 ---
 id: T-block-signal-history-tracking
 title: Persist block-signal samples to creative memory habits
-owner: claude
+owner: support
 status: review
-branch: claude/T-block-signal-history-tracking
+branch: support/T-block-signal-history-tracking
 pillar: layer-3-living (creative-memory longitudinal)
 v1_pillar: memory
 v1_effect: infrastructure for V1 line 49 (persists block-signal samples to creative memory)

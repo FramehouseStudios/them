@@ -1,9 +1,9 @@
 ---
 id: T-ops-health-summary-route
 title: GET /ops/health-summary cheap uptime-dashboard endpoint
-owner: claude
+owner: support
 status: merged
-branch: claude/T-ops-health-summary-route
+branch: support/T-ops-health-summary-route
 pillar: ops (observability)
 ---
 

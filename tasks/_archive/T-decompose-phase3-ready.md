@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase3-ready
 title: Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase3-screenplay-companion
+branch: support/T-decompose-phase3-screenplay-companion
 pillar: infra (backend architecture)
 ---
 
@@ -49,6 +49,6 @@ Phase 3 PR opens when:
 
 ## Outcome
 
-Completed by PR #204 / `claude/T-decompose-phase3-screenplay-companion`.
+Completed by PR #204 / `support/T-decompose-phase3-screenplay-companion`.
 The route module exists, required-deps guard is covered, and focused +
 full backend tests passed before merge.

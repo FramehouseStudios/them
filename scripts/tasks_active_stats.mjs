@@ -5,7 +5,7 @@
 // At-a-glance counts over the `tasks/_active/` directory:
 //
 //   - total task files
-//   - by owner (claude / codex / human)
+//   - by owner (support / codex / human)
 //   - by status (review / in-progress / merged / blocked / ...)
 //   - by pillar (when the YAML front matter has one)
 //

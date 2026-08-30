@@ -1,9 +1,9 @@
 ---
 id: T-deeper-memstore-and-user-auth-tests
 title: Deeper tests for memory_store + user_auth
-owner: claude
+owner: support
 status: review
-branch: claude/T-deeper-memory-store-tests
+branch: support/T-deeper-memory-store-tests
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: closes the deeper coverage gap for memory_store (V1 line 49) and user_auth (V1 line 17 + tier-3 surface)

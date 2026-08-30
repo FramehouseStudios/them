@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase4-auth-routes
 title: Decompose backend/index.js — Phase 4 (11 /auth/* routes)
-owner: claude
+owner: support
 status: review
-branch: claude/T-decompose-phase4-auth-routes
+branch: support/T-decompose-phase4-auth-routes
 pillar: infra (backend architecture)
 v1_pillar: infra
 v1_effect: infrastructure for iOS Release Readiness — byte-identical extraction of the 11 /auth/* routes out of backend/index.js continues the decomposition so the auth surface is reviewable and testable in isolation

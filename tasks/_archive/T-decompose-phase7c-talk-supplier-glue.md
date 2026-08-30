@@ -12,7 +12,7 @@ v1_effect: completes the approved Phase 7 talk-pipeline decomposition by extract
 ## Scope
 
 Codex is taking over this implementation after the Phase 7c lane sat
-unclaimed with no Claude branch or PR after T149 unblocked it.
+unclaimed with no support agent branch or PR after T149 unblocked it.
 
 Implement the merged Phase 7c design note from
 `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.

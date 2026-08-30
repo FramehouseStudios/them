@@ -1,6 +1,6 @@
 # Proposed `DECISIONS.md` Entries (awaiting human acceptance)
 
-Per `AGENTS.md`, Codex proposes decisions and the human accepts them by adding them to `DECISIONS.md`. Claude (this agent) cannot author `DECISIONS.md` entries. This document aggregates proposals that have been embedded inside design docs across Claude-authored PRs so the human can review and copy them into `DECISIONS.md` in one pass.
+Per `AGENTS.md`, Codex proposes decisions and the human accepts them by adding them to `DECISIONS.md`. support agent (this agent) cannot author `DECISIONS.md` entries. This document aggregates proposals that have been embedded inside design docs across support agent-authored PRs so the human can review and copy them into `DECISIONS.md` in one pass.
 
 Each entry is in ADR form ready to paste. The `Status` field is `proposed` here; flip it to `accepted` and assign the next sequential `D###` ID when copying into `DECISIONS.md`.
 
@@ -34,7 +34,7 @@ Each entry is in ADR form ready to paste. The `Status` field is `proposed` here;
 - **Status:** proposed
 - **Source:** [`docs/T07-persistence-canonical.md` "Eval gate against Postgres" section](./T07-persistence-canonical.md), [PR #33](https://github.com/FramehouseStudios/them/pull/33)
 - **Context:** PR #33 ships `.github/workflows/eval-gate-postgres.yml` — a dedicated workflow that runs `npm run eval:gate` against a live Postgres service container. The workflow's *advisory vs. required* status is a release-engineering call, not a code call.
-- **Decision:** The workflow is **advisory** for its first seven days of green runs (auto-runs on `claude/T07*` branches + nightly cron + manual dispatch). After seven consecutive green nightly runs (or seven business days, whichever is shorter), the gate is promoted to required by:
+- **Decision:** The workflow is **advisory** for its first seven days of green runs (auto-runs on `support/T07*` branches + nightly cron + manual dispatch). After seven consecutive green nightly runs (or seven business days, whichever is shorter), the gate is promoted to required by:
   1. Adding it to `release-preflight.yml` via `workflow_call`.
   2. Marking T07-cutover's `blocked-T07-eval` blocker cleared.
   3. Removing the legacy `*_store.json` write paths in screenplay, memory, embeddings (the T07-cutover scope).
@@ -73,8 +73,8 @@ Each entry is in ADR form ready to paste. The `Status` field is `proposed` here;
 - **Date:** 2026-05-09
 - **Status:** proposed
 - **Source:** [`docs/T18-craft-schemas-and-analysis.md`](./T18-craft-schemas-and-analysis.md), [PR #6 (merged) — T18](https://github.com/FramehouseStudios/them/pull/6)
-- **Context:** Multiple Claude-shipped systems carry a `schemaVersion`: craft reports (`CRAFT_SCHEMA_VERSION = 1`), creative memory (`SCHEMA_VERSION = 1`), persistence-adapter-stored values that the producer chooses to version. Without a rule about how `schemaVersion` evolves, clients cannot rely on it.
-- **Decision:** For every persisted shape Claude produces:
+- **Context:** Multiple support agent-shipped systems carry a `schemaVersion`: craft reports (`CRAFT_SCHEMA_VERSION = 1`), creative memory (`SCHEMA_VERSION = 1`), persistence-adapter-stored values that the producer chooses to version. Without a rule about how `schemaVersion` evolves, clients cannot rely on it.
+- **Decision:** For every persisted shape support agent produces:
   1. The producer always writes the current `schemaVersion`.
   2. Backward-compatible additions (new optional fields) **do not** bump `schemaVersion`.
   3. Backward-incompatible changes (renamed/removed required fields, type changes) **bump `schemaVersion` and ship a migrator** in the same PR.

@@ -21,4 +21,4 @@ iOS has typed client/model coverage for `GET /screenplay/export/formats`;
 the Studio export menu can render supported formats from the backend
 contract while preserving local fallback options; focused tests cover
 decoding, fallback ordering, and unsupported-format filtering; handoff
-docs tell Claude the endpoint has an app consumer.
+docs tell support agent the endpoint has an app consumer.

@@ -15,7 +15,7 @@ Canonical shapes for the `/memory/block-signal*` endpoints.
 
 ## Owner
 
-- **Backend**: Claude. `backend/lib/block_signal_route.js` +
+- **Backend**: support agent. `backend/lib/block_signal_route.js` +
   `backend/lib/block_signal_history_route.js`.
 - **Consumer**: iOS memory surface; sparkline UI.
 

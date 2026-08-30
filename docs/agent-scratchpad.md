@@ -1,6 +1,6 @@
 # Agent Scratchpad
 
-Lightweight, non-authoritative notes for Codex and Claude.
+Lightweight, non-authoritative notes for Codex and support agent.
 
 Use this file only for short working breadcrumbs that help the other agent
 avoid repeating a failed approach or understand near-term intent. Examples:

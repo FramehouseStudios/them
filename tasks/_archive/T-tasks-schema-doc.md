@@ -1,9 +1,9 @@
 ---
 id: T-tasks-schema-doc
 title: docs/schemas/tasks.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-tasks-schema-doc2
+branch: support/T-tasks-schema-doc2
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the GET /tasks list + POST /tasks/update mutation envelopes iOS uses for the task surface — closes a schema-doc gap for a secretary-style endpoint pair

@@ -18,7 +18,7 @@ Query params:
 
 ## Owner
 
-- **Backend**: Claude. `backend/lib/realtime_routes.js` (PR #215).
+- **Backend**: support agent. `backend/lib/realtime_routes.js` (PR #215).
 - **Consumer**: ops dashboards, iOS realtime debug surface.
 
 ## Access-control posture

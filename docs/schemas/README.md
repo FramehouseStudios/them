@@ -10,7 +10,7 @@ agent owns it.
 
 Today the same envelope is described in three places:
 
-1. The backend lib's module header (Claude maintains).
+1. The backend lib's module header (support agent maintains).
 2. The iOS decoder struct (Codex maintains).
 3. The human reconciles drift when the two diverge.
 
@@ -35,7 +35,7 @@ shape and lists the routes that emit it.
   `schemaVersion` field (or `schema_version` for legacy envelopes).
   Bump when a non-additive change ships.
 - **Owner**: which agent is the canonical author of the shape
-  (typically backend = Claude, iOS decoder = Codex; field changes
+  (typically backend = support agent, iOS decoder = Codex; field changes
   go through the owner first).
 - **Access-control posture**: SAFE-PUBLIC | PER-USER | TIER-3
   SENSITIVE.

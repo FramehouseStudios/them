@@ -22,7 +22,7 @@ production app token can be supplied without editing tracked project files.
 - A checked-in template documents the exact required keys.
 - The runbook/preflight docs point to the template and final command.
 - Existing preflight still fails cleanly when real values are absent.
-- Claude remains in V1 smoke-failure support mode.
+- support agent remains in V1 smoke-failure support mode.
 
 ## Verification
 

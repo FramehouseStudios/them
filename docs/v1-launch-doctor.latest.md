@@ -13,7 +13,7 @@
 - Pass criteria: Voice -> reply -> playback -> saved turn works without a restart or manual repair.
 - Evidence: 2026-05-18 free/local backend smoke on http://127.0.0.1:3000 passed health, session, history, and memories. POST /talk reached STT and failed with OpenAI 401 invalid_api_key because the local key was a dummy value.
 
-Blocked for real Talk proof until a real/free OPENAI_API_KEY is available or a repo-owned mock STT/TTS path exists. This is not assigned to Claude as a backend bug yet.
+Blocked for real Talk proof until a real/free OPENAI_API_KEY is available or a repo-owned mock STT/TTS path exists. This is not assigned to support agent as a backend bug yet.
 
 ## Screenplay Studio
 

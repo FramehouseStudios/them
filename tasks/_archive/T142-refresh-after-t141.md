@@ -18,8 +18,8 @@ available on `main`.
 ## Done When
 
 - `docs/coordination.json` marks PR #343 merged.
-- `docs/codex-claude-live-handoff.md` marks T141 merged.
-- Claude remains in V1 smoke-failure support mode until real release config and
+- `docs/live-handoff.md` marks T141 merged.
+- support agent remains in V1 smoke-failure support mode until real release config and
   a concrete manual-smoke failure exist.
 - Coordination validation passes.
 
@@ -27,5 +27,5 @@ available on `main`.
 
 - `gh pr view 343 --json state,mergedAt,headRefName,url` confirmed PR #343 merged.
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `node scripts/agent_next.mjs --role=support --limit=5` passed and shows support agent in V1 smoke-failure support mode.
 - `git diff --check` passed.

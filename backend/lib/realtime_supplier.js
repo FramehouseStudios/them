@@ -1,7 +1,7 @@
 // T13: realtime supplier interface (foundation).
 //
 // Defines the contract every realtime supplier (OpenAI Realtime,
-// ElevenLabs Conversational AI, Anthropic Realtime, etc.) must
+// another realtime provider must
 // satisfy. The factory `createRealtimeSupplier()` selects an
 // implementation by env var with a safe default.
 //

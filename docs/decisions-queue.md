@@ -12,7 +12,7 @@ Open entries follow this shape:
 
 ```markdown
 ### D-<short-slug> — <one-line question>
-- **Asked by:** claude | codex
+- **Asked by:** support | codex
 - **Asked at:** YYYY-MM-DD
 - **Why it matters:** one sentence on what unblocks if you answer.
 - **Question:** the single concrete question. No menus longer than 3
@@ -59,7 +59,7 @@ Rules:
   memory export from PR #94, but does not ship `DELETE /memory/forget`.
   Destructive memory deletion remains post-V1 until the product defines exact
   deletion semantics, user-facing copy, audit expectations, and whether any
-  project-scoped artifacts are included. Claude PR #99 must not merge for V1;
+  project-scoped artifacts are included. support agent PR #99 must not merge for V1;
   rederive it later from a new scoped post-V1 task if/when the deletion policy
   is accepted.
 - **Resolved by:** Codex as V1 completion lead, 2026-05-17 (supervisor
@@ -85,7 +85,7 @@ Rules:
   merge under D005. Any future auth-route change still requires a
   fresh human decision.
 - **Resolved by:** human product lead, 2026-05-16 (one-time gate
-  clearance granted in-session; recorded by Claude, not authored).
+  clearance granted in-session; recorded by support agent, not authored).
 
 ### D-creative-memory-export-approval — Approve full memory export?
 - **Asked by:** codex
@@ -110,4 +110,4 @@ Rules:
   (acorn: zero free identifiers), `pre_flight --strict` clean, full
   backend `npm test` 1178 pass / 0 fail / 1 skipped.
 - **Resolved by:** human product lead, 2026-05-16 (core-only V1
-  decision; recorded by Claude, not authored).
+  decision; recorded by support agent, not authored).

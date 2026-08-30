@@ -18,7 +18,7 @@ from `buildReadStateMeta`.
 
 ## Owner
 
-- **Backend**: Claude. Inline handler in `backend/index.js`
+- **Backend**: support agent. Inline handler in `backend/index.js`
   (gated for Phase 6 extraction per #228 design note).
 - **iOS**: Codex. Decoded into the memory-list UI.
 

@@ -1,16 +1,16 @@
 ---
 id: T-pre-flight-self-check-script
 title: scripts/pre_flight.mjs — catch recurring review feedback locally
-owner: claude
+owner: support
 status: merged
-branch: claude/T-pre-flight-self-check-script
+branch: support/T-pre-flight-self-check-script
 pillar: infra (coordination)
 ---
 
 ## Scope
 
 Ships proposal #2 of the second-pass efficiency protocol: a
-one-shot self-check Claude runs **before** opening a PR. Catches
+one-shot self-check support agent runs **before** opening a PR. Catches
 the recurring classes of review feedback locally so they don't
 cost a full review cycle to surface and clear.
 

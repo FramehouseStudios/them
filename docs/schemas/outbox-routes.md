@@ -20,7 +20,7 @@ Body limit on `/outbox/retry`: `256kb`.
 
 ## Owner
 
-- **Backend**: Claude. Inline handlers in `backend/index.js`.
+- **Backend**: support agent. Inline handlers in `backend/index.js`.
 - **Consumer**: ops dashboards + operator CLI tools. iOS does
   NOT consume these routes today.
 

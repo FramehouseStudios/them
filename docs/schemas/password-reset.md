@@ -18,7 +18,7 @@ revoke all sessions).
 
 ## Owner
 
-- **Backend**: Claude. Token generation + hashing + consume +
+- **Backend**: support agent. Token generation + hashing + consume +
   all-sessions-revoke live in `backend/lib/user_auth.js`.
 - **iOS UI**: Codex. Triggers request from the "Forgot password"
   screen and presents the post-consume confirmation.

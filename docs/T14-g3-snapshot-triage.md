@@ -19,7 +19,7 @@ commits that are not already contained by `origin/main`.
 
 The G3 snapshot does not need to be split into fresh merge branches anymore.
 The old snapshot commit landed before the current task protocol, and subsequent
-Claude/Codex PRs have already turned the useful backend work into named lanes.
+support agent/Codex PRs have already turned the useful backend work into named lanes.
 Opening another PR from either snapshot branch would now be harmful: it would
 try to restore an older tree and remove newer packages, craft work, realtime
 work, persistence work, task ledger entries, and docs.
@@ -33,7 +33,7 @@ work, persistence work, task ledger entries, and docs.
 | Screenplay/craft intelligence | Routed through T18/T20/T21/T22/T23 plus Codex follow-up PRs T24/T25/T26. |
 | Realtime supplier and voice backend work | Routed through T13 and `docs/T13-realtime-supplier-interface.md`. |
 | Hollywood format linting | Routed through `T-format-linter` and `docs/T-format-linter.md`. |
-| Studio smoke/eval scripts | Folded into the current backend/eval suite; new eval gate work remains Claude-owned. |
+| Studio smoke/eval scripts | Folded into the current backend/eval suite; new eval gate work remains support agent-owned. |
 | App studio shell changes | Superseded by the current modular app/package structure and Codex Studio polish PRs. |
 | Generated audio/test assets in stale local tree | Do not restore; they are not part of a mergeable backend lane. |
 
@@ -48,9 +48,9 @@ Use these branches only as historical reference:
 - `codex-save-primary-folder-20260420`
 - `origin/codex-save-primary-folder-20260420`
 
-## Claude Handoff
+## support agent Handoff
 
-No backend implementation PR is needed from T14. Claude should continue from the
+No backend implementation PR is needed from T14. support agent should continue from the
 already named backend rows instead of mining the old snapshot:
 
 - T07/T07a/T07-cutover: persistence adapter hardening and Postgres cutover.

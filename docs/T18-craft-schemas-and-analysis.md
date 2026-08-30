@@ -1,11 +1,11 @@
 # T18 — Backend Craft Schemas & Analysis Endpoints
 
 **Status:** in-progress
-**Owner:** claude
-**Branch:** `claude/T18-craft-schemas-analysis`
+**Owner:** support
+**Branch:** `support/T18-craft-schemas-analysis`
 **Base:** stacked on `codex/T17-craft-report-models` (PR #3)
 **Pillars:** voice-to-scene + longitudinal learning
-**Unblocks:** T19 (Codex BackendClient), T21 (claude prompts), T22 (claude persistence). T23 transitively follows T22.
+**Unblocks:** T19 (Codex BackendClient), T21 (support prompts), T22 (support persistence). T23 transitively follows T22.
 
 ## Goal
 
@@ -221,7 +221,7 @@ For each documented error code, assert:
 
 ## Final shipped state (T18 PR contents)
 
-Five reviewable commits on `claude/T18-craft-schemas-analysis`:
+Five reviewable commits on `support/T18-craft-schemas-analysis`:
 
 1. **T18 row claim** — `TASKS.md` update, branch and scope recorded.
 2. **Design doc** — this file's pre-implementation version.
@@ -232,9 +232,9 @@ Five reviewable commits on `claude/T18-craft-schemas-analysis`:
 Next dependent tasks become unblockable:
 
 - **T19 (Codex)** — `BackendClient.fetchFrameworks()`, `fetchReport(...)`, `analyze(...)`, `recordOverride(...)`, etc. The five fixtures power decode tests; the live endpoints power request-construction tests once the backend is running.
-- **T21 (Claude)** — replace the `analyzeScreenplay` stub with real LLM-driven beat classification; extend `run_craft_classification_eval.mjs` with labeled accuracy assertions.
-- **T22 (Claude)** — replace the in-memory report and override stores with persistent storage (Postgres-backed via T07's adapter).
-- **T23 (Claude)** — RC release gate fails when `coverage.complete === false` after overrides applied.
+- **T21 (support agent)** — replace the `analyzeScreenplay` stub with real LLM-driven beat classification; extend `run_craft_classification_eval.mjs` with labeled accuracy assertions.
+- **T22 (support agent)** — replace the in-memory report and override stores with persistent storage (Postgres-backed via T07's adapter).
+- **T23 (support agent)** — RC release gate fails when `coverage.complete === false` after overrides applied.
 
 Open question resolutions:
 

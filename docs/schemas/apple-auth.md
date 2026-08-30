@@ -17,7 +17,7 @@ Apple-issued identity token.
 
 ## Owner
 
-- **Backend / verification**: Claude. Apple JWKS fetch +
+- **Backend / verification**: support agent. Apple JWKS fetch +
   identity-token verification + linkage to `user_store`.
 - **iOS / token source**: Codex. The Apple identity token comes
   from `ASAuthorizationAppleIDProvider` on the device.

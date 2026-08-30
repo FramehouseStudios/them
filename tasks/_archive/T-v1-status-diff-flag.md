@@ -1,9 +1,9 @@
 ---
 id: T-v1-status-diff-flag
 title: v1_status.mjs --diff=<ref> flag
-owner: claude
+owner: support
 status: merged
-branch: claude/T-v1-status-diff-flag
+branch: support/T-v1-status-diff-flag
 pillar: infra (V1 visibility)
 v1_pillar: infra
 v1_effect: lets either agent + the human see which V1 checkboxes flipped between two refs (e.g. since last week, since v0.9-tag) without comparing two `v1_status` runs by hand

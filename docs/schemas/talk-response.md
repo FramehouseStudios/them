@@ -18,7 +18,7 @@ field set). Any non-additive change bumps to v2 + adds an explicit
 
 ## Owner
 
-- **Backend / envelope shape**: Claude. Built inside `handleTalkRequest`
+- **Backend / envelope shape**: support agent. Built inside `handleTalkRequest`
   in `backend/index.js` (until Phase 7b extracts it to `lib/talk_handler.js`).
 - **iOS decoder**: Codex. Talk-response decoder + render contract.
 

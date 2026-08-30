@@ -470,8 +470,8 @@ test("[pre-flight] accepts outbox schema docs matching the canonical store shape
 
 // ---------- schema-doc-only-out-of-lane ----------
 
-const claudeInboxSchemaOnlyParked = `
-# Claude Inbox
+const supportInboxSchemaOnlyParked = `
+# support agent Inbox
 
 ## Current Command
 
@@ -479,15 +479,15 @@ Do not open more schema-doc-only PRs unless Codex asks. Schema docs only when
 paired with code or requested by Codex.
 `;
 
-test("[pre-flight] flags schema-doc-only branches when Claude inbox parks them", () => {
+test("[pre-flight] flags schema-doc-only branches when support agent inbox parks them", () => {
   const tmp = tempRepo();
-  fs.writeFileSync(path.join(tmp, "docs", "claude-inbox.md"), claudeInboxSchemaOnlyParked);
+  fs.writeFileSync(path.join(tmp, "docs", "support-inbox.md"), supportInboxSchemaOnlyParked);
   initGitWithOriginMain(tmp);
   fs.writeFileSync(path.join(tmp, "docs", "schemas", "talk-response.md"), "# talk response\n");
   writeTaskFile(tmp, "T-schema-doc-only.md", `---
 id: T-schema-doc-only
 title: Schema doc only
-owner: claude
+owner: support
 status: review
 v1_pillar: infra
 v1_effect: documents an existing schema
@@ -501,7 +501,7 @@ v1_effect: documents an existing schema
 
 test("[pre-flight] allows schema docs paired with implementation files", () => {
   const tmp = tempRepo();
-  fs.writeFileSync(path.join(tmp, "docs", "claude-inbox.md"), claudeInboxSchemaOnlyParked);
+  fs.writeFileSync(path.join(tmp, "docs", "support-inbox.md"), supportInboxSchemaOnlyParked);
   initGitWithOriginMain(tmp);
   fs.writeFileSync(path.join(tmp, "docs", "schemas", "talk-response.md"), "# talk response\n");
   fs.writeFileSync(
@@ -515,7 +515,7 @@ export function talkResponseShape() {
   writeTaskFile(tmp, "T-schema-with-code.md", `---
 id: T-schema-with-code
 title: Schema doc paired with code
-owner: claude
+owner: support
 status: review
 v1_pillar: infra
 v1_effect: keeps schema docs with implementation changes
@@ -683,7 +683,7 @@ test("[pre-flight] flags a YAML-front-matter task without v1_pillar/v1_effect", 
   writeTaskFile(tmp, "T-foo.md", `---
 id: T-foo
 title: Some new task
-owner: claude
+owner: support
 status: review
 ---
 
@@ -701,7 +701,7 @@ test("[pre-flight] accepts YAML v1_pillar + v1_effect", () => {
   writeTaskFile(tmp, "T-bar.md", `---
 id: T-bar
 title: V1-tagged task
-owner: claude
+owner: support
 status: review
 v1_pillar: talk
 v1_effect: closes "Manual smoke" line N
@@ -720,7 +720,7 @@ test("[pre-flight] accepts body-line V1 pillar/effect", () => {
   writeTaskFile(tmp, "T-baz.md", `---
 id: T-baz
 title: Body-declaration task
-owner: claude
+owner: support
 status: review
 ---
 
@@ -736,7 +736,7 @@ test("[pre-flight] grandfathers merged tasks even when v1 declarations are missi
   writeTaskFile(tmp, "T-old-merged.md", `---
 id: T-old-merged
 title: A task that shipped before the V1 rule
-owner: claude
+owner: support
 status: merged
 ---
 
@@ -770,7 +770,7 @@ test("[pre-flight] flags an invalid v1_pillar value", () => {
   writeTaskFile(tmp, "T-bad-pillar.md", `---
 id: T-bad-pillar
 title: Wrong pillar value
-owner: claude
+owner: support
 status: review
 v1_pillar: marketing
 v1_effect: closes something
@@ -799,7 +799,7 @@ test("[pre-flight] flags a YAML-front-matter task whose id does not match filena
   writeTaskFile(tmp, "T-foo.md", `---
 id: T-bar
 title: Mismatched task
-owner: claude
+owner: support
 status: review
 v1_pillar: infra
 v1_effect: fixture
@@ -815,7 +815,7 @@ test("[pre-flight] accepts a YAML-front-matter task whose id matches filename", 
   writeTaskFile(tmp, "T-foo.md", `---
 id: T-foo
 title: Matched task
-owner: claude
+owner: support
 status: review
 v1_pillar: infra
 v1_effect: fixture
@@ -842,7 +842,7 @@ test("[pre-flight] flags YAML task files missing status", () => {
   writeTaskFile(tmp, "T-missing-status.md", `---
 id: T-missing-status
 title: Missing status task
-owner: claude
+owner: support
 v1_pillar: infra
 v1_effect: validates task status rollups
 ---
@@ -857,7 +857,7 @@ test("[pre-flight] flags invalid task status values", () => {
   writeTaskFile(tmp, "T-invalid-status.md", `---
 id: T-invalid-status
 title: Invalid status task
-owner: claude
+owner: support
 status: shipped
 v1_pillar: infra
 v1_effect: validates task status rollups
@@ -870,11 +870,11 @@ v1_effect: validates task status rollups
 
 test("[pre-flight] accepts AGENTS workflow task statuses", () => {
   const tmp = tempRepo();
-  writeTaskFile(tmp, "T-ready-for-claude.md", `---
-id: T-ready-for-claude
-title: Ready for Claude task
-owner: claude
-status: ready-for-claude
+  writeTaskFile(tmp, "T-ready-for-support.md", `---
+id: T-ready-for-support
+title: Ready for support agent task
+owner: support
+status: ready-for-support
 v1_pillar: infra
 v1_effect: validates task status rollups
 ---
@@ -939,7 +939,7 @@ test("[pre-flight] task-archive-merged: flags status:merged in _active/ with pos
   writeTaskFile(tmp, "T-new-merged-task.md", `---
 id: T-new-merged-task
 title: New merged task
-owner: claude
+owner: support
 status: merged
 v1_pillar: infra
 v1_effect: testing
@@ -958,7 +958,7 @@ test("[pre-flight] task-archive-merged: grandfathers explicit pre-cutoff merged_
   writeTaskFile(tmp, "T-old-merged.md", `---
 id: T-old-merged
 title: Pre-rule merged task
-owner: claude
+owner: support
 status: merged
 merged_at: 2026-05-10T00:00:00Z
 v1_pillar: infra
@@ -977,7 +977,7 @@ test("[pre-flight] task-archive-merged: grandfathers body-line Merged-At pre-cut
   writeTaskFile(tmp, "T-body-merged-at.md", `---
 id: T-body-merged-at
 title: Body-line merged-at
-owner: claude
+owner: support
 status: merged
 v1_pillar: infra
 v1_effect: testing
@@ -997,7 +997,7 @@ test("[pre-flight] task-archive-merged: skips status:review", () => {
   writeTaskFile(tmp, "T-still-in-review.md", `---
 id: T-still-in-review
 title: Still in review
-owner: claude
+owner: support
 status: review
 v1_pillar: infra
 v1_effect: testing
@@ -1030,7 +1030,7 @@ test("[pre-flight] task-archive-merged: handles missing git silently", () => {
   writeTaskFile(tmp, "T-no-git.md", `---
 id: T-no-git
 title: No git available
-owner: claude
+owner: support
 status: merged
 v1_pillar: infra
 v1_effect: testing
@@ -1215,7 +1215,7 @@ test("[pre-flight] flags stale V1 launch handoff instructions", () => {
   const tmp = tempRepo();
   fs.writeFileSync(
     path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
-    "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
+    "support agent should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
   );
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
@@ -1232,7 +1232,7 @@ test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () =
   const tmp = tempRepo();
   fs.writeFileSync(
     path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
-    "Claude should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
+    "support agent should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
   );
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),

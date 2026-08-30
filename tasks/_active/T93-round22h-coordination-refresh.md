@@ -6,7 +6,7 @@ status: review
 branch: codex/T93-round22h-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: records the schema-doc batch blocker so Claude can fix docs drift without human relay
+v1_effect: records the schema-doc batch blocker so support agent can fix docs drift without human relay
 ---
 
 ## Scope
@@ -17,7 +17,7 @@ v1_effect: records the schema-doc batch blocker so Claude can fix docs drift wit
 
 ## Done when
 
-`agent_next` points Claude at the schema-doc drift fix alongside #238/#243.
+`agent_next` points support agent at the schema-doc drift fix alongside #238/#243.
 
 ## Verification
 

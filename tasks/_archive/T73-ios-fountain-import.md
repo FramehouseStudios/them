@@ -9,7 +9,7 @@ pillar: mobile-first + screenplay craft
 
 ## Scope
 
-Consume Claude PR #87's `POST /screenplay/import/fountain` contract from the
+Consume support agent PR #87's `POST /screenplay/import/fountain` contract from the
 Studio app. Script text imports should use the backend Fountain parser when it
 is available, fall back to local normalization when offline, and keep PDF/OCR
 import behavior intact.

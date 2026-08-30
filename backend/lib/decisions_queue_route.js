@@ -8,7 +8,7 @@
 // Format expected (one entry per `###` heading):
 //
 //   ### D-<slug> — <question>
-//   - **Asked by:** claude | codex
+//   - **Asked by:** codex | human | project
 //   - **Asked at:** YYYY-MM-DD
 //   - **Why it matters:** ...
 //   - **Question:** ...

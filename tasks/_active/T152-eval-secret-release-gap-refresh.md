@@ -21,7 +21,7 @@ are still absent locally.
 
 - `TASKS.md`, `docs/coordination.json`, and agent handoff docs no longer call
   PR #33 a human OpenAI-secret blocker.
-- Claude has the precise #33 eval-quality fix target, while Phase 6.1a remains
+- support agent has the precise #33 eval-quality fix target, while Phase 6.1a remains
   the next backend lane after #33.
 - Launch/release docs record the current release config and signing state
   without committing secrets.
@@ -48,10 +48,10 @@ are still absent locally.
 - `node scripts/release_config_status.mjs` reported missing local release
   config without printing secrets.
 - `cd backend && npm run v1:status` reported V1 at 20/25.
-- `node scripts/agent_next.mjs --role=claude --no-events` now points Claude at
+- `node scripts/agent_next.mjs --role=support --no-events` now points support agent at
   PR #33's eval-quality repair before Phase 6.1a.
-- `node scripts/v1_launch_room.mjs --role=claude` now names "Fix PR #33
-  eval-quality failures" as Claude's launch option.
+- `node scripts/v1_launch_room.mjs --role=support` now names "Fix PR #33
+  eval-quality failures" as support agent's launch option.
 - `node scripts/v1_launch_room.mjs --role=codex` reports human-gated PRs:
   `none`, Launch Doctor `not_started`, release config missing, and preflight
   `fail=3 warn=1`.

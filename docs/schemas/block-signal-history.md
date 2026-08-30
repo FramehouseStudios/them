@@ -22,7 +22,7 @@ the same-level debounce or adding a new sample on every render.
 
 ## Owner
 
-- **Backend**: Claude. Envelope built by `summarizeHistory()` in
+- **Backend**: support agent. Envelope built by `summarizeHistory()` in
   `backend/lib/block_signal_history_route.js`.
 - **iOS**: Codex. Surfaces block-signal trends on the writer
   view.

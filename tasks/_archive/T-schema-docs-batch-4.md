@@ -1,9 +1,9 @@
 ---
 id: T-schema-docs-batch-4
 title: Schema doc batch 4 — talk-errors + talk-turn-stats + block-signal-history + fountain-export + agent-events
-owner: claude
+owner: support
 status: merged
-branch: claude/T-schema-docs-batch-4
+branch: support/T-schema-docs-batch-4
 pillar: infra (schema discipline)
 v1_pillar: infra
 v1_effect: extends schema discipline to the operator ops surfaces (/talk/errors, /talk/stats), the block-signal history route, the fountain export endpoint, and the agent-events JSONL record format

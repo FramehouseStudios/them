@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase6-1-long-tail-design
 title: Phase 6.1 design note — long-tail single-domain clusters
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (gating note; sub-phases open only after Codex accepts)
 pillar: infra (backend architecture)

@@ -1,9 +1,9 @@
 ---
 id: T-schema-docs-batch-3
 title: Schema doc batch 3 + docs/schemas/INDEX.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-schema-docs-batch-3
+branch: support/T-schema-docs-batch-3
 pillar: infra (schema discipline)
 v1_pillar: infra
 v1_effect: closes the remaining auth + internal-record schema gaps and gives iOS one INDEX entry point for every documented envelope

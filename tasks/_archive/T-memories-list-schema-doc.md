@@ -1,9 +1,9 @@
 ---
 id: T-memories-list-schema-doc
 title: docs/schemas/memories-list.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-memories-list-schema-doc
+branch: support/T-memories-list-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the GET /memories envelope iOS consumes for the V1 line 53 "plain-language memory summary" surface — gives Codex a fixed contract to read against before Phase 6 extracts the route

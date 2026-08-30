@@ -19,7 +19,7 @@ not carry a separate schema-version field today.
 
 ## Owner
 
-- **Backend**: Claude. Inline handler in `backend/index.js`
+- **Backend**: support agent. Inline handler in `backend/index.js`
   (Phase 6 extraction queued per #228 design note).
 - **iOS**: Codex. Triggers when the user taps "Export my
   memory" and saves the resulting JSON.

@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase2b-screenplay-projects-writes
 title: Decompose backend/index.js — Phase 2b (7 /screenplay/projects/* write routes)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase2b-screenplay-projects-writes
+branch: support/T-decompose-phase2b-screenplay-projects-writes
 pillar: infra (backend architecture)
 ---
 

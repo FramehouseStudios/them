@@ -18,17 +18,17 @@ function fixturePath() {
     updatedAt: "2026-05-12T08:00:00.000Z",
     updatedBy: "test",
     openPullRequests: [
-      { number: 42, title: "Merged old work", owner: "claude", tier: 1, status: "merged", branch: "x", blocker: null },
-      { number: 148, title: "Routes manifest", owner: "claude", tier: 1, status: "blocked", branch: "a", blocker: "rebase and fix scope" },
-      { number: 87, title: "Fountain import", owner: "claude", tier: 1, status: "blocked", branch: "b", blocker: "add 413 route test" },
-      { number: 301, title: "Blocked 301", owner: "claude", tier: 1, status: "blocked", branch: "b301", blocker: "rebase" },
-      { number: 302, title: "Blocked 302", owner: "claude", tier: 1, status: "blocked", branch: "b302", blocker: "rebase" },
-      { number: 303, title: "Blocked 303", owner: "claude", tier: 1, status: "blocked", branch: "b303", blocker: "rebase" },
-      { number: 304, title: "Blocked 304", owner: "claude", tier: 1, status: "blocked", branch: "b304", blocker: "rebase" },
-      { number: 305, title: "Blocked 305", owner: "claude", tier: 1, status: "blocked", branch: "b305", blocker: "rebase" },
-      { number: 306, title: "Blocked 306", owner: "claude", tier: 1, status: "blocked", branch: "b306", blocker: "rebase" },
-      { number: 200, title: "Tiny helper", owner: "claude", tier: 1, status: "review", branch: "c", blocker: null },
-      { number: 201, title: "Memory export", owner: "claude", tier: 3, status: "needs-human", branch: "d", blocker: "human privacy approval" },
+      { number: 42, title: "Merged old work", owner: "support", tier: 1, status: "merged", branch: "x", blocker: null },
+      { number: 148, title: "Routes manifest", owner: "support", tier: 1, status: "blocked", branch: "a", blocker: "rebase and fix scope" },
+      { number: 87, title: "Fountain import", owner: "support", tier: 1, status: "blocked", branch: "b", blocker: "add 413 route test" },
+      { number: 301, title: "Blocked 301", owner: "support", tier: 1, status: "blocked", branch: "b301", blocker: "rebase" },
+      { number: 302, title: "Blocked 302", owner: "support", tier: 1, status: "blocked", branch: "b302", blocker: "rebase" },
+      { number: 303, title: "Blocked 303", owner: "support", tier: 1, status: "blocked", branch: "b303", blocker: "rebase" },
+      { number: 304, title: "Blocked 304", owner: "support", tier: 1, status: "blocked", branch: "b304", blocker: "rebase" },
+      { number: 305, title: "Blocked 305", owner: "support", tier: 1, status: "blocked", branch: "b305", blocker: "rebase" },
+      { number: 306, title: "Blocked 306", owner: "support", tier: 1, status: "blocked", branch: "b306", blocker: "rebase" },
+      { number: 200, title: "Tiny helper", owner: "support", tier: 1, status: "review", branch: "c", blocker: null },
+      { number: 201, title: "Memory export", owner: "support", tier: 3, status: "needs-human", branch: "d", blocker: "human privacy approval" },
       { number: 300, title: "Codex app work", owner: "codex", tier: 1, status: "in-progress", branch: "e", blocker: null },
     ],
     blockers: [],
@@ -48,9 +48,9 @@ function humanGatedOnlyFixturePath() {
     updatedAt: "2026-05-14T17:43:57.933Z",
     updatedBy: "test",
     openPullRequests: [
-      { number: 212, title: "Auth routes", owner: "claude", tier: 3, status: "blocked", branch: "auth", blocker: "human auth clearance" },
-      { number: 94, title: "Memory export", owner: "claude", tier: 3, status: "needs-human", branch: "export", blocker: "human privacy approval" },
-      { number: 99, title: "Memory delete", owner: "claude", tier: 3, status: "needs-human", branch: "delete", blocker: "human privacy approval" },
+      { number: 212, title: "Auth routes", owner: "support", tier: 3, status: "blocked", branch: "auth", blocker: "human auth clearance" },
+      { number: 94, title: "Memory export", owner: "support", tier: 3, status: "needs-human", branch: "export", blocker: "human privacy approval" },
+      { number: 99, title: "Memory delete", owner: "support", tier: 3, status: "needs-human", branch: "delete", blocker: "human privacy approval" },
     ],
     blockers: [],
     decisionsPending: [],
@@ -70,10 +70,10 @@ function tier3RepairFixturePath() {
       {
         number: 33,
         title: "T07 eval gate",
-        owner: "claude",
+        owner: "support",
         tier: 3,
         status: "blocked",
-        branch: "claude/T07-eval-gate-postgres",
+        branch: "support/T07-eval-gate-postgres",
         blocker: "eval gate quality regression after OPENAI_API_KEY secret replacement",
         blocker_kind: "needs_test_fix",
         expected_action: "Fix the failing eval behavior without weakening thresholds.",
@@ -86,11 +86,11 @@ function tier3RepairFixturePath() {
   return file;
 }
 
-function claudeInboxPath() {
+function supportInboxPath() {
   const dir = mkdtempSync(path.join(tmpdir(), "agent-next-inbox-"));
-  const file = path.join(dir, "claude-inbox.md");
+  const file = path.join(dir, "support-inbox.md");
   writeFileSync(file, [
-    "# Claude Inbox",
+    "# Support Inbox",
     "",
     "## Backend Work Codex Actually Wants Next",
     "",
@@ -124,8 +124,8 @@ function staleRepoPath() {
     decisionsPending: [],
     endpointsAwaitingIosConsumer: [],
   }, null, 2));
-  writeFileSync(path.join(docs, "claude-inbox.md"), [
-    "# Claude Inbox",
+  writeFileSync(path.join(docs, "support-inbox.md"), [
+    "# Support Inbox",
     "",
     "## Backend Work Codex Actually Wants Next",
     "",
@@ -157,23 +157,23 @@ function staleRepoPath() {
   return dir;
 }
 
-test("[agent-next] text output prioritizes Claude blockers", () => {
-  const r = spawnSync("node", [script, "--role=claude", "--limit=2", "--no-events", `--state=${fixturePath()}`], { encoding: "utf8" });
+test("[agent-next] text output prioritizes support blockers", () => {
+  const r = spawnSync("node", [script, "--role=support", "--limit=2", "--no-events", `--state=${fixturePath()}`], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Claude Next/);
+  assert.match(r.stdout, /Support Next/);
   assert.ok(r.stdout.indexOf("#148") < r.stdout.indexOf("#87"), r.stdout);
   assert.doesNotMatch(r.stdout, /#200 Tiny helper/);
-  assert.match(r.stdout, /WIP limit per support agent: 6 \(blocker-clearing\)/);
+  assert.match(r.stdout, /WIP limit per support lane: 6 \(blocker-clearing\)/);
 });
 
 test("[agent-next] json output separates Codex review candidates and iOS work", () => {
   const r = spawnSync("node", [script, "--format=json", "--limit=3", "--no-events", `--state=${fixturePath()}`], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
-  assert.equal(out.throughput.blockedClaudeCount, 8);
+  assert.equal(out.throughput.blockedSupportCount, 8);
   assert.equal(out.throughput.wipLimit, 6);
   assert.equal(out.throughput.wipMode, "blocker-clearing");
-  assert.equal(out.claude[0].pr, 148);
+  assert.equal(out.support[0].pr, 148);
   assert.equal(out.codex[0].pr, 200);
   assert.equal(out.codex[1].reason, "finish-codex-owned");
   assert.equal(out.codex[2].reason, "ready-for-ios");
@@ -186,7 +186,7 @@ test("[agent-next] surfaces recent agent events and supports --events-since", ()
   const docs = path.join(dir, "docs");
   mkdirSync(docs);
   writeFileSync(path.join(docs, "agent-events-2026-W20.jsonl"), [
-    JSON.stringify({ at: "2026-05-12T08:00:00.000Z", by: "claude", kind: "pr_rebased", pr: 88, comment: "old" }),
+    JSON.stringify({ at: "2026-05-12T08:00:00.000Z", by: "support", kind: "pr_rebased", pr: 88, comment: "old" }),
     JSON.stringify({ at: "2026-05-12T09:00:00.000Z", by: "codex", kind: "review_blocker", pr: 92, blocker_kind: "needs_test_fix" }),
     JSON.stringify({ at: "2026-05-12T10:00:00.000Z", by: "codex", kind: "pr_merged", pr: 88, comment: "merged" }),
     "",
@@ -207,37 +207,37 @@ test("[agent-next] surfaces recent agent events and supports --events-since", ()
   assert.match(r.stdout, /pr_merged/);
 });
 
-test("[agent-next] human-gated PRs do not consume Claude WIP and inbox backlog becomes next action", () => {
+test("[agent-next] human-gated PRs do not consume support WIP and inbox backlog becomes next action", () => {
   const r = spawnSync("node", [
     script,
-    "--role=claude",
+    "--role=support",
     "--limit=2",
     "--no-events",
     `--state=${humanGatedOnlyFixturePath()}`,
-    `--claude-inbox=${claudeInboxPath()}`,
+    `--support-inbox=${supportInboxPath()}`,
   ], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Active PRs: claude 0, codex 0, human 0/);
+  assert.match(r.stdout, /Active PRs: support 0, codex 0, human 0/);
   assert.match(r.stdout, /Human-gated PRs are parked/);
-  assert.match(r.stdout, /Claude Next 2/);
+  assert.match(r.stdout, /Support Next 2/);
   assert.match(r.stdout, /Phase 5b\.4 realtime call extraction/);
   assert.match(r.stdout, /Expected: Extract POST \/realtime\/call with byte-identical behavior and tests\./);
-  assert.doesNotMatch(r.stdout, /Claude should clear existing blockers/);
+  assert.doesNotMatch(r.stdout, /Support should clear existing blockers/);
 });
 
-test("[agent-next] tier-3 engineering repair blockers stay actionable for Claude", () => {
+test("[agent-next] tier-3 engineering repair blockers stay actionable for support", () => {
   const r = spawnSync("node", [
     script,
-    "--role=claude",
+    "--role=support",
     "--limit=2",
     "--no-events",
     `--state=${tier3RepairFixturePath()}`,
-    `--claude-inbox=${claudeInboxPath()}`,
+    `--support-inbox=${supportInboxPath()}`,
   ], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Active PRs: claude 1, codex 0, human 0/);
-  assert.match(r.stdout, /Claude should clear existing blockers/);
-  assert.match(r.stdout, /Claude Next 1/);
+  assert.match(r.stdout, /Active PRs: support 1, codex 0, human 0/);
+  assert.match(r.stdout, /Support should clear existing blockers/);
+  assert.match(r.stdout, /Support Next 1/);
   assert.match(r.stdout, /#33 T07 eval gate/);
   assert.doesNotMatch(r.stdout, /Human-Gated/);
   assert.doesNotMatch(r.stdout, /Phase 5b\.4 realtime call extraction/);
@@ -247,7 +247,7 @@ test("[agent-next] warns when the checkout is behind origin/main", () => {
   const repo = staleRepoPath();
   const r = spawnSync("node", [
     script,
-    "--role=claude",
+    "--role=support",
     "--limit=1",
     "--no-events",
   ], {

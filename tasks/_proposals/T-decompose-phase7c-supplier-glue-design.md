@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase7c-supplier-glue-design-v2
 title: Phase 7c sub-design — talk supplier glue extraction
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (sub-design refinement; opens after Phase 7b lands)
 pillar: infra (backend architecture)
@@ -31,7 +31,7 @@ Three logical groups, ~600 lines total:
 - Error → stage="stt" mapper.
 
 ### Group 2: Chat-completion supplier glue (~200-250 lines)
-- Chat supplier resolver (OpenAI / Anthropic / stub).
+- Chat supplier resolver (OpenAI / alternate provider / stub).
 - Supplier-call wrapper with streaming support.
 - Token-count + retry logic.
 - Error → stage="chat" mapper.

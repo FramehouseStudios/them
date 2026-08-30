@@ -3,7 +3,7 @@
 // scripts/decisions_queue_lint.mjs
 //
 // Lints `docs/decisions-queue.md` against the format declared in
-// the file's own preamble. The format Claude PR #104 also parses
+// the file's own preamble. The format support agent PR #104 also parses
 // programmatically, so drift between the two would silently corrupt
 // the read endpoint.
 //

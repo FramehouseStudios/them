@@ -1,9 +1,9 @@
 ---
 id: T-persistence-json-tests
 title: Direct tests for backend/lib/persistence_json.js
-owner: claude
+owner: support
 status: merged
-branch: claude/T-persistence-json-tests
+branch: support/T-persistence-json-tests
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: closes a zero-test-coverage gap on the JSON-file-backed persistence adapter that every store relies on for disk persistence in single-process mode (talk-pipeline session writes, creative_memory, outbox, screenplay, accepted_twists, etc.)

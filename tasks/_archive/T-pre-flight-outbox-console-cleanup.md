@@ -1,9 +1,9 @@
 ---
 id: T-pre-flight-outbox-console-cleanup
 title: Convert outbox console.log → console.warn/error (pre-flight class 1)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-pre-flight-outbox-console-cleanup
+branch: support/T-pre-flight-outbox-console-cleanup
 pillar: infra (hygiene)
 ---
 

@@ -1,9 +1,9 @@
 ---
 id: T-prompt-size-eval
 title: Char-budget guard on assembled model prompts
-owner: claude
+owner: support
 status: merged
-branch: claude/T-prompt-size-eval
+branch: support/T-prompt-size-eval
 pillar: evals (layer-2-craft)
 ---
 

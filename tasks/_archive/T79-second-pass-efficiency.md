@@ -9,7 +9,7 @@ pillar: infra (coordination)
 
 ## Scope
 
-Turn Claude's second-pass efficiency proposal into durable repo behavior
+Turn support agent's second-pass efficiency proposal into durable repo behavior
 without weakening D005, strict auto-merge, human-only policy gates, or the
 no-direct-push-to-main rule.
 

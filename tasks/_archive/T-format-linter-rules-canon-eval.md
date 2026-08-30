@@ -1,9 +1,9 @@
 ---
 id: T-format-linter-rules-canon-eval
 title: Pin canonical rule_id set + envelope for format_linter
-owner: claude
+owner: support
 status: merged
-branch: claude/T-format-linter-rules-canon-eval
+branch: support/T-format-linter-rules-canon-eval
 pillar: evals (contract stability)
 ---
 

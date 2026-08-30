@@ -1,9 +1,9 @@
 ---
 id: T-talk-turn-rate-limit-deeper
 title: Deeper tests for talk_turn_rate_limit
-owner: claude
+owner: support
 status: review
-branch: claude/T-talk-turn-rate-limit-deeper
+branch: support/T-talk-turn-rate-limit-deeper
 pillar: infra (test coverage)
 v1_pillar: talk
 v1_effect: closes deeper coverage gap for the token-bucket rate limiter that protects GET /talk/turn/:turnId against enumeration abuse

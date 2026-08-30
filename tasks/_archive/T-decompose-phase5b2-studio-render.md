@@ -1,9 +1,9 @@
 ---
 id: T-decompose-phase5b2-studio-render
 title: Decompose backend/index.js — Phase 5b.2 (studio_render + studio_render_stream)
-owner: claude
+owner: support
 status: merged
-branch: claude/T-decompose-phase5b2-studio-render
+branch: support/T-decompose-phase5b2-studio-render
 pillar: infra (backend architecture)
 v1_pillar: realtime
 v1_effect: continues the realtime route decomposition required by docs/v1-definition.md line 68 — extracts the two Studio-render routes into their own testable lib

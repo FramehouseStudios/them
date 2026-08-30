@@ -1,9 +1,9 @@
 ---
 id: T-talk-turn-rate-limit-route
 title: Optional rate-limit middleware on GET /talk/turn/:turnId
-owner: claude
+owner: support
 status: merged
-branch: claude/T-talk-turn-rate-limit-route
+branch: support/T-talk-turn-rate-limit-route
 pillar: infra (talk pipeline)
 ---
 

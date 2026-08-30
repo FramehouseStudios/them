@@ -2,7 +2,7 @@
 //
 // scripts/v1_launch_room.mjs
 //
-// One-screen V1 launch room for Codex, Claude, and the human. This script
+// One-screen V1 launch room for Codex, Support, and the human. This script
 // reads the existing coordination files and turns them into role-specific
 // options, so the team stops asking for broad "next 20" batches and can pick
 // one high-leverage action.
@@ -24,9 +24,9 @@ function arg(name, fallback = "") {
 
 const wantJson = process.argv.includes("--json");
 const role = arg("role", "all").toLowerCase();
-const validRoles = new Set(["all", "human", "claude", "codex"]);
+const validRoles = new Set(["all", "human", "support", "codex"]);
 if (!validRoles.has(role)) {
-  console.error(`v1-launch-room: invalid --role=${role}; expected all, human, claude, or codex`);
+  console.error(`v1-launch-room: invalid --role=${role}; expected all, human, support, or codex`);
   process.exit(2);
 }
 
@@ -48,7 +48,7 @@ function runNodeScript(relativePath, args = []) {
   });
 }
 
-function parseClaudeBacklog(markdown) {
+function parseSupportBacklog(markdown) {
   const marker = "## Backend Work Codex Actually Wants Next";
   const start = markdown.indexOf(marker);
   if (start === -1) return [];
@@ -184,31 +184,31 @@ function buildState() {
     blockers: [],
     decisionsPending: [],
   });
-  const claudeBacklog = parseClaudeBacklog(readText("docs/claude-inbox.md"));
+  const supportBacklog = parseSupportBacklog(readText("docs/support-inbox.md"));
   const decisions = extractOpenDecisionTitles(readText("docs/decisions-queue.md"));
   const release = summarizeReleaseProof(readText("docs/v1-release-preflight-proof.md"));
   const releaseLocalConfig = readReleaseLocalConfigStatus();
   const launchDoctor = readLaunchDoctorReport();
-  const reviewableClaudePRs = coordination.openPullRequests
-    .filter((pr) => pr.owner === "claude")
+  const reviewableSupportPRs = coordination.openPullRequests
+    .filter((pr) => pr.owner === "support")
     .filter((pr) => pr.status === "review" || pr.status === "ready")
     .filter((pr) => pr.tier !== 3 && !pr.blocker);
   const humanGated = coordination.openPullRequests
     .filter((pr) => !["closed", "merged"].includes(pr.status))
     .filter(isHumanActionGated);
-  const claudeNext = claudeBacklog[0] || {
+  const supportNext = supportBacklog[0] || {
     request: "Wait for Codex assignment",
     why: "No backend queue row found.",
-    expected: "Run node scripts/agent_next.mjs --role=claude.",
+    expected: "Run node scripts/agent_next.mjs --role=support.",
   };
-  const codexNext = reviewableClaudePRs[0]
+  const codexNext = reviewableSupportPRs[0]
     ? {
-        action: `Review Claude PR #${reviewableClaudePRs[0].number}: ${reviewableClaudePRs[0].title}`,
-        why: "Reviewable Claude work is waiting.",
+        action: `Review support PR #${reviewableSupportPRs[0].number}: ${reviewableSupportPRs[0].title}`,
+        why: "Reviewable support work is waiting.",
       }
     : {
         action: "Run V1 smoke handoff, inspect Launch Doctor output, and fix smoke failures.",
-        why: "No reviewable Claude PR is open; V1 is gated by manual smoke plus release signing/backend/token configuration.",
+        why: "No reviewable support PR is open; V1 is gated by manual smoke plus release signing/backend/token configuration.",
       };
   const humanOptions = [
     {
@@ -238,8 +238,8 @@ function buildState() {
     generatedAt: new Date().toISOString(),
     v1: v1.overall,
     pillars: v1.pillars,
-    claudeNext,
-    claudeBacklog,
+    supportNext,
+    supportBacklog,
     codexNext,
     humanOptions,
     humanGated,
@@ -275,13 +275,13 @@ function linesForHuman(state) {
   return out;
 }
 
-function linesForClaude(state) {
+function linesForSupport(state) {
   return [
-    "Claude Launch Options",
+    "Support Launch Options",
     "",
-    `Do now: ${state.claudeNext.request}`,
-    `Why: ${state.claudeNext.why}`,
-    `Expected: ${state.claudeNext.expected}`,
+    `Do now: ${state.supportNext.request}`,
+    `Why: ${state.supportNext.why}`,
+    `Expected: ${state.supportNext.expected}`,
     "",
     "Rules:",
     "- One deep backend task only.",
@@ -336,7 +336,7 @@ function textOutput(state) {
     out.push(`- ${pillar.pillar}: ${pillar.done}/${pillar.total} (${pillar.pct}%)${next}`);
   }
   out.push("");
-  if (role === "all" || role === "claude") out.push(...linesForClaude(state), "");
+  if (role === "all" || role === "support") out.push(...linesForSupport(state), "");
   if (role === "all" || role === "codex") out.push(...linesForCodex(state), "");
   if (role === "all" || role === "human") out.push(...linesForHuman(state), "");
   if (state.release?.blockers?.length) {

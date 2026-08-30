@@ -6,7 +6,7 @@ status: review
 branch: codex/T85-round22-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: keeps Claude and Codex aligned after the supervisor merge train
+v1_effect: keeps support agent and Codex aligned after the supervisor merge train
 ---
 
 ## Scope

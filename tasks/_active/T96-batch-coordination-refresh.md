@@ -6,7 +6,7 @@ status: review
 branch: codex/T96-batch-coordination-refresh
 pillar: infra (coordination)
 v1_pillar: infra
-v1_effect: clears stale Claude blocker state after the supervisor merge train so agent_next points at the true remaining V1 blockers instead of already-merged PRs
+v1_effect: clears stale support agent blocker state after the supervisor merge train so agent_next points at the true remaining V1 blockers instead of already-merged PRs
 ---
 
 ## Scope
@@ -19,9 +19,9 @@ that landed PRs #238, #243, #245, #250, #251, #253, #256,
 
 - `docs/coordination.json` records merged state for the landed
   PRs.
-- Stale Claude-owned blockers for #238, #243, and #245 are
+- Stale support agent-owned blockers for #238, #243, and #245 are
   cleared.
-- `docs/codex-inbox.md` tells Claude the only remaining blockers
+- `docs/codex-inbox.md` tells support agent the only remaining blockers
   are human/policy gates unless Codex opens a new review blocker.
 - Coordination validation and main health checks are green.
 

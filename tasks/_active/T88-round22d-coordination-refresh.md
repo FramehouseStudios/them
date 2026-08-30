@@ -6,7 +6,7 @@ status: review
 branch: codex/T88-round22d-coordination-refresh
 pillar: infra
 v1_pillar: infra
-v1_effect: records the merged deterministic V1 smoke fixtures so Claude and Codex share the latest V1 test surface
+v1_effect: records the merged deterministic V1 smoke fixtures so support agent and Codex share the latest V1 test surface
 ---
 
 ## Scope

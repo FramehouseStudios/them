@@ -1,9 +1,9 @@
 ---
 id: T-v1-status-md-comment-flag
 title: v1_status.mjs --md-comment flag
-owner: claude
+owner: support
 status: merged
-branch: claude/T-v1-status-md-comment-flag
+branch: support/T-v1-status-md-comment-flag
 pillar: infra (V1 visibility)
 v1_pillar: infra
 v1_effect: lets either agent paste a PR-comment-shaped V1 status block directly into a GitHub PR or issue — closes the "I want to share V1 progress in a PR comment" gap without manual formatting

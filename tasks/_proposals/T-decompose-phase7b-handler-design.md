@@ -1,7 +1,7 @@
 ---
 id: T-decompose-phase7b-handler-design
 title: Phase 7b sub-design (fresh) — handleTalkRequest extraction
-owner: claude
+owner: support
 status: proposed
 target_pr: none yet (sub-design refinement; implementation opens after Codex accepts)
 pillar: infra (backend architecture)
@@ -24,7 +24,7 @@ state (idempotency helpers now flow through
 `mountTalkPipelineRoutes`, accessors come from `talk_state.js`).
 
 Phase 7b implementation is cleared to open after PR #314's accepted design
-constraints and T132's scope-tool decision. Claude should proceed with the
+constraints and T132's scope-tool decision. support agent should proceed with the
 implementation lane, not another design-note round.
 
 ## Codex acceptance amendments
@@ -96,7 +96,7 @@ correction above) was cited at `backend/index.js:27673`–`31514`
   2. Memory load + read-state snapshot
   3. Identity / persona resolution
   4. Prompt assembly (turn meta + creative memory + persona)
-  5. Chat-completion call (OpenAI / Anthropic / streaming)
+  5. Chat-completion call (OpenAI / alternate provider / streaming)
   6. Memory write (commit turn meta, persist user memory)
   7. Block-signal + craft analysis side-effects
   8. TTS (ElevenLabs / OpenAI TTS / stub)
@@ -320,7 +320,7 @@ Signed off as of PR #314 plus T132:
 4. Keep the two-file test plan, with the real extracted handler mounted through
    `mountTalkPipelineRoutes`.
 5. Manual smoke gates merge, not PR opening.
-6. Claude owns the implementation lane unless the scope-tool path still blocks.
+6. support agent owns the implementation lane unless the scope-tool path still blocks.
 
 ## Done when
 

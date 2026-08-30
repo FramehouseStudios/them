@@ -3,11 +3,11 @@
 > **Rule:** Every task has one owner, one branch, one scope, and one definition of done. Every task must serve at least one north-star pillar — **mobile-first**, **voice→scene**, **living companion**, **longitudinal learning**. See `AGENTS.md`.
 
 ## Status vocabulary
-`ready` → `ready-for-claude` → `in-progress` → `review` → `merged`
+`ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
-- `claude/backend-<short-name>`
+- `support/backend-<short-name>`
 
 ---
 
@@ -18,99 +18,99 @@
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | merged            |
 | T05  | Add `first_page_written` client telemetry event    | codex  | merged            |
-| T07  | Promote backend persistence to Postgres canonical  | claude | merged            |
-| T07a | Wire `outbox_store` diagnostic snapshots           | claude | merged            |
-| T07-eval-gate | Verify eval gate against Postgres          | claude | merged            |
-| T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
-| T08  | Centralize prompt assembly + first memory tier (backend) | claude | merged            |
-| T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | merged            |
-| T08-postgres | Move creative memory store to persistence adapter | claude | merged            |
+| T07  | Promote backend persistence to Postgres canonical  | support | merged            |
+| T07a | Wire `outbox_store` diagnostic snapshots           | support | merged            |
+| T07-eval-gate | Verify eval gate against Postgres          | support | merged            |
+| T07-cutover | Drop dual-write JSON paths after Postgres soak | support | blocked-T07-eval |
+| T08  | Centralize prompt assembly + first memory tier (backend) | support | merged            |
+| T08w-triggers | Fire creative-memory write triggers from `/talk` | support | merged            |
+| T08-postgres | Move creative memory store to persistence adapter | support | merged            |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | merged            |
 | T11  | 60-second magic-moment onboarding                  | codex  | merged            |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | merged            |
-| T13  | Add second realtime supplier behind interface      | claude | merged            |
+| T13  | Add second realtime supplier behind interface      | support | merged            |
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | merged            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | merged            |
-| T23  | Add craft completeness RC release gate             | claude | merged            |
+| T23  | Add craft completeness RC release gate             | support | merged            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
 | T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
 | T26  | Polish Craft tab framework and drift UX            | codex  | merged            |
-| T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
-| T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
+| T-format-linter | Hollywood format linter (rules v1)        | support | merged            |
+| T27  | Add Codex-to-support agent live handoff ledger            | codex  | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
-| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
-| T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
-| T-block-detector | Detect writer-block patterns from talk telemetry | claude | merged            |
-| T-trait-library | Build per-character trait and voice inventory | claude | merged            |
-| T-twist-engine | Beat-aware reversal suggestion engine         | claude | merged            |
+| T30  | Backend `/memory/record-character-mention` endpoint | support | merged            |
+| T-logline-distiller | Distill, persist, and drift-score loglines | support | merged            |
+| T-block-detector | Detect writer-block patterns from talk telemetry | support | merged            |
+| T-trait-library | Build per-character trait and voice inventory | support | merged            |
+| T-twist-engine | Beat-aware reversal suggestion engine         | support | merged            |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
-| T33  | Add Claude command center and prompt printer      | codex  | merged            |
-| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | merged         |
+| T33  | Add support agent command center and prompt printer      | codex  | merged            |
+| T-codex-inbox | Add Codex inbox + prompt printer (support agent→Codex)    | support | merged         |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
-| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
-| T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
-| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
-| T-decisions-queue | One-file queue for human decisions               | claude | merged         |
-| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
-| T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
-| T-build-tasks-md-anchors | Add AUTOGEN anchors to TASKS.md + harden anchor matcher | claude | merged |
-| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | merged |
-| T-archetype-engine-canon-eval | Pin canonical archetype set + per-entry shape | claude | merged |
-| T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | claude | merged |
-| T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | claude | merged |
-| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | claude | merged |
-| T-payoff-tracker | Setup → payoff detection + endpoint                          | claude | merged |
-| T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | claude | merged |
-| T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | claude | merged |
-| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | claude | merged |
-| T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | claude | merged |
-| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | claude | merged     |
-| T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | claude | merged |
-| T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | claude | merged |
-| T-genre-classifier | Deterministic genre + tone classifier + endpoint | claude | merged |
-| T-realtime-supplier-failover | Transparent stub fallback when primary mint fails | claude | merged |
-| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | merged     |
-| T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
-| T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
-| T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | merged |
-| T-prompt-assembly-block-signal-cap-eval | Cap on `<block_signal>` block size under pathological inputs | claude | merged |
-| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | claude | merged |
-| T-talk-turn-rate-limit-route | Optional rate-limit middleware on talk-turn reads | claude | merged |
-| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | merged |
-| T-decisions-queue-fixture-template | docs/decisions-queue-template.md entry skeleton | claude | merged |
-| T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | claude | merged |
-| T-coordination-state-mutate-eval | Round-trip eval over coordination_state.mjs mutators | claude | merged |
-| T-creative-memory-version-check-eval | Pin creative-memory snapshot version field | claude | merged |
-| T-creative-memory-store-eviction-eval | Guard creative-memory character roster growth | claude | merged |
-| T-known-domains-startup-check | Validate KNOWN_DOMAINS at backend startup | claude | merged |
-| T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | claude | merged |
-| T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | claude | merged |
-| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | claude | merged |
-| T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | claude | merged |
-| T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | claude | merged |
-| T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | claude | merged |
-| T-prompt-size-eval | Char-budget guard on assembled model prompts             | claude | merged |
-| T-memory-quality-eval | Multi-turn creative-memory recall eval                   | claude | merged |
-| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | claude | merged |
-| T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | claude | merged |
-| T-creative-memory-stats-route | GET /memory/stats content-free summary                  | claude | merged |
-| T-coordination-state-eval | Schema check on docs/coordination.json                | claude | merged |
+| T-accepted-twist-log | Persist accepted twist cards for prompt context | support | merged         |
+| T-coordination-state | Fast-path coordination.json + CLI helper        | support | merged         |
+| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | support | merged         |
+| T-decisions-queue | One-file queue for human decisions               | support | merged         |
+| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | support | merged |
+| T-tasks-per-row | Per-row task files + TASKS.md regenerator        | support | merged    |
+| T-build-tasks-md-anchors | Add AUTOGEN anchors to TASKS.md + harden anchor matcher | support | merged |
+| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | support | merged |
+| T-archetype-engine-canon-eval | Pin canonical archetype set + per-entry shape | support | merged |
+| T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | support | merged |
+| T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | support | merged |
+| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | support | merged |
+| T-payoff-tracker | Setup → payoff detection + endpoint                          | support | merged |
+| T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | support | merged |
+| T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | support | merged |
+| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | support | merged |
+| T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | support | merged |
+| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | support | merged     |
+| T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | support | merged |
+| T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | support | merged |
+| T-genre-classifier | Deterministic genre + tone classifier + endpoint | support | merged |
+| T-realtime-supplier-failover | Transparent stub fallback when primary mint fails | support | merged |
+| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | support | merged     |
+| T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | support | merged |
+| T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | support | merged |
+| T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | support | merged |
+| T-prompt-assembly-block-signal-cap-eval | Cap on `<block_signal>` block size under pathological inputs | support | merged |
+| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | support | merged |
+| T-talk-turn-rate-limit-route | Optional rate-limit middleware on talk-turn reads | support | merged |
+| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | support | merged |
+| T-decisions-queue-fixture-template | docs/decisions-queue-template.md entry skeleton | support | merged |
+| T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | support | merged |
+| T-coordination-state-mutate-eval | Round-trip eval over coordination_state.mjs mutators | support | merged |
+| T-creative-memory-version-check-eval | Pin creative-memory snapshot version field | support | merged |
+| T-creative-memory-store-eviction-eval | Guard creative-memory character roster growth | support | merged |
+| T-known-domains-startup-check | Validate KNOWN_DOMAINS at backend startup | support | merged |
+| T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | support | merged |
+| T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | support | merged |
+| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | support | merged |
+| T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | support | merged |
+| T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | support | merged |
+| T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | support | merged |
+| T-prompt-size-eval | Char-budget guard on assembled model prompts             | support | merged |
+| T-memory-quality-eval | Multi-turn creative-memory recall eval                   | support | merged |
+| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | support | merged |
+| T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | support | merged |
+| T-creative-memory-stats-route | GET /memory/stats content-free summary                  | support | merged |
+| T-coordination-state-eval | Schema check on docs/coordination.json                | support | merged |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
 | T41  | Defer Studio debug-state publishing               | codex  | merged            |
-| T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)              | claude | review            |
+| T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)              | support | review            |
 | T42-supervisor-merge-protocol | Codex self-merge authority + agent handoff fast lane | codex | merged |
-| T43-refresh-claude-queue | Refresh Claude queue after supervisor protocol merge      | codex | merged |
+| T43-refresh-support-queue | Refresh support agent queue after supervisor protocol merge      | codex | merged |
 | T44-creative-memory-export-triage | Triage creative-memory export privacy gate       | codex | merged |
 | T45-craft-route-json-parser | Parse Craft route JSON in production                   | codex | merged |
 | T46-post-review-queue-refresh | Refresh queue after Codex PR reviews                  | codex | merged |
-| T47-refresh-after-new-claude-prs | Refresh queue after new Claude PR triage           | codex | merged |
+| T47-refresh-after-new-support-prs | Refresh queue after new support agent PR triage           | codex | merged |
 | T48-ios-archetype-traits | Surface character archetypes in the Studio traits rail   | codex | merged |
 | T49-post-t48-coordination-refresh | Post-T48 coordination refresh                     | codex | merged |
 | T50-refresh-after-pr103-merge | Refresh coordination after PR #103 merge              | codex | merged |
@@ -120,14 +120,14 @@
 | T54-refresh-after-block-history-merge | Refresh queue after block-history eval merge | codex | merged |
 | T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
-| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | merged |
+| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | support | merged |
 | T60  | Consume screenplay export formats in Studio       | codex  | merged            |
 | T61  | Refresh coordination after T60 merge              | codex  | merged            |
 | T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
 | T63  | Refresh coordination after T62 merge              | codex  | merged            |
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
-| T66  | Refresh queue after Claude PR triage              | codex  | merged            |
+| T66  | Refresh queue after support agent PR triage              | codex  | merged            |
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
@@ -139,19 +139,19 @@
 | T75  | Surface talk-turn rate-limit retry affordance     | codex  | merged            |
 | T76  | Refresh coordination after efficiency merge train | codex  | merged            |
 | T77  | Refresh coordination after PR #180/#181           | codex  | merged            |
-| T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | claude | merged |
+| T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | support | merged |
 | T78  | Refresh coordination after PR #183                | codex  | merged            |
 | T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
 | T80  | Refresh coordination after PR #191/#192           | codex  | merged            |
 | T81  | Refresh coordination after PR #193/#194           | codex  | review            |
-| T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | claude | merged |
-| T-decompose-phase2a-screenplay-projects-reads | Extract 5 `/screenplay/projects/*` GET routes from backend index | claude | merged |
-| T-decompose-phase2b-screenplay-projects-writes | Extract 7 `/screenplay/projects/*` write routes from backend index | claude | merged |
-| T-decompose-phase3-screenplay-companion | Extract `/screenplay/companion/state` + `/paginate` + `/revision-colors` from backend index | claude | merged |
-| T-decompose-phase5a-realtime-reads | Extract 2 read-only `/realtime/*` routes from backend index | claude | review |
-| T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
-| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | merged     |
-| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | claude | merged |
+| T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | support | merged |
+| T-decompose-phase2a-screenplay-projects-reads | Extract 5 `/screenplay/projects/*` GET routes from backend index | support | merged |
+| T-decompose-phase2b-screenplay-projects-writes | Extract 7 `/screenplay/projects/*` write routes from backend index | support | merged |
+| T-decompose-phase3-screenplay-companion | Extract `/screenplay/companion/state` + `/paginate` + `/revision-colors` from backend index | support | merged |
+| T-decompose-phase5a-realtime-reads | Extract 2 read-only `/realtime/*` routes from backend index | support | review |
+| T-logline-drift-alert | Structured drift alert (level + recommendation)  | support | review      |
+| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | support | merged     |
+| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | support | merged |
 
 ---
 
@@ -193,7 +193,7 @@
 - **Branch:** —
 - **Pillar:** infra (enables all)
 - **Status:** ready
-- **Done when:** the snapshot on `codex-save-primary-folder-20260420` is split into ≤6 intent-grouped branches, each open as a PR; no orphan changes remain on the source branch; stale `claude/*` branches with no merged work are deleted.
+- **Done when:** the snapshot on `codex-save-primary-folder-20260420` is split into ≤6 intent-grouped branches, each open as a PR; no orphan changes remain on the source branch; stale `support/*` branches with no merged work are deleted.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
@@ -210,56 +210,56 @@
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
 
 ### T07 — Promote backend persistence to Postgres canonical
-- **Owner:** claude
-- **Branch:** `claude/T07-postgres-canonical`
+- **Owner:** support
+- **Branch:** `support/T07-postgres-canonical`
 - **Pillar:** longitudinal learning
 - **Status:** merged
 - **Scope (this PR — foundation):** adapter interface + JSON impl + Postgres impl + initial schema for all four store domains + forward and reverse migration scripts + adapter contract tests. Outbox is the proof-wired store.
-- **Scope (follow-up rows, claimed by Claude after this PR merges):** wire `memory_store` (T07a), `screenplay_store` (T07b), and the knowledge embeddings cache (T07c) onto the adapter. Each is a focused PR.
+- **Scope (follow-up rows, claimed by support agent after this PR merges):** wire `memory_store` (T07a), `screenplay_store` (T07b), and the knowledge embeddings cache (T07c) onto the adapter. Each is a focused PR.
 - **Done when (this PR):** adapter contract tests green; both backends pass the same contract; `scripts/migrate_stores_to_postgres.mjs` and `scripts/dump_stores_to_json.mjs` round-trip a sample dataset; outbox_store reads/writes via the adapter when `DATABASE_URL` is set, falls back to JSON when unset; `docs/T07-persistence-canonical.md` documents the architecture and the migration runbook.
 - **Done when (overall T07):** all four `*_store.json` paths at backend root deprecated; backend reads/writes only via the adapter (Postgres in CI/prod, JSON in local dev as the explicit fallback); `npm run eval:gate` green with `DATABASE_URL` set.
 
 ### T07a — Wire `outbox_store` to persistence adapter
-- **Owner:** claude
-- **Branch:** `claude/T07a-outbox-snapshots`
+- **Owner:** support
+- **Branch:** `support/T07a-outbox-snapshots`
 - **Pillar:** longitudinal learning + infra (enables all)
 - **Status:** merged
 - **Architectural call:** the outbox is a queue with worker semantics, not domain KV data. `scaleBackplane` is its canonical operational layer (in-memory + Redis stream + Postgres `outbox` table when `SCALE_POSTGRES_URL` is set). The T07 persistence adapter is for KV-style domain data (memory, screenplay, embeddings, craft, creative_memory). Forcing the queue onto the adapter would erase scaleBackplane's queue semantics. **Decision proposed in `docs/T07a-outbox-architecture.md`:** the queue stays on `scaleBackplane`; T07a contributes diagnostic/recovery-grade *snapshots* of outbox state into the adapter under the `outbox` domain, so backend operators have a Postgres-visible record of outbox health without changing the queue path.
 - **Done when:** `OutboxSnapshotter` writes periodic JSON snapshots into the persistence adapter; backend wires the snapshotter at startup; tests assert snapshot shape + that the snapshotter does not interfere with scaleBackplane; `docs/T07a-outbox-architecture.md` documents the architecture and proposes the formal decision (D-something, human authors).
 
 ### T07-eval-gate — Verify eval gate against Postgres
-- **Owner:** claude
-- **Branch:** `claude/T07-eval-gate-postgres`
+- **Owner:** support
+- **Branch:** `support/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
 - **Status:** merged
 - **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
-- **Owner:** claude
+- **Owner:** support
 - **Branch:** —
 - **Pillar:** longitudinal learning + infra (enables all)
 - **Status:** blocked-T07-eval
 - **Done when:** with `DATABASE_URL` set in CI for more than seven days and no adapter errors logged, legacy `*_store.json` write paths in screenplay, memory, and embeddings are removed; loads become adapter-only.
 
 ### T08 — Centralize prompt assembly + first memory tier (backend)
-- **Owner:** claude
-- **Branch:** `claude/backend-T08-memory-tier`
+- **Owner:** support
+- **Branch:** `support/backend-T08-memory-tier`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of Claude's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
+- **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of support agent's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
 - **Done when (backend portion):** A creative-companion memory record (style, characters, tone, habits) persists per user; a single `buildModelPrompt(...)` is the only path used by `handleTalkRequest`; every model-bound prompt carries the memory context when present and degrades cleanly when absent; new eval `run_creative_memory_eval.mjs` covers both states and is wired into `eval:gate`; design and final state documented in `docs/T08-prompt-centralization-and-memory-tier.md`.
 - **Design doc:** [docs/T08-prompt-centralization-and-memory-tier.md](docs/T08-prompt-centralization-and-memory-tier.md)
 
 ### T08w-triggers — Fire creative-memory write triggers from `/talk`
-- **Owner:** claude
-- **Branch:** `claude/T08w-triggers`
+- **Owner:** support
+- **Branch:** `support/T08w-triggers`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** character mentions, scene completions, and tone signals detected in `/talk` exchanges trigger the corresponding `recordXxx` calls on `creativeMemoryStore`; `run_creative_memory_eval.mjs` covers at least one trigger-fired case.
 
 ### T08-postgres — Move creative memory store to persistence adapter
-- **Owner:** claude
-- **Branch:** `claude/T08-postgres`
+- **Owner:** support
+- **Branch:** `support/T08-postgres`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** `creative_memory_store.js` uses `createPersistence(...)` for the chosen memory domain, its public API stays unchanged, and the eval suite stays green.
@@ -293,12 +293,12 @@
 - **Done when:** the iOS twist-card surface can record accepted twists with `POST /craft/twist/accepted`, dismiss them with `DELETE /craft/twist/accepted/:twistId`, and reload accepted twists with `GET /craft/twist/accepted?projectId=`; request/response contracts are covered by tests; failures degrade to non-blocking UI messages while PR #59 is still pending.
 
 ### T13 — Add second realtime supplier behind existing interface
-- **Owner:** claude
-- **Branch:** `claude/T13-realtime-supplier-interface`
+- **Owner:** support
+- **Branch:** `support/T13-realtime-supplier-interface`
 - **Pillar:** living companion (resilience)
 - **Status:** merged
 - **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
-- **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
+- **Scope (follow-up):** integrate a real second supplier once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
 - **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
@@ -315,7 +315,7 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
-- **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
+- **Dependency:** support agent/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
 
 
 ### T25 — Add Story Circle + Hero's Journey craft frameworks
@@ -330,12 +330,12 @@
 - **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
-- **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
+- **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to support agent with context; no G3 backend changes remain orphaned in the dirty tree.
+- **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; support agent should run backend eval gates before merge.
 
 ### T23 — Add craft completeness RC release gate
-- **Owner:** claude
-- **Branch:** `claude/T23-craft-completeness-gate`
+- **Owner:** support
+- **Branch:** `support/T23-craft-completeness-gate`
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Done when:** new `scripts/check_craft_completeness.mjs` reads a craft report (file path or `craft_reports` adapter key), exits 0 when `coverage.complete === true` (including overrides), exits 1 with actionable diagnostics otherwise; `scripts/quality_gate.sh` runs it under `RUN_CRAFT_COMPLETENESS_GATE=1`; the release-preflight workflow flips the env var on by default for `rc-*` runs; tests assert pass on `report_complete.json` + `report_with_override.json` and fail on `report_with_drift.json`.
@@ -347,12 +347,12 @@
 - **Status:** merged
 - **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
 
-### T27 — Add Codex-to-Claude live handoff ledger
+### T27 — Add Codex-to-support agent live handoff ledger
 - **Owner:** codex
-- **Branch:** `codex/T27-claude-live-handoff`
+- **Branch:** `codex/T27-support-live-handoff`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
+- **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and support agent action items, and PR descriptions point support agent to the ledger as the real-time supervisor status source.
 
 ### T26 — Polish Craft tab framework and drift UX
 - **Owner:** codex
@@ -362,8 +362,8 @@
 - **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
 
 ### T-format-linter — Hollywood format linter (rules v1)
-- **Owner:** claude
-- **Branch:** `claude/T-format-linter`
+- **Owner:** support
+- **Branch:** `support/T-format-linter`
 - **Pillar:** voice-to-scene + living companion (industry-rule layer of the Craft Intelligence Suite)
 - **Status:** merged
 - **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
@@ -378,37 +378,37 @@
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ### T30 — Backend `/memory/record-character-mention` endpoint
-- **Owner:** claude
-- **Branch:** `claude/T30-record-character-mention-endpoint`
+- **Owner:** support
+- **Branch:** `support/T30-record-character-mention-endpoint`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
 - **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
 
 ### T-logline-distiller — Distill, persist, and drift-score loglines
-- **Owner:** claude
-- **Branch:** `claude/T-logline-distiller`
+- **Owner:** support
+- **Branch:** `support/T-logline-distiller`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** backend exposes `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; loglines persist in the `craft_loglines` domain with migration coverage; deterministic mode is default, optional LLM mode uses the existing classifier interface; drift scoring is tested; full backend suite is green.
 
 ### T-block-detector — Detect writer-block patterns from talk telemetry
-- **Owner:** claude
-- **Branch:** `claude/T-block-detector`
+- **Owner:** support
+- **Branch:** `support/T-block-detector`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** backend derives structured writer-block signals from `/talk` telemetry, scene-attempt gaps, repeated stalled drafts, and retry loops; exposes a typed endpoint or prompt-context block for iOS companion nudges; tests cover no-signal, soft-signal, and high-confidence block states; docs explain thresholds and privacy behavior.
 
 ### T-trait-library — Build per-character trait and voice inventory
-- **Owner:** claude
-- **Branch:** `claude/T-trait-library`
+- **Owner:** support
+- **Branch:** `support/T-trait-library`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** backend maintains a persistence-backed per-character trait/voice inventory from creative memory and screenplay dialogue; traits are deduped, source-tagged, and retrievable for prompt assembly; tests cover merge, decay/update, and empty-state behavior; docs explain how iOS should consume it.
 
 ### T-twist-engine — Beat-aware reversal suggestion engine
-- **Owner:** claude
-- **Branch:** `claude/T-twist-engine`
+- **Owner:** support
+- **Branch:** `support/T-twist-engine`
 - **Pillar:** voice→scene + living companion
 - **Status:** merged
 - **Done when:** backend produces deterministic beat-aware reversal/twist suggestions using craft framework and classification data; optional LLM mode is isolated behind existing provider patterns; suggestions cite the beat/turn they operate on; tests cover deterministic output, missing craft context, and malformed input.
@@ -418,7 +418,7 @@
 - **Branch:** `codex/T31-coordination-status-cleanup`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md` and `docs/codex-claude-live-handoff.md` accurately reflect the merged PR stack, current Claude blockers, and next Codex/Claude handoff state; no stale review/in-progress rows remain for already-merged tasks; Claude has GitHub supervisor comments on active Claude PRs.
+- **Done when:** `TASKS.md` and `docs/live-handoff.md` accurately reflect the merged PR stack, current support agent blockers, and next Codex/support agent handoff state; no stale review/in-progress rows remain for already-merged tasks; support agent has GitHub supervisor comments on active support agent PRs.
 
 ---
 
@@ -431,14 +431,14 @@
 - **Note:** Added local SwiftPM packages, wired them into app and tests, reduced `ContentView.swift` to 7 LOC, and verified macOS tests plus iOS generic build.
 
 ### T21 — Add craft-aware prompts and beat classification
-- **Owner:** claude
-- **Branch:** `claude/T21-craft-prompts-classification`
+- **Owner:** support
+- **Branch:** `support/T21-craft-prompts-classification`
 - **Merged:** 2026-05-09 via PR #23.
 - **Note:** Added craft prompt blocks and deterministic/LLM beat classification; merged after resolving the T22 persistence overlap.
 
 ### T22 — Persist craft snapshots and turn overrides
-- **Owner:** claude
-- **Branch:** `claude/T22-craft-snapshots-persistence`
+- **Owner:** support
+- **Branch:** `support/T22-craft-snapshots-persistence`
 - **Merged:** 2026-05-09 via PR #20.
 - **Note:** Persisted craft reports and overrides through the T07 adapter, including restart-safe override IDs.
 
@@ -449,8 +449,8 @@
 - **Note:** Git already tracked lowercase `archive/...`; the local worktree directory was normalized from `Archive/` to `archive/`, and D004 records lowercase `archive/` as the proposed canonical casing.
 
 ### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
-- **Owner:** claude
-- **Branch:** `claude/T06-quality-gate-default`
+- **Owner:** support
+- **Branch:** `support/T06-quality-gate-default`
 - **Merged:** 2026-05-09 via PR #7, completed by Codex app-doc follow-up PR #18.
 
 ### T06-iOS — Update iOS quality gate doc for CI enforcement
@@ -479,8 +479,8 @@
 - **Merged:** 2026-05-09 via PR #3.
 
 ### T18 — Add backend craft schemas and analysis endpoints
-- **Owner:** claude
-- **Branch:** `claude/T18-craft-schemas-analysis`
+- **Owner:** support
+- **Branch:** `support/T18-craft-schemas-analysis`
 - **Merged:** 2026-05-09 via PR #6.
 
 ### T19 — Add BackendClient craft API methods
@@ -500,30 +500,30 @@
 - **Branch:** `codex/T32-enable-reply-mentions`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
+- **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for support agent.
 
 ---
 
-### T33 — Add Claude command center and prompt printer
+### T33 — Add support agent command center and prompt printer
 - **Owner:** codex
-- **Branch:** `codex/T33-claude-command-center`
+- **Branch:** `codex/T33-support-command-center`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
+- **Done when:** a short repo-visible support agent inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send support agent; `docs/live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
-### T-codex-inbox — Add Codex inbox + prompt printer (Claude→Codex)
-- **Owner:** claude
-- **Branch:** `claude/T-codex-inbox`
+### T-codex-inbox — Add Codex inbox + prompt printer (support agent→Codex)
+- **Owner:** support
+- **Branch:** `support/T-codex-inbox`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (Claude-maintained — current open Claude PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions Claude needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_claude_prompt.mjs` for the Codex direction). Updates `docs/codex-claude-live-handoff.md` so Codex standard read includes the inbox, and `docs/claude-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a Claude→Codex handoff after each Claude PR.
-- **Done when:** `docs/codex-inbox.md` exists with current open Claude PRs, endpoint contracts, blockers, and decisions Claude needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/codex-claude-live-handoff.md` Fast Path lists the new inbox; `docs/claude-inbox.md` notes that Claude maintains the reciprocal channel.
+- **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (support agent-maintained — current open support agent PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions support agent needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_support_prompt.mjs` for the Codex direction). Updates `docs/live-handoff.md` so Codex standard read includes the inbox, and `docs/support-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a support agent→Codex handoff after each support agent PR.
+- **Done when:** `docs/codex-inbox.md` exists with current open support agent PRs, endpoint contracts, blockers, and decisions support agent needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/live-handoff.md` Fast Path lists the new inbox; `docs/support-inbox.md` notes that support agent maintains the reciprocal channel.
 
 ---
 
 ### T-accepted-twist-log — Persist accepted twist cards for prompt context
-- **Owner:** claude
-- **Branch:** `claude/T-accepted-twist-log`
+- **Owner:** support
+- **Branch:** `support/T-accepted-twist-log`
 - **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2 follow-up)
 - **Status:** merged
 - **Scope:** when a writer accepts a twist card surfaced by `POST /craft/twist/suggest` (T-twist-engine), the choice should persist so subsequent prompt-assembly can reference the chosen reversal. New persistence domain `accepted_twists` keyed by `projectId:versionId:twistId` (migration 006). Pure analysis module `backend/lib/accepted_twist_log.js` exposes `recordAcceptedTwist`, `getAcceptedTwistsForProject`, `removeAcceptedTwist`, `buildAcceptedTwistsBlockForPrompt`. Two endpoints under `/craft/twist/accepted`: `POST` to record an acceptance; `GET` to fetch the chronological log for a project; `DELETE /craft/twist/accepted/:twistId?projectId=` to un-accept. Twist shape mirrors the merged T-twist-engine `{ id, label, hook, severity, rationale }`. iOS twist-card consumer (Codex follow-up) can POST on acceptance and consume the GET when re-loading the timeline.
@@ -536,7 +536,7 @@
 - **Branch:** `codex/T34-ios-logline-rail`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+- **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next support agent/Codex follow-up.
 
 ---
 
@@ -545,24 +545,24 @@
 - **Branch:** `codex/T35-block-signal-nudge`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+- **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next support agent/Codex follow-up.
 
 ### T-coordination-state — Fast-path coordination.json + CLI helper
-- **Owner:** claude
-- **Branch:** `claude/T-coordination-state`
+- **Owner:** support
+- **Branch:** `support/T-coordination-state`
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Scope:** new `docs/coordination.json` is a tiny shared state file (open PRs by tier, blockers by owner, decisions pending, endpoints awaiting iOS consumers). `scripts/coordination_state.mjs` is a dependency-free CLI for read/open-prs/blockers/decisions/add-pr/close-pr/set-pr/add-blocker/clear-blocker/add-decision/clear-decision. Agents stamp `updatedAt` + `updatedBy` automatically. Replaces "re-read three ledgers to see what's open" with one fast read.
-- **Done when:** the JSON file exists with the current open Claude PRs seeded; the CLI reads + mutates it correctly; `node scripts/coordination_state.mjs read` returns a useful summary; both agents can call it without breaking the existing inbox/handoff docs.
+- **Done when:** the JSON file exists with the current open support agent PRs seeded; the CLI reads + mutates it correctly; `node scripts/coordination_state.mjs read` returns a useful summary; both agents can call it without breaking the existing inbox/handoff docs.
 
 ---
 
 ### T-auto-merge-tier1 — Auto-merge workflow for Tier 1 PRs
-- **Owner:** claude
-- **Branch:** `claude/T-auto-merge-tier1`
+- **Owner:** support
+- **Branch:** `support/T-auto-merge-tier1`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for explicit approval through a trusted formal review or trusted `Codex supervisor update: approved` / `Claude supervisor update: approved` comment. There is no quiet-time fallback. If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
+- **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for explicit approval through a trusted formal review or trusted `Codex supervisor update: approved` / `support agent supervisor update: approved` comment. There is no quiet-time fallback. If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
 - **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
 
 ---
@@ -572,7 +572,7 @@
 - **Branch:** `codex/T36-ios-character-traits`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** iOS has typed client/models for `GET /memory/character-traits`; the Studio side rail surfaces character voice/trait cards with loading, empty, and retry states; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+- **Done when:** iOS has typed client/models for `GET /memory/character-traits`; the Studio side rail surfaces character voice/trait cards with loading, empty, and retry states; focused tests cover decoding and view-state mapping; handoff docs name the next support agent/Codex follow-up.
 
 ---
 
@@ -581,13 +581,13 @@
 - **Branch:** `codex/T37-ios-twist-cards`
 - **Pillar:** living companion + screenplay craft
 - **Status:** merged
-- **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+- **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next support agent/Codex follow-up.
 
 ---
 
 ### T-decisions-queue — One-file queue for human decisions
-- **Owner:** claude
-- **Branch:** `claude/T-decisions-queue`
+- **Owner:** support
+- **Branch:** `support/T-decisions-queue`
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Scope:** `docs/decisions-queue.md` is the single place either agent posts "needs human" questions, with a one-line question per entry, the reason it matters, and a safe default. AGENTS.md `Decisions` section gains a one-paragraph pointer so the convention is durable. Open entries follow a stamped shape (`D-<slug>`, `Asked by`, `Asked at`, `Why it matters`, `Question`, `Default if no answer`). Resolved entries move to the bottom with the human's answer. Replaces decisions hidden inside PR bodies and chat memory.
@@ -596,8 +596,8 @@
 ---
 
 ### T-strict-auto-merge — Require explicit Codex approval
-- **Owner:** claude
-- **Branch:** `claude/T-strict-auto-merge`
+- **Owner:** support
+- **Branch:** `support/T-strict-auto-merge`
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Scope:** tighten `.github/workflows/auto-merge-tier1.yml` by removing the four-hour quiet-time fallback and requiring an explicit trusted cross-agent approval signal before any Tier 1 PR can auto-merge.
@@ -606,24 +606,24 @@
 ---
 
 ### T-tasks-per-row — Per-row task files + TASKS.md regenerator
-- **Owner:** claude
-- **Branch:** `claude/T-tasks-per-row`
+- **Owner:** support
+- **Branch:** `support/T-tasks-per-row`
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Scope:** new `tasks/_active/` directory holds one markdown file per active task (YAML-style front matter + Scope/Done-when body). `scripts/build_tasks_md.mjs` reads these files and renders both the quick-view table and the per-task detail blocks. `--write` mode looks for `<!-- BEGIN AUTOGEN active-tasks -->` / `<!-- END AUTOGEN active-tasks -->` anchors in TASKS.md and overwrites between them; the anchors do not exist yet, so `--write` is a no-op until a follow-up adds them. Removes the recurring “two agents touch line 42 of TASKS.md” merge-conflict class without breaking the current flow.
 - **Done when:** `tasks/README.md` documents the layout; `tasks/_active/` is seeded with at least the per-row files for this PR + T-trust-tiers; `node scripts/build_tasks_md.mjs` prints a valid rendered section; TASKS.md remains the source of truth until a follow-up flips the anchors on.
 
 ### T-logline-drift-alert — Structured drift alert (level + recommendation)
-- **Owner:** claude
-- **Branch:** `claude/T-logline-drift-alert`
+- **Owner:** support
+- **Branch:** `support/T-logline-drift-alert`
 - **Pillar:** living companion + voice→scene
 - **Status:** in-progress
 - **Scope:** the drift score from `computeDrift({ ... })` is currently a number + a sentence summary. iOS surfaces (T-twist-engine consumers, future logline rail) need a structured signal to decide whether to render a nudge card. This PR adds an additive `alert: { level, actionable, recommendation }` field on the response and the underlying `computeDrift` return. `level` maps from score by the same thresholds the summary already uses; `actionable` flips true at `level >= "firm"`; `recommendation` is a one-liner the iOS card can show verbatim. Additive only — existing decoders ignore the new field.
 - **Done when:** `computeDrift(...)` returns an `alert` field on every code path (including the empty-history case); `GET /craft/logline/drift` echoes it; ≥4 unit tests for the threshold bands + a "no history" baseline + an endpoint integration test; full backend suite stays green.
 
 ### T-prompt-wire-traits-and-twists — Prompt-assembly consumes traits + accepted twists
-- **Owner:** claude
-- **Branch:** `claude/T-prompt-wire-traits-and-twists`
+- **Owner:** support
+- **Branch:** `support/T-prompt-wire-traits-and-twists`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** review
 - **Scope:** the trait library (T-trait-library) and accepted twist log (T-accepted-twist-log) persist data but `lib/prompt_assembly.js` does not read either. Closes the longitudinal-learning loop. Extends `buildModelPrompt` and `buildMemoryBlock` to render `creative_memory.characters[].traits` inline per character (compact one-line summary from `trait_library.buildTraitsBlockForPrompt`) and to add a new `<accepted_twists>` block when accepted-twist entries are supplied. `wrapSystemPromptWithCreativeMemory` in `backend/index.js` learns to read accepted twists via `getAcceptedTwistsForProject` when a `projectId` is present in `req.body`.
@@ -645,7 +645,7 @@
 - **Branch:** `codex/T60-export-formats-picker`
 - **Pillar:** mobile-first + screenplay craft
 - **Status:** merged
-- **Done when:** iOS has typed client/model coverage for `GET /screenplay/export/formats`; the Studio export menu can render supported formats from the backend contract while preserving local fallback options; focused tests cover decoding, fallback ordering, and unsupported-format filtering; handoff docs tell Claude the endpoint has an app consumer.
+- **Done when:** iOS has typed client/model coverage for `GET /screenplay/export/formats`; the Studio export menu can render supported formats from the backend contract while preserving local fallback options; focused tests cover decoding, fallback ordering, and unsupported-format filtering; handoff docs tell support agent the endpoint has an app consumer.
 
 ---
 
@@ -654,7 +654,7 @@
 - **Branch:** `codex/T61-post-t60-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
 
 ---
 
@@ -672,7 +672,7 @@
 - **Branch:** `codex/T63-post-t62-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; Claude's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; support agent's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
 
 ---
 
@@ -690,16 +690,16 @@
 - **Branch:** `codex/T65-post-t64-coordination-refresh`
 - **Pillar:** mobile-first + infra
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; Claude's #133/#134 blockers remain current; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; support agent's #133/#134 blockers remain current; coordination prompt/check scripts pass.
 
 ---
 
-### T66 — Refresh queue after Claude PR triage
+### T66 — Refresh queue after support agent PR triage
 - **Owner:** codex
-- **Branch:** `codex/T66-refresh-after-claude-pr-triage`
+- **Branch:** `codex/T66-refresh-after-support-pr-triage`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
 
 ---
 
@@ -708,7 +708,7 @@
 - **Branch:** `codex/T67-refresh-after-pr148-triage`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
 
 ---
 
@@ -717,14 +717,14 @@
 - **Branch:** `codex/T68-refresh-after-pr150-151`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/live-handoff.md`, `docs/support-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
 
 ---
 
 ## Notes
 
 - Claim a row by editing it to `Owner=<you>, Status=in-progress` **as the first commit on your new branch**. If two agents try to claim the same row, the merge conflict on this file is the correct signal — do not work around it; resolve the intent.
-- New rows must include a one-line "done when" before they go to `ready` or `ready-for-claude`. A row without a definition of done does not belong in this file.
+- New rows must include a one-line "done when" before they go to `ready` or `ready-for-support`. A row without a definition of done does not belong in this file.
 - When a row reaches `merged`, move it to "Completed" with the merge date. Prune rows older than 30 days.
 
 ---
@@ -735,42 +735,42 @@
 
 | ID                                      | Title                                                                                    | Owner  | Status           |
 |-----------------------------------------|------------------------------------------------------------------------------------------|--------|------------------|
-| T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | claude | review           |
-| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | claude | review           |
-| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | claude | review           |
-| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits                                   | claude | review           |
-| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)                               | claude | review           |
-| T-coord-refresh-batch-15                | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | claude | review           |
-| T-decompose-phase4-auth-routes          | Decompose backend/index.js — Phase 4 (11 /auth/* routes)                                 | claude | review           |
-| T-decompose-phase5a-realtime-reads      | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review           |
-| T-decompose-phase5b4-realtime-call      | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review           |
-| T-decompose-phase6-1a-outbox-data-state | Decompose backend long-tail Phase 6.1a routes                                            | claude | ready-for-claude |
-| T-decompose-phase6-memories             | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review           |
-| T-deeper-lib-tests-batch-2              | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review           |
-| T-deeper-lib-tests-batch-3              | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review           |
-| T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review           |
-| T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | claude | review           |
-| T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | claude | review           |
-| T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review           |
-| T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | claude | review           |
+| T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | support | review           |
+| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | support | review           |
+| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | support | review           |
+| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits                                   | support | review           |
+| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)                               | support | review           |
+| T-coord-refresh-batch-15                | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | support | review           |
+| T-decompose-phase4-auth-routes          | Decompose backend/index.js — Phase 4 (11 /auth/* routes)                                 | support | review           |
+| T-decompose-phase5a-realtime-reads      | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | support | review           |
+| T-decompose-phase5b4-realtime-call      | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | support | review           |
+| T-decompose-phase6-1a-outbox-data-state | Decompose backend long-tail Phase 6.1a routes                                            | support | ready-for-support |
+| T-decompose-phase6-memories             | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | support | review           |
+| T-deeper-lib-tests-batch-2              | Deeper tests for persona + utils + screenplay_store + outbox_store                       | support | review           |
+| T-deeper-lib-tests-batch-3              | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | support | review           |
+| T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | support | review           |
+| T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | support | review           |
+| T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | support | review           |
+| T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | support | review           |
+| T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | support | review           |
 | T-local-backend-no-provider-boot        | Keep local backend bootable without provider credentials                                 | codex  | review           |
 | T-pii-safe-request-logs                 | Redact PII from structured request logs                                                   | codex  | review           |
-| T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | claude | review           |
-| T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review           |
-| T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
-| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | claude | review           |
-| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | claude | review           |
+| T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | support | review           |
+| T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | support | review           |
+| T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | support | review           |
+| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | support | review           |
+| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | support | review           |
 | T-screenplay-idor-regression            | Prove cross-account screenplay project isolation                                         | codex  | review           |
-| T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | claude | review           |
-| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review           |
-| T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | claude | review           |
-| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | claude | review           |
-| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | claude | review           |
-| T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | claude | planned          |
-| T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | claude | review           |
-| T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | claude | review           |
-| T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | claude | review           |
-| T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | claude | review           |
+| T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | support | review           |
+| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | support | review           |
+| T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | support | review           |
+| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | support | review           |
+| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | support | review           |
+| T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | support | planned          |
+| T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | support | review           |
+| T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | support | review           |
+| T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | support | review           |
+| T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | support | review           |
 | T113                                    | Archive merged active tasks after V1 status pass                                         | codex  | review           |
 | T115                                    | Refresh queue after V1 preflight and schema guard                                        | codex  | review           |
 | T117                                    | Refresh queue after memories tests merge                                                 | codex  | review           |
@@ -791,16 +791,16 @@
 | T141                                    | Add safe local release config handoff                                                    | codex  | review           |
 | T145                                    | Refresh coordination after auth and memory export merges                                 | codex  | review           |
 | T146                                    | Run V1 launch smoke and release preflight pass                                           | codex  | review           |
-| T147                                    | Refresh Claude handoff after Phase 7c design merge                                       | codex  | review           |
+| T147                                    | Refresh support agent handoff after Phase 7c design merge                                       | codex  | review           |
 | T148                                    | Add safe release config status command                                                   | codex  | review           |
-| T149                                    | Add Phase 7c implementation task row for Claude                                          | codex  | review           |
+| T149                                    | Add Phase 7c implementation task row for support agent                                          | codex  | review           |
 | T151                                    | Refresh coordination after Phase 7c merge                                                | codex  | review           |
 | T152                                    | Refresh eval-secret and release-gap state                                                | codex  | review           |
 | T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane                                     | codex  | review           |
-| T43-refresh-claude-queue                | Refresh Claude queue after supervisor protocol merge                                     | codex  | review           |
+| T43-refresh-support-queue                | Refresh support agent queue after supervisor protocol merge                                     | codex  | review           |
 | T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                                               | codex  | review           |
 | T46-post-review-queue-refresh           | Refresh queue after Codex PR reviews                                                     | codex  | review           |
-| T47-refresh-after-new-claude-prs        | Refresh queue after new Claude PR triage                                                 | codex  | review           |
+| T47-refresh-after-new-support-prs        | Refresh queue after new support agent PR triage                                                 | codex  | review           |
 | T48-ios-archetype-traits                | Surface character archetypes in the Studio traits rail                                   | codex  | in-progress      |
 | T81                                     | Refresh coordination after PR #193/#194                                                  | codex  | review           |
 | T82                                     | Refresh coordination after PR #204/#205/#206/#207                                        | codex  | review           |
@@ -815,7 +815,7 @@
 | T91                                     | Round 22f coordination refresh                                                           | codex  | review           |
 | T92                                     | Round 22g coordination refresh                                                           | codex  | review           |
 | T93                                     | Round 22h coordination refresh                                                           | codex  | review           |
-| T94                                     | Claude supervisor note handoff                                                           | codex  | review           |
+| T94                                     | support agent supervisor note handoff                                                           | codex  | review           |
 | T95-schema-doc-drift-gate               | Gate schema docs against backend field drift                                             | codex  | review           |
 | T96-batch-coordination-refresh          | Refresh coordination after supervisor merge train                                        | codex  | review           |
 | T97-post-support-merge-refresh          | Refresh coordination after support merge train                                           | codex  | review           |
@@ -825,8 +825,8 @@
 ## Active work — full detail (auto-generated)
 
 ### T-backfill-v1-pillar-legacy — Backfill V1 pillar/effect on 13 legacy non-merged task files
-- **Owner:** claude
-- **Branch:** claude/T-backfill-v1-pillar-legacy
+- **Owner:** support
+- **Branch:** support/T-backfill-v1-pillar-legacy
 - **Pillar:** infra
 - **Status:** review
 
@@ -874,8 +874,8 @@ their YAML front matter. Pre-flight is clean for the V1 pillar
 rule against current main.
 
 ### T-block-signal-history-bounds-eval — Pathological-input guard on the block-signal history buffer
-- **Owner:** claude
-- **Branch:** claude/T-block-signal-history-bounds-eval
+- **Owner:** support
+- **Branch:** support/T-block-signal-history-bounds-eval
 - **Pillar:** evals (layer-3-living)
 - **Status:** review
 
@@ -912,8 +912,8 @@ all checks passing; `npm run eval:block-signal-history-bounds` works;
 `npm test` still green.
 
 ### T-block-signal-history-route — GET /memory/block-signal/history read endpoint
-- **Owner:** claude
-- **Branch:** claude/T-block-signal-history-route
+- **Owner:** support
+- **Branch:** support/T-block-signal-history-route
 - **Pillar:** layer-3-living (creative-memory surfaces)
 - **Status:** review
 
@@ -948,8 +948,8 @@ envelope (matches the polling endpoint's posture).
 + endpoint integration + mount guards; `npm test` green.
 
 ### T-block-signal-history-tracking — Persist block-signal samples to creative memory habits
-- **Owner:** claude
-- **Branch:** claude/T-block-signal-history-tracking
+- **Owner:** support
+- **Branch:** support/T-block-signal-history-tracking
 - **Pillar:** layer-3-living (creative-memory longitudinal)
 - **Status:** review
 
@@ -984,8 +984,8 @@ ring-buffer cap / NaN coercion / endpoint integration; `npm test`
 green.
 
 ### T-coord-refresh-batch-12 — Batched coordination refresh — round 17 (post merge train)
-- **Owner:** claude
-- **Branch:** claude/T-coord-refresh-batch-12
+- **Owner:** support
+- **Branch:** support/T-coord-refresh-batch-12
 - **Pillar:** infra (coordination)
 - **Status:** review
 
@@ -993,7 +993,7 @@ green.
 
 Round-17 batched coordination refresh. Reflects the massive merge
 train that ran since the last on-main refresh: the original 25
-Claude PRs from round 16, plus the follow-on supervisor merges for
+support agent PRs from round 16, plus the follow-on supervisor merges for
 the coordination schema check, first-page telemetry sink, prompt
 context wiring, realtime failover, format-linter/eval umbrella, and
 ops route extraction.
@@ -1017,13 +1017,13 @@ Updates `docs/coordination.json`:
 - Round-16 and round-17 PRs moved from `blocked`/`review` → `merged`.
 - Cross-PR `ops-surface-access-control` blocker dropped (cleared
   via #97 + #100 already landed).
-- `claude-do-not-merge-queue` cleared. Remaining blockers are human-owned.
+- `support-do-not-merge-queue` cleared. Remaining blockers are human-owned.
 - `updatedAt` / `updatedBy` refreshed.
 
 Updates `docs/codex-inbox.md`:
 
 - New "Recently cleared" section summarizing the full merged train.
-- "Current Open Claude PRs" table trimmed to actual still-open,
+- "Current Open support agent PRs" table trimmed to actual still-open,
   human-gated PRs.
 
 ## Done when
@@ -1033,8 +1033,8 @@ PRs show `status: merged`; the open-PR table no longer references
 PRs that have merged; remaining blockers are human-owned.
 
 ### T-coord-refresh-batch-15 — Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged
-- **Owner:** claude
-- **Branch:** claude/T-coord-refresh-batch-15
+- **Owner:** support
+- **Branch:** support/T-coord-refresh-batch-15
 - **Pillar:** infra (coordination)
 - **Status:** review
 
@@ -1059,18 +1059,18 @@ gates on this round-19 train landing.
 
 `node scripts/coordination_state.mjs validate` returns OK; #197,
 #199, #200, #201, and #202 show `status: merged`; the inbox "Current
-Open Claude PRs" table lists only human-gated PRs; Phase 3 task file
+Open support agent PRs" table lists only human-gated PRs; Phase 3 task file
 documents what's next.
 
 ## Operational note
 
 Worktree audit also ran this round: cleaned 10 stale local
-worktrees that corresponded to merged/closed PRs. Active Claude
+worktrees that corresponded to merged/closed PRs. Active support agent
 worktrees: 8 → ready for the next round of work.
 
 ### T-decompose-phase4-auth-routes — Decompose backend/index.js — Phase 4 (11 /auth/* routes)
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase4-auth-routes
+- **Owner:** support
+- **Branch:** support/T-decompose-phase4-auth-routes
 - **Pillar:** infra (backend architecture)
 - **Status:** review
 
@@ -1125,8 +1125,8 @@ health probe, ICE servers). Per spec, max 1 decomp PR in flight,
 so Phase 5 is gated on this landing.
 
 ### T-decompose-phase5a-realtime-reads — Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase5-realtime-routes
+- **Owner:** support
+- **Branch:** support/T-decompose-phase5-realtime-routes
 - **Pillar:** infra (backend architecture)
 - **Status:** review
 
@@ -1169,8 +1169,8 @@ Access-control posture: **SAFE-PUBLIC**.
 Phase 5a is merged. Phase 5b opens after.
 
 ### T-decompose-phase5b4-realtime-call — Decompose backend/index.js — Phase 5b.4 (/realtime/call)
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase5b4-realtime-call
+- **Owner:** support
+- **Branch:** support/T-decompose-phase5b4-realtime-call
 - **Pillar:** infra (backend architecture)
 - **Status:** review
 
@@ -1310,10 +1310,10 @@ Phase 7 (talk-pipeline) is unblocked but its #223 design note
 already calls out the staged approach (7a + 7b + 7c).
 
 ### T-decompose-phase6-1a-outbox-data-state — Decompose backend long-tail Phase 6.1a routes
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase6-1a-outbox-data-state
+- **Owner:** support
+- **Branch:** support/T-decompose-phase6-1a-outbox-data-state
 - **Pillar:** infra
-- **Status:** ready-for-claude
+- **Status:** ready-for-support
 
 ## Scope
 
@@ -1354,8 +1354,8 @@ posture exactly. This is a byte-identical extraction only.
   commands run/not run.
 
 ### T-decompose-phase6-memories — Decompose backend/index.js — Phase 6 (/memories/* cluster)
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase6-memories
+- **Owner:** support
+- **Branch:** support/T-decompose-phase6-memories
 - **Pillar:** infra (backend architecture)
 - **Status:** review
 
@@ -1513,8 +1513,8 @@ Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
 
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
-- **Owner:** claude
-- **Branch:** claude/T-deeper-lib-tests-batch-2
+- **Owner:** support
+- **Branch:** support/T-deeper-lib-tests-batch-2
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -1607,8 +1607,8 @@ mark the deeper tier complete for these 4 libs.
 - user_auth (smoke #218, deeper #241, round-trip #242)
 
 ### T-deeper-lib-tests-batch-3 — Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats
-- **Owner:** claude
-- **Branch:** claude/T-deeper-batch-3
+- **Owner:** support
+- **Branch:** support/T-deeper-batch-3
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -1699,8 +1699,8 @@ covered.
   batch).
 
 ### T-deeper-lib-tests-batch — Deeper direct tests for user_store (with planned followups for memory_store + user_auth)
-- **Owner:** claude
-- **Branch:** claude/T-deeper-lib-tests-batch
+- **Owner:** support
+- **Branch:** support/T-deeper-lib-tests-batch
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -1793,8 +1793,8 @@ the memory_store + user_auth deeper followups stay open as
 separate task entries.
 
 ### T-deeper-memstore-and-user-auth-tests — Deeper tests for memory_store + user_auth
-- **Owner:** claude
-- **Branch:** claude/T-deeper-memory-store-tests
+- **Owner:** support
+- **Branch:** support/T-deeper-memory-store-tests
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -1860,8 +1860,8 @@ the cross-user isolation + adapter dual-write paths but those are
 already lightly covered through the route tests.
 
 ### T-eval-determinism-doc-pass — Document determinism stance across 10 canon evals
-- **Owner:** claude
-- **Branch:** claude/T-eval-determinism-doc-pass
+- **Owner:** support
+- **Branch:** support/T-eval-determinism-doc-pass
 - **Pillar:** infra (eval discipline)
 - **Status:** review
 
@@ -1922,8 +1922,8 @@ without functional change.
 - Touch eval bodies. Pure comment additions.
 
 ### T-fix-214-audit-and-readme — Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar
-- **Owner:** claude
-- **Branch:** claude/T-fix-214-audit-and-readme
+- **Owner:** support
+- **Branch:** support/T-fix-214-audit-and-readme
 - **Pillar:** infra
 - **Status:** review
 
@@ -1978,7 +1978,7 @@ Round-22 review of merged #214 surfaced three fixes:
 - The `backend/lib/README.md` accepted-precedents list contains only
   merged phases.
 - `node --check scripts/audit_inline_routes.mjs` passes.
-- `node scripts/agent_event.mjs append --by=claude --kind=pr_opened
+- `node scripts/agent_event.mjs append --by=support --kind=pr_opened
   --pr=N --comment="..."` will fire on PR open.
 
 ## Done when
@@ -1995,8 +1995,8 @@ separately; the task file records V1 pillar/effect.
   description per the rule at the bottom of `docs/v1-definition.md`.
 
 ### T-fountain-export-deeper — Deeper tests for fountain_export
-- **Owner:** claude
-- **Branch:** claude/T-fountain-export-deeper
+- **Owner:** support
+- **Branch:** support/T-fountain-export-deeper
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -2135,8 +2135,8 @@ existing smoke.
   - Passed.
 
 ### T-protocol-infra-batch — Tighten backend extraction protocol helpers
-- **Owner:** claude
-- **Branch:** claude/T-protocol-infra-batch
+- **Owner:** support
+- **Branch:** support/T-protocol-infra-batch
 - **Pillar:** infra
 - **Status:** review
 
@@ -2173,8 +2173,8 @@ Run:
 - `git diff --check`
 
 ### T-schema-docs-batch-2 — Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal
-- **Owner:** claude
-- **Branch:** claude/T-schema-docs-batch-2
+- **Owner:** support
+- **Branch:** support/T-schema-docs-batch-2
 - **Pillar:** infra (cross-agent contracts)
 - **Status:** review
 
@@ -2229,8 +2229,8 @@ extraction PRs are byte-identical, so the doc shouldn't need to
 change.
 
 ### T-schema-docs-scaffold — Bootstrap docs/schemas/ with README + 3 first envelope docs
-- **Owner:** claude
-- **Branch:** claude/T-schema-docs-scaffold
+- **Owner:** support
+- **Branch:** support/T-schema-docs-scaffold
 - **Pillar:** infra (cross-agent contracts)
 - **Status:** review
 
@@ -2293,8 +2293,8 @@ agents' sign-off. Suggested next-to-write list lives in the
 README's "Future scaffolding to fill in" section.
 
 ### T-screenplay-export-formats-list-route — GET /screenplay/export/formats canonical format list
-- **Owner:** claude
-- **Branch:** claude/T-screenplay-export-formats-list-route
+- **Owner:** support
+- **Branch:** support/T-screenplay-export-formats-list-route
 - **Pillar:** layer-1-craft (export discovery)
 - **Status:** review
 
@@ -2333,8 +2333,8 @@ the symmetric set).
 snapshot is frozen at the module level; `npm test` green.
 
 ### T-screenplay-export-markdown — POST /screenplay/export format=md|markdown
-- **Owner:** claude
-- **Branch:** claude/T-screenplay-export-markdown
+- **Owner:** support
+- **Branch:** support/T-screenplay-export-markdown
 - **Pillar:** layer-1-craft (export)
 - **Status:** review
 
@@ -2414,8 +2414,8 @@ the conversion helper is tested; `npm test` green.
   - Passed.
 
 ### T-talk-error-counter-zero-fix — Fix talk_error_counter falsy-zero bug in errorRatePerHour math
-- **Owner:** claude
-- **Branch:** claude/T-talk-error-counter-zero-fix
+- **Owner:** support
+- **Branch:** support/T-talk-error-counter-zero-fix
 - **Pillar:** infra (bug fix)
 - **Status:** review
 
@@ -2485,8 +2485,8 @@ remain green (test was written against the pre-fix behavior using
 a nonzero baseline, so it stays passing after the fix).
 
 ### T-talk-turn-meta-contract-snapshot — Pin /talk/turn/:turnId response key set + error codes
-- **Owner:** claude
-- **Branch:** claude/T-talk-pipeline-error-class-snapshot
+- **Owner:** support
+- **Branch:** support/T-talk-pipeline-error-class-snapshot
 - **Pillar:** evals (contract stability)
 - **Status:** review
 
@@ -2517,8 +2517,8 @@ runs fast and deterministic; no real talk pipeline state required.
 contract surfaces; `npm test` green.
 
 ### T-talk-turn-rate-limit-deeper — Deeper tests for talk_turn_rate_limit
-- **Owner:** claude
-- **Branch:** claude/T-talk-turn-rate-limit-deeper
+- **Owner:** support
+- **Branch:** support/T-talk-turn-rate-limit-deeper
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -2562,8 +2562,8 @@ node --test backend/tests/talk_turn_rate_limit.test.mjs backend/tests/talk_turn_
 deeper test file ships and passes alongside the existing smoke.
 
 ### T-task-files-cleanup — Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)
-- **Owner:** claude
-- **Branch:** claude/T-task-files-cleanup
+- **Owner:** support
+- **Branch:** support/T-task-files-cleanup
 - **Pillar:** infra (coordination)
 - **Status:** review
 
@@ -2572,7 +2572,7 @@ deeper test file ships and passes alongside the existing smoke.
 `tasks/_active/` accumulated 16 task files with no matching rows in
 `TASKS.md`:
 
-- `T-trust-tiers.md` (Claude)
+- `T-trust-tiers.md` (support agent)
 - `T42-supervisor-merge-protocol.md` through
   `T56-refresh-after-talk-contract.md` (Codex, all merged via PRs on
   `main`)
@@ -2599,8 +2599,8 @@ of scope here.
 `tasks/_active/`; rows match the file's `id`, `owner`, and `status`.
 
 ### T-trust-tiers — Trust tiers + standing pre-approvals (AGENTS.md)
-- **Owner:** claude
-- **Branch:** claude/T-trust-tiers
+- **Owner:** support
+- **Branch:** support/T-trust-tiers
 - **Pillar:** infra (enables all)
 - **Status:** review
 
@@ -2622,7 +2622,7 @@ what's Tier 1 / 2 / 3 and the escalation rules; the section names the
 read.
 
 ### T-untested-libs-followups — Add tests for remaining untested infrastructure libs
-- **Owner:** claude
+- **Owner:** support
 - **Branch:** (not opened)
 - **Pillar:** infra (test coverage)
 - **Status:** planned
@@ -2670,8 +2670,8 @@ hits a downstream route's integration test. Direct tests on the
 stores catch regressions at the source.
 
 ### T-user-auth-roundtrip-tests — Full handler round-trip tests for backend/lib/user_auth.js
-- **Owner:** claude
-- **Branch:** claude/T-user-auth-roundtrip-tests
+- **Owner:** support
+- **Branch:** support/T-user-auth-roundtrip-tests
 - **Pillar:** infra (test coverage)
 - **Status:** review
 
@@ -2752,8 +2752,8 @@ deeper + (for user_auth) round-trip tiers. Pre-flight's
 `lib-missing-test` rule is clean on main.
 
 ### T-v1-pillar-rule-and-canon-wire — Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon
-- **Owner:** claude
-- **Branch:** claude/T-v1-pillar-rule-and-canon-wire
+- **Owner:** support
+- **Branch:** support/T-v1-pillar-rule-and-canon-wire
 - **Pillar:** infra
 - **Status:** review
 
@@ -2829,8 +2829,8 @@ the V1 smoke chain on every gate run.
   fixtures and add new ones to the canon chain.
 
 ### T-v1-three-smoke-fixtures — V1 smoke fixtures — screenplay export + memory recall + realtime failover
-- **Owner:** claude
-- **Branch:** claude/T-v1-screenplay-smoke
+- **Owner:** support
+- **Branch:** support/T-v1-screenplay-smoke
 - **Pillar:** infra (V1 smoke)
 - **Status:** review
 
@@ -2926,8 +2926,8 @@ tripwires above the human-driven smoke.
   through the extracted handler, byte-comparable.
 
 ### T-v1-voice-to-page-smoke — V1 voice-to-page smoke fixture + automated subset
-- **Owner:** claude
-- **Branch:** claude/T-v1-voice-to-page-smoke
+- **Owner:** support
+- **Branch:** support/T-v1-voice-to-page-smoke
 - **Pillar:** infra (V1 smoke)
 - **Status:** review
 
@@ -3011,22 +3011,22 @@ caught for free.
 
 Mark the recent merged task files that still say `status: review`, archive
 every `status: merged` task that is still in `tasks/_active/`, regenerate
-`TASKS.md`, and emit a coordination event so Claude's next poll starts from
+`TASKS.md`, and emit a coordination event so support agent's next poll starts from
 the current state.
 
 ## Done When
 
-- Recent Codex/Claude task rows for merged PRs 301, 302, 304, 305, 308, 309,
+- Recent Codex/support agent task rows for merged PRs 301, 302, 304, 305, 308, 309,
   and 310 are marked `merged`.
 - Every `status: merged` task file is moved out of `tasks/_active/`.
 - `TASKS.md` is regenerated from task files.
-- `agent_next` still points Claude at Phase 7b talk-handler design before
+- `agent_next` still points support agent at Phase 7b talk-handler design before
   implementation.
 
 ## Verification
 
 - `node scripts/build_tasks_md.mjs --write`
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events`
 - `git diff --check`
 
 Not run: iOS build/themTests or backend tests, because this is coordination
@@ -3040,9 +3040,9 @@ metadata only.
 
 ## Scope
 
-Archive the merged T114 V1 preflight task and Claude's
+Archive the merged T114 V1 preflight task and support agent's
 T-preflight-schema-doc-missing-endpoint task, regenerate `TASKS.md`, and emit
-a coordination event that restates the next Claude lane.
+a coordination event that restates the next support agent lane.
 
 ## Done When
 
@@ -3050,14 +3050,14 @@ a coordination event that restates the next Claude lane.
 - T-preflight-schema-doc-missing-endpoint is marked `merged` and moved to
   `tasks/_archive/`.
 - `TASKS.md` is regenerated.
-- `agent_next` still points Claude to Phase 7b talk-handler design before
+- `agent_next` still points support agent to Phase 7b talk-handler design before
   implementation.
 
 ## Verification
 
 - `node scripts/build_tasks_md.mjs --write`
 - `node scripts/pre_flight.mjs --strict`
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events`
 - `npm run v1:status`
 - `git diff --check`
 
@@ -3072,7 +3072,7 @@ metadata only.
 
 ## Scope
 
-Archive the merged T116 handoff refresh task and Claude's memories deeper-test
+Archive the merged T116 handoff refresh task and support agent's memories deeper-test
 task, regenerate `TASKS.md`, and emit a short coordination event.
 
 ## Done When
@@ -3080,13 +3080,13 @@ task, regenerate `TASKS.md`, and emit a short coordination event.
 - T116 is marked `merged` and moved to `tasks/_archive/`.
 - T-memories-route-deeper-tests is marked `merged` and moved to
   `tasks/_archive/`.
-- `agent_next` still points Claude at Phase 7b talk-handler implementation.
+- `agent_next` still points support agent at Phase 7b talk-handler implementation.
 
 ## Verification
 
 - `node scripts/build_tasks_md.mjs --write`
 - `node scripts/pre_flight.mjs --strict`
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events`
 - `git diff --check`
 
 Not run: iOS build/themTests or backend npm test, because this is coordination
@@ -3157,7 +3157,7 @@ Keep macOS local PDF export available because the app has a local renderer.
 
 ## Scope
 
-Make the parked privacy decisions for Claude PRs #94 and #99 answerable
+Make the parked privacy decisions for support agent PRs #94 and #99 answerable
 without asking the human to inspect old PR bodies. Keep the routes parked until
 the human explicitly approves the privacy/data-control policy.
 
@@ -3182,20 +3182,20 @@ the human explicitly approves the privacy/data-control policy.
 ## Scope
 
 Refresh the supervisor handoff after the latest Codex V1 progress landed so
-Claude does not need a human copy/paste report to know what changed.
+support agent does not need a human copy/paste report to know what changed.
 
 ## Done When
 
-- `docs/codex-claude-live-handoff.md` records PRs #319, #320, and #321.
-- `docs/claude-inbox.md` states the current V1 checklist count and remaining
+- `docs/live-handoff.md` records PRs #319, #320, and #321.
+- `docs/support-inbox.md` states the current V1 checklist count and remaining
   backend action.
-- A short event-lane update points Claude at the same state.
+- A short event-lane update points support agent at the same state.
 - `TASKS.md` is regenerated.
 
 ## Verification
 
 - `node scripts/coordination_state.mjs validate` -> passed
-- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/agent_next.mjs --role=support --no-events` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
 
@@ -3266,11 +3266,11 @@ TestFlight preflight artifact in sync with the readiness proof.
 ## Scope
 
 Record PR #324 as merged in the supervisor handoff and coordination state so
-Claude and the human see the current V1 manual-smoke handoff command.
+support agent and the human see the current V1 manual-smoke handoff command.
 
 ## Done When
 
-- `docs/codex-claude-live-handoff.md` records T123 / PR #324 as merged.
+- `docs/live-handoff.md` records T123 / PR #324 as merged.
 - `docs/coordination.json` records PR #324 as merged.
 - The event lane records the merge state.
 - `TASKS.md` is regenerated.
@@ -3278,7 +3278,7 @@ Claude and the human see the current V1 manual-smoke handoff command.
 ## Verification
 
 - `node scripts/coordination_state.mjs validate` -> passed
-- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/agent_next.mjs --role=support --no-events` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
 
@@ -3346,12 +3346,12 @@ human-owned release settings.
 ## Scope
 
 Record PR #331 as merged, update the supervisor handoff and coordination state,
-and emit the post-merge event so Claude sees the current launch gate without a
+and emit the post-merge event so support agent sees the current launch gate without a
 human relay.
 
 ## Done When
 
-- `docs/codex-claude-live-handoff.md` marks T130 / PR #331 merged.
+- `docs/live-handoff.md` marks T130 / PR #331 merged.
 - `docs/coordination.json` marks PR #331 merged.
 - The agent-events lane has a `pr_merged` event for PR #331.
 - Coordination validation and pre-flight pass.
@@ -3371,28 +3371,28 @@ human relay.
 
 ## Scope
 
-Mark Claude PR #335 / Phase 7b merged in the coordination surfaces and clear
+Mark support agent PR #335 / Phase 7b merged in the coordination surfaces and clear
 the stale rebase blocker from the agent queue.
 
 ## Done When
 
-- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff record
+- `docs/coordination.json`, `docs/support-inbox.md`, and the live handoff record
   PR #335 as merged.
 - The event lane contains the PR #335 merge event.
-- `agent_next` no longer tells Claude to work on Phase 7b.
+- `agent_next` no longer tells support agent to work on Phase 7b.
 - Coordination/pre-flight checks pass.
 
 ## Verification
 
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` passed and
-  no longer points Claude at Phase 7b.
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events` passed and
+  no longer points support agent at Phase 7b.
 - `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed.
 - `node --check scripts/v1_launch_room.mjs` passed.
 - `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
 - `node scripts/v1_launch_room.mjs --role=codex` passed and now points Codex at
   V1 smoke handoff instead of Phase 7b review.
-- `node scripts/v1_launch_room.mjs --role=claude` passed and puts Claude in V1
+- `node scripts/v1_launch_room.mjs --role=support` passed and puts support agent in V1
   smoke-failure support mode.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
@@ -3413,7 +3413,7 @@ proof work.
 
 - `docs/coordination.json` marks PR #338 and PR #339 merged.
 - The live event lane records the merge events.
-- The handoff ledger tells Claude to stay in V1 smoke-failure support mode.
+- The handoff ledger tells support agent to stay in V1 smoke-failure support mode.
 - `agent_next` and launch-room commands no longer point Codex at stale PR #338.
 
 ## Verification
@@ -3421,7 +3421,7 @@ proof work.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed and no longer points Codex at PR #338.
 - `node scripts/v1_launch_room.mjs --role=codex` passed.
-- `node scripts/v1_launch_room.mjs --role=claude` passed.
+- `node scripts/v1_launch_room.mjs --role=support` passed.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
@@ -3446,7 +3446,7 @@ Launch Doctor evidence, and document exact results.
   real value/blocker.
 - Launch Doctor either has a real smoke report or records why a truthful report
   cannot be generated.
-- Claude has a precise backend support instruction for any smoke failure.
+- support agent has a precise backend support instruction for any smoke failure.
 
 ## Verification
 
@@ -3473,15 +3473,15 @@ merged so agent prompts stop treating T139 as an open review item.
 ## Done When
 
 - `docs/coordination.json` marks PR #341 merged.
-- `docs/codex-claude-live-handoff.md` marks T139 merged.
-- Claude's current support-only launch instruction remains visible.
+- `docs/live-handoff.md` marks T139 merged.
+- support agent's current support-only launch instruction remains visible.
 - Coordination validation passes.
 
 ## Verification
 
 - `gh pr view 341 --json state,mergedAt,headRefName,baseRefName,url` confirmed PR #341 merged.
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `node scripts/agent_next.mjs --role=support --limit=5` passed and shows support agent in V1 smoke-failure support mode.
 - `node scripts/v1_launch_room.mjs --role=all` passed and shows the blocked Launch Doctor report plus release preflight blockers.
 - `git diff --check` passed.
 
@@ -3504,7 +3504,7 @@ production app token can be supplied without editing tracked project files.
 - A checked-in template documents the exact required keys.
 - The runbook/preflight docs point to the template and final command.
 - Existing preflight still fails cleanly when real values are absent.
-- Claude remains in V1 smoke-failure support mode.
+- support agent remains in V1 smoke-failure support mode.
 
 ## Verification
 
@@ -3525,25 +3525,25 @@ production app token can be supplied without editing tracked project files.
 
 ## Scope
 
-Refresh the supervisor ledger, coordination state, Claude inbox, and launch
+Refresh the supervisor ledger, coordination state, support agent inbox, and launch
 handoff after Codex merged PR #212 and PR #94.
 
 ## Done When
 
 - `docs/coordination.json` marks PR #212 and PR #94 merged.
 - Stale #212/#94 human-gated blockers are removed from the coordination queue.
-- `docs/codex-claude-live-handoff.md` tells Claude that auth extraction and
+- `docs/live-handoff.md` tells support agent that auth extraction and
   core-only memory export are merged.
-- `docs/claude-inbox.md` keeps Claude in V1 smoke-failure support mode.
+- `docs/support-inbox.md` keeps support agent in V1 smoke-failure support mode.
 - Coordination validation passes.
 
 ## Verification
 
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows
-  Claude in V1 smoke-failure support mode with #94/#212 merged.
+- `node scripts/agent_next.mjs --role=support --limit=5` passed and shows
+  support agent in V1 smoke-failure support mode with #94/#212 merged.
 - `node scripts/agent_next.mjs --role=codex --limit=10` passed.
-- `node scripts/v1_launch_room.mjs --role=claude` passed and points Claude at
+- `node scripts/v1_launch_room.mjs --role=support` passed and points support agent at
   manual-smoke failure support.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
@@ -3557,7 +3557,7 @@ handoff after Codex merged PR #212 and PR #94.
 ## Scope
 
 Run the current V1 launch room path: release config check, release preflight,
-manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
+manual-smoke/Launch Doctor evidence capture, and support agent handoff for any
 concrete backend failure.
 
 ## Done When
@@ -3566,7 +3566,7 @@ concrete backend failure.
 - `scripts/run_release_preflight.sh` has been run or is blocked with exact
   evidence.
 - Launch Doctor docs are current for the smoke attempt.
-- Claude's next action is concrete and does not invite net-new backend work.
+- support agent's next action is concrete and does not invite net-new backend work.
 - Verification commands are recorded.
 
 ## Verification
@@ -3585,12 +3585,12 @@ concrete backend failure.
 - `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
   reflected the updated launch state.
 - `gh pr list --state open` showed only PR #33 open at the time. T152 later
-  cleared the human-secret blocker and reclassified #33 as a Claude-owned
+  cleared the human-secret blocker and reclassified #33 as a support agent-owned
   eval-quality repair.
 - `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
   blocked manual-smoke evidence.
 
-### T147 — Refresh Claude handoff after Phase 7c design merge
+### T147 — Refresh support agent handoff after Phase 7c design merge
 - **Owner:** codex
 - **Branch:** codex/T147-phase7c-handoff-refresh
 - **Pillar:** infra
@@ -3598,23 +3598,23 @@ concrete backend failure.
 
 ## Scope
 
-Record that PR #349's Phase 7c design note is merged, give Claude the exact
+Record that PR #349's Phase 7c design note is merged, give support agent the exact
 implementation lane, and keep the release-config/manual-smoke blockers separate
 from backend decomposition work.
 
 ## Done When
 
-- `docs/coordination.json`, `docs/claude-inbox.md`, and
-  `docs/codex-claude-live-handoff.md` say Phase 7c implementation is assigned.
+- `docs/coordination.json`, `docs/support-inbox.md`, and
+  `docs/live-handoff.md` say Phase 7c implementation is assigned.
 - The handoff forbids side PRs and preserves the talk-path merge caution.
-- `agent_next` routes Claude to the Phase 7c implementation instead of polling
+- `agent_next` routes support agent to the Phase 7c implementation instead of polling
   or inventing unrelated work.
 - Verification commands are recorded.
 
 ## Verification
 
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
-  routes Claude to Phase 7c implementation.
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events`
+  routes support agent to Phase 7c implementation.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
@@ -3652,7 +3652,7 @@ permissions, and contains real-looking values for the three launch blockers:
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
-### T149 — Add Phase 7c implementation task row for Claude
+### T149 — Add Phase 7c implementation task row for support agent
 - **Owner:** codex
 - **Branch:** codex/T149-phase7c-task-row
 - **Pillar:** infra
@@ -3660,24 +3660,24 @@ permissions, and contains real-looking values for the three launch blockers:
 
 ## Scope
 
-Add the authoritative active-task row that lets Claude start the approved
+Add the authoritative active-task row that lets support agent start the approved
 Phase 7c talk supplier-glue implementation without waiting on another human
 copy/paste handoff.
 
 ## Done When
 
-- `tasks/_active/` contains a Claude-owned Phase 7c implementation row with
+- `tasks/_active/` contains a support agent-owned Phase 7c implementation row with
   exact branch, scope, constraints, and verification requirements.
 - `TASKS.md` is regenerated so `agent_next` and task readers agree that Phase
-  7c is ready for Claude.
+  7c is ready for support agent.
 - The live handoff/inbox remains pointed at Phase 7c and does not invite
   side quests while release secrets are human-blocked.
 - Verification commands are recorded.
 
 ## Verification
 
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` routes
-  Claude to `T-decompose-phase7c-talk-supplier-glue` first.
+- `node scripts/agent_next.mjs --role=support --limit=5 --no-events` routes
+  support agent to `T-decompose-phase7c-talk-supplier-glue` first.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node --test scripts/tasks_active_frontmatter_eval.test.mjs` passed 2/2.
 - `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
@@ -3693,15 +3693,15 @@ copy/paste handoff.
 ## Scope
 
 Refresh the coordination docs after PR #354 merged, mark the Phase 7c task as
-merged, and publish the next Claude backend assignment so the support lane does
+merged, and publish the next support agent backend assignment so the support lane does
 not stall or duplicate completed work.
 
 ## Done When
 
 - `TASKS.md` and task front matter mark Phase 7c as merged.
-- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff all
+- `docs/coordination.json`, `docs/support-inbox.md`, and the live handoff all
   reflect PR #354 as merged.
-- Claude has one concrete next backend lane or a clear support-only instruction.
+- support agent has one concrete next backend lane or a clear support-only instruction.
 - Coordination validation, strict pre-flight, task-frontmatter eval, and
   `git diff --check` pass.
 
@@ -3723,7 +3723,7 @@ are still absent locally.
 
 - `TASKS.md`, `docs/coordination.json`, and agent handoff docs no longer call
   PR #33 a human OpenAI-secret blocker.
-- Claude has the precise #33 eval-quality fix target, while Phase 6.1a remains
+- support agent has the precise #33 eval-quality fix target, while Phase 6.1a remains
   the next backend lane after #33.
 - Launch/release docs record the current release config and signing state
   without committing secrets.
@@ -3750,10 +3750,10 @@ are still absent locally.
 - `node scripts/release_config_status.mjs` reported missing local release
   config without printing secrets.
 - `cd backend && npm run v1:status` reported V1 at 20/25.
-- `node scripts/agent_next.mjs --role=claude --no-events` now points Claude at
+- `node scripts/agent_next.mjs --role=support --no-events` now points support agent at
   PR #33's eval-quality repair before Phase 6.1a.
-- `node scripts/v1_launch_room.mjs --role=claude` now names "Fix PR #33
-  eval-quality failures" as Claude's launch option.
+- `node scripts/v1_launch_room.mjs --role=support` now names "Fix PR #33
+  eval-quality failures" as support agent's launch option.
 - `node scripts/v1_launch_room.mjs --role=codex` reports human-gated PRs:
   `none`, Launch Doctor `not_started`, release config missing, and preflight
   `fail=3 warn=1`.
@@ -3772,17 +3772,17 @@ are still absent locally.
 - **Pillar:** infra (enables all)
 - **Status:** review
 
-- **Done when:** the human-approved Codex self-merge authority is recorded as an accepted decision; `AGENTS.md` explains when Codex may merge its own PRs; the Codex/Claude fast-path handoff tells both agents how to act from `docs/coordination.json` without chat copy/paste; verification commands for the coordination scripts pass.
+- **Done when:** the human-approved Codex self-merge authority is recorded as an accepted decision; `AGENTS.md` explains when Codex may merge its own PRs; the Codex/support agent fast-path handoff tells both agents how to act from `docs/coordination.json` without chat copy/paste; verification commands for the coordination scripts pass.
 
 - **Scope:** protocol/docs only. No app or backend runtime changes.
 
-### T43-refresh-claude-queue — Refresh Claude queue after supervisor protocol merge
+### T43-refresh-support-queue — Refresh support agent queue after supervisor protocol merge
 - **Owner:** codex
-- **Branch:** codex/T43-refresh-claude-queue
+- **Branch:** codex/T43-refresh-support-queue
 - **Pillar:** infra (enables all)
 - **Status:** review
 
-- **Done when:** `docs/coordination.json` and Codex/Claude inboxes reflect the current open Claude PR queue after T42, including PRs #91 and #92; superseded PR #89 is marked blocked; verification commands for the coordination scripts pass.
+- **Done when:** `docs/coordination.json` and Codex/support agent inboxes reflect the current open support agent PR queue after T42, including PRs #91 and #92; superseded PR #89 is marked blocked; verification commands for the coordination scripts pass.
 
 - **Scope:** protocol/docs only. No app or backend runtime changes.
 
@@ -3792,7 +3792,7 @@ are still absent locally.
 - **Pillar:** longitudinal learning
 - **Status:** review
 
-- **Done when:** `docs/coordination.json` and inboxes mark Claude PR #94 as tier-3/needs-human because it exposes a full creative-memory export surface; verification commands for the coordination scripts pass.
+- **Done when:** `docs/coordination.json` and inboxes mark support agent PR #94 as tier-3/needs-human because it exposes a full creative-memory export surface; verification commands for the coordination scripts pass.
 
 - **Scope:** protocol/docs only. No app or backend runtime changes.
 
@@ -3802,17 +3802,17 @@ are still absent locally.
 - **Pillar:** infra (enables all)
 - **Status:** review
 
-- **Done when:** `docs/coordination.json` and inboxes reflect the current state after #91 and #98 merge; blocked Claude PRs #87/#88/#90/#92/#97 show their exact blockers; verification commands for the coordination scripts pass.
+- **Done when:** `docs/coordination.json` and inboxes reflect the current state after #91 and #98 merge; blocked support agent PRs #87/#88/#90/#92/#97 show their exact blockers; verification commands for the coordination scripts pass.
 
 - **Scope:** protocol/docs only. No app or backend runtime changes.
 
-### T47-refresh-after-new-claude-prs — Refresh queue after new Claude PR triage
+### T47-refresh-after-new-support-prs — Refresh queue after new support agent PR triage
 - **Owner:** codex
-- **Branch:** codex/T47-refresh-after-new-claude-prs
+- **Branch:** codex/T47-refresh-after-new-support-prs
 - **Pillar:** infra (enables all)
 - **Status:** review
 
-- **Done when:** `docs/coordination.json`, Codex inbox, Claude inbox, and the live handoff ledger record PR #99 as human-gated privacy/data-control work and PR #100 as blocked on ops access-control plus true windowed counts; prompt printers and coordination script checks pass.
+- **Done when:** `docs/coordination.json`, Codex inbox, support agent inbox, and the live handoff ledger record PR #99 as human-gated privacy/data-control work and PR #100 as blocked on ops access-control plus true windowed counts; prompt printers and coordination script checks pass.
 
 - **Scope:** protocol/docs only. No app or backend runtime changes.
 
@@ -3834,15 +3834,15 @@ are still absent locally.
 
 ## Scope
 
-Record that Claude PR #193 merged the route-local parser cleanup,
-Claude PR #194 merged the backend-index decomposition spec update, and
-Claude PR #195 was closed as a stale duplicate coordination refresh.
+Record that support agent PR #193 merged the route-local parser cleanup,
+support agent PR #194 merged the backend-index decomposition spec update, and
+support agent PR #195 was closed as a stale duplicate coordination refresh.
 
 ## Done when
 
 `docs/coordination.json`, `docs/codex-inbox.md`, the agent-event lane,
 and `TASKS.md` agree that #193/#194 are merged, #195 is closed, and
-the only remaining open Claude PRs are human-gated (#33, #63, #94,
+the only remaining open support agent PRs are human-gated (#33, #63, #94,
 #99). Coordination validation, agent-next, task generation, event tail,
 and diff checks pass.
 
@@ -3862,13 +3862,13 @@ Record the post-round-20 merge train:
 - #207 `T-outbox-store-smoke-test`
 
 Refresh `docs/coordination.json`, `docs/codex-inbox.md`,
-`docs/agent-events-2026-W20.jsonl`, and generated `TASKS.md` so Claude
+`docs/agent-events-2026-W20.jsonl`, and generated `TASKS.md` so support agent
 can continue from repo state without human copy/paste.
 
 ## Done when
 
 `node scripts/coordination_state.mjs validate` passes; `agent_next`
-shows no reviewable Claude PRs; the inbox says only human-gated PRs
+shows no reviewable support agent PRs; the inbox says only human-gated PRs
 remain and names the next safe backend coverage targets.
 
 ### T83 — Define V1 and product-state handoff loop
@@ -3879,18 +3879,18 @@ remain and names the next safe backend coverage targets.
 
 ## Scope
 
-Convert the Codex/Claude efficiency feedback into durable repo behavior:
+Convert the Codex/support agent efficiency feedback into durable repo behavior:
 
 - Add the operative V1 definition and binary checklist.
-- Make `docs/claude-inbox.md` an iOS-driven backend queue instead of a stale
+- Make `docs/support-inbox.md` an iOS-driven backend queue instead of a stale
   historical log.
 - Update the throughput protocol so every PR links to a V1 pillar/effect,
-  Codex owns coordination state, Claude uses event-lane updates, and product
+  Codex owns coordination state, support agent uses event-lane updates, and product
   state is reported asynchronously.
 
 ## Done when
 
-The repo contains a short V1 definition, a current Claude inbox with the next
+The repo contains a short V1 definition, a current support agent inbox with the next
 backend priorities Codex actually wants, and protocol text that prevents
 coordination refresh churn from replacing product progress.
 
@@ -4008,7 +4008,7 @@ merges:
 ## Done when
 
 `docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
-`TASKS.md` reflect the current queue and make the next Claude action clear.
+`TASKS.md` reflect the current queue and make the next support agent action clear.
 
 ## Verification
 
@@ -4114,7 +4114,7 @@ focused tests cover the new contracts.
 
 ## Done when
 
-The coordination files route Claude toward rebase/action work without reopening
+The coordination files route support agent toward rebase/action work without reopening
 settled policy, and the generated task index is current.
 
 ## Verification
@@ -4139,7 +4139,7 @@ settled policy, and the generated task index is current.
 
 ## Done when
 
-Claude's next action is visible from `agent_next` without human copy/paste.
+support agent's next action is visible from `agent_next` without human copy/paste.
 
 ## Verification
 
@@ -4162,7 +4162,7 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 
 ## Done when
 
-`agent_next` points Claude at the schema-doc drift fix alongside #238/#243.
+`agent_next` points support agent at the schema-doc drift fix alongside #238/#243.
 
 ## Verification
 
@@ -4171,20 +4171,20 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 - `node scripts/decisions_queue_lint.mjs`
   - Passed.
 
-### T94 — Claude supervisor note handoff
+### T94 — support agent supervisor note handoff
 - **Owner:** codex
-- **Branch:** codex/T94-claude-supervisor-note
+- **Branch:** codex/T94-support-supervisor-note
 - **Pillar:** infra
 - **Status:** review
 
 ## Scope
 
-- Record that Codex sent Claude the supervisor note on PR #238.
+- Record that Codex sent support agent the supervisor note on PR #238.
 - Keep the repo-native event lane aligned with the direct GitHub comment.
 
 ## Done when
 
-Claude can see the directive from both GitHub and `agent_next`.
+support agent can see the directive from both GitHub and `agent_next`.
 
 ## Verification
 
@@ -4236,9 +4236,9 @@ that landed PRs #238, #243, #245, #250, #251, #253, #256,
 
 - `docs/coordination.json` records merged state for the landed
   PRs.
-- Stale Claude-owned blockers for #238, #243, and #245 are
+- Stale support agent-owned blockers for #238, #243, and #245 are
   cleared.
-- `docs/codex-inbox.md` tells Claude the only remaining blockers
+- `docs/codex-inbox.md` tells support agent the only remaining blockers
   are human/policy gates unless Codex opens a new review blocker.
 - Coordination validation and main health checks are green.
 
@@ -4265,7 +4265,7 @@ PRs #262, #264, #265, #266, and #267.
 
 - `docs/coordination.json` records those PRs as merged.
 - Batch task files are marked `merged`.
-- `docs/claude-inbox.md` and `docs/codex-inbox.md` point at
+- `docs/support-inbox.md` and `docs/codex-inbox.md` point at
   the current next backend lane: Phase 5b.3 turn_commit.
 - Agent event lane records the refresh.
 
@@ -4291,7 +4291,7 @@ PRs and Phase 5b.3 realtime turn-commit extraction.
 ## Done when
 
 - `docs/coordination.json` marks #268, #269, #270, #271, and #273 merged.
-- `docs/codex-inbox.md` names Phase 5b.4 `/realtime/call` as Claude's next
+- `docs/codex-inbox.md` names Phase 5b.4 `/realtime/call` as support agent's next
   backend lane.
 - The active task index is rebuilt.
 - Coordination validation and current health checks pass.
@@ -4305,11 +4305,11 @@ PRs and Phase 5b.3 realtime turn-commit extraction.
 ## Scope
 
 Repair the T98 coordination refresh typo where the shell truncated the
-structured `expected_action` for PR #212 to just `Claude`.
+structured `expected_action` for PR #212 to just `support agent`.
 
 ## Done when
 
-`docs/coordination.json` again gives Claude the full #212 expected action:
+`docs/coordination.json` again gives support agent the full #212 expected action:
 rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
 

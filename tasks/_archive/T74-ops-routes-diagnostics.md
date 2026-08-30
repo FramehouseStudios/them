@@ -9,7 +9,7 @@ pillar: mobile-first + infra
 
 ## Scope
 
-Consume Claude PR #148's `GET /ops/routes` manifest from the app without
+Consume support agent PR #148's `GET /ops/routes` manifest from the app without
 making it a noisy user-facing surface. The Studio/debug support path should be
 able to tell which optional backend routes this deployment advertises.
 

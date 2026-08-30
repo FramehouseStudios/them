@@ -1,9 +1,9 @@
 ---
 id: T-user-auth-roundtrip-tests
 title: Full handler round-trip tests for backend/lib/user_auth.js
-owner: claude
+owner: support
 status: review
-branch: claude/T-user-auth-roundtrip-tests
+branch: support/T-user-auth-roundtrip-tests
 pillar: infra (test coverage)
 v1_pillar: infra
 v1_effect: closes the last untested-libs gap for the tier-3 auth surface — auth gates every V1 iOS contract

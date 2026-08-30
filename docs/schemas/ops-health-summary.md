@@ -14,7 +14,7 @@ Canonical shape for `GET /ops/health-summary`.
 
 ## Owner
 
-- **Backend**: Claude. `backend/lib/ops_health_summary_route.js`.
+- **Backend**: support agent. `backend/lib/ops_health_summary_route.js`.
 - **Consumer**: uptime dashboards (polls every few seconds).
 
 ## Access-control posture

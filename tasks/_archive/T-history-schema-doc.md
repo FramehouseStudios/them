@@ -1,9 +1,9 @@
 ---
 id: T-history-schema-doc
 title: docs/schemas/history.md
-owner: claude
+owner: support
 status: merged
-branch: claude/T-history-schema-doc
+branch: support/T-history-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
 v1_effect: documents the GET /history list + POST /history/annotate_turn envelopes iOS uses for the conversation-history pane + studio-annotation loop — closes a schema-doc gap

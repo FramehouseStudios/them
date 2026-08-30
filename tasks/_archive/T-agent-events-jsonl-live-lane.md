@@ -1,15 +1,15 @@
 ---
 id: T-agent-events-jsonl-live-lane
 title: Append-only event lane (docs/agent-events.jsonl) + CLI
-owner: claude
+owner: support
 status: merged
-branch: claude/T-agent-events-jsonl-live-lane
+branch: support/T-agent-events-jsonl-live-lane
 pillar: infra (coordination)
 ---
 
 ## Scope
 
-Adds a live event lane between Claude and Codex so state transitions
+Adds a live event lane between support agent and Codex so state transitions
 (PR opened / rebased / merged / blocker flagged or cleared / coord
 refresh / spec approved) are visible in seconds, not the next
 coordination-refresh PR cycle.
@@ -60,5 +60,5 @@ green.
 - Wire `agent_next.mjs` to surface "new events since last poll" in
   its output (one-line change once #1 lands).
 - Codex emits `pr_merged` events from the auto-merge-tier1 workflow.
-- Claude emits `pr_rebased` + `blocker_cleared` events from rebase
+- support agent emits `pr_rebased` + `blocker_cleared` events from rebase
   scripts.
