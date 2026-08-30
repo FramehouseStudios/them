@@ -1,5 +1,35 @@
 import Foundation
 
+struct ScreenplayNavigatorRootPolicy {
+    static func preferredRootURL(
+        isMacOS: Bool,
+        applicationSupportURL: URL?,
+        documentsURL: URL?,
+        temporaryURL: URL
+    ) -> URL {
+        if isMacOS {
+            return (applicationSupportURL ?? temporaryURL)
+                .appendingPathComponent("io.them", isDirectory: true)
+                .appendingPathComponent("Screenplays", isDirectory: true)
+        }
+        return documentsURL ?? temporaryURL
+    }
+
+    static func preferredRootURL(fileManager: FileManager = .default) -> URL {
+        #if os(macOS)
+        let isMacOS = true
+        #else
+        let isMacOS = false
+        #endif
+        return preferredRootURL(
+            isMacOS: isMacOS,
+            applicationSupportURL: fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+            documentsURL: fileManager.urls(for: .documentDirectory, in: .userDomainMask).first,
+            temporaryURL: fileManager.temporaryDirectory
+        )
+    }
+}
+
 struct ScreenplayProjectScopedState {
     static func matches(_ scopedProjectId: String?, selectedProjectId: String) -> Bool {
         let scoped = (scopedProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

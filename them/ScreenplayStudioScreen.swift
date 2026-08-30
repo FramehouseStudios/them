@@ -16405,8 +16405,11 @@ Look at the city.
     private func bootstrapNavigatorIfNeeded() {
         guard !IOThemRuntime.isRunningTests else { return }
         guard navigatorCurrentURL == nil else { return }
-        let fallback = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let fallback = ScreenplayNavigatorRootPolicy.preferredRootURL()
+        try? FileManager.default.createDirectory(
+            at: fallback,
+            withIntermediateDirectories: true
+        )
         navigatorRootURL = fallback
         navigatorCurrentURL = fallback
         refreshNavigatorEntries()
