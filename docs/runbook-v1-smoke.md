@@ -11,7 +11,7 @@ cd backend
 npm run eval:canon
 ```
 
-→ All canon evals + all 4 V1 smokes pass. Exit 0 means V1 is safe
+→ All canon evals + all 5 V1 smokes pass. Exit 0 means V1 is safe
 to ship from a deterministic-tripwire perspective.
 
 For the iOS golden path:
@@ -20,7 +20,7 @@ For the iOS golden path:
 scripts/run_v1_ui_smoke.sh
 ```
 
-→ The five `themUITests` smoke tests cover the V1 UI contracts.
+→ The current sequential `themUITests` suite covers the V1 UI contracts.
 Manual smoke remains the source of truth for visual polish,
 microphone/audio quality, and signed release hardware behavior.
 
@@ -36,10 +36,12 @@ no deterministic regression sneaked in. A red `eval:canon` means
 some piece of V1's deterministic tripwire fired and the PR
 should not merge until it's understood.
 
-## The 4 V1 smokes
+## The 5 V1 smokes
 
-Each smoke is deterministic: no clocks, no random ids, no network,
-no LLM calls. Same input always produces the same output.
+Each smoke is deterministic and avoids external services and LLM calls. The
+first four are pure fixture/contract checks; the fifth uses an isolated
+loopback backend with a simulated provider. The same authored inputs exercise
+the same assertions on every run.
 
 ### 1. v1_voice_to_page_smoke (talk pillar)
 
@@ -133,6 +135,22 @@ Failure means: a realtime-supplier change broke the failover
 ladder. Look at: `backend/lib/realtime_supplier_failover.js`,
 `backend/lib/realtime_supplier_openai.js`.
 
+### 5. v1_realtime_learned_answer_voice_smoke (realtime + memory pillars)
+
+`backend/evals/run_realtime_learned_answer_voice_smoke.mjs` starts the owned
+backend on loopback with a simulated realtime provider. It seeds a pending
+screenplay question, speaks the question through the bridge simulator, commits
+the writer's answer through the authenticated production-shaped route, refreshes
+grounding, and verifies the next spoken reply uses the learned fact on the same
+peer connection without repeating the resolved question.
+
+Failure means: auth, durable memory, realtime turn commit, grounding refresh,
+or the bridge's next-spoken-event contract regressed. It does not prove a live
+provider's instruction adherence or acoustic voice quality. Look at:
+`backend/evals/run_realtime_learned_answer_voice_smoke.mjs`,
+`backend/lib/realtime_turn_commit_route.js`, and
+`backend/lib/realtime_project_grounding_route.js`.
+
 ## How to run
 
 ### All canon evals + V1 smokes
@@ -158,9 +176,11 @@ node ../scripts/v1_voice_to_page_smoke.mjs
 node ../scripts/v1_screenplay_smoke.mjs
 node ../scripts/v1_memory_recall_smoke.mjs
 node ../scripts/v1_realtime_failover_smoke.mjs
+npm run eval:v1-realtime-learned-answer-voice-smoke
 ```
 
-All four accept `--json` for machine-readable output.
+The first four accept `--json` for machine-readable output. The fifth prints a
+single structured JSON result followed by its pass marker.
 
 ### Just one smoke's test wrapper
 
@@ -182,9 +202,9 @@ node scripts/v1_manual_qa_checklist.mjs
 node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md
 ```
 
-The checklist covers the four manual V1 paths that still require a person:
+The checklist covers the five manual V1 paths that still require a person:
 voice-to-reply persistence, Studio save/export/reopen, creative-memory recall,
-and realtime primary/fallback behavior.
+realtime primary/fallback behavior, and iPhone release readiness.
 
 ## How to interpret a failure
 
@@ -215,25 +235,18 @@ and remaining items.
 
 ## iOS V1 UI smoke
 
-The `themUITests` target runs five thin XCUITests against a DEBUG
-launch mode:
-
-- `test_first_run_onboarding_unlocks_companion`
-- `test_record_voice_turn_round_trips_to_screenplay`
-- `test_screenplay_export_returns_a_file`
-- `test_memory_recall_includes_a_mentioned_character`
-- `test_realtime_fallback_does_not_crash_companion`
-
-The app receives `--ui-testing` launch arguments, resets local
-defaults for isolation, skips real provider calls through the existing
-Studio stub transport, and uses deterministic screenplay/export data.
-CI runs this as a soft gate in `quality-gate.yml` until it has enough
-green history to promote to a hard gate.
+The `themUITests` target is a growing sequential suite; do not copy a hard-coded
+test count into release claims. It includes onboarding, local demo/Apple
+separation, Keychain relaunch, Talk-to-Page, Studio routing, export/restore,
+memory, realtime, conflict, recovery, and writer-block stories. The app receives
+`--ui-testing` launch arguments and uses explicit deterministic fixtures where
+the story does not require an external server. Fixture-gated skips must stay
+visible and never count as human signoff.
 
 ## What this runbook does NOT cover
 
-- Visual polish and hardware-only iOS release proof. The five
-  `themUITests` cover the UI contracts; a human still signs off
+- Visual polish and hardware-only iOS release proof. The sequential
+  `themUITests` cover automated UI contracts; a human still signs off
   microphone/audio feel and final TestFlight behavior.
 - LLM behavior. The V1 smokes deliberately avoid LLM calls — they
   pin shape and ordering, not semantics. LLM regression lives in
@@ -244,7 +257,7 @@ green history to promote to a hard gate.
 
 ## Updating the runbook
 
-This doc is owned by support agent. When a V1 smoke is added or its
+This is a project-owned Codex runbook. When a V1 smoke is added or its
 invariants change, update both the smoke's header comment AND
 the matching section here. Schema doc references in this runbook
 must stay in lockstep with `docs/schemas/`.
