@@ -346,8 +346,76 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
-    func test_saved_panel_routes_to_passive_presentation_and_exposes_accessible_actions() {
+    func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let routes = [
+            (tab: "draft", panel: "studio.draft.tools.pages"),
+            (tab: "beats", panel: "studio.beats.save"),
+            (tab: "craft", panel: "studio.craft.panel"),
+            (tab: "outline", panel: "studio.feature-compass.move.next-scene.write"),
+            (tab: "them", panel: "studio.them.panel"),
+            (tab: "saved", panel: "studio.saved.save"),
+        ]
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+
+        for route in routes {
+            let tab = app.buttons["studio.right-panel.\(route.tab)"]
+            XCTAssertTrue(tab.waitForExistence(timeout: 8), "Missing \(route.tab) inspector tab")
+            tab.tap()
+            let panel = element(identifier: route.panel, in: app)
+            XCTAssertTrue(
+                revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
+                "The \(route.tab) tab did not reveal its working panel"
+            )
+            XCTAssertTrue(tab.isSelected, "The \(route.tab) tab did not report its selected state")
+
+            if route.tab == "outline" {
+                let nextSceneWrite = app.buttons["studio.feature-compass.move.next-scene.write"]
+                XCTAssertTrue(nextSceneWrite.waitForExistence(timeout: 4))
+                XCTAssertTrue(nextSceneWrite.label.hasPrefix("Write "))
+            }
+        }
+    }
+
+    func test_studio_header_shortcuts_and_project_drawer_tabs_reveal_their_destinations() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let shortcuts = [
+            (shortcut: "pages", panel: "studio.draft.page-tools"),
+            (shortcut: "revisions", panel: "studio.draft.revision-tools"),
+            (shortcut: "snapshots", panel: "studio.draft.snapshot-tools"),
+            (shortcut: "saved", panel: "studio.saved.panel"),
+        ]
+
+        for route in shortcuts {
+            let shortcut = app.buttons["studio.draft-shortcut.\(route.shortcut)"]
+            XCTAssertTrue(shortcut.waitForExistence(timeout: 8), "Missing \(route.shortcut) draft shortcut")
+            shortcut.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)[route.panel].waitForExistence(timeout: 4),
+                "The \(route.shortcut) shortcut did not reveal its destination"
+            )
+            XCTAssertTrue(shortcut.isSelected, "The \(route.shortcut) shortcut did not report its selected state")
+        }
+
+        let filesTab = app.buttons["studio.sidebar.files"]
+        XCTAssertTrue(filesTab.waitForExistence(timeout: 4))
+        filesTab.tap()
+        XCTAssertTrue(app.buttons["Open Folder"].waitForExistence(timeout: 4))
+        XCTAssertTrue(filesTab.isSelected)
+
+        let projectsTab = app.buttons["studio.sidebar.projects"]
+        XCTAssertTrue(projectsTab.waitForExistence(timeout: 4))
+        projectsTab.tap()
+        XCTAssertTrue(app.textFields["New project title"].waitForExistence(timeout: 4))
+        XCTAssertTrue(projectsTab.isSelected)
+    }
+
+    func test_saved_panel_routes_to_passive_presentation_and_exposes_accessible_actions() {
+        let app = launchApp(openStudio: true, openExportTools: true)
         defer { app.terminate() }
 
         let savedTab = app.buttons["studio.right-panel.saved"]
@@ -357,7 +425,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4))
         let saveButton = app.buttons["studio.saved.save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(saveButton.isEnabled)
+        XCTAssertFalse(saveButton.isEnabled)
+        XCTAssertTrue(staticText(containing: "Select or create a project", in: app).exists)
     }
 
     func test_them_rail_routes_to_passive_overview_and_surface_mix() {

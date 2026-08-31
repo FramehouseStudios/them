@@ -448,6 +448,7 @@ function writeMacRestoreDefaults(seeded) {
   writeDefaultString("auth_debug_access_token", seeded.identity.accessToken);
   writeDefaultBool("auth_debug_access_token_enabled", true);
   writeDefaultBool("auth_signed_in", true);
+  writeDefaultBool("auth_session_token_deletion_pending", false);
   writeDefaultString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
   writeDefaultString("studio.ask.note.history.v2", "{}");
   writeDefaultString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
@@ -594,7 +595,26 @@ async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID)
     initialVersionID: seeded.versionID,
     expectedDraftLength: expectedDraft.length,
     metadata: probe?.metadata || null,
-    state,
+    state: state ? {
+      selectedProjectID: state.selectedProjectID,
+      latestVersionID: state.latestVersionID,
+      draftCharacterCount: state.draftCharacterCount,
+      draftFingerprint: state.draftFingerprint,
+      hasUnsavedDraftChanges: state.hasUnsavedDraftChanges,
+      autosaveStatusText: state.autosaveStatusText,
+      queuedDraftSaveCount: state.queuedDraftSaveCount,
+      parkedDraftSaveCount: state.parkedDraftSaveCount,
+      debugAutomationSession: state.debugAutomationSession,
+      debugAuthSessionAuthenticated: state.debugAuthSessionAuthenticated,
+      debugAuthHeaderPresent: state.debugAuthHeaderPresent,
+      debugProjectClientOwner: state.debugProjectClientOwner,
+      debugProjectClientTokenPresent: state.debugProjectClientTokenPresent,
+      errorText: state.errorText,
+      infoText: state.infoText,
+      conflictPresent: state.conflictPresent,
+      conflictBaseVersionID: state.conflictBaseVersionID,
+      conflictServerVersionID: state.conflictServerVersionID,
+    } : null,
   }, null, 2)}`);
 }
 
@@ -794,6 +814,7 @@ const restoreIntKeys = [
 const restoreBoolKeys = [
   "auth_debug_access_token_enabled",
   "auth_signed_in",
+  "auth_session_token_deletion_pending",
 ];
 const originalStringValues = Object.fromEntries(restoreKeys.map((key) => [key, readDefaultString(key)]));
 const originalIntValues = Object.fromEntries(restoreIntKeys.map((key) => [key, readDefaultInt(key)]));
@@ -863,15 +884,29 @@ try {
     versionID: macPageWriteSave.versionID,
   };
   const liveSave = await saveSharedProjectFromIPhone(iphoneWriteBaseSeeded);
+  await server.stop();
+  server = null;
+  server = await startBackend({
+    port: CROSS_PLATFORM_PORT,
+    dataDir,
+    env: backendEnv,
+  });
+  const postIPhoneRestartSeeded = {
+    ...iphoneWriteBaseSeeded,
+    baseURL: server.baseUrl,
+    expectedDraft: liveSave.draft,
+    versionID: liveSave.versionID,
+  };
+  await assertBackendSeeded(postIPhoneRestartSeeded);
   const liveMacState = await waitForMacLiveSync({
-    seeded: iphoneWriteBaseSeeded,
+    seeded: postIPhoneRestartSeeded,
     versionID: liveSave.versionID,
     expectedDraft: liveSave.draft,
     appPath: mac.appPath,
     originalPID: macPIDBeforeLiveSync,
   });
   const liveIPhoneSeeded = {
-    ...iphoneWriteBaseSeeded,
+    ...postIPhoneRestartSeeded,
     expectedDraft: liveSave.draft,
     versionID: liveSave.versionID,
   };
@@ -897,6 +932,7 @@ try {
     liveSync: {
       source: "iPhone",
       destination: "macOS",
+      survivedBackendRestartAfterIPhoneSave: true,
       macPID: macPIDBeforeLiveSync,
       versionID: liveSave.versionID,
       stateVersion: liveSave.stateVersion,

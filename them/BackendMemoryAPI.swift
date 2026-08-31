@@ -3791,6 +3791,12 @@ nonisolated enum BackendAuthClient {
         }
     }
 
+    static func currentAuthSessionIntentGeneration() -> Int {
+        authSessionStateQueue.sync {
+            authSessionIntentGeneration(defaults: .standard)
+        }
+    }
+
     static func authSessionStorageIsReadable(defaults: UserDefaults) -> Bool {
         defaults.bool(forKey: DefaultsKey.authSignedIn) &&
             !defaults.bool(forKey: DefaultsKey.authSessionTokenDeletionPending)
@@ -6081,6 +6087,9 @@ nonisolated enum BackendAuthClient {
 
     static func isStudioDebugClientTokenOverrideActive(defaults: UserDefaults = .standard) -> Bool {
         #if DEBUG
+        if defaults === UserDefaults.standard {
+            guard IOThemRuntime.isStudioAutomationSession else { return false }
+        }
         let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
         let projectID = studioDebugPreferenceString(forKey: "studio_debug_load_project_id", defaults: defaults)
         let loadToken = studioDebugPreferenceInt(forKey: "studio_debug_load_project_token", defaults: defaults)

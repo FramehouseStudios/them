@@ -1653,6 +1653,63 @@ test("[screenplay-projects-routes] POST /version rejects stale base_version_id w
   });
 });
 
+test("[screenplay-projects-routes] strict version save rejects a missing base once a server version exists", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "server_current";
+  project.versions = [{ id: "server_current", draft: "Current server draft." }];
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - NIGHT\n\nUnbased edit.",
+      conflict_strategy: "reject_if_stale",
+      client_request_id: "missing-base-device-save",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "conflict");
+    assert.equal(r.body.conflict, true);
+    assert.equal(r.body.base_version_id, "");
+    assert.equal(r.body.server_version_id, "server_current");
+    assert.equal(project.versions.length, 1);
+  });
+});
+
+test("[screenplay-projects-routes] default version save rejects a missing base once a server version exists", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "server_current";
+  project.versions = [{ id: "server_current", draft: "Current server draft." }];
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - NIGHT\n\nUnbased default edit.",
+      client_request_id: "missing-base-default-save",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "conflict");
+    assert.equal(r.body.conflict, true);
+    assert.equal(r.body.base_version_id, "");
+    assert.equal(r.body.server_version_id, "server_current");
+    assert.equal(project.versions.length, 1);
+  });
+});
+
+test("[screenplay-projects-routes] explicit allow strategy permits an unbased overwrite", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "server_current";
+  project.versions = [{ id: "server_current", draft: "Current server draft." }];
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - NIGHT\n\nIntentional overwrite.",
+      conflict_strategy: "allow",
+      client_request_id: "explicit-allow-save",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.body.status, "saved");
+    assert.equal(r.body.conflict, false);
+    assert.equal(project.versions.length, 2);
+  });
+});
+
 test("[screenplay-projects-routes] POST /version rejects empty draft with 400", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "  " });

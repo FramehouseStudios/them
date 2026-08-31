@@ -1592,7 +1592,12 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         replayed: requestMatches,
       }));
     }
-    if (conflictStrategy === "reject_if_stale" && baseVersionId && currentVersionId && baseVersionId !== currentVersionId) {
+    const missingRequiredBase = conflictStrategy === "reject_if_stale" && currentVersionId && !baseVersionId;
+    const staleBase = conflictStrategy === "reject_if_stale" &&
+      baseVersionId &&
+      currentVersionId &&
+      baseVersionId !== currentVersionId;
+    if (missingRequiredBase || staleBase) {
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(409).json(buildScreenplayEnvelope(req, owner, {
         stage: "screenplay_version",
