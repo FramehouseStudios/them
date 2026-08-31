@@ -2285,7 +2285,6 @@ final class BackendClient {
         self.urlSession = urlSession
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
         self.shouldAttachUserIDHeader = attachUserIDHeader
-        persistSharedBackendBaseURL(baseURL)
     }
 
     func health() async throws -> Bool {
@@ -6044,8 +6043,7 @@ final class BackendClient {
             if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
                 return resolvedURL
             }
-            UserDefaults.standard.removeObject(forKey: sharedBackendBaseURLDefaultsKeyStatic)
-            UserDefaults.standard.synchronize()
+            BackendUserDefaultsStore.removeObject(forKey: sharedBackendBaseURLDefaultsKeyStatic)
         }
 
         return canonicalizeLoopbackURL(fallback)
@@ -6672,8 +6670,7 @@ final class BackendClient {
 
     private func persistSharedBackendBaseURL(_ url: URL) {
         guard shouldPersistBackendBaseURL else { return }
-        UserDefaults.standard.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
-        UserDefaults.standard.synchronize()
+        BackendUserDefaultsStore.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
     }
 }
 

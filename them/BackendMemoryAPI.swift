@@ -33,6 +33,99 @@ nonisolated private func postBackendNotificationOnMain(
     }
 }
 
+nonisolated enum BackendUserDefaultsStore {
+    private static let liveUIKeys: Set<String> = [
+        "auth_signed_in",
+        "auth_user_email",
+        "auth_user_verified",
+        "auth_session_token_deletion_pending",
+    ]
+
+    @discardableResult
+    static func set(
+        _ value: Any,
+        forKey key: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+#if os(iOS)
+        if defaults === UserDefaults.standard {
+            if valuesAreEqual(defaults.object(forKey: key), value) {
+                return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
+            }
+            CFPreferencesSetAppValue(
+                key as CFString,
+                value as CFPropertyList,
+                kCFPreferencesCurrentApplication
+            )
+            guard CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) else {
+                return false
+            }
+            publishLiveUIChangeIfNeeded(forKey: key)
+            return true
+        }
+#endif
+        defaults.set(value, forKey: key)
+        return defaults.synchronize()
+    }
+
+    @discardableResult
+    static func removeObject(
+        forKey key: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+#if os(iOS)
+        if defaults === UserDefaults.standard {
+            if defaults.object(forKey: key) == nil {
+                return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
+            }
+            CFPreferencesSetAppValue(
+                key as CFString,
+                nil,
+                kCFPreferencesCurrentApplication
+            )
+            guard CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) else {
+                return false
+            }
+            publishLiveUIChangeIfNeeded(forKey: key)
+            return true
+        }
+#endif
+        defaults.removeObject(forKey: key)
+        return defaults.synchronize()
+    }
+
+    @discardableResult
+    static func synchronize(_ defaults: UserDefaults = .standard) -> Bool {
+#if os(iOS)
+        if defaults === UserDefaults.standard {
+            return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
+        }
+#endif
+        return defaults.synchronize()
+    }
+
+    private static func valuesAreEqual(_ lhs: Any?, _ rhs: Any?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (left as NSObject, right as NSObject):
+            return left.isEqual(right)
+        default:
+            return false
+        }
+    }
+
+    private static func publishLiveUIChangeIfNeeded(forKey key: String) {
+        guard liveUIKeys.contains(key) else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            )
+        }
+    }
+}
+
 nonisolated struct BackendSyncState: Equatable {
     var status: String
     var sessionId: String
@@ -3249,11 +3342,11 @@ nonisolated private struct BackendCredentialDefaultsCommit: @unchecked Sendable 
 
     func apply() {
         if removeLegacy, defaults.object(forKey: defaultsKey) != nil {
-            defaults.removeObject(forKey: defaultsKey)
+            BackendUserDefaultsStore.removeObject(forKey: defaultsKey, defaults: defaults)
         }
         let markerKey = BackendCredentialMigration.migrationMarkerKey(defaultsKey: defaultsKey)
         if removeObsoleteMarker, defaults.object(forKey: markerKey) != nil {
-            defaults.removeObject(forKey: markerKey)
+            BackendUserDefaultsStore.removeObject(forKey: markerKey, defaults: defaults)
         }
     }
 }
@@ -3471,7 +3564,7 @@ nonisolated enum BackendCredentialMigration {
             return false
         }
 #if os(macOS)
-        defaults.set(normalized, forKey: defaultsKey)
+        BackendUserDefaultsStore.set(normalized, forKey: defaultsKey, defaults: defaults)
         return true
 #else
         let wrote = writeKeychain(encodedSecureValue(normalized), account)
@@ -3498,7 +3591,7 @@ nonisolated enum BackendCredentialMigration {
         onSecureStoreFailure: (String) -> Void = BackendCredentialMigration.logSecureStoreFailure
     ) -> Bool {
 #if os(macOS)
-        defaults.removeObject(forKey: defaultsKey)
+        BackendUserDefaultsStore.removeObject(forKey: defaultsKey, defaults: defaults)
         return true
 #else
         guard writeKeychain(secureValueDeleted, account) else {
@@ -3653,7 +3746,11 @@ nonisolated enum BackendAuthClient {
     static func reserveAuthSessionIntent(defaults: UserDefaults) -> Int {
         let current = authSessionIntentGeneration(defaults: defaults)
         let next = current >= Int.max - 1 ? 1 : current + 1
-        defaults.set(next, forKey: DefaultsKey.authSessionIntentGeneration)
+        BackendUserDefaultsStore.set(
+            next,
+            forKey: DefaultsKey.authSessionIntentGeneration,
+            defaults: defaults
+        )
         return next
     }
 
@@ -3677,7 +3774,7 @@ nonisolated enum BackendAuthClient {
     static func advanceAuthSessionEpoch(defaults: UserDefaults) -> Int {
         let current = authSessionEpoch(defaults: defaults)
         let next = current >= Int.max - 1 ? 1 : current + 1
-        defaults.set(next, forKey: DefaultsKey.authSessionEpoch)
+        BackendUserDefaultsStore.set(next, forKey: DefaultsKey.authSessionEpoch, defaults: defaults)
         return next
     }
 
@@ -3859,7 +3956,11 @@ nonisolated enum BackendAuthClient {
     static func advanceRememberedLoginIntentGeneration(defaults: UserDefaults) -> Int {
         let current = rememberedLoginIntentGeneration(defaults: defaults)
         let next = current >= Int.max - 1 ? 1 : current + 1
-        defaults.set(next, forKey: DefaultsKey.authRememberedLoginIntentGeneration)
+        BackendUserDefaultsStore.set(
+            next,
+            forKey: DefaultsKey.authRememberedLoginIntentGeneration,
+            defaults: defaults
+        )
         return next
     }
 
@@ -3941,9 +4042,10 @@ nonisolated enum BackendAuthClient {
             }
             // Backfill the explicit nonsecret intent for credentials created
             // before the password-retention preference existed.
-            defaults.set(
+            BackendUserDefaultsStore.set(
                 credentials.hasSavedPassword,
-                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+                defaults: defaults
             )
             return .loaded(credentials)
         }
@@ -3984,7 +4086,9 @@ nonisolated enum BackendAuthClient {
         // Disable reads before touching Keychain so an interrupted update can
         // never make an older credential visible again. A successful write
         // is the only path that re-enables remembered-login loading.
-        beginRememberedLoginCredentialMutation(defaults: defaults)
+        guard beginRememberedLoginCredentialMutation(defaults: defaults) else {
+            return false
+        }
         let saved = BackendRememberedLoginCredentialPolicy.update(
             email: email,
             password: password,
@@ -3994,14 +4098,45 @@ nonisolated enum BackendAuthClient {
             deleteKeychain: deleteKeychain
         )
         if rememberEmail && saved {
-            defaults.set(
+            let passwordIntentPersisted = BackendUserDefaultsStore.set(
                 savePassword && !password.isEmpty,
-                forKey: DefaultsKey.authRememberedLoginPasswordEnabled
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+                defaults: defaults
             )
-            defaults.set(true, forKey: DefaultsKey.authRememberedLoginEnabled)
-            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+            let enabledPersisted = BackendUserDefaultsStore.set(
+                true,
+                forKey: DefaultsKey.authRememberedLoginEnabled,
+                defaults: defaults
+            )
+            let pendingCleared = BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.authRememberedLoginDeletionPending,
+                defaults: defaults
+            )
+            guard passwordIntentPersisted, enabledPersisted, pendingCleared else {
+                _ = BackendUserDefaultsStore.set(
+                    true,
+                    forKey: DefaultsKey.authRememberedLoginDeletionPending,
+                    defaults: defaults
+                )
+                BackendUserDefaultsStore.removeObject(
+                    forKey: DefaultsKey.authRememberedLoginEnabled,
+                    defaults: defaults
+                )
+                BackendUserDefaultsStore.removeObject(
+                    forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+                    defaults: defaults
+                )
+                let deleted = deleteKeychain(
+                    BackendRememberedLoginCredentialPolicy.keychainAccount
+                )
+                recordRememberedLoginDeletionResult(deleted, defaults: defaults)
+                return false
+            }
         } else {
-            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+                defaults: defaults
+            )
             if rememberEmail {
                 // A failed replacement can leave an older Keychain item in
                 // place. Hide it immediately and keep retrying deletion.
@@ -4245,16 +4380,31 @@ nonisolated enum BackendAuthClient {
     ) -> Bool {
         // Revoke app access first; physical deletion can be retried if the
         // Keychain is temporarily unavailable (for example, while locked).
-        beginRememberedLoginCredentialMutation(defaults: defaults)
+        guard beginRememberedLoginCredentialMutation(defaults: defaults) else {
+            return false
+        }
         let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
         recordRememberedLoginDeletionResult(deleted, defaults: defaults)
         return deleted
     }
 
-    private static func beginRememberedLoginCredentialMutation(defaults: UserDefaults) {
-        defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
-        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
-        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+    @discardableResult
+    private static func beginRememberedLoginCredentialMutation(defaults: UserDefaults) -> Bool {
+        let pendingPersisted = BackendUserDefaultsStore.set(
+            true,
+            forKey: DefaultsKey.authRememberedLoginDeletionPending,
+            defaults: defaults
+        )
+        guard pendingPersisted else { return false }
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.authRememberedLoginEnabled,
+            defaults: defaults
+        )
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+            defaults: defaults
+        )
+        return true
     }
 
     private static func recordRememberedLoginDeletionResult(
@@ -4262,9 +4412,16 @@ nonisolated enum BackendAuthClient {
         defaults: UserDefaults
     ) {
         if deleted {
-            defaults.removeObject(forKey: DefaultsKey.authRememberedLoginDeletionPending)
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.authRememberedLoginDeletionPending,
+                defaults: defaults
+            )
         } else {
-            defaults.set(true, forKey: DefaultsKey.authRememberedLoginDeletionPending)
+            BackendUserDefaultsStore.set(
+                true,
+                forKey: DefaultsKey.authRememberedLoginDeletionPending,
+                defaults: defaults
+            )
         }
     }
 
@@ -4286,8 +4443,17 @@ nonisolated enum BackendAuthClient {
         guard defaults.bool(forKey: DefaultsKey.authRememberedLoginDeletionPending) else {
             return true
         }
-        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginEnabled)
-        defaults.removeObject(forKey: DefaultsKey.authRememberedLoginPasswordEnabled)
+        guard beginRememberedLoginCredentialMutation(defaults: defaults) else {
+            return false
+        }
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.authRememberedLoginEnabled,
+            defaults: defaults
+        )
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.authRememberedLoginPasswordEnabled,
+            defaults: defaults
+        )
         let deleted = deleteKeychain(BackendRememberedLoginCredentialPolicy.keychainAccount)
         recordRememberedLoginDeletionResult(deleted, defaults: defaults)
         return deleted
@@ -4551,9 +4717,9 @@ nonisolated enum BackendAuthClient {
             throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
         }
 #if DEBUG
-        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
-        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
-        UserDefaults.standard.removeObject(forKey: "auth_debug_refresh_token")
+        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token")
+        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token_enabled")
+        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_refresh_token")
 #endif
         return currentAuthSessionState()
     }
@@ -4900,19 +5066,19 @@ nonisolated enum BackendAuthClient {
             let currentSessionId = (payload.currentSessionId ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !currentSessionId.isEmpty {
-                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+                BackendUserDefaultsStore.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
             }
             let currentFamilyId = (payload.currentFamilyId ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !currentFamilyId.isEmpty {
-                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+                BackendUserDefaultsStore.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
             }
             guard persistAuthUser(responseUser) else { return false }
-            UserDefaults.standard.set(
+            BackendUserDefaultsStore.set(
                 payload.pendingEmailVerification ?? !responseUser.emailVerified,
                 forKey: DefaultsKey.authPendingEmailVerification
             )
-            UserDefaults.standard.set(
+            BackendUserDefaultsStore.set(
                 payload.verificationRequired ?? !responseUser.emailVerified,
                 forKey: DefaultsKey.authVerificationRequired
             )
@@ -5128,25 +5294,37 @@ nonisolated enum BackendAuthClient {
             deleteKeychain: deleteKeychainString
         ) {
             let accessTTL = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
-            UserDefaults.standard.set(
+            var metadataPersisted = BackendUserDefaultsStore.set(
                 Date().timeIntervalSince1970 + Double(accessTTL),
                 forKey: DefaultsKey.authAccessExpiresAt
             )
             let refreshTTL = max(60, payload.refreshExpiresIn ?? 0)
-            UserDefaults.standard.set(
+            if !BackendUserDefaultsStore.set(
                 Date().timeIntervalSince1970 + Double(refreshTTL),
                 forKey: DefaultsKey.authRefreshExpiresAt
-            )
+            ) {
+                metadataPersisted = false
+            }
 
             let currentSessionId = (payload.currentSessionId ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !currentSessionId.isEmpty {
-                UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+                if !BackendUserDefaultsStore.set(
+                    currentSessionId,
+                    forKey: DefaultsKey.authCurrentSessionId
+                ) {
+                    metadataPersisted = false
+                }
             }
             let currentFamilyId = (payload.currentFamilyId ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !currentFamilyId.isEmpty {
-                UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+                if !BackendUserDefaultsStore.set(
+                    currentFamilyId,
+                    forKey: DefaultsKey.authCurrentFamilyId
+                ) {
+                    metadataPersisted = false
+                }
             }
             let verifiedUser: BackendAuthUser
             if payload.emailVerified == true {
@@ -5162,40 +5340,64 @@ nonisolated enum BackendAuthClient {
             } else {
                 verifiedUser = user
             }
-            guard persistAuthUser(verifiedUser) else { return false }
-            UserDefaults.standard.set(
+            guard metadataPersisted, persistAuthUser(verifiedUser) else { return false }
+            let pendingVerificationPersisted = BackendUserDefaultsStore.set(
                 payload.pendingEmailVerification ?? false,
                 forKey: DefaultsKey.authPendingEmailVerification
             )
-            UserDefaults.standard.set(
+            let verificationRequiredPersisted = BackendUserDefaultsStore.set(
                 payload.verificationRequired ?? false,
                 forKey: DefaultsKey.authVerificationRequired
             )
-            return true
+            return pendingVerificationPersisted && verificationRequiredPersisted
         }
     }
 
     @discardableResult
     private static func persistAuthUser(_ user: BackendAuthUser) -> Bool {
         guard let data = try? JSONEncoder().encode(user) else { return false }
-        UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
-        UserDefaults.standard.set(user.email, forKey: DefaultsKey.authUserEmail)
-        UserDefaults.standard.set(user.emailVerified, forKey: DefaultsKey.authUserVerified)
+        let payloadPersisted = BackendUserDefaultsStore.set(
+            data,
+            forKey: DefaultsKey.authUserPayload
+        )
+        let emailPersisted = BackendUserDefaultsStore.set(
+            user.email,
+            forKey: DefaultsKey.authUserEmail
+        )
+        let verificationPersisted = BackendUserDefaultsStore.set(
+            user.emailVerified,
+            forKey: DefaultsKey.authUserVerified
+        )
+        guard payloadPersisted, emailPersisted, verificationPersisted else { return false }
         guard persistSharedUserIDLocked(
             user.userId,
             defaults: .standard,
             allowDuringAuthMutation: true
         ) else { return false }
         if user.emailVerified {
-            UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
-            UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
+            guard BackendUserDefaultsStore.set(
+                false,
+                forKey: DefaultsKey.authPendingEmailVerification
+            ), BackendUserDefaultsStore.set(
+                false,
+                forKey: DefaultsKey.authVerificationRequired
+            ) else {
+                return false
+            }
         }
         return true
     }
 
-    private static func beginAuthSessionTokenMutation(defaults: UserDefaults) {
-        defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
-        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
+    @discardableResult
+    private static func beginAuthSessionTokenMutation(defaults: UserDefaults) -> Bool {
+        let pendingPersisted = BackendUserDefaultsStore.set(
+            true,
+            forKey: DefaultsKey.authSessionTokenDeletionPending,
+            defaults: defaults
+        )
+        guard pendingPersisted else { return false }
+        BackendUserDefaultsStore.removeObject(forKey: DefaultsKey.authSignedIn, defaults: defaults)
+        return true
     }
 
     @discardableResult
@@ -5230,7 +5432,9 @@ nonisolated enum BackendAuthClient {
             }
         }
 
-        beginAuthSessionTokenMutation(defaults: defaults)
+        guard beginAuthSessionTokenMutation(defaults: defaults) else {
+            return false
+        }
         clearAuthSessionMetadata(defaults: defaults)
         let priorIdentityDeleted = authSessionSensitiveKeychainAccounts.reduce(true) {
             allDeleted,
@@ -5238,7 +5442,11 @@ nonisolated enum BackendAuthClient {
             deleteKeychain(account) && allDeleted
         }
         guard priorIdentityDeleted else {
-            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+            BackendUserDefaultsStore.set(
+                true,
+                forKey: DefaultsKey.authSessionTokenDeletionPending,
+                defaults: defaults
+            )
             return false
         }
         let accessWritten = writeKeychain(normalizedAccessToken, authAccessTokenAccount)
@@ -5260,29 +5468,47 @@ nonisolated enum BackendAuthClient {
             )
             return false
         }
-        defaults.set(true, forKey: DefaultsKey.authSignedIn)
-        defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+        guard BackendUserDefaultsStore.set(
+            true,
+            forKey: DefaultsKey.authSignedIn,
+            defaults: defaults
+        ), BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.authSessionTokenDeletionPending,
+            defaults: defaults
+        ) else {
+            _ = invalidateAuthSessionStorage(
+                defaults: defaults,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
         return true
     }
 
     private static func clearAuthSessionMetadata(defaults: UserDefaults) {
-        defaults.removeObject(forKey: DefaultsKey.authUserPayload)
-        defaults.removeObject(forKey: DefaultsKey.authUserEmail)
-        defaults.removeObject(forKey: DefaultsKey.authUserVerified)
-        defaults.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
-        defaults.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
-        defaults.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
-        defaults.removeObject(forKey: DefaultsKey.authVerificationRequired)
-        defaults.removeObject(forKey: DefaultsKey.authSignedIn)
-        defaults.removeObject(forKey: DefaultsKey.authCurrentSessionId)
-        defaults.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
-        defaults.removeObject(forKey: DefaultsKey.authAccessToken)
-        defaults.removeObject(forKey: DefaultsKey.authRefreshToken)
-        defaults.removeObject(forKey: DefaultsKey.userId)
-        defaults.removeObject(forKey: "client_token")
-        defaults.removeObject(forKey: "client_token_expiry")
-        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
-        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+        let keys = [
+            DefaultsKey.authUserPayload,
+            DefaultsKey.authUserEmail,
+            DefaultsKey.authUserVerified,
+            DefaultsKey.authAccessExpiresAt,
+            DefaultsKey.authRefreshExpiresAt,
+            DefaultsKey.authPendingEmailVerification,
+            DefaultsKey.authVerificationRequired,
+            DefaultsKey.authSignedIn,
+            DefaultsKey.authCurrentSessionId,
+            DefaultsKey.authCurrentFamilyId,
+            DefaultsKey.authAccessToken,
+            DefaultsKey.authRefreshToken,
+            DefaultsKey.userId,
+            "client_token",
+            "client_token_expiry",
+            DefaultsKey.clientTokenCachedAt,
+            DefaultsKey.clientTokenBaseURL,
+        ]
+        keys.forEach { key in
+            BackendUserDefaultsStore.removeObject(forKey: key, defaults: defaults)
+        }
     }
 
     @discardableResult
@@ -5291,7 +5517,9 @@ nonisolated enum BackendAuthClient {
         advanceGeneration: Bool,
         deleteKeychain: (String) -> Bool
     ) -> Bool {
-        beginAuthSessionTokenMutation(defaults: defaults)
+        guard beginAuthSessionTokenMutation(defaults: defaults) else {
+            return false
+        }
         if advanceGeneration {
             _ = advanceAuthSessionEpoch(defaults: defaults)
         }
@@ -5300,9 +5528,16 @@ nonisolated enum BackendAuthClient {
             deleteKeychain(account) && allDeleted
         }
         if deleted {
-            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.authSessionTokenDeletionPending,
+                defaults: defaults
+            )
         } else {
-            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+            BackendUserDefaultsStore.set(
+                true,
+                forKey: DefaultsKey.authSessionTokenDeletionPending,
+                defaults: defaults
+            )
         }
         return deleted
     }
@@ -5353,15 +5588,24 @@ nonisolated enum BackendAuthClient {
         deleteKeychain: (String) -> Bool
     ) -> Bool {
         guard authSessionTokenDeletionIsPending(defaults: defaults) else { return true }
-        beginAuthSessionTokenMutation(defaults: defaults)
+        guard beginAuthSessionTokenMutation(defaults: defaults) else {
+            return false
+        }
         clearAuthSessionMetadata(defaults: defaults)
         let deleted = authSessionSensitiveKeychainAccounts.reduce(true) { allDeleted, account in
             deleteKeychain(account) && allDeleted
         }
         if deleted {
-            defaults.removeObject(forKey: DefaultsKey.authSessionTokenDeletionPending)
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.authSessionTokenDeletionPending,
+                defaults: defaults
+            )
         } else {
-            defaults.set(true, forKey: DefaultsKey.authSessionTokenDeletionPending)
+            BackendUserDefaultsStore.set(
+                true,
+                forKey: DefaultsKey.authSessionTokenDeletionPending,
+                defaults: defaults
+            )
         }
         return deleted
     }
@@ -5473,7 +5717,7 @@ nonisolated enum BackendAuthClient {
         // intentionally deferred until the main run loop is outside the read.
         DispatchQueue.main.async {
             guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return }
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            BackendUserDefaultsStore.removeObject(forKey: defaultsKey)
         }
     }
 
@@ -5598,7 +5842,7 @@ nonisolated enum BackendAuthClient {
             values.append(value)
         }
 
-        UserDefaults.standard.synchronize()
+        BackendUserDefaultsStore.synchronize()
         append(UserDefaults.standard.object(forKey: key))
         for domain in preferenceDomains() {
             if let suite = suiteDefaults(forPreferenceDomain: domain) {
@@ -5669,8 +5913,7 @@ nonisolated enum BackendAuthClient {
             if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
                 return resolvedURL
             }
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
-            UserDefaults.standard.synchronize()
+            BackendUserDefaultsStore.removeObject(forKey: DefaultsKey.baseURL)
         }
         return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
@@ -5794,8 +6037,8 @@ nonisolated enum BackendAuthClient {
                 DefaultsKey.userId,
             ]
             defaultsKeys.forEach { defaultsKey in
-                UserDefaults.standard.removeObject(forKey: defaultsKey)
-                UserDefaults.standard.removeObject(
+                BackendUserDefaultsStore.removeObject(forKey: defaultsKey)
+                BackendUserDefaultsStore.removeObject(
                     forKey: BackendCredentialMigration.migrationMarkerKey(defaultsKey: defaultsKey)
                 )
             }
@@ -5986,17 +6229,34 @@ nonisolated enum BackendAuthClient {
                 defaults: defaults,
                 writeKeychain: writeKeychainString
             )
-            defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
-            defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.clientTokenCachedAt,
+                defaults: defaults
+            )
+            BackendUserDefaultsStore.removeObject(
+                forKey: DefaultsKey.clientTokenBaseURL,
+                defaults: defaults
+            )
             return false
         }
         if wroteToken {
-            defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.clientTokenCachedAt)
+            BackendUserDefaultsStore.set(
+                Date().timeIntervalSince1970,
+                forKey: DefaultsKey.clientTokenCachedAt,
+                defaults: defaults
+            )
             let normalizedBaseURL = (baseURLRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if normalizedBaseURL.isEmpty {
-                defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+                BackendUserDefaultsStore.removeObject(
+                    forKey: DefaultsKey.clientTokenBaseURL,
+                    defaults: defaults
+                )
             } else {
-                defaults.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
+                BackendUserDefaultsStore.set(
+                    normalizedBaseURL,
+                    forKey: DefaultsKey.clientTokenBaseURL,
+                    defaults: defaults
+                )
             }
             if sharedClientTokenLocked(defaults: defaults) != previousToken {
                 postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
@@ -6025,8 +6285,14 @@ nonisolated enum BackendAuthClient {
             defaults: defaults,
             writeKeychain: writeKeychainString
         )
-        defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
-        defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.clientTokenCachedAt,
+            defaults: defaults
+        )
+        BackendUserDefaultsStore.removeObject(
+            forKey: DefaultsKey.clientTokenBaseURL,
+            defaults: defaults
+        )
         if previousToken != nil, sharedClientTokenLocked(defaults: defaults) == nil {
             postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
         }
@@ -8103,8 +8369,11 @@ actor BackendMemoryAPI {
            ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
            !didInjectExpiredScreenplaySaveAuthForUITest {
             didInjectExpiredScreenplaySaveAuthForUITest = true
-            UserDefaults.standard.set("expired-screenplay-save-access-token", forKey: "auth_debug_access_token")
-            UserDefaults.standard.set(true, forKey: "auth_debug_access_token_enabled")
+            BackendUserDefaultsStore.set(
+                "expired-screenplay-save-access-token",
+                forKey: "auth_debug_access_token"
+            )
+            BackendUserDefaultsStore.set(true, forKey: "auth_debug_access_token_enabled")
         }
 #endif
 
@@ -10236,8 +10505,7 @@ actor BackendMemoryAPI {
             if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
                 return resolvedURL
             }
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
-            UserDefaults.standard.synchronize()
+            BackendUserDefaultsStore.removeObject(forKey: DefaultsKey.baseURL)
         }
         return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
@@ -10264,8 +10532,7 @@ actor BackendMemoryAPI {
     private func adoptHealthyBaseURL(_ url: URL) {
         let resolved = canonicalizeLoopbackURL(url)
         healthyBaseURL = resolved
-        UserDefaults.standard.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
-        UserDefaults.standard.synchronize()
+        BackendUserDefaultsStore.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
     }
 
     private func canonicalizeLoopbackURL(_ url: URL) -> URL {
@@ -10366,10 +10633,10 @@ actor BackendMemoryAPI {
         cachedSessionAt = Date()
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
            !assistant.isEmpty {
-            UserDefaults.standard.set(assistant, forKey: DefaultsKey.assistantName)
+            BackendUserDefaultsStore.set(assistant, forKey: DefaultsKey.assistantName)
         }
         if let user = sessionPayload.userName, !user.isEmpty {
-            UserDefaults.standard.set(user, forKey: DefaultsKey.userName)
+            BackendUserDefaultsStore.set(user, forKey: DefaultsKey.userName)
         }
     }
 }
