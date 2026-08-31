@@ -666,6 +666,43 @@ final class BackendAccountDataControlsTests: XCTestCase {
         }
     }
 
+    func testBackendLiveAuthDefaultsNotificationArrivesOnMain() throws {
+#if os(macOS)
+        throw XCTSkip("The silent standard-defaults bridge is iOS-only")
+#else
+        let key = "auth_user_email"
+        let original = UserDefaults.standard.object(forKey: key)
+        let expected = "thread-check-\(UUID().uuidString)@io.them.invalid"
+        let notified = expectation(description: "live auth defaults notification")
+        var notificationWasOnMain = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: nil
+        ) { _ in
+            guard UserDefaults.standard.string(forKey: key) == expected else { return }
+            notificationWasOnMain = Thread.isMainThread
+            notified.fulfill()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            if let original {
+                BackendUserDefaultsStore.set(original, forKey: key)
+            } else {
+                BackendUserDefaultsStore.removeObject(forKey: key)
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            BackendUserDefaultsStore.set(expected, forKey: key)
+        }
+        wait(for: [notified], timeout: 2)
+
+        XCTAssertTrue(notificationWasOnMain)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: key), expected)
+#endif
+    }
+
     func testMemoryHealthRejectsForeignJSONService() async throws {
         AccountDataControlsURLProtocolStub.handler = { request in
             XCTAssertTrue(request.url?.path == "/bridge" || request.url?.path == "/health")
