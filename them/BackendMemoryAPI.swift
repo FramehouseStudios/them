@@ -3241,7 +3241,35 @@ nonisolated struct BackendScreenplayOutlineMutationHTTPError: LocalizedError {
     }
 }
 
+nonisolated private struct BackendCredentialDefaultsCommit: @unchecked Sendable {
+    let defaults: UserDefaults
+    let defaultsKey: String
+    let removeLegacy: Bool
+    let removeObsoleteMarker: Bool
+
+    func apply() {
+        if removeLegacy, defaults.object(forKey: defaultsKey) != nil {
+            defaults.removeObject(forKey: defaultsKey)
+        }
+        let markerKey = BackendCredentialMigration.migrationMarkerKey(defaultsKey: defaultsKey)
+        if removeObsoleteMarker, defaults.object(forKey: markerKey) != nil {
+            defaults.removeObject(forKey: markerKey)
+        }
+    }
+}
+
 nonisolated enum BackendCredentialMigration {
+    private enum SecureValue {
+        case value(String)
+        case deleted
+        case legacy(String)
+        case invalid
+    }
+
+    private static let secureValuePrefix = "io.them.keychain.v1:"
+    private static let secureValuePayloadPrefix = "io.them.keychain.v1:value:"
+    private static let secureValueDeleted = "io.them.keychain.v1:deleted"
+
     static func logSecureStoreFailure(account: String) {
         Logger(subsystem: "io.them.them", category: "network").warning(
             "Credential Keychain operation failed account=\(account, privacy: .public)"
@@ -3255,6 +3283,58 @@ nonisolated enum BackendCredentialMigration {
     static func normalizedNonEmpty(_ raw: String?) -> String {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "" : trimmed
+    }
+
+    private static func encodedSecureValue(_ value: String) -> String {
+        secureValuePayloadPrefix + Data(value.utf8).base64EncodedString()
+    }
+
+    private static func decodeSecureValue(_ raw: String) -> SecureValue {
+        if raw == secureValueDeleted {
+            return .deleted
+        }
+        guard raw.hasPrefix(secureValuePrefix) else {
+            return .legacy(raw)
+        }
+        guard raw.hasPrefix(secureValuePayloadPrefix) else {
+            return .invalid
+        }
+        let encoded = String(raw.dropFirst(secureValuePayloadPrefix.count))
+        guard let data = Data(base64Encoded: encoded),
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty else {
+            return .invalid
+        }
+        return .value(value)
+    }
+
+    private static func scheduleDefaultsCleanup(
+        defaults: UserDefaults,
+        defaultsKey: String,
+        removeLegacy: Bool,
+        removeObsoleteMarker: Bool
+    ) {
+        let markerKey = migrationMarkerKey(defaultsKey: defaultsKey)
+        let needsLegacyRemoval = removeLegacy && defaults.object(forKey: defaultsKey) != nil
+        let needsMarkerRemoval = removeObsoleteMarker && defaults.object(forKey: markerKey) != nil
+        guard needsLegacyRemoval || needsMarkerRemoval else { return }
+
+        let commit = BackendCredentialDefaultsCommit(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            removeLegacy: removeLegacy,
+            removeObsoleteMarker: removeObsoleteMarker
+        )
+#if os(macOS)
+        commit.apply()
+#else
+        // Always enqueue, even for a main-thread caller. Credential reads can
+        // execute inline inside authSessionStateQueue.sync; synchronous
+        // UserDefaults publication there can re-enter that queue and deadlock.
+        DispatchQueue.main.async {
+            commit.apply()
+        }
+#endif
     }
 
     static func readString(
@@ -3274,45 +3354,87 @@ nonisolated enum BackendCredentialMigration {
         return nil
 #else
         let markerKey = migrationMarkerKey(defaultsKey: defaultsKey)
+        let obsoleteMarkerComplete = defaults.bool(forKey: markerKey)
         switch readKeychain(account) {
         case .value(let rawValue):
-            let existing = normalize(rawValue)
-            guard !existing.isEmpty else {
+            switch decodeSecureValue(rawValue) {
+            case .value(let rawSecureValue):
+                let secureValue = normalize(rawSecureValue)
+                guard !secureValue.isEmpty else {
+                    onSecureStoreFailure(account)
+                    return nil
+                }
+                scheduleDefaultsCleanup(
+                    defaults: defaults,
+                    defaultsKey: defaultsKey,
+                    removeLegacy: true,
+                    removeObsoleteMarker: true
+                )
+                return secureValue
+
+            case .deleted:
+                scheduleDefaultsCleanup(
+                    defaults: defaults,
+                    defaultsKey: defaultsKey,
+                    removeLegacy: true,
+                    removeObsoleteMarker: true
+                )
+                return nil
+
+            case .invalid:
                 onSecureStoreFailure(account)
-                return legacy.isEmpty ? nil : legacy
-            }
+                return obsoleteMarkerComplete || legacy.isEmpty ? nil : legacy
 
-            guard !legacy.isEmpty else {
-                defaults.set(true, forKey: markerKey)
-                return existing
-            }
+            case .legacy(let rawLegacyKeychainValue):
+                let existing = normalize(rawLegacyKeychainValue)
+                guard !existing.isEmpty else {
+                    onSecureStoreFailure(account)
+                    return obsoleteMarkerComplete || legacy.isEmpty ? nil : legacy
+                }
 
-            if legacy == existing || defaults.bool(forKey: markerKey) {
-                defaults.removeObject(forKey: defaultsKey)
-                defaults.set(true, forKey: markerKey)
-                return existing
-            }
+                let valueToSecure: String
+                if obsoleteMarkerComplete || legacy.isEmpty || legacy == existing {
+                    valueToSecure = existing
+                } else {
+                    // Older builds could leave a newer defaults value beside
+                    // an older Keychain item. The first atomic envelope write
+                    // promotes that value once; all later reads trust Keychain.
+                    valueToSecure = legacy
+                }
 
-            // Previous builds could leave a newer defaults value beside an
-            // older Keychain item after a failed delete-before-add write. On
-            // the first upgraded read, promote that legacy value once rather
-            // than silently rolling the account identity backward.
-            if writeKeychain(legacy, account) {
-                defaults.removeObject(forKey: defaultsKey)
-                defaults.set(true, forKey: markerKey)
-            } else {
-                onSecureStoreFailure(account)
+                if writeKeychain(encodedSecureValue(valueToSecure), account) {
+                    scheduleDefaultsCleanup(
+                        defaults: defaults,
+                        defaultsKey: defaultsKey,
+                        removeLegacy: true,
+                        removeObsoleteMarker: true
+                    )
+                } else {
+                    onSecureStoreFailure(account)
+                }
+                return valueToSecure
             }
-            return legacy
 
         case .notFound:
-            guard !legacy.isEmpty else {
-                defaults.set(true, forKey: markerKey)
+            if obsoleteMarkerComplete {
+                scheduleDefaultsCleanup(
+                    defaults: defaults,
+                    defaultsKey: defaultsKey,
+                    removeLegacy: true,
+                    removeObsoleteMarker: true
+                )
                 return nil
             }
-            if writeKeychain(legacy, account) {
-                defaults.removeObject(forKey: defaultsKey)
-                defaults.set(true, forKey: markerKey)
+            guard !legacy.isEmpty else {
+                return nil
+            }
+            if writeKeychain(encodedSecureValue(legacy), account) {
+                scheduleDefaultsCleanup(
+                    defaults: defaults,
+                    defaultsKey: defaultsKey,
+                    removeLegacy: true,
+                    removeObsoleteMarker: true
+                )
             } else {
                 onSecureStoreFailure(account)
             }
@@ -3322,7 +3444,7 @@ nonisolated enum BackendCredentialMigration {
             // Absence and temporary unreadability are different states. Never
             // overwrite an item that Security could not inspect.
             onSecureStoreFailure(account)
-            return legacy.isEmpty ? nil : legacy
+            return obsoleteMarkerComplete || legacy.isEmpty ? nil : legacy
         }
 #endif
     }
@@ -3334,7 +3456,6 @@ nonisolated enum BackendCredentialMigration {
         defaultsKey: String,
         defaults: UserDefaults = .standard,
         writeKeychain: (String, String) -> Bool,
-        deleteKeychain: (String) -> Void,
         normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty,
         onSecureStoreFailure: (String) -> Void = BackendCredentialMigration.logSecureStoreFailure
     ) -> Bool {
@@ -3344,7 +3465,8 @@ nonisolated enum BackendCredentialMigration {
                 account: account,
                 defaultsKey: defaultsKey,
                 defaults: defaults,
-                deleteKeychain: deleteKeychain
+                writeKeychain: writeKeychain,
+                onSecureStoreFailure: onSecureStoreFailure
             )
             return false
         }
@@ -3352,10 +3474,14 @@ nonisolated enum BackendCredentialMigration {
         defaults.set(normalized, forKey: defaultsKey)
         return true
 #else
-        let wrote = writeKeychain(normalized, account)
+        let wrote = writeKeychain(encodedSecureValue(normalized), account)
         if wrote {
-            defaults.removeObject(forKey: defaultsKey)
-            defaults.set(true, forKey: migrationMarkerKey(defaultsKey: defaultsKey))
+            scheduleDefaultsCleanup(
+                defaults: defaults,
+                defaultsKey: defaultsKey,
+                removeLegacy: true,
+                removeObsoleteMarker: true
+            )
         } else {
             onSecureStoreFailure(account)
         }
@@ -3363,16 +3489,30 @@ nonisolated enum BackendCredentialMigration {
 #endif
     }
 
+    @discardableResult
     static func deleteString(
         account: String,
         defaultsKey: String,
         defaults: UserDefaults = .standard,
-        deleteKeychain: (String) -> Void
-    ) {
-#if !os(macOS)
-        deleteKeychain(account)
-#endif
+        writeKeychain: (String, String) -> Bool,
+        onSecureStoreFailure: (String) -> Void = BackendCredentialMigration.logSecureStoreFailure
+    ) -> Bool {
+#if os(macOS)
         defaults.removeObject(forKey: defaultsKey)
+        return true
+#else
+        guard writeKeychain(secureValueDeleted, account) else {
+            onSecureStoreFailure(account)
+            return false
+        }
+        scheduleDefaultsCleanup(
+            defaults: defaults,
+            defaultsKey: defaultsKey,
+            removeLegacy: true,
+            removeObsoleteMarker: true
+        )
+        return true
+#endif
     }
 }
 
@@ -5624,7 +5764,6 @@ nonisolated enum BackendAuthClient {
             account: appTokenAccount,
             defaultsKey: DefaultsKey.appToken,
             writeKeychain: writeKeychainString,
-            deleteKeychain: deleteKeychainStringIgnoringResult,
             normalize: { raw in
                 let value = BackendCredentialMigration.normalizedNonEmpty(raw)
                 return isUsableConfigValue(value) ? value : ""
@@ -5815,8 +5954,7 @@ nonisolated enum BackendAuthClient {
             account: clientTokenAccount,
             defaultsKey: "client_token",
             defaults: defaults,
-            writeKeychain: writeKeychainString,
-            deleteKeychain: deleteKeychainStringIgnoringResult
+            writeKeychain: writeKeychainString
         )
         let expiryStored: Bool
         if let expiryRaw {
@@ -5825,30 +5963,28 @@ nonisolated enum BackendAuthClient {
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
                 defaults: defaults,
-                writeKeychain: writeKeychainString,
-                deleteKeychain: deleteKeychainStringIgnoringResult
+                writeKeychain: writeKeychainString
             )
         } else {
-            BackendCredentialMigration.deleteString(
+            expiryStored = BackendCredentialMigration.deleteString(
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
                 defaults: defaults,
-                deleteKeychain: deleteKeychainStringIgnoringResult
+                writeKeychain: writeKeychainString
             )
-            expiryStored = true
         }
         guard wroteToken, expiryStored else {
             BackendCredentialMigration.deleteString(
                 account: clientTokenAccount,
                 defaultsKey: "client_token",
                 defaults: defaults,
-                deleteKeychain: deleteKeychainStringIgnoringResult
+                writeKeychain: writeKeychainString
             )
             BackendCredentialMigration.deleteString(
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
                 defaults: defaults,
-                deleteKeychain: deleteKeychainStringIgnoringResult
+                writeKeychain: writeKeychainString
             )
             defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
             defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
@@ -5881,13 +6017,13 @@ nonisolated enum BackendAuthClient {
             account: clientTokenAccount,
             defaultsKey: "client_token",
             defaults: defaults,
-            deleteKeychain: deleteKeychainStringIgnoringResult
+            writeKeychain: writeKeychainString
         )
         BackendCredentialMigration.deleteString(
             account: clientTokenExpiryAccount,
             defaultsKey: "client_token_expiry",
             defaults: defaults,
-            deleteKeychain: deleteKeychainStringIgnoringResult
+            writeKeychain: writeKeychainString
         )
         defaults.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
         defaults.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
@@ -5950,7 +6086,6 @@ nonisolated enum BackendAuthClient {
             defaultsKey: DefaultsKey.userId,
             defaults: defaults,
             writeKeychain: writeKeychainString,
-            deleteKeychain: deleteKeychainStringIgnoringResult,
             normalize: normalizedStoredUserID
         )
         if wroteUserID,
@@ -5972,7 +6107,7 @@ nonisolated enum BackendAuthClient {
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
             defaults: defaults,
-            deleteKeychain: deleteKeychainStringIgnoringResult
+            writeKeychain: writeKeychainString
         )
         if previousUserID != nil, sharedUserIDLocked(defaults: defaults) == nil {
             postBackendNotificationOnMain(name: .themBackendIdentityPartitionChanged, userInfo: [:])
