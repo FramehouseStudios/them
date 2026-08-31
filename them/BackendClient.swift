@@ -1,25 +1,6 @@
 import Foundation
 import ScreenplayStudio
 import os
-import Security
-
-nonisolated enum BackendClientCredentialStorePolicy {
-    static func shouldUseKeychainForClientTokens(isMacOS: Bool, isDebug: Bool) -> Bool {
-        !(isMacOS && isDebug)
-    }
-
-    static var currentShouldUseKeychainForClientTokens: Bool {
-        #if os(macOS) && DEBUG
-        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: true)
-        #elseif os(macOS)
-        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: false)
-        #elseif DEBUG
-        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: true)
-        #else
-        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: false)
-        #endif
-    }
-}
 
 nonisolated enum BackendDefaultBaseURLPolicy {
     static let productionBaseURLRawValue = "https://api.them.io"
@@ -2260,9 +2241,6 @@ final class BackendClient {
         .dataNotAllowed,
     ]
 
-    private let keychainService = "io.them.client"
-    private let keychainTokenAccount = "session_client_token"
-    private let keychainExpiryAccount = "session_client_token_expiry"
     private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
     private let personaFlowKey = "clementine"
 
@@ -5238,25 +5216,6 @@ final class BackendClient {
             return token
         }
 
-        if
-            BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens,
-            let token = readKeychainString(account: keychainTokenAccount),
-            let expiryRaw = readKeychainString(account: keychainExpiryAccount),
-            let expiry = formatter.date(from: expiryRaw),
-            expiry.timeIntervalSince(now) > sessionRefreshSkew
-        {
-            cachedClientToken = token
-            cachedClientTokenExpiry = expiry
-            guard writeSharedClientToken(
-                token,
-                expiry: expiry,
-                expectedSessionEpoch: expectedSessionEpoch
-            ) else {
-                throw BackendError.stage("session", "Session identity changed. Please retry.")
-            }
-            return token
-        }
-
         if let sharedToken {
             let expiry = sharedExpiry ?? now.addingTimeInterval(5 * 60)
             if expiry.timeIntervalSince(now) > sessionRefreshSkew {
@@ -5435,10 +5394,6 @@ final class BackendClient {
         cachedClientTokenExpiry = nil
         cachedHealthyURL = nil      // force re-check on next turn after auth failure
         cachedHealthyAt = .distantPast
-        if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
-            deleteKeychainString(account: keychainTokenAccount)
-            deleteKeychainString(account: keychainExpiryAccount)
-        }
         clearSharedClientToken()
     }
 
@@ -6622,48 +6577,6 @@ final class BackendClient {
             dueAt: dueAt,
             completedAt: completedAt
         )
-    }
-
-    @discardableResult
-    private func writeKeychainString(_ value: String, account: String) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-        ]
-
-        SecItemDelete(query as CFDictionary)
-
-        var item = query
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
-    }
-
-    private func readKeychainString(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private func deleteKeychainString(account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
     }
 
     private func resolveUserID() -> String {
