@@ -9,8 +9,8 @@ durable side-effect queue (record shape in
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/outbox` | list envelope (200) |
-| POST | `/outbox/retry` | retry envelope (200 / 404 / 409) |
+| GET | `/outbox` | list envelope (200; auth 401; disabled 404) |
+| POST | `/outbox/retry` | retry envelope (200 / 404 / 409; auth 401) |
 
 Body limit on `/outbox/retry`: `256kb`.
 
@@ -20,15 +20,23 @@ Body limit on `/outbox/retry`: `256kb`.
 
 ## Owner
 
-- **Backend**: support agent. Inline handlers in `backend/index.js`.
+- **Backend**: `backend/lib/outbox_routes.js`.
 - **Consumer**: ops dashboards + operator CLI tools. iOS does
   NOT consume these routes today.
 
 ## Access-control posture
 
-**PER-USER (internal)**. The route doesn't apply explicit user
-gating — `scaleBackplane.listOutbox` returns global outbox
-state. Production gating is the operator-network ingress.
+**SERVER-OPERATOR ONLY**. The global outbox can contain payloads from many
+users, so ordinary user authentication and the app's shipped `X-APP-TOKEN`
+do not authorize either route. Both routes require the server-only
+`X-OUTBOX-OPERATOR-TOKEN` header to exactly match `OUTBOX_OPERATOR_TOKEN`.
+The comparison uses fixed-length SHA-256 digests with `timingSafeEqual`.
+This credential is additive: when the global app-token gate is enabled, an
+operator client supplies both `X-APP-TOKEN` and `X-OUTBOX-OPERATOR-TOKEN`.
+
+When `OUTBOX_OPERATOR_TOKEN` is unset, the HTTP control plane is disabled and
+both routes return `404`. This does not disable the internal outbox worker.
+Production rejects configured operator tokens shorter than 32 characters.
 
 ## `GET /outbox` request
 

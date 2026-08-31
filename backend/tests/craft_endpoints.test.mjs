@@ -27,7 +27,10 @@ function freshPersistenceRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "io-them-craft-"));
 }
 
-async function withTestServer(fn, { mockUser = null, persistenceRoot = null } = {}) {
+async function withTestServer(
+  fn,
+  { mockUser = { id: "craft-route-test-user" }, persistenceRoot = null } = {},
+) {
   // T22: each test runs against a fresh JSON persistence root so writes
   // don't leak between tests.
   const root = persistenceRoot || freshPersistenceRoot();
@@ -39,11 +42,12 @@ async function withTestServer(fn, { mockUser = null, persistenceRoot = null } = 
   app.use(express.json());
   if (mockUser) {
     app.use((req, _res, next) => {
-      req.user = mockUser;
+      req.authUser = mockUser;
+      req.userId = mockUser.id;
       next();
     });
   }
-  mountCraftRoutes(app);
+  mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
@@ -93,6 +97,14 @@ test("GET /craft/frameworks lists known frameworks with schemaVersion", async ()
       assert.ok(ref.title);
     }
   });
+});
+
+test("GET /craft/frameworks remains available without user auth", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await get(baseURL, "/craft/frameworks");
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.frameworks));
+  }, { mockUser: null });
 });
 
 test("GET /craft/frameworks/:id returns full framework matching schema", async () => {
@@ -145,6 +157,17 @@ test("GET /craft/schemas/framework returns the Framework JSON Schema", async () 
   });
 });
 
+test("Craft fails closed for an unauthenticated non-static route", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", {
+      text: "INT. KITCHEN - NIGHT",
+    });
+    assert.equal(status, 401);
+    assert.equal(body.stage, "craft_auth");
+    assert.equal(body.error, "user_auth_required");
+  }, { mockUser: null });
+});
+
 test("POST /craft/analyze + GET /craft/reports/:projectId/:versionId roundtrip", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/craft/analyze", {
@@ -179,7 +202,7 @@ test("POST /craft/overrides records and returns an override", async () => {
     assert.equal(status, 200);
     assert.equal(body.turnId, "all-is-lost");
     assert.equal(body.action, "mark-present");
-    assert.equal(body.userId, "user-7");
+    assert.equal(body.userId, "craft-route-test-user");
     assert.ok(body.id);
     assert.ok(body.createdAt);
   });
@@ -252,7 +275,7 @@ test("X-Craft-Schema-Version header > server version returns craft_schema_versio
   });
 });
 
-test("POST /craft/overrides rejects userId mismatch when authenticated user is set", async () => {
+test("POST /craft/overrides ignores caller-supplied userId and stores canonical identity", async () => {
   await withTestServer(
     async ({ baseURL }) => {
       const { status, body } = await postJson(baseURL, "/craft/overrides", {
@@ -260,8 +283,9 @@ test("POST /craft/overrides rejects userId mismatch when authenticated user is s
         action: "mark-present",
         userId: "user-impostor",
       });
-      assert.equal(status, 403);
-      assert.equal(body.error, "craft_override_user_mismatch");
+      assert.equal(status, 200);
+      assert.equal(body.userId, "user-real");
+      assert.notEqual(body.userId, "user-impostor");
     },
     { mockUser: { id: "user-real" } },
   );

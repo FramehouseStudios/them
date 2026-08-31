@@ -42,6 +42,18 @@ test("[assertProductionEnv] throws when APP_TOKEN is missing", () => {
   assert.throws(() => assertProductionEnv(env), /APP_TOKEN/);
 });
 
+test("[assertProductionEnv] allows disabled outbox HTTP access and rejects a weak configured operator token", () => {
+  assert.doesNotThrow(() => assertProductionEnv({ ...FULL_PROD_ENV, OUTBOX_OPERATOR_TOKEN: "" }));
+  assert.throws(
+    () => assertProductionEnv({ ...FULL_PROD_ENV, OUTBOX_OPERATOR_TOKEN: "too-short" }),
+    /OUTBOX_OPERATOR_TOKEN/,
+  );
+  assert.doesNotThrow(() => assertProductionEnv({
+    ...FULL_PROD_ENV,
+    OUTBOX_OPERATOR_TOKEN: "a".repeat(32),
+  }));
+});
+
 test("[assertProductionEnv] throws when AUTH_APPLE_AUDIENCE is missing or blank", () => {
   const { AUTH_APPLE_AUDIENCE: _omitted, ...missingAudienceEnv } = FULL_PROD_ENV;
   assert.throws(() => assertProductionEnv(missingAudienceEnv), /AUTH_APPLE_AUDIENCE/);

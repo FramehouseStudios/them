@@ -40,6 +40,34 @@ import {
   acceptedTwistLogDeps,
 } from "./accepted_twist_log.js";
 
+// Craft is fail-closed. Only immutable framework/schema metadata is public;
+// every other current or future /craft route requires canonical user auth.
+// Keep this allowlist deliberately method-aware so a future mutation mounted
+// below a public-looking path cannot inherit public access by accident.
+const PUBLIC_CRAFT_ROUTE_PATTERNS = Object.freeze([
+  Object.freeze({ method: "GET", pattern: /^\/frameworks\/?$/ }),
+  Object.freeze({ method: "GET", pattern: /^\/frameworks\/[^/]+\/?$/ }),
+  Object.freeze({ method: "GET", pattern: /^\/schemas\/(?:report|framework)\/?$/ }),
+]);
+
+function isPublicCraftRoute(method, pathname) {
+  const normalizedMethod = String(method || "").trim().toUpperCase();
+  const normalizedPath = String(pathname || "").split("?", 1)[0] || "/";
+  return PUBLIC_CRAFT_ROUTE_PATTERNS.some(({ method: allowedMethod, pattern }) => (
+    allowedMethod === normalizedMethod && pattern.test(normalizedPath)
+  ));
+}
+
+function canonicalAuthenticatedUserId(req) {
+  return String(req?.authUser?.id || req?.userId || "").trim();
+}
+
+function craftStorageProjectId(userId, projectId) {
+  const userNamespace = Buffer.from(String(userId || ""), "utf8").toString("base64url");
+  const projectNamespace = Buffer.from(String(projectId || ""), "utf8").toString("base64url");
+  return `user.${userNamespace}.project.${projectNamespace}`;
+}
+
 function errorEnvelope(error, message) {
   const out = { error };
   if (message) out.message = message;
@@ -89,16 +117,69 @@ function checkClientSchemaVersion(req, res) {
   return true;
 }
 
-function requestingUserIdFor(req) {
-  // The existing auth middleware sets req.user.id when an authenticated
-  // user resolves. Read defensively — public/unauthenticated requests
-  // are allowed for read endpoints; mutations enforce userId match
-  // when a user is present.
-  return req?.user?.id || null;
-}
+function mountCraftRoutes(app, deps = {}) {
+  const {
+    requireAuthenticatedUser = (req, res, stage = "craft_auth") => {
+      const userId = canonicalAuthenticatedUserId(req);
+      if (userId) return req.authUser || { id: userId };
+      res.status(401).json({ stage, error: "user_auth_required" });
+      return null;
+    },
+    getOrCreateScreenplayOwnerRecord = null,
+    getScreenplayProjectRecord = null,
+    // Explicit seam for focused route tests. Production intentionally uses
+    // the screenplay owner store functions above.
+    authorizeProjectAccess = null,
+  } = deps;
 
-function mountCraftRoutes(app) {
+  app.use("/craft", (req, res, next) => {
+    if (isPublicCraftRoute(req.method, req.path)) return next();
+    const user = requireAuthenticatedUser(req, res, "craft_auth");
+    if (!user) return undefined;
+    const userId = String(user.id || canonicalAuthenticatedUserId(req)).trim();
+    if (!userId) {
+      return res.status(401).json({ stage: "craft_auth", error: "user_auth_required" });
+    }
+    // Normalize the trusted identity field used by screenplay ownership.
+    // Request bodies and X-User-Id are never consulted.
+    req.userId = userId;
+    return next();
+  });
   app.use("/craft", express.json({ limit: "2mb" }));
+
+  async function requireOwnedProject(req, res, projectId) {
+    const normalizedProjectId = String(projectId || "").trim();
+    const userId = canonicalAuthenticatedUserId(req);
+    if (!normalizedProjectId || !userId) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(404).json({ stage: "craft_project", error: "project_not_found" });
+      return null;
+    }
+
+    let project = null;
+    if (typeof authorizeProjectAccess === "function") {
+      const authorized = await authorizeProjectAccess({ req, userId, projectId: normalizedProjectId });
+      project = authorized === true ? { id: normalizedProjectId } : authorized;
+    } else if (
+      typeof getOrCreateScreenplayOwnerRecord === "function"
+      && typeof getScreenplayProjectRecord === "function"
+    ) {
+      const owner = getOrCreateScreenplayOwnerRecord(req, { create: false });
+      project = getScreenplayProjectRecord(owner, normalizedProjectId);
+    }
+
+    if (!project) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(404).json({ stage: "craft_project", error: "project_not_found" });
+      return null;
+    }
+    return {
+      project,
+      projectId: normalizedProjectId,
+      storageProjectId: craftStorageProjectId(userId, normalizedProjectId),
+      userId,
+    };
+  }
 
   app.get("/craft/frameworks", (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
@@ -131,10 +212,12 @@ function mountCraftRoutes(app) {
 
   app.get("/craft/reports/:projectId/:versionId?", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
+    const owned = await requireOwnedProject(req, res, req.params.projectId);
+    if (!owned) return;
     let report;
     try {
       report = await getStoredReport({
-        projectId: req.params.projectId,
+        projectId: owned.storageProjectId,
         versionId: req.params.versionId,
       });
     } catch (e) {
@@ -142,22 +225,27 @@ function mountCraftRoutes(app) {
     }
     if (!report) return sendKnownError(res, "craft_report_not_found");
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json(report);
+    return res.status(200).json({ ...report, projectId: owned.projectId });
   });
 
   app.post("/craft/analyze", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     const body = req.body || {};
+    if (typeof body.projectId !== "string" || !body.projectId.trim()) {
+      return sendKnownError(res, "craft_invalid_screenplay", "screenplay.projectId is required");
+    }
+    const owned = await requireOwnedProject(req, res, body.projectId);
+    if (!owned) return;
     try {
       const report = analyzeScreenplay({
         screenplay: body.screenplay || {},
         frameworkId: body.frameworkId,
-        projectId: body.projectId,
+        projectId: owned.projectId,
         versionId: body.versionId,
       });
-      await storeReport(report);
+      await storeReport({ ...report, projectId: owned.storageProjectId });
       res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json(report);
+      return res.status(200).json({ ...report, projectId: owned.projectId });
     } catch (e) {
       if (e?.code) return sendKnownError(res, e.code, e.message);
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "analysis failed");
@@ -168,8 +256,8 @@ function mountCraftRoutes(app) {
     if (!checkClientSchemaVersion(req, res)) return;
     try {
       const stored = await recordOverride({
-        override: req.body || {},
-        requestingUserId: requestingUserIdFor(req),
+        override: { ...(req.body || {}), userId: canonicalAuthenticatedUserId(req) },
+        requestingUserId: canonicalAuthenticatedUserId(req),
       });
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json(stored);
@@ -184,13 +272,11 @@ function mountCraftRoutes(app) {
     const id = req.params.overrideId;
     const existing = await getOverride(id);
     if (!existing) return sendKnownError(res, "craft_override_not_found");
-    const requesting = requestingUserIdFor(req);
-    if (requesting && existing.userId && existing.userId !== requesting) {
-      return sendKnownError(
-        res,
-        "craft_override_user_mismatch",
-        "only the owning user may delete this override",
-      );
+    const requesting = canonicalAuthenticatedUserId(req);
+    if (!requesting || !existing.userId || existing.userId !== requesting) {
+      // Match the screenplay IDOR posture: do not reveal whether another
+      // user's object exists.
+      return sendKnownError(res, "craft_override_not_found");
     }
     try {
       await deleteOverride(id);
@@ -309,13 +395,15 @@ function mountCraftRoutes(app) {
     const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
     if (!text) return sendKnownError(res, "craft_invalid_screenplay", "text is required");
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId is required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence, classifier } = loglineDistillerDeps();
     try {
       const logline = await distillLogline({ text, frameworkId, classifier });
       const source = classifier?.kind === "openai" ? "openai" : "stub";
       if (persistence) {
         const entry = await recordLogline({
-          persistence, projectId, versionId, logline, frameworkId, source,
+          persistence, projectId: owned.storageProjectId, versionId, logline, frameworkId, source,
         });
         res.setHeader("Cache-Control", "no-store");
         return res.status(200).json({
@@ -349,10 +437,12 @@ function mountCraftRoutes(app) {
       ? req.query.currentLogline
       : null;
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence } = loglineDistillerDeps();
     if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
     try {
-      const drift = await computeDrift({ persistence, projectId, currentLogline });
+      const drift = await computeDrift({ persistence, projectId: owned.storageProjectId, currentLogline });
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ schemaVersion: 1, ...drift });
     } catch (e) {
@@ -365,10 +455,13 @@ function mountCraftRoutes(app) {
     if (!checkClientSchemaVersion(req, res)) return;
     const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence } = loglineDistillerDeps();
     if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
     try {
-      const entries = await getLoglineHistory({ persistence, projectId });
+      const storedEntries = await getLoglineHistory({ persistence, projectId: owned.storageProjectId });
+      const entries = storedEntries.map((entry) => ({ ...entry, projectId: owned.projectId }));
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ schemaVersion: 1, projectId, entries });
     } catch (e) {
@@ -387,20 +480,29 @@ function mountCraftRoutes(app) {
     const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
     const beatId = typeof body.beatId === "string" ? body.beatId : null;
     const twist = body.twist;
-    const userId = typeof body.userId === "string"
-      ? body.userId
-      : (req?.user?.id || null);
+    const userId = canonicalAuthenticatedUserId(req);
     const sceneId = typeof body.sceneId === "string" ? body.sceneId : null;
     const note = typeof body.note === "string" ? body.note : null;
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId is required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence } = acceptedTwistLogDeps();
     if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
     try {
       const result = await recordAcceptedTwist({
-        persistence, projectId, versionId, frameworkId, beatId, twist, userId, sceneId, note,
+        persistence,
+        projectId: owned.storageProjectId,
+        versionId,
+        frameworkId,
+        beatId,
+        twist,
+        userId,
+        sceneId,
+        note,
       });
+      const entry = result?.entry ? { ...result.entry, projectId: owned.projectId } : result?.entry;
       res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json({ schemaVersion: 1, ...result });
+      return res.status(200).json({ schemaVersion: 1, ...result, entry });
     } catch (e) {
       if (e?.code) return sendKnownError(res, "craft_invalid_screenplay", e.message);
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "accept failed");
@@ -412,10 +514,16 @@ function mountCraftRoutes(app) {
     if (!checkClientSchemaVersion(req, res)) return;
     const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence } = acceptedTwistLogDeps();
     if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
     try {
-      const entries = await getAcceptedTwistsForProject({ persistence, projectId });
+      const storedEntries = await getAcceptedTwistsForProject({
+        persistence,
+        projectId: owned.storageProjectId,
+      });
+      const entries = storedEntries.map((entry) => ({ ...entry, projectId: owned.projectId }));
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ schemaVersion: 1, projectId, entries });
     } catch (e) {
@@ -430,10 +538,17 @@ function mountCraftRoutes(app) {
     const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
     const versionId = typeof req.query?.versionId === "string" ? req.query.versionId : null;
     if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const owned = await requireOwnedProject(req, res, projectId);
+    if (!owned) return;
     const { persistence } = acceptedTwistLogDeps();
     if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
     try {
-      const result = await removeAcceptedTwist({ persistence, projectId, versionId, twistId });
+      const result = await removeAcceptedTwist({
+        persistence,
+        projectId: owned.storageProjectId,
+        versionId,
+        twistId,
+      });
       if (!result.ok) return sendKnownError(res, "craft_invalid_screenplay", "twist not found");
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ schemaVersion: 1, ...result });
@@ -444,4 +559,9 @@ function mountCraftRoutes(app) {
   });
 }
 
-export { mountCraftRoutes };
+export {
+  PUBLIC_CRAFT_ROUTE_PATTERNS,
+  craftStorageProjectId,
+  isPublicCraftRoute,
+  mountCraftRoutes,
+};

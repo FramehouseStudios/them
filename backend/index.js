@@ -26,6 +26,7 @@ import {
   MAX_FILE_MB,
   NODE_ENV,
   OPENAI_API_KEY,
+  OUTBOX_OPERATOR_TOKEN,
   PORT,
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,
@@ -32342,9 +32343,10 @@ mountOpsAlertsRoute(app, {
 
 // GET /outbox + POST /outbox/retry extracted to lib/outbox_routes.js
 // (Phase 6.1a module, now wired). Mounted in place to preserve Express
-// registration order; handler bodies are byte-identical, including the
-// route-local express.json({limit:"256kb"}) parser on /outbox/retry.
+// registration order. The route-local parser remains behind the server-only
+// operator-token guard; an unset token disables this HTTP control plane.
 mountOutboxRoutes(app, {
+  OUTBOX_OPERATOR_TOKEN,
   OUTBOX_WORKER_BATCH_SIZE,
   createRequestId,
   parseQueryLimit,
@@ -33453,7 +33455,16 @@ configureAcceptedTwistLog({ persistence: sharedPersistence });
 // first-page-written/stats.
 configureFirstPageTelemetry({ persistence: sharedPersistence });
 mountFirstPageTelemetryRoute(app);
-mountCraftRoutes(app);
+app.use(
+  "/craft/logline/distill",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("craft_logline_distill"),
+);
+mountCraftRoutes(app, {
+  requireAuthenticatedUser: userAuth.requireAuthenticatedUser,
+  getOrCreateScreenplayOwnerRecord,
+  getScreenplayProjectRecord,
+});
 mountPromptRoutes(app, {
   creativeMemoryStore,
   buildCraftContextBlock,

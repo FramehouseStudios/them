@@ -15,7 +15,12 @@ async function withProductionStyleCraftServer(fn) {
   const app = express();
   // Intentionally no app.use(express.json()) here. Production calls
   // mountCraftRoutes(app) directly, so the route module must own the parser.
-  mountCraftRoutes(app);
+  app.use((req, _res, next) => {
+    req.authUser = { id: "craft-body-parser-test-user" };
+    req.userId = req.authUser.id;
+    next();
+  });
+  mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;

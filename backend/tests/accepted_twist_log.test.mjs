@@ -186,7 +186,12 @@ async function withTestServer(fn) {
   configureAcceptedTwistLog({ persistence });
   const app = express();
   app.use(express.json());
-  mountCraftRoutes(app);
+  app.use((req, _res, next) => {
+    req.authUser = { id: "accepted-twist-test-user" };
+    req.userId = req.authUser.id;
+    next();
+  });
+  mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
