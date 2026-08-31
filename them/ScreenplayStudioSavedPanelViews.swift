@@ -32,7 +32,7 @@ struct ScreenplayStudioSavedPanelPresentation {
     }
 
     var saveDisabled: Bool {
-        isSaving || !hasDraft
+        isSaving || !hasDraft || !hasSelectedProject
     }
 
     var showsBackgroundSyncNotice: Bool {
@@ -110,6 +110,11 @@ struct ScreenplayStudioSavedPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(presentation.saveDisabled)
+                .accessibilityHint(
+                    presentation.hasSelectedProject
+                        ? "Creates a saved screenplay version."
+                        : "Select or create a project before saving."
+                )
                 .accessibilityIdentifier("studio.saved.save")
 
                 savedStatusChip(presentation.autosaveStatusText, prominence: .muted)

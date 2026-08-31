@@ -46,7 +46,11 @@ struct ScreenplayStudioRightPanelTabs: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
+                .accessibilityHint("Shows the \(tab.title) inspector.")
+                .accessibilityValue(isActive ? "Selected" : "Not selected")
                 .accessibilityIdentifier("studio.right-panel.\(tab.rawValue)")
+                .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
         .padding(6)

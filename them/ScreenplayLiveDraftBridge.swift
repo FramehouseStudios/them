@@ -2724,16 +2724,23 @@ nonisolated struct ScreenplayLiveDraftFileStore {
     private static let directoryName = "io.them"
     private static let fileName = "live-screenplay-draft.fountain"
 
-    static func restoredDraft(fileManager: FileManager = .default) -> String {
-        guard let data = try? Data(contentsOf: draftURL(fileManager: fileManager)),
+    static func restoredDraft(
+        ownerUserID: String? = nil,
+        fileManager: FileManager = .default
+    ) -> String {
+        guard let data = try? Data(contentsOf: draftURL(ownerUserID: ownerUserID, fileManager: fileManager)),
               let draft = String(data: data, encoding: .utf8) else {
             return ""
         }
         return ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: draft)
     }
 
-    static func persist(_ draft: String?, fileManager: FileManager = .default) {
-        let url = draftURL(fileManager: fileManager)
+    static func persist(
+        _ draft: String?,
+        ownerUserID: String? = nil,
+        fileManager: FileManager = .default
+    ) {
+        let url = draftURL(ownerUserID: ownerUserID, fileManager: fileManager)
         guard let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft ?? "") else {
             try? fileManager.removeItem(at: url)
             return
@@ -2750,18 +2757,42 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         }
     }
 
-    static func remove(fileManager: FileManager = .default) {
-        try? fileManager.removeItem(at: draftURL(fileManager: fileManager))
+    static func remove(ownerUserID: String? = nil, fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: draftURL(ownerUserID: ownerUserID, fileManager: fileManager))
     }
 
-    private static func draftURL(fileManager: FileManager) -> URL {
+    static func migrateDraftIfNeeded(
+        from sourceOwnerUserID: String?,
+        to destinationOwnerUserID: String,
+        fileManager: FileManager = .default
+    ) {
+        let destinationURL = draftURL(ownerUserID: destinationOwnerUserID, fileManager: fileManager)
+        guard !fileManager.fileExists(atPath: destinationURL.path) else { return }
+        let sourceDraft = restoredDraft(ownerUserID: sourceOwnerUserID, fileManager: fileManager)
+        guard !sourceDraft.isEmpty else { return }
+        persist(sourceDraft, ownerUserID: destinationOwnerUserID, fileManager: fileManager)
+        if sourceOwnerUserID == nil {
+            remove(fileManager: fileManager)
+        }
+    }
+
+    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
+        let resolvedFileName: String
+        if let ownerUserID {
+            resolvedFileName = ScreenplayOwnerScopedStoragePolicy.storageKey(
+                baseKey: "live-screenplay-draft",
+                ownerUserID: ownerUserID
+            ) + ".fountain"
+        } else {
+            resolvedFileName = fileName
+        }
         return applicationSupport
             .appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent(fileName, isDirectory: false)
+            .appendingPathComponent(resolvedFileName, isDirectory: false)
     }
 }
 
@@ -2910,6 +2941,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
     private static let latestAppliedMemoryStorageKey = "studio_latest_applied_memory_v1"
     private static let characterVoiceMemoriesStorageKey = "studio_character_voice_memories_v1"
+    private static let ownerScopedStorageKeys = [
+        draftTextStorageKey,
+        draftOriginStorageKey,
+        structuredDraftStorageKey,
+        preferredProjectIDStorageKey,
+        preferredVersionIDStorageKey,
+        projectRecentTurnsStorageKey,
+        companionRecentTurnsStorageKey,
+        projectBindingStorageKey,
+        featureWorkflowContextStorageKey,
+        latestAppliedMemoryStorageKey,
+    ]
+    private var storageOwnerUserID: String = ""
+    private var isReconcilingAccountStorage = false
 
     @Published var draftText: String = "" {
         didSet {
@@ -3205,6 +3250,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private init() {
+        let storageOwnerUserID = Self.currentAuthenticatedUserID()
+        self.storageOwnerUserID = storageOwnerUserID
+        Self.migrateLegacyWorkspaceIfNeeded()
         self.autoInsertEnabled = UserDefaults.standard.object(forKey: Self.autoInsertStorageKey) as? Bool ?? true
         if let saved = UserDefaults.standard.string(forKey: Self.activeElementStorageKey),
            let element = ScreenplayEditorElement(rawValue: saved) {
@@ -3214,28 +3262,31 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            let mode = StudioCompanionMode(rawValue: savedMode) {
             self.companionMode = mode
         }
-        let restoredDraftText = Self.restoreDraftText()
-        let restoredProjectBinding = Self.restoreProjectBindingSnapshot()
+        let restoredDraftText = Self.restoreDraftText(ownerUserID: storageOwnerUserID)
+        let restoredProjectBinding = Self.restoreProjectBindingSnapshot(ownerUserID: storageOwnerUserID)
         self.preferredProjectID = Self.restorePreferredProjectID(
+            ownerUserID: storageOwnerUserID,
             bindingProjectID: restoredProjectBinding.projectID
         )
         self.preferredVersionID = Self.restorePreferredVersionID(
+            ownerUserID: storageOwnerUserID,
             bindingVersionID: restoredProjectBinding.versionID
         )
         self.projectBinding = restoredProjectBinding
         self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            ownerUserID: storageOwnerUserID,
             restoredDraftText: restoredDraftText,
             restoredProjectID: self.preferredProjectID,
             restoredVersionID: self.preferredVersionID,
             fallbackProjectID: restoredProjectBinding.projectID,
             fallbackVersionID: restoredProjectBinding.versionID
         )
-        self.structuredDraft = Self.restoreStructuredDraft()
+        self.structuredDraft = Self.restoreStructuredDraft(ownerUserID: storageOwnerUserID)
         self.draftText = restoredDraftText
-        self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
-        self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
-        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
-        self.latestAppliedMemory = Self.restoreLatestAppliedMemory()
+        self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey, ownerUserID: storageOwnerUserID)
+        self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey, ownerUserID: storageOwnerUserID)
+        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: storageOwnerUserID)
+        self.latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: storageOwnerUserID)
         if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
             self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
             self.characterVoiceMemories = voiceMemorySnapshot.memories
@@ -3259,8 +3310,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         #endif
     }
 
-    private static func restoreStructuredDraft() -> ScreenplayStructuredDraft {
-        guard let stored = UserDefaults.standard.string(forKey: structuredDraftStorageKey),
+    private static func restoreStructuredDraft(ownerUserID: String) -> ScreenplayStructuredDraft {
+        guard let stored = UserDefaults.standard.string(forKey: ownerScopedKey(structuredDraftStorageKey, ownerUserID: ownerUserID)),
               let data = stored.data(using: .utf8) else {
             return .empty
         }
@@ -3269,33 +3320,33 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayStructuredDraft.self, from: data)) ?? .empty
     }
 
-    private static func restoreDraftText() -> String {
+    private static func restoreDraftText(ownerUserID: String) -> String {
         let storedDraft = ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
-            from: UserDefaults.standard.string(forKey: draftTextStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(draftTextStorageKey, ownerUserID: ownerUserID))
         )
         if !storedDraft.isEmpty {
             return storedDraft
         }
-        return ScreenplayLiveDraftFileStore.restoredDraft()
+        return ScreenplayLiveDraftFileStore.restoredDraft(ownerUserID: ownerUserID)
     }
 
-    private static func restorePreferredProjectID(bindingProjectID: String) -> String {
+    private static func restorePreferredProjectID(ownerUserID: String, bindingProjectID: String) -> String {
         ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
-            storedPreferredProjectID: UserDefaults.standard.string(forKey: preferredProjectIDStorageKey),
+            storedPreferredProjectID: UserDefaults.standard.string(forKey: ownerScopedKey(preferredProjectIDStorageKey, ownerUserID: ownerUserID)),
             bindingProjectID: bindingProjectID
         )
     }
 
-    private static func restorePreferredVersionID(bindingVersionID: String) -> String {
+    private static func restorePreferredVersionID(ownerUserID: String, bindingVersionID: String) -> String {
         ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
-            storedPreferredVersionID: UserDefaults.standard.string(forKey: preferredVersionIDStorageKey),
+            storedPreferredVersionID: UserDefaults.standard.string(forKey: ownerScopedKey(preferredVersionIDStorageKey, ownerUserID: ownerUserID)),
             bindingVersionID: bindingVersionID
         )
     }
 
-    private static func restoreProjectBindingSnapshot() -> ScreenplayProjectBindingSnapshot {
+    private static func restoreProjectBindingSnapshot(ownerUserID: String) -> ScreenplayProjectBindingSnapshot {
         let stored = ScreenplayProjectBindingStoragePolicy.restoredValue(
-            productValue: UserDefaults.standard.string(forKey: projectBindingStorageKey),
+            productValue: UserDefaults.standard.string(forKey: ownerScopedKey(projectBindingStorageKey, ownerUserID: ownerUserID)),
             legacyDebugValue: UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
             isAutomationSession: IOThemRuntime.isStudioAutomationSession
         )
@@ -3309,6 +3360,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private static func restoreLiveDraftOriginSnapshot(
+        ownerUserID: String,
         restoredDraftText: String,
         restoredProjectID: String,
         restoredVersionID: String,
@@ -3318,7 +3370,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
             return .empty
         }
-        if let stored = UserDefaults.standard.string(forKey: draftOriginStorageKey),
+        if let stored = UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
            let data = stored.data(using: .utf8) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -3337,8 +3389,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return snapshot.isEmpty ? .empty : snapshot
     }
 
-    private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
-        guard let stored = UserDefaults.standard.string(forKey: key),
+    private static func restoreConversationTurns(forKey key: String, ownerUserID: String) -> [ScreenplayConversationTurn] {
+        guard let stored = UserDefaults.standard.string(forKey: ownerScopedKey(key, ownerUserID: ownerUserID)),
               let data = stored.data(using: .utf8) else {
             return []
         }
@@ -3347,21 +3399,47 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode([ScreenplayConversationTurn].self, from: data)) ?? []
     }
 
-    private static func restoreFeatureWorkflowContext() -> ScreenplayFeatureWorkflowSessionContext? {
+    private static func restoreFeatureWorkflowContext(ownerUserID: String) -> ScreenplayFeatureWorkflowSessionContext? {
         ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
-            from: UserDefaults.standard.string(forKey: featureWorkflowContextStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(featureWorkflowContextStorageKey, ownerUserID: ownerUserID))
         )
     }
 
-    private static func restoreLatestAppliedMemory() -> ScreenplayStudioAppliedMemoryState {
+    private static func restoreLatestAppliedMemory(ownerUserID: String) -> ScreenplayStudioAppliedMemoryState {
         ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
-            from: UserDefaults.standard.string(forKey: latestAppliedMemoryStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(latestAppliedMemoryStorageKey, ownerUserID: ownerUserID))
         )
     }
 
     private static func currentAuthenticatedUserID() -> String {
         BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func ownerScopedKey(_ baseKey: String, ownerUserID: String) -> String {
+        ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: baseKey,
+            ownerUserID: ownerUserID
+        )
+    }
+
+    private func ownerScopedKey(_ baseKey: String) -> String {
+        Self.ownerScopedKey(baseKey, ownerUserID: storageOwnerUserID)
+    }
+
+    private static func migrateLegacyWorkspaceIfNeeded() {
+        let ownerUserID = ScreenplayLegacyWorkspaceMigrationPolicy.quarantineOwnerUserID
+        for baseKey in ownerScopedStorageKeys {
+            let destinationKey = ownerScopedKey(baseKey, ownerUserID: ownerUserID)
+            guard UserDefaults.standard.object(forKey: destinationKey) == nil,
+                  let legacyValue = UserDefaults.standard.object(forKey: baseKey) else { continue }
+            UserDefaults.standard.set(legacyValue, forKey: destinationKey)
+            UserDefaults.standard.removeObject(forKey: baseKey)
+        }
+        ScreenplayLiveDraftFileStore.migrateDraftIfNeeded(
+            from: nil,
+            to: ownerUserID
+        )
     }
 
     private static func restoreCharacterVoiceMemorySnapshot() -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
@@ -3385,84 +3463,94 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistStructuredDraft() {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(structuredDraft),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: Self.structuredDraftStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.structuredDraftStorageKey))
     }
 
     private func persistDraftText(_ text: String) {
+        guard !isReconcilingAccountStorage else { return }
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
-            UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
+            UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
             persistDraftOriginForCurrentContext()
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
-            ScreenplayLiveDraftFileStore.remove()
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftTextStorageKey))
+            ScreenplayLiveDraftFileStore.remove(ownerUserID: storageOwnerUserID)
             draftOrigin = .empty
-            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
         }
     }
 
     private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
         guard let committedWrite, committedWrite.isAuthoritativeWrite else { return }
         persistDraftText(committedWrite.committedDraft)
-        ScreenplayLiveDraftFileStore.persist(committedWrite.committedDraft)
+        ScreenplayLiveDraftFileStore.persist(
+            committedWrite.committedDraft,
+            ownerUserID: storageOwnerUserID
+        )
         UserDefaults.standard.synchronize()
     }
 
     private func persistDraftOriginForCurrentContext() {
+        guard !isReconcilingAccountStorage else { return }
         let snapshot = ScreenplayLiveDraftOriginSnapshot(
             projectID: committedWriteProjectIDSnapshot(),
             versionID: committedWriteVersionIDSnapshot()
         )
         draftOrigin = snapshot
         guard !snapshot.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
             return
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: Self.draftOriginStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
     }
 
     private func persistPreferredProjectContext() {
+        guard !isReconcilingAccountStorage else { return }
         if let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredProjectID) {
-            UserDefaults.standard.set(projectID, forKey: Self.preferredProjectIDStorageKey)
+            UserDefaults.standard.set(projectID, forKey: ownerScopedKey(Self.preferredProjectIDStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.preferredProjectIDStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.preferredProjectIDStorageKey))
         }
 
         if let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredVersionID) {
-            UserDefaults.standard.set(versionID, forKey: Self.preferredVersionIDStorageKey)
+            UserDefaults.standard.set(versionID, forKey: ownerScopedKey(Self.preferredVersionIDStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.preferredVersionIDStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.preferredVersionIDStorageKey))
         }
     }
 
     private func persistConversationTurns(_ turns: [ScreenplayConversationTurn], key: String) {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(turns),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: key)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(key))
     }
 
     private func persistFeatureWorkflowContext() {
+        guard !isReconcilingAccountStorage else { return }
         if let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(latestFeatureWorkflowContext) {
-            UserDefaults.standard.set(payload, forKey: Self.featureWorkflowContextStorageKey)
+            UserDefaults.standard.set(payload, forKey: ownerScopedKey(Self.featureWorkflowContextStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.featureWorkflowContextStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.featureWorkflowContextStorageKey))
         }
     }
 
     private func persistLatestAppliedMemory() {
+        guard !isReconcilingAccountStorage else { return }
         if let payload = ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(latestAppliedMemory) {
-            UserDefaults.standard.set(payload, forKey: Self.latestAppliedMemoryStorageKey)
+            UserDefaults.standard.set(payload, forKey: ownerScopedKey(Self.latestAppliedMemoryStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.latestAppliedMemoryStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.latestAppliedMemoryStorageKey))
         }
     }
 
@@ -3476,6 +3564,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistProjectBindingDebugMirror() {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(projectBinding),
@@ -3484,14 +3573,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: Self.projectBindingStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.projectBindingStorageKey))
             return
         }
         if IOThemRuntime.isStudioAutomationSession {
             UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
             return
         }
-        UserDefaults.standard.set(encoded, forKey: Self.projectBindingStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.projectBindingStorageKey))
     }
 
     private func reconcileFeatureWorkflowContextWithActiveProject() {
@@ -6525,6 +6614,67 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         characterVoiceMemoryUserID = resolvedUserID
         characterVoiceMemories = memories
         persistCharacterVoiceMemories()
+    }
+
+    func reconcileAccountStorage() {
+        let nextOwnerUserID = Self.currentAuthenticatedUserID()
+        guard ScreenplayOwnerScopedStoragePolicy.normalizedOwnerID(nextOwnerUserID) !=
+                ScreenplayOwnerScopedStoragePolicy.normalizedOwnerID(storageOwnerUserID) else {
+            reconcileCharacterVoiceMemoryAccount()
+            return
+        }
+
+        Self.migrateLegacyWorkspaceIfNeeded()
+        isReconcilingAccountStorage = true
+        storageOwnerUserID = nextOwnerUserID
+
+        let restoredBinding = Self.restoreProjectBindingSnapshot(ownerUserID: nextOwnerUserID)
+        let restoredDraft = Self.restoreDraftText(ownerUserID: nextOwnerUserID)
+        let restoredProjectID = Self.restorePreferredProjectID(
+            ownerUserID: nextOwnerUserID,
+            bindingProjectID: restoredBinding.projectID
+        )
+        let restoredVersionID = Self.restorePreferredVersionID(
+            ownerUserID: nextOwnerUserID,
+            bindingVersionID: restoredBinding.versionID
+        )
+
+        preferredProjectID = restoredProjectID
+        preferredVersionID = restoredVersionID
+        projectBinding = restoredBinding
+        draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            ownerUserID: nextOwnerUserID,
+            restoredDraftText: restoredDraft,
+            restoredProjectID: restoredProjectID,
+            restoredVersionID: restoredVersionID,
+            fallbackProjectID: restoredBinding.projectID,
+            fallbackVersionID: restoredBinding.versionID
+        )
+        structuredDraft = Self.restoreStructuredDraft(ownerUserID: nextOwnerUserID)
+        draftText = restoredDraft
+        projectRecentTurns = Self.restoreConversationTurns(
+            forKey: Self.projectRecentTurnsStorageKey,
+            ownerUserID: nextOwnerUserID
+        )
+        companionRecentTurns = Self.restoreConversationTurns(
+            forKey: Self.companionRecentTurnsStorageKey,
+            ownerUserID: nextOwnerUserID
+        )
+        latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: nextOwnerUserID)
+        latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: nextOwnerUserID)
+        lastCommittedWrite = nil
+        pendingInsertion = nil
+        pendingReplacementTarget = nil
+        submittedReplacementTarget = nil
+        latestVoiceTurn = ""
+        latestUserTranscript = ""
+        featureSpine = .empty
+        projectBindingContext = nil
+        isReconcilingAccountStorage = false
+
+        reconcileCharacterVoiceMemoryAccount()
+        reconcileFeatureWorkflowContextWithActiveProject()
+        refreshIntelligenceReport()
     }
 
     func reconcileCharacterVoiceMemoryAccount() {

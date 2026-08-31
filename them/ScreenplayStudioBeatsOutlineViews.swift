@@ -538,6 +538,9 @@ struct ScreenplayStudioFeatureCompassCard: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isWriteDisabled)
+            .accessibilityLabel("Write \(move.title)")
+            .accessibilityHint("Sends this story move to the screenplay page.")
+            .accessibilityIdentifier("studio.feature-compass.move.\(move.id).write")
         }
         .padding(10)
         .background(
@@ -1580,6 +1583,8 @@ struct ScreenplayStudioBeatComposer: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled((label.cleanStudioField.isEmpty && summary.cleanStudioField.isEmpty) || isSaving)
+            .accessibilityHint(isEditing ? "Updates this beat in place." : "Adds this beat to the story map.")
+            .accessibilityIdentifier("studio.beats.save")
         }
     }
 

@@ -10,6 +10,11 @@ extension ScreenplayStudioScreen {
         let initialLoadSettled: Bool
         let selectedProjectPresent: Bool
         let errorText: String
+        let debugAutomationSession: Bool
+        let debugAuthSessionAuthenticated: Bool
+        let debugAuthHeaderPresent: Bool
+        let debugProjectClientOwner: Bool
+        let debugProjectClientTokenPresent: Bool
         let isSaving: Bool
         let loadedDraftProjectID: String
         let loadProjectToken: Int

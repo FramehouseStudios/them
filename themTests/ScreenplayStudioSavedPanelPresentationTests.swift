@@ -42,7 +42,7 @@ final class ScreenplayStudioSavedPanelPresentationTests: XCTestCase {
             hasSelectedProject: false,
             snapshots: [makeSnapshot(id: "version-2", canRestore: true)]
         )
-        XCTAssertFalse(readyWithoutProject.saveDisabled)
+        XCTAssertTrue(readyWithoutProject.saveDisabled)
         XCTAssertEqual(readyWithoutProject.latestVersionTag, "Version V2")
         XCTAssertTrue(readyWithoutProject.showsBackgroundSyncNotice)
         XCTAssertEqual(readyWithoutProject.versionsState, .needsProject)

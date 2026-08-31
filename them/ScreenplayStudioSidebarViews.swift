@@ -25,6 +25,9 @@ struct ScreenplayStudioSidebarModeTabs: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(section.title)
+                .accessibilityHint("Shows \(section.title.lowercased()) in the project drawer.")
+                .accessibilityValue(isActive ? "Selected" : "Not selected")
+                .accessibilityIdentifier("studio.sidebar.\(section.rawValue)")
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
