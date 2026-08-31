@@ -80,6 +80,10 @@ const REQUIRE_CLIENT_TOKEN =
 const SHOULD_START_SERVER = process.env.RUN_SERVER == null
   ? true
   : parseBool(process.env.RUN_SERVER);
+const SHUTDOWN_GRACE_MS = Math.max(
+  1_000,
+  Math.min(120_000, parsePositiveInt(process.env.SHUTDOWN_GRACE_MS, 25_000))
+);
 
 // Structured request logging uses route templates only. JSON is the production
 // default for log aggregation; local runs stay readable unless explicitly
@@ -166,6 +170,7 @@ export {
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
   resolveRequireUserAuth,
+  SHUTDOWN_GRACE_MS,
   SHOULD_START_SERVER,
   STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,

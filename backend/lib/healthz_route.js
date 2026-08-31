@@ -17,11 +17,22 @@ function mountHealthzRoute(app, deps) {
   const ping = typeof deps?.pingPersistence === "function"
     ? deps.pingPersistence
     : async () => true;
+  const isDraining = typeof deps?.isDraining === "function"
+    ? deps.isDraining
+    : () => false;
   const timeoutMs = Number(deps?.timeoutMs || 1500);
 
   app.get("/healthz", async (req, res) => {
     const startedAt = Date.now();
     const result = { ok: false, persistence: "unknown", elapsed_ms: 0 };
+
+    if (isDraining()) {
+      result.status = "draining";
+      result.persistence = "skipped";
+      result.elapsed_ms = Date.now() - startedAt;
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json(result);
+    }
 
     try {
       const pingPromise = Promise.resolve().then(() => ping());

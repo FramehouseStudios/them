@@ -28,6 +28,7 @@ import {
   processSingleOutboxItemById,
   retryOutboxAction,
   runOutboxWorkerTick,
+  waitForOutboxWorkerIdle,
 } from "../lib/outbox_store.js";
 
 function buildScaleBackplaneStub() {
@@ -278,4 +279,24 @@ test("[outbox-store] runOutboxWorkerTick calls processOutboxBatch when enabled",
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
   await runOutboxWorkerTick();
   assert.equal(backplane.calls.claimDueOutbox.length, 1);
+});
+
+test("[outbox-store] concurrent worker ticks and shutdown waiter share the active batch", async () => {
+  const backplane = buildScaleBackplaneStub();
+  let releaseClaim;
+  backplane.claimDueOutbox = async (limit) => {
+    backplane.calls.claimDueOutbox.push(limit);
+    return new Promise((resolve) => { releaseClaim = () => resolve([]); });
+  };
+  configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
+
+  const first = runOutboxWorkerTick();
+  await Promise.resolve();
+  const second = runOutboxWorkerTick();
+  const shutdownWait = waitForOutboxWorkerIdle();
+  releaseClaim();
+
+  await Promise.all([first, second, shutdownWait]);
+  assert.equal(backplane.calls.claimDueOutbox.length, 1);
+  assert.equal(await waitForOutboxWorkerIdle(), undefined);
 });
