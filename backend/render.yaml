@@ -44,6 +44,8 @@ services:
         value: "true"
       - key: AUTH_REQUIRE_EMAIL_VERIFIED
         value: "false"
+      - key: SHUTDOWN_GRACE_MS
+        value: "25000"
       - key: CHAT_STRUCTURAL_REASONING_ENABLED
         value: "true"
       - key: CHAT_MODEL_STRUCTURAL

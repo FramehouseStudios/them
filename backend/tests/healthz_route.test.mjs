@@ -65,6 +65,24 @@ test("[healthz] default ping resolves true (JSON dev mode)", async () => {
   assert.equal(body.ok, true);
 });
 
+test("[healthz] returns 503 immediately while shutdown is draining", async () => {
+  const app = express();
+  let pingCalls = 0;
+  mountHealthzRoute(app, {
+    isDraining: () => true,
+    pingPersistence: async () => {
+      pingCalls += 1;
+      return true;
+    },
+  });
+  const { status, body } = await hit(app);
+  assert.equal(status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.status, "draining");
+  assert.equal(body.persistence, "skipped");
+  assert.equal(pingCalls, 0);
+});
+
 test("[healthz] requires an Express app", () => {
   assert.throws(() => mountHealthzRoute(null, {}), /requires an Express app/);
 });

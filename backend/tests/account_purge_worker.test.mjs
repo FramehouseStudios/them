@@ -209,3 +209,30 @@ test("[account-purge] concurrent ticks share one active sweep", async () => {
   assert.deepEqual(await first, await second);
   assert.equal(listCalls, 1);
 });
+
+test("[account-purge] shutdown waiter blocks for the destructive sweep and clears afterward", async () => {
+  let release;
+  const blocker = new Promise((resolve) => { release = resolve; });
+  const worker = createAccountPurgeWorker({
+    lifecycleStore: {
+      listDueForHardDelete: async () => {
+        await blocker;
+        return [];
+      },
+      finalizeHardDelete: async () => {},
+    },
+    purgeUserData: async () => {},
+  });
+
+  const active = worker.runOnce();
+  const shutdownWait = worker.waitForIdle();
+  let settled = false;
+  shutdownWait.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+
+  release();
+  await Promise.all([active, shutdownWait]);
+  assert.equal(settled, true);
+  assert.equal(await worker.waitForIdle(), undefined);
+});

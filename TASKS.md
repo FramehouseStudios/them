@@ -743,7 +743,7 @@
 | T-backend-api-version-healthz           | Add /api/version and /healthz orchestrator endpoints                                     | support | review            |
 | T-backend-ci-hardening                  | CI secret-format validation + Dockerfile build gate                                      | support | review            |
 | T-backend-deploy-image                  | Containerize the backend and document a deploy recipe                                    | support | review            |
-| T-backend-graceful-shutdown             | Drain in-flight requests on SIGTERM before exit                                          | support | ready             |
+| T-backend-graceful-shutdown             | Drain in-flight requests on SIGTERM before exit                                          | codex   | review            |
 | T-backend-openai-cost-cap               | OpenAI per-day / per-user / per-hour budget cap                                          | support | ready             |
 | T-backend-pg-pool-tuning                | Production-tune the Postgres connection pool                                             | support | ready             |
 | T-backend-rate-limit                    | Token-bucket rate limiter for auth, realtime mint, and default routes                    | support | review            |
@@ -1172,14 +1172,17 @@ only the old path exists.
   knowledge.
 
 ### T-backend-graceful-shutdown — Drain in-flight requests on SIGTERM before exit
-- **Owner:** support
-- **Branch:** -
+- **Owner:** codex
+- **Branch:** codex/T383-graceful-shutdown
 - **Pillar:** infra (enables all)
-- **Status:** ready
+- **Status:** review
 
 ## Scope
 
-Spec: `docs/specs/T-backend-graceful-shutdown.md`.
+Spec: `docs/specs/T-backend-graceful-shutdown.md`. The current backend already
+had a partial inline eight-second close path; this task replaces it with the
+bounded project-owned lifecycle helper and closes readiness/background-work
+races discovered during implementation.
 
 `lib/shutdown.js` helper wired from `index.js`: stop accepting
 connections, drain in-flight (talkInFlight), drain outbox tick,
@@ -1193,6 +1196,25 @@ during drain. `SHUTDOWN_GRACE_MS` default 25s.
 - `/healthz` returns 503 within 100ms of SIGTERM.
 - New connections refused during drain.
 - After grace timeout, process exits even with in-flight (warn log).
+
+## Local verification
+
+- Focused shutdown, health, outbox, account-purge, and logging tests pass
+  (50/50).
+- A real backend subprocess drains two simultaneous streaming talk turns,
+  refuses new sockets, logs `shutdown_done`, and exits `0` inside the grace
+  period.
+- Full backend verification passes with 2,295/2,297 tests and two expected
+  environment-gated skips.
+
+## Follow-ups
+
+- Repeated identical OS signals currently retain Node's operator force-stop
+  behavior because signal handlers use `process.once`; controller re-entry and
+  mixed-signal re-entry are idempotent.
+- The diagnostic outbox snapshotter should eventually serialize overlapping
+  timer ticks so shutdown can await every best-effort snapshot write, not only
+  the most recently assigned promise.
 
 ### T-backend-openai-cost-cap — OpenAI per-day / per-user / per-hour budget cap
 - **Owner:** support

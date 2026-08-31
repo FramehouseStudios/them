@@ -171,7 +171,11 @@ function createAccountPurgeWorker({
     return activeRun;
   }
 
-  return { runOnce };
+  async function waitForIdle() {
+    return activeRun || undefined;
+  }
+
+  return { runOnce, waitForIdle };
 }
 
 export {

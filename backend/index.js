@@ -31,6 +31,7 @@ import {
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
+  SHUTDOWN_GRACE_MS,
   SHOULD_START_SERVER,
   STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,
@@ -64,6 +65,7 @@ import {
   processOutboxBatch,
   processSingleOutboxItemById,
   runOutboxWorkerTick,
+  waitForOutboxWorkerIdle,
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { applyClementineVoiceDirection } from "./lib/clementine_voice_director.js";
@@ -81,6 +83,7 @@ import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
 import { mountApiVersionRoute } from "./lib/api_version_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
+import { createGracefulShutdown } from "./lib/shutdown.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
 import { normalizeStudioTextOutput } from "./lib/studio_text_output.js";
@@ -222,6 +225,7 @@ import {
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
 import { createRateLimiter } from "./lib/rate_limit.js";
 import { createProviderBudgetGuard } from "./lib/provider_budget.js";
+import { createLogger } from "./lib/log.js";
 import {
   clampUnit,
   createRequestId,
@@ -239,6 +243,8 @@ import {
   trimToMax,
   writeJsonFileAtomic,
 } from "./lib/utils.js";
+
+const lifecycleLogger = createLogger();
 
 // Validate the deployment shape before opening stores or starting background
 // work. Production and unknown environment names must fail on configuration,
@@ -1579,6 +1585,7 @@ const OUTBOX_WORKER_BATCH_SIZE = parsePositiveInt(
   process.env.OUTBOX_WORKER_BATCH_SIZE,
   12
 );
+let backendLifecycleStatus = "up";
 const TTS_PROVIDER_OPTIONS = new Set(["openai", "elevenlabs"]);
 const TTS_PROVIDER = parseOneOf(process.env.TTS_PROVIDER, TTS_PROVIDER_OPTIONS, "openai");
 const INTERACTIVE_TTS_PROVIDER = parseOneOf(
@@ -5139,20 +5146,26 @@ const accountPurgeWorker = createAccountPurgeWorker({
   logger: console,
   batchSize: 50,
 });
+let accountPurgeBootTimer = null;
+let accountPurgeRecurringTimer = null;
 if (NODE_ENV === "production") {
   const runAccountPurge = () => {
-    void accountPurgeWorker.runOnce().then((summary) => {
-      if (summary.due > 0) {
-        console.log(
-          `[account_purge] due=${summary.due} purged=${summary.purged} failed=${summary.failed}`
-        );
-      }
-    });
+    void accountPurgeWorker.runOnce()
+      .then((summary) => {
+        if (summary.due > 0) {
+          console.log(
+            `[account_purge] due=${summary.due} purged=${summary.purged} failed=${summary.failed}`
+          );
+        }
+      })
+      .catch((error) => {
+        lifecycleLogger.error("account_purge_worker_failed", error);
+      });
   };
-  const bootPurgeTimer = setTimeout(runAccountPurge, 5_000);
-  bootPurgeTimer.unref?.();
-  const recurringPurgeTimer = setInterval(runAccountPurge, 15 * 60 * 1_000);
-  recurringPurgeTimer.unref?.();
+  accountPurgeBootTimer = setTimeout(runAccountPurge, 5_000);
+  accountPurgeBootTimer.unref?.();
+  accountPurgeRecurringTimer = setInterval(runAccountPurge, 15 * 60 * 1_000);
+  accountPurgeRecurringTimer.unref?.();
 }
 
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
@@ -5178,9 +5191,16 @@ if (screenplayAdapterStateLoaded) {
 console.log(
   `[user_memory] loaded records=${userMemoryByIp.size} users=${userMemoryByUserId.size} token_aliases=${userMemoryByClientToken.size}`
 );
-setTimeout(() => {
-  void hydrateUserMemoryStoreFromBackplane();
+let backplaneHydrationPromise = null;
+let backplaneHydrationTimer = setTimeout(() => {
+  backplaneHydrationTimer = null;
+  backplaneHydrationPromise = Promise.resolve()
+    .then(() => hydrateUserMemoryStoreFromBackplane())
+    .finally(() => {
+      backplaneHydrationPromise = null;
+    });
 }, Math.max(0, SCALE_BACKPLANE_SYNC_BOOT_MS));
+backplaneHydrationTimer.unref?.();
 // talkInFlight is owned by backend/lib/talk_state.js (Phase 7a).
 // Local readers use readTalkInFlight() (the imported accessor).
 let didLogMp3Signature = false;
@@ -7590,6 +7610,13 @@ function canReadTalkTurnMeta(req, meta) {
 
 function deriveBackendRuntimeStatus() {
   const metrics = summarizeTalkMetrics();
+  if (backendLifecycleStatus === "draining") {
+    return {
+      status: "draining",
+      reasons: ["shutdown_in_progress"],
+      metrics,
+    };
+  }
   let status = "up";
   const reasons = [];
   if (readTalkInFlight() >= TALK_MAX_IN_FLIGHT) {
@@ -32311,6 +32338,7 @@ mountApiVersionRoute(app, {
 // before traffic lands on a half-broken backend.
 mountHealthzRoute(app, {
   pingPersistence: () => sharedPersistence.ping(),
+  isDraining: () => backendLifecycleStatus === "draining",
   timeoutMs: 1500,
 });
 
@@ -33605,8 +33633,9 @@ app.use((err, req, res, next) => {
 
 let backendHttpServer = null;
 let outboxWorkerTimer = null;
+let knowledgeWarmupTimer = null;
 let scaleBackplaneClosePromise = null;
-let gracefulShutdownPromise = null;
+let gracefulShutdownController = null;
 
 function closeScaleBackplaneOnce() {
   if (!scaleBackplaneClosePromise) {
@@ -33617,51 +33646,59 @@ function closeScaleBackplaneOnce() {
   return scaleBackplaneClosePromise;
 }
 
-function closeBackendHttpServerOnce() {
-  const server = backendHttpServer;
-  backendHttpServer = null;
-  if (!server) return Promise.resolve();
-  server.closeIdleConnections?.();
-  return new Promise((resolve) => {
-    server.close(() => resolve());
-  });
-}
-
 function gracefulShutdown(signal = "shutdown") {
-  if (gracefulShutdownPromise) return gracefulShutdownPromise;
-  gracefulShutdownPromise = (async () => {
-    console.log(`[shutdown] ${signal} received; draining backend`);
-    if (outboxWorkerTimer) {
-      clearInterval(outboxWorkerTimer);
-      outboxWorkerTimer = null;
-    }
-    let deadlineTimer = null;
-    const deadline = new Promise((resolve) => {
-      deadlineTimer = setTimeout(() => resolve("timeout"), 8_000);
+  if (!gracefulShutdownController) {
+    gracefulShutdownController = createGracefulShutdown({
+      server: backendHttpServer,
+      inFlightCount: () => readTalkInFlight(),
+      stopBackgroundJobs: async () => {
+        if (outboxWorkerTimer) {
+          clearInterval(outboxWorkerTimer);
+          outboxWorkerTimer = null;
+        }
+        if (accountPurgeBootTimer) {
+          clearTimeout(accountPurgeBootTimer);
+          accountPurgeBootTimer = null;
+        }
+        if (accountPurgeRecurringTimer) {
+          clearInterval(accountPurgeRecurringTimer);
+          accountPurgeRecurringTimer = null;
+        }
+        if (backplaneHydrationTimer) {
+          clearTimeout(backplaneHydrationTimer);
+          backplaneHydrationTimer = null;
+        }
+        if (knowledgeWarmupTimer) {
+          clearTimeout(knowledgeWarmupTimer);
+          knowledgeWarmupTimer = null;
+        }
+        await Promise.allSettled([
+          outboxSnapshotter.stop(),
+          accountPurgeWorker.waitForIdle(),
+          backplaneHydrationPromise,
+          knowledgeWarmupPromise,
+        ]);
+      },
+      drainOutbox: () => waitForOutboxWorkerIdle(),
+      closeBackplane: closeScaleBackplaneOnce,
+      closePersistence: () => sharedPersistence.close?.(),
+      setRuntimeStatus: (status) => {
+        backendLifecycleStatus = status;
+      },
+      logger: lifecycleLogger,
+      graceMs: SHUTDOWN_GRACE_MS,
     });
-    const cleanup = (async () => {
-      await closeBackendHttpServerOnce();
-      await outboxSnapshotter.stop();
-      await Promise.allSettled([
-        closeScaleBackplaneOnce(),
-        Promise.resolve().then(() => sharedPersistence.close?.()),
-      ]);
-      return "closed";
-    })();
-    const status = await Promise.race([cleanup, deadline]);
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-    if (status === "timeout") {
-      console.error("[shutdown] graceful shutdown timed out after 8000ms");
-    }
-    return status;
-  })();
-  return gracefulShutdownPromise;
+  }
+  return gracefulShutdownController.run(signal);
 }
 
 function handleTerminationSignal(signal) {
-  void gracefulShutdown(signal).then((status) => {
-    process.exit(status === "closed" ? 0 : 1);
-  });
+  void gracefulShutdown(signal)
+    .then(() => process.exit(0))
+    .catch((error) => {
+      lifecycleLogger.error("shutdown_failed", error, { signal });
+      process.exit(1);
+    });
 }
 process.once("SIGINT", () => handleTerminationSignal("SIGINT"));
 process.once("SIGTERM", () => handleTerminationSignal("SIGTERM"));
@@ -33680,9 +33717,14 @@ if (SHOULD_START_SERVER) {
       }, Math.max(1_000, OUTBOX_WORKER_INTERVAL_MS));
       outboxWorkerTimer.unref?.();
     }
-    setTimeout(() => {
-      void warmupKnowledgeEmbeddingsOnBoot({ rid: "knowledge_warmup_boot" });
+    knowledgeWarmupTimer = setTimeout(() => {
+      knowledgeWarmupTimer = null;
+      void warmupKnowledgeEmbeddingsOnBoot({ rid: "knowledge_warmup_boot" })
+        .catch((error) => {
+          lifecycleLogger.error("knowledge_warmup_failed", error);
+        });
     }, Math.max(0, KNOWLEDGE_RAG_WARMUP_DELAY_MS));
+    knowledgeWarmupTimer.unref?.();
   };
   if (HOST) {
     backendHttpServer = app.listen(PORT, HOST, onListening);
