@@ -7,7 +7,7 @@ enum ScreenplayStudioDraftDocumentNotice: Equatable {
 }
 
 struct ScreenplayStudioDraftDocumentPresentation {
-    static let fallbackStatusText = "Document controls live here. Analysis stays in the other rail tabs so the page can stay focused on writing."
+    static let fallbackStatusText = "Save status will appear here after your first edit."
 
     let isSaving: Bool
     let exportItems: [ScreenplayExportMenuItem]
@@ -17,6 +17,26 @@ struct ScreenplayStudioDraftDocumentPresentation {
 
     var statusText: String {
         autosaveStatusText.isEmpty ? Self.fallbackStatusText : autosaveStatusText
+    }
+
+    var statusSystemImage: String {
+        if isSaving {
+            return "arrow.triangle.2.circlepath"
+        }
+
+        let normalizedStatus = statusText.lowercased()
+        if normalizedStatus.contains("saved") || normalizedStatus.contains("synced") {
+            return "checkmark.circle.fill"
+        }
+        if normalizedStatus.contains("pending") || normalizedStatus.contains("offline") {
+            return "clock.badge.exclamationmark"
+        }
+        return "icloud"
+    }
+
+    var statusIsConfirmed: Bool {
+        let normalizedStatus = statusText.lowercased()
+        return !isSaving && (normalizedStatus.contains("saved") || normalizedStatus.contains("synced"))
     }
 
     var notice: ScreenplayStudioDraftDocumentNotice? {
@@ -281,11 +301,11 @@ struct ScreenplayStudioDraftToolsCard: View {
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.black.opacity(0.24))
+                            .fill(Color.white.opacity(0.54))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
                     )
             }
         }
@@ -324,63 +344,73 @@ private struct ScreenplayStudioDraftDocumentControls: View {
     let actions: ScreenplayStudioDraftToolsActions
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Document Controls")
-                Text("Save, import, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
-                    .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.54))
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Save & Share")
+                    .font(IOThemTypography.UI.sectionTitle)
+                    .foregroundStyle(Color.herText.opacity(0.92))
+                Text("Protect your latest changes, bring in another draft, or export a copy to share.")
+                    .font(IOThemTypography.UI.callout)
+                    .foregroundStyle(Color.herText.opacity(0.70))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 10) {
-                Button(action: actions.onSaveNow) {
-                    Label(
-                        presentation.isSaving ? "Saving…" : "Save Now",
-                        systemImage: presentation.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up"
-                    )
-                    .font(IOThemTypography.UI.captionStrong)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(presentation.isSaving)
+            documentActions
 
-                Button(action: actions.onImport) {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                        .font(IOThemTypography.UI.captionStrong)
-                }
-                .buttonStyle(.bordered)
+            Divider()
+                .overlay(Color.herShellStroke.opacity(0.24))
 
-                Menu {
-                    ForEach(presentation.exportItems) { item in
-                        Button(item.title) {
-                            actions.onExport(item.format)
-                        }
-                        .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
-                        .disabled(!item.isEnabled)
-                    }
-                    Divider()
-                    Button("Refresh Formats", action: actions.onRefreshExportFormats)
-                    Button("Open in Google Docs", action: actions.onOpenGoogleDocs)
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .font(IOThemTypography.UI.captionStrong)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Autosave", systemImage: "arrow.triangle.2.circlepath")
+                        .font(IOThemTypography.UI.calloutStrong)
+                        .foregroundStyle(Color.herText.opacity(0.88))
+                    Text("Keep each change protected while you write.")
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("studio.export.menu")
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
 
                 Toggle("Autosave", isOn: $autosaveEnabled)
+                    .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.70))
+                    .accessibilityIdentifier("studio.draft.document.autosave")
+                    .accessibilityHint("Automatically saves screenplay changes while you write")
             }
 
-            Text(presentation.statusText)
-                .font(IOThemTypography.UI.microMedium)
-                .foregroundStyle(Color.herText.opacity(0.66))
-                .textCase(.uppercase)
-                .tracking(0.5)
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: presentation.statusSystemImage)
+                    .font(IOThemTypography.UI.calloutStrong)
+                    .foregroundStyle(
+                        presentation.statusIsConfirmed
+                            ? Color.green.opacity(0.78)
+                            : Color.herText.opacity(0.66)
+                    )
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Draft status")
+                        .font(IOThemTypography.UI.captionStrong)
+                        .foregroundStyle(Color.herText.opacity(0.82))
+                    Text(presentation.statusText)
+                        .font(IOThemTypography.UI.caption)
+                        .foregroundStyle(Color.herText.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.herShellPanelSoft.opacity(0.78))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+            )
 
             if let notice = presentation.notice {
                 switch notice {
@@ -400,12 +430,71 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.28))
+                .fill(Color.white.opacity(0.60))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
         )
+    }
+
+    private var documentActions: some View {
+        VStack(spacing: 8) {
+            saveButton
+            importButton
+            exportMenu
+        }
+    }
+
+    private var saveButton: some View {
+        Button(action: actions.onSaveNow) {
+            Label(
+                presentation.isSaving ? "Saving…" : "Save Now",
+                systemImage: presentation.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up"
+            )
+            .font(IOThemTypography.UI.calloutStrong)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .disabled(presentation.isSaving)
+        .accessibilityIdentifier("studio.draft.document.save")
+        .accessibilityHint("Saves the current screenplay draft now")
+    }
+
+    private var importButton: some View {
+        Button(action: actions.onImport) {
+            Label("Import", systemImage: "square.and.arrow.down")
+                .font(IOThemTypography.UI.calloutStrong)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .accessibilityIdentifier("studio.draft.document.import")
+        .accessibilityHint("Imports a screenplay file into this draft")
+    }
+
+    private var exportMenu: some View {
+        Menu {
+            ForEach(presentation.exportItems) { item in
+                Button(item.title) {
+                    actions.onExport(item.format)
+                }
+                .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
+                .disabled(!item.isEnabled)
+            }
+            Divider()
+            Button("Refresh Export Formats", action: actions.onRefreshExportFormats)
+            Button("Open in Google Docs", action: actions.onOpenGoogleDocs)
+        } label: {
+            Label("Export Copy", systemImage: "square.and.arrow.up")
+                .font(IOThemTypography.UI.calloutStrong)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .accessibilityIdentifier("studio.export.menu")
+        .accessibilityHint("Shows the available screenplay export formats")
     }
 }
 
@@ -595,11 +684,11 @@ private struct ScreenplayStudioDraftToolsTabs: View {
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.20))
+                .fill(Color.white.opacity(0.54))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
     }
@@ -609,17 +698,19 @@ private struct ScreenplayStudioDraftToolsTabs: View {
         return Button {
             selection = section
         } label: {
-            HStack(spacing: 7) {
+            VStack(spacing: 5) {
                 Image(systemName: section.iconName)
-                    .font(IOThemTypography.UI.label)
+                    .font(IOThemTypography.UI.calloutStrong)
                 Text(section.title)
                     .font(IOThemTypography.UI.captionStrong)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
             }
             .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.70))
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
+            .frame(minHeight: 46)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(isActive ? Color.herStudioActiveFill.opacity(0.76) : Color.clear)
@@ -634,6 +725,7 @@ private struct ScreenplayStudioDraftToolsTabs: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(section.title)
+        .accessibilityHint("Shows \(section.title.lowercased()) tools")
         .accessibilityIdentifier("studio.draft.tools.\(section.rawValue)")
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
@@ -905,23 +997,36 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
     let onRestoreSnapshot: (BackendScreenplayVersion) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            inspectorSubsectionLabel("Revision Snapshots")
-
-            HStack(spacing: 8) {
-                TextField("Snapshot note (optional)", text: $snapshotLabel)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 260)
-                Button("Create Snapshot", action: onCreateSnapshot)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("studio.draft.snapshot.create")
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Revision Snapshots")
+                    .font(IOThemTypography.UI.sectionTitle)
+                    .foregroundStyle(Color.herText.opacity(0.90))
+                Text("Create a restore point before a major rewrite or structural change.")
+                    .font(IOThemTypography.UI.callout)
+                    .foregroundStyle(Color.herText.opacity(0.68))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
+            snapshotCreationControls
+
             if presentation.versions.isEmpty {
-                Text("No snapshots yet.")
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(Color.herText.opacity(0.62))
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(IOThemTypography.UI.calloutStrong)
+                        .foregroundStyle(Color.herText.opacity(0.58))
+                        .padding(.top, 1)
+                    Text("No restore points yet. Add an optional note above, then create your first snapshot.")
+                        .font(IOThemTypography.UI.caption)
+                        .foregroundStyle(Color.herText.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.herShellPanelSoft.opacity(0.72))
+                )
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(presentation.versions) { snapshot in
@@ -930,7 +1035,34 @@ private struct ScreenplayStudioDraftSnapshotTools: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.draft.snapshot-tools")
+    }
+
+    private var snapshotCreationControls: some View {
+        VStack(spacing: 8) {
+            snapshotNoteField
+            createSnapshotButton
+        }
+    }
+
+    private var snapshotNoteField: some View {
+        TextField("Snapshot note (optional)", text: $snapshotLabel)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("studio.draft.snapshot.note")
+            .accessibilityHint("Describes what this restore point protects")
+    }
+
+    private var createSnapshotButton: some View {
+        Button(action: onCreateSnapshot) {
+            Label("Create Snapshot", systemImage: "plus")
+                .font(IOThemTypography.UI.calloutStrong)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .accessibilityIdentifier("studio.draft.snapshot.create")
+        .accessibilityHint("Creates a restorable copy of the current draft")
     }
 
     private func snapshotRow(_ snapshot: ScreenplayStudioSnapshotPresentation) -> some View {
