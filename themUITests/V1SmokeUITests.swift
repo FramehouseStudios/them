@@ -328,6 +328,26 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
 
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Studio did not open for the draft-tools test.\n\(app.debugDescription)"
+        )
+
+        let saveButton = app.buttons["studio.draft.document.save"]
+        let importButton = app.buttons["studio.draft.document.import"]
+        let exportButton = app.buttons["studio.export.menu"]
+        let autosaveToggle = app.descendants(matching: .any)["studio.draft.document.autosave"]
+        XCTAssertTrue(
+            saveButton.waitForExistence(timeout: 8),
+            "The Document panel did not expose Save Now.\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(importButton.exists)
+        XCTAssertTrue(exportButton.exists)
+        XCTAssertTrue(autosaveToggle.exists)
+        XCTAssertTrue(saveButton.label.localizedCaseInsensitiveContains("Save"))
+        XCTAssertTrue(importButton.label.localizedCaseInsensitiveContains("Import"))
+        XCTAssertTrue(exportButton.label.localizedCaseInsensitiveContains("Export"))
+
         let pagesTab = app.buttons["studio.draft.tools.pages"]
         let revisionsTab = app.buttons["studio.draft.tools.revisions"]
         let snapshotsTab = app.buttons["studio.draft.tools.snapshots"]
@@ -341,6 +361,19 @@ final class V1SmokeUITests: XCTestCase {
 
         snapshotsTab.tap()
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.snapshot-tools"].waitForExistence(timeout: 4))
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let snapshotNote = element(identifier: "studio.draft.snapshot.note", in: app)
+        XCTAssertTrue(rightDrawer.exists)
+        XCTAssertTrue(
+            revealInStudioDrawer(snapshotNote, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
+            "The Snapshots panel did not reveal its optional note field."
+        )
+        let createSnapshotButton = app.buttons["studio.draft.snapshot.create"]
+        XCTAssertTrue(
+            revealInStudioDrawer(createSnapshotButton, drawer: rightDrawer, scrollingUp: true, maxSwipes: 4),
+            "The Snapshots panel did not reveal Create Snapshot."
+        )
+        XCTAssertTrue(createSnapshotButton.label.localizedCaseInsensitiveContains("Create Snapshot"))
 
         pagesTab.tap()
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
