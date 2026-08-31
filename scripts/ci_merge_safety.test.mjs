@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const qualityGate = readFileSync(new URL("../.github/workflows/quality-gate.yml", import.meta.url), "utf8");
+const migrationsCheck = readFileSync(new URL("../.github/workflows/migrations-check.yml", import.meta.url), "utf8");
 const autoMerge = readFileSync(new URL("../.github/workflows/auto-merge-tier1.yml", import.meta.url), "utf8");
 
 test("[ci-merge-safety] quality gate runs on pull requests with secret-backed gates disabled", () => {
@@ -13,6 +14,25 @@ test("[ci-merge-safety] quality gate runs on pull requests with secret-backed ga
   assert.match(qualityGate, /RUN_SMOKE: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_TALK_RECOVERY_GATE: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_ALERT: \$\{\{ github\.event_name == 'pull_request' && '0'/);
+});
+
+test("[ci-merge-safety] complete backend tests gate pull requests and main pushes without provider secrets", () => {
+  assert.match(qualityGate, /^\s+push:\n\s+branches:\n\s+- main/m);
+  const backendJob = qualityGate.match(/\n  backend-tests:\n[\s\S]*?\n  quality-gate:/)?.[0] || "";
+  assert.match(backendJob, /name: Backend tests/);
+  assert.match(backendJob, /working-directory: backend\n\s+run: npm ci/);
+  assert.match(backendJob, /working-directory: backend\n\s+run: npm test/);
+  assert.doesNotMatch(backendJob, /OPENAI_API_KEY|APP_TOKEN|secrets\./);
+});
+
+test("[ci-merge-safety] persistence changes exercise the migration workflow on PRs and main", () => {
+  assert.match(migrationsCheck, /^\s+pull_request:\n\s+paths:/m);
+  assert.match(migrationsCheck, /^\s+push:\n\s+branches:\n\s+- main\n\s+paths:/m);
+  assert.match(migrationsCheck, /backend\/lib\/persistence_postgres\.js/);
+  assert.match(migrationsCheck, /backend\/tests\/persistence_adapter\.test\.mjs/);
+  assert.match(migrationsCheck, /backend\/tests\/persistence_postgres_live\.test\.mjs/);
+  assert.match(migrationsCheck, /working-directory: backend\n\s+run: npm ci/);
+  assert.match(migrationsCheck, /node --test backend\/tests\/persistence_postgres_live\.test\.mjs/);
 });
 
 test("[ci-merge-safety] auto-merge refuses risky release/auth/privacy paths", () => {
