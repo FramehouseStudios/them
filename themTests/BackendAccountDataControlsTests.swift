@@ -763,7 +763,9 @@ final class BackendCredentialMigrationTests: XCTestCase {
             account: "session_client_token",
             defaultsKey: "client_token",
             defaults: defaults,
-            readKeychain: { keychain[$0] },
+            readKeychain: { account in
+                keychain[account].map(BackendKeychainStringReadResult.value) ?? .notFound
+            },
             writeKeychain: { value, account in
                 keychain[account] = value
                 return true
@@ -777,17 +779,164 @@ final class BackendCredentialMigrationTests: XCTestCase {
 
     func testReadLeavesLegacyDefaultsWhenKeychainWriteFails() {
         defaults.set("legacy-token", forKey: "client_token")
+        var failedAccounts: [String] = []
 
         let value = BackendCredentialMigration.readString(
             account: "session_client_token",
             defaultsKey: "client_token",
             defaults: defaults,
-            readKeychain: { _ in nil },
-            writeKeychain: { _, _ in false }
+            readKeychain: { _ in .notFound },
+            writeKeychain: { _, _ in false },
+            onSecureStoreFailure: { failedAccounts.append($0) }
         )
 
         XCTAssertEqual(value, "legacy-token")
         XCTAssertEqual(defaults.string(forKey: "client_token"), "legacy-token")
+        XCTAssertEqual(failedAccounts, ["session_client_token"])
+    }
+
+    func testCompletedMigrationUsesExistingKeychainAndClearsReintroducedDefaults() throws {
+#if os(macOS)
+        throw XCTSkip("The V1 migration contract is iOS-only")
+#else
+        defaults.set("stale-defaults-token", forKey: "app_token")
+        defaults.set(
+            true,
+            forKey: BackendCredentialMigration.migrationMarkerKey(defaultsKey: "app_token")
+        )
+        var writeCalls = 0
+
+        let value = BackendCredentialMigration.readString(
+            account: "app_token",
+            defaultsKey: "app_token",
+            defaults: defaults,
+            readKeychain: { _ in .value("current-keychain-token") },
+            writeKeychain: { _, _ in
+                writeCalls += 1
+                return true
+            }
+        )
+
+        XCTAssertEqual(value, "current-keychain-token")
+        XCTAssertNil(defaults.string(forKey: "app_token"))
+        XCTAssertEqual(writeCalls, 0)
+#endif
+    }
+
+    func testFirstUpgradePromotesNewerLegacyFallbackOverOlderKeychainValue() throws {
+#if os(macOS)
+        throw XCTSkip("The V1 migration contract is iOS-only")
+#else
+        defaults.set("newer-defaults-token", forKey: "user_id")
+        var keychainValue = "older-keychain-token"
+
+        let value = BackendCredentialMigration.readString(
+            account: "stable_user_id",
+            defaultsKey: "user_id",
+            defaults: defaults,
+            readKeychain: { _ in .value(keychainValue) },
+            writeKeychain: { value, _ in
+                keychainValue = value
+                return true
+            }
+        )
+
+        XCTAssertEqual(value, "newer-defaults-token")
+        XCTAssertEqual(keychainValue, "newer-defaults-token")
+        XCTAssertNil(defaults.string(forKey: "user_id"))
+        XCTAssertTrue(defaults.bool(
+            forKey: BackendCredentialMigration.migrationMarkerKey(defaultsKey: "user_id")
+        ))
+#endif
+    }
+
+    func testUnavailableKeychainReadNeverOverwritesExistingItem() throws {
+#if os(macOS)
+        throw XCTSkip("The V1 migration contract is iOS-only")
+#else
+        defaults.set("legacy-token", forKey: "client_token")
+        var writeCalls = 0
+        var failedAccounts: [String] = []
+
+        let value = BackendCredentialMigration.readString(
+            account: "session_client_token",
+            defaultsKey: "client_token",
+            defaults: defaults,
+            readKeychain: { _ in .unavailable(errSecInteractionNotAllowed) },
+            writeKeychain: { _, _ in
+                writeCalls += 1
+                return true
+            },
+            onSecureStoreFailure: { failedAccounts.append($0) }
+        )
+
+        XCTAssertEqual(value, "legacy-token")
+        XCTAssertEqual(defaults.string(forKey: "client_token"), "legacy-token")
+        XCTAssertEqual(writeCalls, 0)
+        XCTAssertEqual(failedAccounts, ["session_client_token"])
+#endif
+    }
+
+    func testFailedNewWriteNeverPersistsCredentialInDefaults() throws {
+#if os(macOS)
+        throw XCTSkip("The V1 migration contract is iOS-only")
+#else
+        var failedAccounts: [String] = []
+
+        let wrote = BackendCredentialMigration.writeString(
+            "new-sensitive-token",
+            account: "stable_user_id",
+            defaultsKey: "user_id",
+            defaults: defaults,
+            writeKeychain: { _, _ in false },
+            deleteKeychain: { _ in },
+            onSecureStoreFailure: { failedAccounts.append($0) }
+        )
+
+        XCTAssertFalse(wrote)
+        XCTAssertNil(defaults.string(forKey: "user_id"))
+        XCTAssertEqual(failedAccounts, ["stable_user_id"])
+#endif
+    }
+
+    func testKeychainTokenStoreRoundTripsAndUpdatesAValue() throws {
+        let service = "io.them.tests.credentials.\(UUID().uuidString)"
+        let account = "app_token"
+        let store = BackendKeychainTokenStore(service: service)
+        defer { _ = store.delete(account: account) }
+
+        XCTAssertTrue(store.delete(account: account))
+        XCTAssertEqual(store.readResult(account: account), .notFound)
+        XCTAssertTrue(store.write("first-value", account: account))
+        XCTAssertEqual(store.read(account: account), "first-value")
+        XCTAssertTrue(store.write("replacement-value", account: account))
+        XCTAssertEqual(store.read(account: account), "replacement-value")
+        XCTAssertTrue(store.delete(account: account))
+        XCTAssertEqual(store.readResult(account: account), .notFound)
+    }
+
+    func testAppTokenUpgradeMigratesThroughTheRealKeychain() throws {
+#if os(macOS)
+        throw XCTSkip("The V1 migration contract is iOS-only")
+#else
+        let account = "app_token"
+        let store = BackendKeychainTokenStore(
+            service: "io.them.tests.app-token-upgrade.\(UUID().uuidString)"
+        )
+        defer { _ = store.delete(account: account) }
+        defaults.set("upgrade-app-token", forKey: "app_token")
+
+        XCTAssertEqual(
+            BackendAuthClient.sharedAppToken(defaults: defaults, keychainStore: store),
+            "upgrade-app-token"
+        )
+        XCTAssertNil(defaults.string(forKey: "app_token"))
+        XCTAssertEqual(store.read(account: account), "upgrade-app-token")
+        XCTAssertEqual(
+            BackendAuthClient.sharedAppToken(defaults: defaults, keychainStore: store),
+            "upgrade-app-token"
+        )
+#endif
     }
 
     func testBackendClientCredentialPolicySkipsKeychainForMacDebugShell() {

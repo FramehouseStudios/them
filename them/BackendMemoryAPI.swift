@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import os.log
 import Security
 
 nonisolated extension Notification.Name {
@@ -1776,6 +1777,84 @@ nonisolated enum BackendKeychainStringReadResult: Equatable, Sendable {
     case invalidData
 }
 
+nonisolated struct BackendKeychainTokenStore {
+    let service: String
+    let accessibility: CFString
+
+    init(
+        service: String,
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    ) {
+        self.service = service
+        self.accessibility = accessibility
+    }
+
+    func readResult(account: String) -> BackendKeychainStringReadResult {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return .notFound
+        }
+        guard status == errSecSuccess else {
+            return .unavailable(status)
+        }
+        guard let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return .invalidData
+        }
+        return .value(value)
+    }
+
+    func read(account: String) -> String? {
+        guard case .value(let value) = readResult(account: account) else {
+            return nil
+        }
+        return value
+    }
+
+    @discardableResult
+    func write(_ value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: accessibility,
+        ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+        guard updateStatus == errSecItemNotFound else {
+            return false
+        }
+        var item = query
+        attributes.forEach { item[$0.key] = $0.value }
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    }
+
+    @discardableResult
+    func delete(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+}
+
 nonisolated enum BackendRememberedLoginCredentialLoadResult: Equatable, Sendable {
     case loaded(BackendRememberedLoginCredentials)
     case notRemembered
@@ -3163,6 +3242,16 @@ nonisolated struct BackendScreenplayOutlineMutationHTTPError: LocalizedError {
 }
 
 nonisolated enum BackendCredentialMigration {
+    static func logSecureStoreFailure(account: String) {
+        Logger(subsystem: "io.them.them", category: "network").warning(
+            "Credential Keychain operation failed account=\(account, privacy: .public)"
+        )
+    }
+
+    static func migrationMarkerKey(defaultsKey: String) -> String {
+        "credential_keychain_migration_complete.\(defaultsKey)"
+    }
+
     static func normalizedNonEmpty(_ raw: String?) -> String {
         let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "" : trimmed
@@ -3172,9 +3261,10 @@ nonisolated enum BackendCredentialMigration {
         account: String,
         defaultsKey: String,
         defaults: UserDefaults = .standard,
-        readKeychain: (String) -> String?,
+        readKeychain: (String) -> BackendKeychainStringReadResult,
         writeKeychain: (String, String) -> Bool,
-        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty,
+        onSecureStoreFailure: (String) -> Void = BackendCredentialMigration.logSecureStoreFailure
     ) -> String? {
         let legacy = normalize(defaults.string(forKey: defaultsKey))
 #if os(macOS)
@@ -3183,20 +3273,57 @@ nonisolated enum BackendCredentialMigration {
         }
         return nil
 #else
-        if !legacy.isEmpty {
+        let markerKey = migrationMarkerKey(defaultsKey: defaultsKey)
+        switch readKeychain(account) {
+        case .value(let rawValue):
+            let existing = normalize(rawValue)
+            guard !existing.isEmpty else {
+                onSecureStoreFailure(account)
+                return legacy.isEmpty ? nil : legacy
+            }
+
+            guard !legacy.isEmpty else {
+                defaults.set(true, forKey: markerKey)
+                return existing
+            }
+
+            if legacy == existing || defaults.bool(forKey: markerKey) {
+                defaults.removeObject(forKey: defaultsKey)
+                defaults.set(true, forKey: markerKey)
+                return existing
+            }
+
+            // Previous builds could leave a newer defaults value beside an
+            // older Keychain item after a failed delete-before-add write. On
+            // the first upgraded read, promote that legacy value once rather
+            // than silently rolling the account identity backward.
             if writeKeychain(legacy, account) {
                 defaults.removeObject(forKey: defaultsKey)
+                defaults.set(true, forKey: markerKey)
+            } else {
+                onSecureStoreFailure(account)
             }
             return legacy
-        }
 
-        let existing = normalize(readKeychain(account))
-        if !existing.isEmpty {
-            defaults.removeObject(forKey: defaultsKey)
-            return existing
-        }
+        case .notFound:
+            guard !legacy.isEmpty else {
+                defaults.set(true, forKey: markerKey)
+                return nil
+            }
+            if writeKeychain(legacy, account) {
+                defaults.removeObject(forKey: defaultsKey)
+                defaults.set(true, forKey: markerKey)
+            } else {
+                onSecureStoreFailure(account)
+            }
+            return legacy
 
-        return nil
+        case .unavailable, .invalidData:
+            // Absence and temporary unreadability are different states. Never
+            // overwrite an item that Security could not inspect.
+            onSecureStoreFailure(account)
+            return legacy.isEmpty ? nil : legacy
+        }
 #endif
     }
 
@@ -3208,7 +3335,8 @@ nonisolated enum BackendCredentialMigration {
         defaults: UserDefaults = .standard,
         writeKeychain: (String, String) -> Bool,
         deleteKeychain: (String) -> Void,
-        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty,
+        onSecureStoreFailure: (String) -> Void = BackendCredentialMigration.logSecureStoreFailure
     ) -> Bool {
         let normalized = normalize(value)
         guard !normalized.isEmpty else {
@@ -3227,10 +3355,11 @@ nonisolated enum BackendCredentialMigration {
         let wrote = writeKeychain(normalized, account)
         if wrote {
             defaults.removeObject(forKey: defaultsKey)
+            defaults.set(true, forKey: migrationMarkerKey(defaultsKey: defaultsKey))
         } else {
-            defaults.set(normalized, forKey: defaultsKey)
+            onSecureStoreFailure(account)
         }
-        return true
+        return wrote
 #endif
     }
 
@@ -5232,58 +5361,23 @@ nonisolated enum BackendAuthClient {
         account: String,
         accessibility: CFString
     ) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = accessibility
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+        BackendKeychainTokenStore(
+            service: keychainService,
+            accessibility: accessibility
+        ).write(value, account: account)
     }
 
     private static func readKeychainString(account: String) -> String? {
-        guard case .value(let value) = readKeychainStringResult(account: account) else {
-            return nil
-        }
-        return value
+        BackendKeychainTokenStore(service: keychainService).read(account: account)
     }
 
     private static func readKeychainStringResult(account: String) -> BackendKeychainStringReadResult {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
-            return .notFound
-        }
-        guard status == errSecSuccess else {
-            return .unavailable(status)
-        }
-        guard let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
-            return .invalidData
-        }
-        return .value(value)
+        BackendKeychainTokenStore(service: keychainService).readResult(account: account)
     }
 
     @discardableResult
     private static func deleteKeychainString(account: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+        BackendKeychainTokenStore(service: keychainService).delete(account: account)
     }
 
     private static func deleteKeychainStringIgnoringResult(account: String) {
@@ -5479,9 +5573,8 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func appToken() -> String? {
-        let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.appToken) ?? ""
-        if isUsableConfigValue(fromDefaults) {
-            return fromDefaults
+        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -5494,24 +5587,83 @@ nonisolated enum BackendAuthClient {
         if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
             return fallback
         }
-        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
-            return fromKeychain
-        }
         return devFallbackAppToken
     }
 
     static func sharedAppToken() -> String? {
+        sharedAppToken(
+            defaults: .standard,
+            keychainStore: BackendKeychainTokenStore(service: keychainService)
+        )
+    }
+
+    static func sharedAppToken(
+        defaults: UserDefaults,
+        keychainStore: BackendKeychainTokenStore
+    ) -> String? {
         BackendCredentialMigration.readString(
             account: appTokenAccount,
             defaultsKey: DefaultsKey.appToken,
-            readKeychain: readKeychainString,
-            writeKeychain: writeKeychainString,
+            defaults: defaults,
+            readKeychain: keychainStore.readResult,
+            writeKeychain: { value, account in
+                keychainStore.write(value, account: account)
+            },
             normalize: { raw in
                 let value = BackendCredentialMigration.normalizedNonEmpty(raw)
                 return isUsableConfigValue(value) ? value : ""
             }
         )
     }
+
+    #if DEBUG
+    @discardableResult
+    static func persistSharedAppTokenForUITesting(_ token: String) -> Bool {
+        BackendCredentialMigration.writeString(
+            token,
+            account: appTokenAccount,
+            defaultsKey: DefaultsKey.appToken,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainStringIgnoringResult,
+            normalize: { raw in
+                let value = BackendCredentialMigration.normalizedNonEmpty(raw)
+                return isUsableConfigValue(value) ? value : ""
+            }
+        )
+    }
+
+    @discardableResult
+    static func resetCredentialStateForUITesting() -> Bool {
+        authSessionStateQueue.sync {
+            let authDeleted = invalidateAuthSessionStorage(
+                defaults: .standard,
+                advanceGeneration: false,
+                deleteKeychain: deleteKeychainString
+            )
+            let sharedDeleted = [
+                appTokenAccount,
+                clientTokenAccount,
+                clientTokenExpiryAccount,
+                userIDAccount,
+            ].reduce(true) { allDeleted, account in
+                deleteKeychainString(account: account) && allDeleted
+            }
+            let defaultsKeys = [
+                DefaultsKey.appToken,
+                "client_token",
+                "client_token_expiry",
+                DefaultsKey.userId,
+            ]
+            defaultsKeys.forEach { defaultsKey in
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                UserDefaults.standard.removeObject(
+                    forKey: BackendCredentialMigration.migrationMarkerKey(defaultsKey: defaultsKey)
+                )
+            }
+            return authDeleted && sharedDeleted
+        }
+    }
+    #endif
 
     static func sharedClientToken() -> String? {
         authSessionStateQueue.sync {
@@ -5530,7 +5682,7 @@ nonisolated enum BackendAuthClient {
             account: clientTokenAccount,
             defaultsKey: "client_token",
             defaults: defaults,
-            readKeychain: readKeychainString,
+            readKeychain: readKeychainStringResult,
             writeKeychain: writeKeychainString
         )
     }
@@ -5595,7 +5747,7 @@ nonisolated enum BackendAuthClient {
             return BackendCredentialMigration.readString(
                 account: clientTokenExpiryAccount,
                 defaultsKey: "client_token_expiry",
-                readKeychain: readKeychainString,
+                readKeychain: readKeychainStringResult,
                 writeKeychain: writeKeychainString
             )
         }
@@ -5756,7 +5908,7 @@ nonisolated enum BackendAuthClient {
             account: userIDAccount,
             defaultsKey: DefaultsKey.userId,
             defaults: defaults,
-            readKeychain: readKeychainString,
+            readKeychain: readKeychainStringResult,
             writeKeychain: writeKeychainString,
             normalize: normalizedStoredUserID
         )
@@ -10019,9 +10171,8 @@ actor BackendMemoryAPI {
     }
 
     private func appToken() -> String? {
-        let fromDefaults = UserDefaults.standard.string(forKey: "app_token") ?? ""
-        if isUsableConfigValue(fromDefaults) {
-            return fromDefaults
+        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -10033,9 +10184,6 @@ actor BackendMemoryAPI {
         }
         if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
             return fallback
-        }
-        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
-            return fromKeychain
         }
         return devFallbackAppToken
     }

@@ -15,6 +15,9 @@ nonisolated enum UITestLaunchConfiguration {
             defaults.removePersistentDomain(forName: bundleID)
             if defaults === UserDefaults.standard {
                 BackendAuthClient.clearRememberedLoginCredentials()
+                if !BackendAuthClient.resetCredentialStateForUITesting() {
+                    assertionFailure("UI-test credential reset could not clear Keychain state")
+                }
             }
             ScreenplayLiveDraftFileStore.remove()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
@@ -67,11 +70,8 @@ nonisolated enum UITestLaunchConfiguration {
         copyLaunchArgumentInt("studio_debug_load_project_ack_token", from: arguments, to: defaults)
 
         copyEnvironmentValue("THEM_UITEST_BACKEND_BASE_URL", from: environment, to: "backend_base_url", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_APP_TOKEN", from: environment, to: "app_token", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_USER_ID", from: environment, to: "user_id", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN", from: environment, to: "client_token", defaults: defaults)
+        seedCredentialEnvironmentValues(from: environment, defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_BASE_URL", from: environment, to: "client_token_base_url", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_EXPIRY", from: environment, to: "client_token_expiry", defaults: defaults)
         copyEnvironmentDouble("THEM_UITEST_CLIENT_TOKEN_CACHED_AT", from: environment, to: "client_token_cached_at", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
         copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
@@ -83,6 +83,43 @@ nonisolated enum UITestLaunchConfiguration {
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON", from: environment, to: "studio.diff.keep-current.writeids.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_APPLIED_MEMORY_JSON", from: environment, to: "studio_latest_applied_memory_v1", defaults: defaults)
         defaults.synchronize()
+    }
+
+    private static func seedCredentialEnvironmentValues(
+        from environment: [String: String],
+        defaults: UserDefaults
+    ) {
+        guard defaults === UserDefaults.standard else {
+            copyEnvironmentValue("THEM_UITEST_APP_TOKEN", from: environment, to: "app_token", defaults: defaults)
+            copyEnvironmentValue("THEM_UITEST_USER_ID", from: environment, to: "user_id", defaults: defaults)
+            copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN", from: environment, to: "client_token", defaults: defaults)
+            copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_EXPIRY", from: environment, to: "client_token_expiry", defaults: defaults)
+            return
+        }
+
+        if let appToken = nonEmptyEnvironmentValue("THEM_UITEST_APP_TOKEN", in: environment) {
+            assert(BackendAuthClient.persistSharedAppTokenForUITesting(appToken))
+        }
+        if let userID = nonEmptyEnvironmentValue("THEM_UITEST_USER_ID", in: environment) {
+            assert(BackendAuthClient.persistSharedUserID(userID))
+        }
+        if let clientToken = nonEmptyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN", in: environment) {
+            let expiry = nonEmptyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_EXPIRY", in: environment)
+            let baseURL = nonEmptyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_BASE_URL", in: environment)
+            assert(BackendAuthClient.persistSharedClientToken(
+                clientToken,
+                expiryRaw: expiry,
+                baseURLRaw: baseURL
+            ))
+        }
+    }
+
+    private static func nonEmptyEnvironmentValue(
+        _ key: String,
+        in environment: [String: String]
+    ) -> String? {
+        let value = (environment[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     static func shouldBypassStudioHydration(

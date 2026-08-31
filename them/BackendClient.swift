@@ -6006,14 +6006,14 @@ final class BackendClient {
     }
 
     private func appToken() -> String? {
-        let defaultsRaw = (UserDefaults.standard.string(forKey: "app_token") ?? "")
+        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let plistRaw = (Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let envRaw = (ProcessInfo.processInfo.environment["APP_TOKEN"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaults = isUsableTokenValue(defaultsRaw) ? defaultsRaw : nil
+        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
         let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
         let env = isUsableTokenValue(envRaw) ? envRaw : nil
 
@@ -6021,14 +6021,10 @@ final class BackendClient {
             print("APP_TOKEN mismatch env/plist -> using plist value")
         }
 
-        if let defaults { return defaults }
+        if let keychain { return keychain }
         if let plist { return plist }
         if let env { return env }
         if let fallback = devFallbackAppToken { return fallback }
-        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
-        if let keychain { return keychain }
         return devFallbackAppToken
     }
 
