@@ -69,6 +69,7 @@ struct ScreenplayStudioScreen: View {
 
     @StateObject private var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
+    @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
     @State private var navigatorBackStack: [URL] = []
@@ -8659,11 +8660,13 @@ Current draft version:
                     .offset(y: -16)
 
 #if DEBUG || os(macOS)
-                studioDebugPageSurfaceChips
-                    .padding(.top, 10)
-                    .padding(.trailing, 14)
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
-                    .opacity(0.92)
+                if studioDebugOverlayEnabled {
+                    studioDebugPageSurfaceChips
+                        .padding(.top, 10)
+                        .padding(.trailing, 14)
+                        .frame(maxWidth: .infinity, alignment: .topTrailing)
+                        .opacity(0.92)
+                }
 #endif
             }
         }

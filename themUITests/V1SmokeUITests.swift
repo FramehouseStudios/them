@@ -20,6 +20,31 @@ final class V1SmokeUITests: XCTestCase {
         studio.terminate()
     }
 
+    func test_studio_page_accepts_complete_direct_typing() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 10),
+            "The screenplay page did not expose its editable text surface.\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(editor.isHittable, "The screenplay page editor was not directly tappable.")
+
+        let sentence = "She counts seven red lights before the motel sign finally goes dark."
+        editor.tap()
+        editor.typeText(sentence)
+
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: sentence, timeout: 8),
+            "Direct page typing lost or redirected characters. Draft: \(accessibleDraftText(in: app))"
+        )
+#else
+        throw XCTSkip("The direct page typing regression specifically covers the iPhone editor.")
+#endif
+    }
+
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
         let app = launchApp()
         defer { app.terminate() }
