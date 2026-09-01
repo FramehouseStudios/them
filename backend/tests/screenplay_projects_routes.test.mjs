@@ -183,7 +183,7 @@ async function withTestServer(deps, fn, { authenticated = true, userId = "screen
     });
   }
   mountScreenplayProjectsRoutes(app, deps);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -194,10 +194,40 @@ async function withTestServer(deps, fn, { authenticated = true, userId = "screen
 }
 
 async function get(baseURL, path) {
-  const r = await fetch(`${baseURL}${path}`);
+  const r = await fetch(`${baseURL}${path}`, {
+    headers: { connection: "close" },
+  });
   const body = await r.json().catch(() => null);
   return { status: r.status, headers: r.headers, body };
 }
+
+async function assertRequestReachedPersistenceGate(persistenceStarted, responsePromise, label) {
+  const outcome = await Promise.race([
+    persistenceStarted.then(() => ({ kind: "persistence_started" })),
+    responsePromise.then(
+      (response) => ({ kind: "response", response }),
+      (error) => ({ kind: "error", error })
+    ),
+  ]);
+  if (outcome.kind === "error") throw outcome.error;
+  assert.equal(
+    outcome.kind,
+    "persistence_started",
+    `${label} completed before reaching its persistence gate: ${JSON.stringify(outcome.response || null)}`
+  );
+}
+
+test("[screenplay-projects-routes] persistence gates surface early request failures", async () => {
+  const transportFailure = new Error("synthetic local transport failure");
+  await assert.rejects(
+    assertRequestReachedPersistenceGate(
+      new Promise(() => {}),
+      Promise.reject(transportFailure),
+      "regression request"
+    ),
+    (error) => error === transportFailure
+  );
+});
 
 test("[screenplay-projects-routes] mount fails without Express app", () => {
   assert.throws(() => mountScreenplayProjectsRoutes(null, defaultDeps()));
@@ -444,7 +474,10 @@ test("[screenplay-projects-routes] GET /comments returns 404 for unknown project
 async function postJson(baseURL, path, body) {
   const r = await fetch(`${baseURL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      connection: "close",
+      "content-type": "application/json",
+    },
     body: JSON.stringify(body),
   });
   const json = await r.json().catch(() => null);
@@ -556,17 +589,24 @@ test("[screenplay-projects-routes] POST /screenplay/projects responds with its c
       project_id: "p1",
       title: "Committed project title",
     });
-    await persistenceStarted;
-    liveProject.title = "Concurrent uncommitted project title";
-    deps._owner.activeProjectId = "p2";
-    deps._owner.projects.push({
-      id: "concurrent-project",
-      title: "Concurrent project",
-      collaborators: [],
-      comments: [],
-      outline: { acts: [], scenes: [], beats: [] },
-    });
-    releasePersistence({ ok: true, owner: committedOwner });
+    try {
+      await assertRequestReachedPersistenceGate(
+        persistenceStarted,
+        responsePromise,
+        "project snapshot request"
+      );
+      liveProject.title = "Concurrent uncommitted project title";
+      deps._owner.activeProjectId = "p2";
+      deps._owner.projects.push({
+        id: "concurrent-project",
+        title: "Concurrent project",
+        collaborators: [],
+        comments: [],
+        outline: { acts: [], scenes: [], beats: [] },
+      });
+    } finally {
+      releasePersistence({ ok: true, owner: committedOwner });
+    }
 
     const response = await responsePromise;
     assert.equal(response.status, 200);
@@ -694,17 +734,24 @@ test("[screenplay-projects-routes] POST /activate responds with its committed sn
 
   await withTestServer(deps, async (baseURL) => {
     const responsePromise = postJson(baseURL, "/screenplay/projects/p2/activate", {});
-    await persistenceStarted;
-    deps._owner.activeProjectId = "p1";
-    liveProject.title = "Concurrent uncommitted title";
-    deps._owner.projects.push({
-      id: "concurrent-project",
-      title: "Concurrent project",
-      collaborators: [],
-      comments: [],
-      outline: { acts: [], scenes: [], beats: [] },
-    });
-    releasePersistence({ ok: true, owner: committedOwner });
+    try {
+      await assertRequestReachedPersistenceGate(
+        persistenceStarted,
+        responsePromise,
+        "project activation snapshot request"
+      );
+      deps._owner.activeProjectId = "p1";
+      liveProject.title = "Concurrent uncommitted title";
+      deps._owner.projects.push({
+        id: "concurrent-project",
+        title: "Concurrent project",
+        collaborators: [],
+        comments: [],
+        outline: { acts: [], scenes: [], beats: [] },
+      });
+    } finally {
+      releasePersistence({ ok: true, owner: committedOwner });
+    }
 
     const response = await responsePromise;
     assert.equal(response.status, 200);
@@ -1413,16 +1460,23 @@ test("[screenplay-projects-routes] POST /comments responds with its committed sn
       text: "Committed comment text.",
       author_email: "writer@example.com",
     });
-    await persistenceStarted;
-    liveProject.comments.find((item) => item.id === "committed-comment").text = "Concurrent uncommitted comment.";
-    liveProject.comments.push({
-      id: "concurrent-comment",
-      text: "Concurrent comment",
-      createdAt: Date.now(),
-    });
-    liveProject.title = "Concurrent uncommitted project title";
-    deps._owner.activeProjectId = "p2";
-    releasePersistence({ ok: true, owner: committedOwner });
+    try {
+      await assertRequestReachedPersistenceGate(
+        persistenceStarted,
+        responsePromise,
+        "comment snapshot request"
+      );
+      liveProject.comments.find((item) => item.id === "committed-comment").text = "Concurrent uncommitted comment.";
+      liveProject.comments.push({
+        id: "concurrent-comment",
+        text: "Concurrent comment",
+        createdAt: Date.now(),
+      });
+      liveProject.title = "Concurrent uncommitted project title";
+      deps._owner.activeProjectId = "p2";
+    } finally {
+      releasePersistence({ ok: true, owner: committedOwner });
+    }
 
     const response = await responsePromise;
     assert.equal(response.status, 200);
@@ -1600,9 +1654,16 @@ test("[screenplay-projects-routes] POST /version responds with its committed sna
     const responsePromise = postJson(baseURL, "/screenplay/projects/p1/version", {
       draft: "FADE IN:\n\nINT. ROOM - DAY\n\nCommitted draft.",
     });
-    await persistenceStarted;
-    project.versions[0].draft = "Concurrent uncommitted draft.";
-    releasePersistence({ ok: true, owner: committedOwner });
+    try {
+      await assertRequestReachedPersistenceGate(
+        persistenceStarted,
+        responsePromise,
+        "version snapshot request"
+      );
+      project.versions[0].draft = "Concurrent uncommitted draft.";
+    } finally {
+      releasePersistence({ ok: true, owner: committedOwner });
+    }
 
     const response = await responsePromise;
     assert.equal(response.status, 201);
