@@ -1424,6 +1424,7 @@ struct RootExperienceView: View {
     private func handleStudioDebugOpenChange(_ newValue: Int? = nil) {
         #if DEBUG
         guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard IOThemRuntime.currentStudioAutomationTargetMatches else { return }
         let token = newValue ?? studioDebugOpenToken
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugOpenToken else { return }
@@ -1438,6 +1439,7 @@ struct RootExperienceView: View {
     private func handleStudioDebugLoadProjectTokenChange(_ newValue: Int) {
         #if DEBUG
         guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard IOThemRuntime.currentStudioAutomationTargetMatches else { return }
         guard newValue > 0 else { return }
         guard newValue != lastHandledStudioDebugLoadProjectToken else { return }
         lastHandledStudioDebugLoadProjectToken = newValue
@@ -1464,6 +1466,7 @@ struct RootExperienceView: View {
     private func handleStudioDebugVoiceTurnTokenChange(_ newValue: Int) {
         #if DEBUG
         guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard IOThemRuntime.currentStudioAutomationTargetMatches else { return }
         handleStudioDebugVoiceTurnCommand(
             token: newValue,
             promptOverride: nil,
@@ -1674,6 +1677,7 @@ struct RootExperienceView: View {
     private func processPendingStudioDebugCommandsIfNeeded() {
         #if DEBUG
         guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard IOThemRuntime.currentStudioAutomationTargetMatches else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
 
         let autoInsertEnabled = studioDebugPreferenceBool(
@@ -1706,6 +1710,7 @@ struct RootExperienceView: View {
     private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
         #if DEBUG && os(macOS)
         guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard IOThemRuntime.currentStudioAutomationTargetMatches else { return }
         guard let match = studioDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioDebugLoadProjectRequest, URL)? in
             guard let data = try? Data(contentsOf: url),
                   let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {

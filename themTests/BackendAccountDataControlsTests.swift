@@ -1441,24 +1441,32 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride(defaults: defaults))
     }
 
-    func testStudioDebugProjectLoadUsesStandardMirroredClientTokenOverride() {
-        let standard = UserDefaults.standard
-        standard.set(" standard-studio-smoke-project ", forKey: "client_token")
-        standard.set("project-456", forKey: "studio_debug_load_project_id")
-        standard.set(202, forKey: "studio_debug_load_project_token")
-        standard.set(201, forKey: "studio_debug_load_project_ack_token")
+    func testStudioDebugProjectLoadRejectsStandardMirroredClientTokenWithoutAutomationMarker() {
+        XCTAssertTrue(BackendUserDefaultsStore.set(
+            " standard-studio-smoke-project ",
+            forKey: "client_token"
+        ))
+        XCTAssertTrue(BackendUserDefaultsStore.set(
+            "project-456",
+            forKey: "studio_debug_load_project_id"
+        ))
+        XCTAssertTrue(BackendUserDefaultsStore.set(
+            202,
+            forKey: "studio_debug_load_project_token"
+        ))
+        XCTAssertTrue(BackendUserDefaultsStore.set(
+            201,
+            forKey: "studio_debug_load_project_ack_token"
+        ))
         defer {
-            standard.removeObject(forKey: "client_token")
-            standard.removeObject(forKey: "studio_debug_load_project_id")
-            standard.removeObject(forKey: "studio_debug_load_project_token")
-            standard.removeObject(forKey: "studio_debug_load_project_ack_token")
+            BackendUserDefaultsStore.removeObject(forKey: "client_token")
+            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_id")
+            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_token")
+            BackendUserDefaultsStore.removeObject(forKey: "studio_debug_load_project_ack_token")
         }
 
-        XCTAssertTrue(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
-        XCTAssertEqual(
-            BackendAuthClient.studioDebugClientTokenOverride(),
-            "standard-studio-smoke-project"
-        )
+        XCTAssertFalse(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
+        XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride())
     }
 
     func testUITestStudioFixtureHydrationBypassIsExplicit() {

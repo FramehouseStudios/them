@@ -1,6 +1,8 @@
 import Foundation
 
 nonisolated enum IOThemRuntime {
+    static let studioAutomationSessionIDEnvironmentKey = "THEM_STUDIO_AUTOMATION_SESSION_ID"
+
     static var isRunningTests: Bool {
         isTestProcessEnvironment(ProcessInfo.processInfo.environment)
     }
@@ -30,6 +32,80 @@ nonisolated enum IOThemRuntime {
         isStudioEvalArguments(arguments) || arguments.contains("--ui-testing")
     }
 
+    static func studioAutomationSessionID(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String? {
+        guard isStudioAutomationArguments(arguments) else { return nil }
+        let value = environment[studioAutomationSessionIDEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !value.isEmpty, value.count <= 128 else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._"))
+        guard value.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
+        return value
+    }
+
+    static func studioAutomationTargetMatches(
+        _ targetSessionID: String,
+        arguments: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard isStudioAutomationArguments(arguments) else { return false }
+        let target = targetSessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return true }
+        return studioAutomationSessionID(arguments: arguments, environment: environment) == target
+    }
+
+    static func studioAutomationProcessCanConsumeCommands(
+        targetSessionID: String,
+        arguments: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard isStudioAutomationArguments(arguments) else { return false }
+        if isStudioEvalArguments(arguments),
+           studioAutomationSessionID(arguments: arguments, environment: environment) != nil {
+            return true
+        }
+        return studioAutomationTargetMatches(
+            targetSessionID,
+            arguments: arguments,
+            environment: environment
+        )
+    }
+
+    static var currentStudioAutomationTargetMatches: Bool {
+        #if DEBUG
+        return isStudioAutomationSession
+        #else
+        return false
+        #endif
+    }
+
+    static func automationOutboxRootURL(
+        arguments: [String],
+        environment: [String: String],
+        temporaryRoot: URL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    ) -> URL? {
+        guard isStudioAutomationArguments(arguments) else { return nil }
+        let fallback = arguments.contains("--ui-testing") ? "ui-testing" : "studio-eval"
+        let sessionID = studioAutomationSessionID(arguments: arguments, environment: environment)
+            ?? fallback
+        return temporaryRoot
+            .appendingPathComponent("io.them-automation", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+    }
+
+    static var currentAutomationOutboxRootURL: URL? {
+        #if DEBUG
+        automationOutboxRootURL(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        #else
+        nil
+        #endif
+    }
+
     static func explicitPreferenceArgumentValue(
         forKey key: String,
         arguments: [String]
@@ -55,7 +131,18 @@ nonisolated enum IOThemRuntime {
 
     static var isStudioAutomationSession: Bool {
         #if DEBUG
-        isStudioAutomationArguments(ProcessInfo.processInfo.arguments)
+        #if os(macOS)
+        let target = (StudioDebugPreferenceFileBridge.value(
+            forKey: "studio_debug_target_session_id"
+        ) as? String) ?? ""
+        return studioAutomationProcessCanConsumeCommands(
+            targetSessionID: target,
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        #else
+        return isStudioAutomationArguments(ProcessInfo.processInfo.arguments)
+        #endif
         #else
         false
         #endif

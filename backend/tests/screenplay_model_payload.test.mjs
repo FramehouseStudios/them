@@ -104,6 +104,27 @@ test("[screenplay-model-payload] includes capped Studio ask-note history with sc
   assert.equal(payload.studio_ask_note_history.at(-1).id, "exchange-23");
 });
 
+test("[screenplay-model-payload] preserves Swift's reopened-write identifier spelling", () => {
+  const {
+    normalizeStoredScreenplayThreadViewState,
+    toScreenplayProjectPayload,
+  } = services();
+  const threadViewState = normalizeStoredScreenplayThreadViewState({
+    focusedDiffKey: "write:write-swift",
+    reopenedLineageKeys: ["lineage:write-swift"],
+    latestReopenedWriteId: "write-swift",
+  });
+  const payload = toScreenplayProjectPayload({
+    id: "project-swift-thread-state",
+    title: "Swift Thread State",
+    studioThreadViewState: threadViewState,
+    outline: { acts: [], scenes: [], beats: [] },
+  });
+
+  assert.equal(threadViewState.latestReopenedWriteID, "write-swift");
+  assert.equal(payload.studio_thread_view_state.latest_reopened_write_id, "write-swift");
+});
+
 test("[screenplay-model-payload] includes durable feature spine metadata", () => {
   const { toScreenplayProjectPayload } = services();
   const payload = toScreenplayProjectPayload({

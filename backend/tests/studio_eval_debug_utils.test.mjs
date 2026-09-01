@@ -75,6 +75,34 @@ test("relaunch helper adds one explicit Studio eval marker and preserves launch 
   ]);
 });
 
+test("relaunch helper forwards process-local auth without exposing credentials as arguments", () => {
+  let invocation = null;
+  const launchEnvironment = {
+    THEM_UITEST_USER_ID: "user-eval",
+    THEM_UITEST_CLIENT_TOKEN: "client-secret",
+    THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN: "access-secret",
+    THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED: "1",
+    THEM_UITEST_AUTH_SIGNED_IN: "1",
+    THEM_STUDIO_AUTOMATION_SESSION_ID: "restore-smoke-42",
+  };
+
+  relaunchStudioAppWithHelper({
+    helperPath: "/tmp/studio-helper.sh",
+    appPath: "/tmp/them.app",
+    launchEnvironment,
+    runOptional(command, args, options) {
+      invocation = { command, args, options };
+      return helperSuccess(322);
+    },
+  });
+
+  assert.equal(invocation.options.env.THEM_UITEST_USER_ID, "user-eval");
+  assert.equal(invocation.options.env.THEM_UITEST_CLIENT_TOKEN, "client-secret");
+  assert.equal(invocation.options.env.THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN, "access-secret");
+  assert.equal(invocation.options.env.THEM_STUDIO_AUTOMATION_SESSION_ID, "restore-smoke-42");
+  assert.doesNotMatch(invocation.args.join(" "), /user-eval|client-secret|access-secret|restore-smoke-42/);
+});
+
 test("cleanup helper requires one explicit Studio eval marker and no app path", () => {
   let invocation = null;
   const telemetry = cleanupStudioEvalSessionsWithHelper({
@@ -422,6 +450,7 @@ printf '%s' "$!" > "$FAKE_OPEN_PID_FILE"
         FAKE_OPEN_PID_FILE: launchedPidPath,
         APP_TOKEN: "token value with spaces",
         BACKEND_BASE_URL: "https://backend.example.test/path",
+        THEM_STUDIO_AUTOMATION_SESSION_ID: "restore-smoke-42",
         AWS_SECRET_ACCESS_KEY: "must-not-leak",
         STUDIO_APP_SESSION_HELPER_TIMEOUT_SECONDS: "5",
         STUDIO_APP_SESSION_HELPER_POLL_MILLIS: "50",
@@ -444,6 +473,7 @@ printf '%s' "$!" > "$FAKE_OPEN_PID_FILE"
     const openArguments = readFileSync(openArgsPath, "utf8").split(/\r?\n/).filter(Boolean);
     assert.ok(openArguments.includes("APP_TOKEN=token value with spaces"));
     assert.ok(openArguments.includes("BACKEND_BASE_URL=https://backend.example.test/path"));
+    assert.ok(openArguments.includes("THEM_STUDIO_AUTOMATION_SESSION_ID=restore-smoke-42"));
     assert.ok(openArguments.includes("--studio-eval"));
     assert.equal(openArguments.some((value) => value.includes("AWS_SECRET_ACCESS_KEY")), false);
     assert.equal(openArguments.some((value) => value.includes("must-not-leak")), false);

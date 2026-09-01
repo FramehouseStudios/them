@@ -11,6 +11,7 @@ import {
 } from "./studio_eval_debug_utils.mjs";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import {
+  createStudioRestoreAppLaunchEnvironment,
   createStudioRestoreUITestFixtureJSON,
   normalizeStudioRestoreKey,
   normalizeStudioRestoreText,
@@ -28,6 +29,7 @@ const STUDIO_APP_SESSION_HELPER = fileURLToPath(
 );
 const APP_TOKEN = "them-dev";
 const CROSS_PLATFORM_PORT = Number(process.env.THEM_CROSS_PLATFORM_RESTORE_CONTRACT_PORT || 31338);
+const AUTOMATION_SESSION_ID = `cross-platform-restore-${process.pid}-${Date.now()}`;
 const CANON_FACTS = Object.freeze([
   "Mara abandons Eli at the east ferry dock.",
   "Mara abandons June at the east ferry dock.",
@@ -197,7 +199,7 @@ async function issueAuthenticatedClient(seeded, label) {
 }
 
 function seededForClient(seeded, identity, canonSeed, resolution) {
-  return {
+  const clientSeeded = {
     ...seeded,
     identity,
     headers: studioRestoreOwnerHeaders(identity),
@@ -205,6 +207,13 @@ function seededForClient(seeded, identity, canonSeed, resolution) {
     expectedCanonCorrectionText: resolution.replacementText,
     expectedRetiredCanonFacts: [...canonSeed.candidateFacts],
     canonCorrectionReceiptID: resolution.receiptID,
+  };
+  return {
+    ...clientSeeded,
+    appLaunchEnvironment: {
+      ...createStudioRestoreAppLaunchEnvironment(clientSeeded),
+      THEM_STUDIO_AUTOMATION_SESSION_ID: AUTOMATION_SESSION_ID,
+    },
   };
 }
 
@@ -546,6 +555,25 @@ async function submitMacStudioPageWrite(prompt) {
   throw new Error(`macOS Studio did not finish page write: ${prompt}`);
 }
 
+async function focusMacStudioDiff(diffKey) {
+  const token = Math.max(
+    Date.now() % 1_000_000_000,
+    readDefaultInt("studio_debug_focus_diff_token"),
+    readDefaultInt("studio_debug_focus_diff_ack_token")
+  ) + 1;
+  writeDefaultInt("studio_debug_focus_diff_ack_token", 0);
+  writeDefaultString("studio_debug_focus_diff_key", diffKey);
+  writeDefaultInt("studio_debug_focus_diff_token", token);
+  synchronizeDefaults();
+
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    if (readDefaultInt("studio_debug_focus_diff_ack_token") === token) return token;
+    await sleep(100);
+  }
+  throw new Error(`macOS Studio did not focus diff ${diffKey}.`);
+}
+
 async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID) {
   await submitMacStudioPageWrite("Write the first batch into the screenplay page.");
   await submitMacStudioPageWrite("Write the second batch at the ferry terminal into the screenplay page.");
@@ -554,19 +582,30 @@ async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID)
   const deadline = Date.now() + 30000;
   let probe = null;
   let state = null;
+  let focusRequested = false;
   while (Date.now() < deadline) {
     probe = await fetchStudioProjectMetadata(seeded.projectID, seeded.headers, seeded.baseURL);
     state = readDebugDiffState();
     const metadata = probe.metadata;
     const activeDraft = String(metadata?.activeVersion?.draft || "").trim();
     const activeVersionID = normalizeStudioRestoreKey(metadata?.activeVersionId);
+    const focusedDiffKey = normalizeStudioRestoreKey(metadata?.focusedDiffKey);
+    const stateFocusedDiffKey = normalizeStudioRestoreKey(state?.focusedDiffKey);
+    const latestReopenedWriteID = normalizeStudioRestoreKey(metadata?.latestReopenedWriteID);
+    const latestReopenedLineageKey = normalizeStudioRestoreKey(state?.latestReopenedLineageKey);
+    const reopenedLineageKeys = Array.isArray(metadata?.reopenedLineageKeys)
+      ? metadata.reopenedLineageKeys.map((value) => normalizeStudioRestoreKey(value))
+      : [];
+    const expectedFocusedDiffKey = normalizeStudioRestoreKey(seeded.expectedFocusedDiffKey);
+    const expectedReopenedWriteID = normalizeStudioRestoreKey(seeded.expectedReopenedWriteID);
+    const expectedReopenedLineageKey = normalizeStudioRestoreKey(seeded.expectedReopenedLineageKey);
     const currentPID = currentAppPidForPath(appPath);
     assert(currentPID === originalPID, `macOS app relaunched during page-write save: ${originalPID} -> ${currentPID || "stopped"}`);
     const exactFinalVersions = (metadata?.versions || []).filter((version) => (
       version.source === "studio_clementine_page_write"
       && String(version.draft || "").trim() === expectedDraft
     ));
-    if (
+    const writesSettled = (
       probe.response.ok
       && activeVersionID
       && activeVersionID !== normalizeStudioRestoreKey(seeded.versionID)
@@ -579,6 +618,21 @@ async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID)
       && normalizeStudioRestoreKey(state?.draftFingerprint) === draftFingerprint(expectedDraft)
       && !Boolean(state?.hasUnsavedDraftChanges)
       && !normalizeStudioRestoreKey(state?.errorText)
+    );
+    if (writesSettled && !focusRequested) {
+      await focusMacStudioDiff(expectedFocusedDiffKey);
+      focusRequested = true;
+      await sleep(250);
+      continue;
+    }
+    if (
+      writesSettled
+      && focusRequested
+      && focusedDiffKey === expectedFocusedDiffKey
+      && stateFocusedDiffKey === expectedFocusedDiffKey
+      && latestReopenedWriteID === expectedReopenedWriteID
+      && latestReopenedLineageKey === expectedReopenedLineageKey
+      && reopenedLineageKeys.includes(expectedReopenedLineageKey)
     ) {
       return {
         draft: expectedDraft,
@@ -586,6 +640,9 @@ async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID)
         probe,
         state,
         expectedAskNoteText: MAC_PAGE_WRITE_TWO,
+        expectedFocusedDiffKey,
+        expectedReopenedWriteID,
+        expectedReopenedLineageKey,
       };
     }
     await sleep(250);
@@ -598,6 +655,9 @@ async function saveTwoAuthoritativePageWritesOnMac(seeded, appPath, originalPID)
     state: state ? {
       selectedProjectID: state.selectedProjectID,
       latestVersionID: state.latestVersionID,
+      focusedDiffKey: state.focusedDiffKey,
+      latestReopenedWriteID: state.latestReopenedWriteID,
+      latestReopenedLineageKey: state.latestReopenedLineageKey,
       draftCharacterCount: state.draftCharacterCount,
       draftFingerprint: state.draftFingerprint,
       hasUnsavedDraftChanges: state.hasUnsavedDraftChanges,
@@ -677,8 +737,11 @@ async function assertBackendSeeded(seeded) {
     `Expected backend ask-note history to be seeded, got ${probe.metadata.askNoteHistoryCount || 0}`
   );
   assert(
-    probe.metadata.askNoteHistory.some((entry) => normalizeStudioRestoreText(entry.insertedText) === normalizeStudioRestoreText(seeded.expectedDraft)),
-    "Expected backend ask-note history to include the shared restore draft."
+    probe.metadata.askNoteHistory.some((entry) => (
+      normalizeStudioRestoreText(entry.insertedText)
+        === normalizeStudioRestoreText(seeded.expectedAskNoteText || seeded.expectedDraft)
+    )),
+    "Expected backend ask-note history to include the shared restore write."
   );
   return probe;
 }
@@ -686,6 +749,7 @@ async function assertBackendSeeded(seeded) {
 async function restoreSharedProjectOnMac(seeded) {
   const appPath = findDebugAppPath();
   await ensureAppStopped();
+  writeDefaultString("studio_debug_target_session_id", AUTOMATION_SESSION_ID);
   writeMacRestoreDefaults(seeded);
   const stagedRequest = stageStudioProjectLoadDebugRequest({
     debugDefaults: studioDebug.defaults,
@@ -696,6 +760,7 @@ async function restoreSharedProjectOnMac(seeded) {
     appPath,
     helperPath: STUDIO_APP_SESSION_HELPER,
     debugDefaults: studioDebug.defaults,
+    launchEnvironment: seeded.appLaunchEnvironment,
     runOptional,
     activateApp,
     appHasWindow,
@@ -792,6 +857,7 @@ const restoreKeys = [
   "studio_debug_submit_result_status",
   "studio_debug_submit_result_error",
   "studio_debug_submit_result_json",
+  "studio_debug_focus_diff_key",
   "app_token",
   "backend_base_url",
   "client_token",
@@ -801,6 +867,7 @@ const restoreKeys = [
   "auth_debug_access_token",
   "studio_debug_load_project_id",
   "studio_debug_load_project_version_id",
+  "studio_debug_target_session_id",
 ];
 const restoreIntKeys = [
   "client_token_cached_at",
@@ -810,6 +877,8 @@ const restoreIntKeys = [
   "studio_debug_submit_command_received_token",
   "studio_debug_submit_ack_token",
   "studio_debug_submit_result_token",
+  "studio_debug_focus_diff_token",
+  "studio_debug_focus_diff_ack_token",
 ];
 const restoreBoolKeys = [
   "auth_debug_access_token_enabled",
@@ -881,6 +950,9 @@ try {
     ...iphoneSeeded,
     expectedDraft: macPageWriteSave.draft,
     expectedAskNoteText: macPageWriteSave.expectedAskNoteText,
+    expectedFocusedDiffKey: macPageWriteSave.expectedFocusedDiffKey,
+    expectedReopenedWriteID: macPageWriteSave.expectedReopenedWriteID,
+    expectedReopenedLineageKey: macPageWriteSave.expectedReopenedLineageKey,
     versionID: macPageWriteSave.versionID,
   };
   const liveSave = await saveSharedProjectFromIPhone(iphoneWriteBaseSeeded);
@@ -966,6 +1038,11 @@ try {
   }
   throw error;
 } finally {
+  try {
+    quitApp();
+  } catch (cleanupError) {
+    console.error(`Studio eval cleanup failed: ${cleanupError?.message || cleanupError}`);
+  }
   for (const [key, value] of Object.entries(originalStringValues)) {
     writeDefaultString(key, value);
   }
