@@ -32,6 +32,10 @@ import {
   createSttSupplier,
   createTtsSupplier,
 } from "./talk_supplier_glue.js";
+import {
+  readElevenLabsByokFromRequest,
+  TTS_KIND_ELEVENLABS_BYOK,
+} from "./tts_speech.js";
 import { incrementErrorCounter } from "./talk_error_counter.js";
 import {
   applyTalkFailureHeaders,
@@ -356,6 +360,7 @@ function createTalkHandler(deps) {
     stripLeadingId3Tag,
     synthesizeSpeechMp3,
     synthesizeSpeechMp3OpenAI,
+    listElevenLabsVoices,
     synthesizeTalkScreenplayPageAudio,
     trimToMax,
     updateSessionAfterReply,
@@ -391,6 +396,7 @@ function createTalkHandler(deps) {
     synthesizeSpeechMp3,
     synthesizeSpeechMp3OpenAI,
     synthesizeTalkScreenplayPageAudio,
+    listElevenLabsVoices,
   });
 
   function buildScreenplayMetricFields({
@@ -1646,6 +1652,17 @@ function createTalkHandler(deps) {
     ...CLEMENTINE_PROFILE.voice,
     provider: INTERACTIVE_TTS_PROVIDER,
   }, "curious_steady");
+  // D010: request-scoped ElevenLabs BYOK (Keychain key via headers). Never persist.
+  // Does not change INTERACTIVE_TTS_PROVIDER default (openai) when headers absent.
+  const byokTts = readElevenLabsByokFromRequest(req);
+  if (byokTts.wantsByok) {
+    interactiveVoiceProfile = applyClementineVoiceDirection({
+      ...interactiveVoiceProfile,
+      provider: TTS_KIND_ELEVENLABS_BYOK,
+      elevenlabsVoiceId: byokTts.voiceId || interactiveVoiceProfile.elevenlabsVoiceId,
+      byokApiKey: byokTts.apiKey,
+    }, interactiveVoiceProfile.emotionLane || "curious_steady");
+  }
   let thinkingDelayMs = pickThinkingDurationMs();
   const thinkingStartedAt = Date.now();
   let screenplayLearningAnswerContext = null;

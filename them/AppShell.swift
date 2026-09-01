@@ -516,6 +516,10 @@ struct VoiceSettingsScreen: View {
                         ) { speakingPace = $0 }
                     }
 
+                    settingsSection("Companion TTS") {
+                        CompanionTtsVoiceSettingsSection()
+                    }
+
                     settingsSection("Realtime") {
                         realtimeSupplierPicker
                     }

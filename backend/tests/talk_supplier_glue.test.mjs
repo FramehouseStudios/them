@@ -226,9 +226,15 @@ test("[phase7c] TTS supplier delegates all three synthesis seams", async () => {
 
   assert.equal(Object.isFrozen(supplier), true);
   assert.equal(supplier.kind, "runtime-tts");
+  assert.deepEqual(supplier.supportedKinds, [
+    "openai",
+    "elevenlabs_platform",
+    "elevenlabs_byok",
+  ]);
   assert.equal(typeof supplier.synthesize, "function");
   assert.equal(typeof supplier.synthesizeOpenAI, "function");
   assert.equal(typeof supplier.synthesizeScreenplayPage, "function");
+  assert.equal(typeof supplier.listVoices, "function");
 
   assert.equal((await supplier.synthesize({ text: "a" })).provider, "openai");
   assert.equal((await supplier.synthesizeOpenAI({ inputText: "b" })).buffer.toString(), "recover");

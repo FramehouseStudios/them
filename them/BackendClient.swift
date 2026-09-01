@@ -3173,6 +3173,7 @@ final class BackendClient {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
         attachAuthorizationHeader(to: &request)
+        attachCompanionTtsByokHeaders(to: &request)
 
         let uploadMeta = uploadMetadata(for: audioURL, data: audioSnapshot)
         var body = Data()
@@ -4203,6 +4204,7 @@ final class BackendClient {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
         attachAuthorizationHeader(to: &request)
+        attachCompanionTtsByokHeaders(to: &request)
         if let key = normalizedIdempotencyKey(idempotencyKey) {
             request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
         }
@@ -6135,6 +6137,15 @@ final class BackendClient {
         // Protect against unresolved placeholders like "$(APP_TOKEN)".
         if value.hasPrefix("$("), value.hasSuffix(")") { return false }
         return true
+    }
+
+    /// D010 — attach request-scoped ElevenLabs BYOK headers when provider=elevenlabs.
+    /// Key comes from Keychain via CompanionTtsProviderSettings; never logged here.
+    private func attachCompanionTtsByokHeaders(to request: inout URLRequest) {
+        let headers = CompanionTtsProviderSettings.talkByokHeaders()
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
     }
 
     private func attachAuthorizationHeader(to request: inout URLRequest) {

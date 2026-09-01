@@ -2656,6 +2656,8 @@ struct RootExperienceView: View {
             orbAudio.stop()
             promptSpeaker.stop()
             typedReplySpeaker.cancel()
+            // D010: abort any in-flight ElevenLabs BYOK client stream (same interrupt family).
+            CompanionTtsRouter.shared.abortInFlight()
             if let typedTurnID {
                 clientLatency.recordBargeInAcknowledged(turnID: typedTurnID)
             }
