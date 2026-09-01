@@ -5,8 +5,46 @@
 //
 // Billing gate: call proceed(reservationId) before charging / calling Muse.
 // Cancelled or missing reservations short-circuit (ok:false) — no bill path.
+//
+// Mid-flight abort: each reservation owns an AbortController. cancel(id) /
+// cancelByOwner abort the controller so in-progress generation can exit
+// cleanly (talk_handler / muse_client pass getAbortSignal(id)).
 
 import { randomUUID } from "node:crypto";
+
+function createAbortController() {
+  if (typeof AbortController !== "function") return null;
+  try {
+    return new AbortController();
+  } catch (_e) {
+    return null;
+  }
+}
+
+function publicView(entry, extra = {}) {
+  if (!entry) return null;
+  const { abortController, ...rest } = entry;
+  return {
+    ...rest,
+    aborted: Boolean(abortController?.signal?.aborted),
+    ...extra,
+  };
+}
+
+function abortEntry(entry, reason = "cancel") {
+  const ac = entry?.abortController;
+  if (!ac || ac.signal?.aborted) return false;
+  try {
+    ac.abort(String(reason || "cancel"));
+  } catch (_e) {
+    try {
+      ac.abort();
+    } catch (_e2) {
+      /* ignore */
+    }
+  }
+  return true;
+}
 
 function createPageReservationStore({ now = () => Date.now() } = {}) {
   /** @type {Map<string, object>} */
@@ -37,45 +75,52 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
       cancelledAt: null,
       cancelReason: null,
       meta: meta && typeof meta === "object" ? { ...meta } : null,
+      abortController: createAbortController(),
     };
     reservations.set(id, entry);
-    return { ...entry };
+    return publicView(entry);
   }
 
   function get(reservationId) {
+    return publicView(reservations.get(String(reservationId || "")));
+  }
+
+  function getAbortSignal(reservationId) {
     const entry = reservations.get(String(reservationId || ""));
-    return entry ? { ...entry } : null;
+    return entry?.abortController?.signal || null;
   }
 
   function listForSession(sessionId) {
     const sid = String(sessionId || "").trim();
     return [...reservations.values()]
       .filter((r) => r.sessionId === sid)
-      .map((r) => ({ ...r }));
+      .map((r) => publicView(r));
   }
 
   /**
    * Cancel one reservation by id. Idempotent: already-cancelled returns
    * the entry with cancelled:false (no-op). Missing → null.
+   * Aborts the reservation AbortController on first cancel.
    */
   function cancel(reservationId, { reason = "cancel" } = {}) {
     const id = String(reservationId || "");
     const entry = reservations.get(id);
     if (!entry) return null;
     if (entry.status === "cancelled") {
-      return { ...entry, cancelled: false };
+      return publicView(entry, { cancelled: false });
     }
     entry.status = "cancelled";
     entry.cancelledAt = now();
     entry.cancelReason = String(reason || "cancel");
+    abortEntry(entry, entry.cancelReason);
     reservations.set(id, entry);
-    return { ...entry, cancelled: true };
+    return publicView(entry, { cancelled: true });
   }
 
   /**
    * Cancel in-flight Page work for a session (and optional owner).
-   * Drops every non-cancelled matching reservation.
-   * Returns the dropped reservation ids.
+   * Drops every non-cancelled matching reservation and aborts each
+   * reservation AbortController. Returns the dropped reservation ids.
    */
   function cancelByOwner(
     { sessionId, userId = "" } = {},
@@ -86,13 +131,15 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
     const uid = String(userId || "").trim();
     const dropped = [];
     const ts = now();
+    const cancelReason = String(reason || "barge_in");
     for (const [id, entry] of reservations) {
       if (entry.sessionId !== sid) continue;
       if (entry.status === "cancelled") continue;
       if (uid && entry.userId && entry.userId !== uid) continue;
       entry.status = "cancelled";
       entry.cancelledAt = ts;
-      entry.cancelReason = String(reason || "barge_in");
+      entry.cancelReason = cancelReason;
+      abortEntry(entry, cancelReason);
       reservations.set(id, entry);
       dropped.push(id);
     }
@@ -120,10 +167,10 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
       return {
         ok: false,
         code: "page_reservation_cancelled",
-        reservation: { ...entry },
+        reservation: publicView(entry),
       };
     }
-    return { ok: true, code: "ok", reservation: { ...entry } };
+    return { ok: true, code: "ok", reservation: publicView(entry) };
   }
 
   function drop(reservationId) {
@@ -141,6 +188,7 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
   return {
     reserve,
     get,
+    getAbortSignal,
     listForSession,
     cancel,
     cancelByOwner,

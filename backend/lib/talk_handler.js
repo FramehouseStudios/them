@@ -68,6 +68,11 @@ import {
   evaluateStructuralScreenplayReply,
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
+import {
+  gatePageGeneration,
+  isPageCancelledError,
+  mapAbortToPageCancel,
+} from "./clementine/page_abort.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -3980,6 +3985,15 @@ ${directorOutputRule}
         );
       }
     } else {
+      // D008: Page mid-flight abort — thin inject (gate + AbortSignal).
+      let pageAbortSignal = null;
+      let pageReservationId = null;
+      if (req.clementine?.reservationId) {
+        const pageGate = gatePageGeneration(req.clementine);
+        pageAbortSignal = pageGate.signal;
+        pageReservationId = pageGate.reservationId;
+      }
+
       if (useChatStreaming) {
         try {
           const streamStart = Date.now();
@@ -3995,6 +4009,7 @@ ${directorOutputRule}
             apiMode: chatModelPlan.apiMode,
             reasoningEffort: chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
+            signal: pageAbortSignal,
           });
           rawReply = String(streamResult.reply || "").trim();
           streamFirstSentence = String(streamResult.firstSentence || "").trim();
@@ -4011,6 +4026,12 @@ ${directorOutputRule}
             maybeStartEarlyTts(streamFirstSentence);
           }
         } catch (err) {
+          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
+            reservationId: pageReservationId,
+          });
+          if (isPageCancelledError(mapped)) {
+            throw mapped;
+          }
           const streamDiagnostic = buildTalkFailureDiagnostics(err, {
             requestId: rid,
             providerStage: "chat",
@@ -4022,6 +4043,10 @@ ${directorOutputRule}
       }
 
       if (!rawReply) {
+        // Re-gate before non-stream billed call (cancel may have landed during stream attempt).
+        if (pageReservationId) {
+          gatePageGeneration(req.clementine);
+        }
         let chatResult;
         try {
           chatResult = await chatSupplier.chat({
@@ -4032,8 +4057,15 @@ ${directorOutputRule}
             apiMode: chatModelPlan.apiMode,
             reasoningEffort: chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
+            signal: pageAbortSignal,
           });
         } catch (err) {
+          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
+            reservationId: pageReservationId,
+          });
+          if (isPageCancelledError(mapped)) {
+            throw mapped;
+          }
           throw createTalkFailureError({
             requestId: rid,
             providerStage: "chat",
@@ -5436,6 +5468,36 @@ ${directorOutputRule}
     return res.send(audioBuffer);
   } catch (err) {
     const totalMs = Date.now() - t0;
+    if (isPageCancelledError(err) && !res.headersSent) {
+      clearTalkIdempotencyPending(req, { keepCompleted: true });
+      const reservationId =
+        err.reservationId || req.clementine?.reservationId || null;
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("x-clementine-page-cancelled", "1");
+      if (reservationId) {
+        res.setHeader("x-clementine-page-reservation", String(reservationId));
+      }
+      recordTalkMetric({
+        statusCode: 409,
+        totalMs,
+        sttMs,
+        chatMs,
+        ttsMs,
+        streamAudio: false,
+        chatStreamUsed: false,
+        talkStatus: "cancelled",
+        lane: "page_cancelled",
+        model: "none",
+      });
+      return res.status(409).json({
+        ok: false,
+        error: "page_generation_cancelled",
+        cancelled: true,
+        reservation_id: reservationId,
+        cancel_reason: err.cancelReason || null,
+        status: "cancelled",
+      });
+    }
     const diagnostic = buildTalkFailureDiagnostics(err, {
       requestId: rid,
       providerStage: err?.stage || "server",

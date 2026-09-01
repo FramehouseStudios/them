@@ -2,9 +2,9 @@
 //
 // Wires classifyIntent → laneForIntent without rewriting talk_handler.
 // When the lane is Page (or explicit page_edit), reserves before the
-// expensive path. Downstream must call store.proceed(id) before billing;
-// talk_handler Muse/OpenAI abort mid-flight remains STUBBED — only the
-// reservation gate + HTTP cancel are live in this PR.
+// expensive path. Downstream must call store.proceed(id) before billing.
+// Each reservation owns an AbortController; cancel(id)/cancelByOwner abort
+// it. talk_handler injects req.clementine.abortSignal at chat call sites.
 
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
@@ -145,8 +145,8 @@ function beginPageWork(store, {
 }
 
 /**
- * Wrap handleTalkRequest: classify → reserve Page → attach req.clementine.
- * Does not rewrite talk_handler. Mid-flight AbortController abort is STUBBED.
+ * Wrap handleTalkRequest: classify → reserve Page → attach req.clementine
+ * (including abortSignal from the reservation AbortController).
  */
 function createPageLaneTalkAdapter({
   handleTalkRequest,
@@ -192,9 +192,12 @@ function createPageLaneTalkAdapter({
       walletMeter: lane.walletMeter,
       reservationId: reservation?.id || null,
       reservation,
+      abortSignal: reservation?.id
+        ? pageReservationStore.getAbortSignal(reservation.id)
+        : null,
       /**
        * Billing gate. Call before Muse / wallet debit.
-       * STUB usage inside talk_handler this PR — gate is ready for cutover.
+       * talk_handler also gates via gatePageGeneration(req.clementine).
        */
       proceed: reservation
         ? () => pageReservationStore.proceed(reservation.id)

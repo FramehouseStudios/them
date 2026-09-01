@@ -208,6 +208,7 @@ async function requestOpenAIText({
   fallbackModel = "",
   fetchWithTimeout,
   timeoutMs,
+  signal = null,
 } = {}) {
   if (typeof fetchWithTimeout !== "function") {
     throw new Error("requestOpenAIText requires fetchWithTimeout");
@@ -230,6 +231,7 @@ async function requestOpenAIText({
         "Content-Type": "application/json",
       },
       body: JSON.stringify(request.body),
+      ...(signal ? { signal } : {}),
     },
     timeoutMs
   );
