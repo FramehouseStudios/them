@@ -192,6 +192,7 @@ import {
 } from "./lib/account_memory_turn_commit.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
+import { mountAuthRoutes } from "./lib/auth_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
 import {
   createAccountPurgeWorker,
@@ -33114,23 +33115,10 @@ mountRealtimeCallRoute(app, {
   OPENAI_REALTIME_VOICE,
 });
 
-const authJson = express.json({ limit: "256kb" });
-const wrapAuthHandler = (handler) => (req, res, next) => {
-  Promise.resolve(handler(req, res, next)).catch(next);
-};
-
+// D009 B1: auth HTTP mount lives in lib/auth_routes.js.
+// Rate-limit middleware stays boot-side (same as before the extract).
 app.use("/auth", backendRateLimiter.middleware("auth"));
-app.post("/auth/signup", authJson, wrapAuthHandler(userAuth.handleAuthSignup));
-app.post("/auth/login", authJson, wrapAuthHandler(userAuth.handleAuthLogin));
-app.post("/auth/apple", authJson, wrapAuthHandler(userAuth.handleAuthApple));
-app.post("/auth/refresh", authJson, wrapAuthHandler(userAuth.handleAuthRefresh));
-app.post("/auth/logout", authJson, wrapAuthHandler(userAuth.handleAuthLogout));
-app.get("/auth/sessions", wrapAuthHandler(userAuth.handleAuthSessions));
-app.post("/auth/sessions/revoke", authJson, wrapAuthHandler(userAuth.handleAuthSessionsRevoke));
-app.post("/auth/request_password_reset", authJson, wrapAuthHandler(userAuth.handleAuthRequestPasswordReset));
-app.post("/auth/reset_password", authJson, wrapAuthHandler(userAuth.handleAuthResetPassword));
-app.post("/auth/request_email_verification", authJson, wrapAuthHandler(userAuth.handleAuthRequestEmailVerification));
-app.post("/auth/verify_email", authJson, wrapAuthHandler(userAuth.handleAuthVerifyEmail));
+mountAuthRoutes(app, { userAuth });
 
 app.use("/account", express.json({ limit: "64kb" }));
 mountAccountRoutes(app, {
