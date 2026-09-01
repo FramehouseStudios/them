@@ -117,7 +117,28 @@ nonisolated enum BackendUserDefaultsStore {
 
     private static func publishLiveUIChangeIfNeeded(forKey key: String) {
         guard liveUIKeys.contains(key) else { return }
-        DispatchQueue.main.async {
+        BackendAuthClient.publishLiveUserDefaultsChangeAfterAuthMutation()
+    }
+}
+
+nonisolated enum BackendLiveDefaultsNotificationScheduler {
+    static func enqueue(
+        after mutationQueue: DispatchQueue,
+        deliveryQueue: DispatchQueue = .main,
+        publish: @escaping @Sendable () -> Void
+    ) {
+        mutationQueue.async {
+            deliveryQueue.async(execute: publish)
+        }
+    }
+}
+
+nonisolated extension BackendAuthClient {
+    fileprivate static func publishLiveUserDefaultsChangeAfterAuthMutation() {
+        // Live SwiftUI defaults observers may synchronously read auth state.
+        // Hop through the mutation queue so they cannot run until the current
+        // crash-safe Keychain/defaults transaction has released that queue.
+        BackendLiveDefaultsNotificationScheduler.enqueue(after: authSessionStateQueue) {
             NotificationCenter.default.post(
                 name: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard
@@ -3892,20 +3913,39 @@ nonisolated enum BackendAuthClient {
 
     static func captureAuthSessionLease() -> BackendAuthSessionLease? {
         authSessionStateQueue.sync {
-            guard authSessionStorageIsReadable(defaults: .standard) else { return nil }
-            let accessTokenValue = accessTokenLocked(defaults: .standard) ?? ""
-            let refreshTokenValue = refreshTokenLocked(defaults: .standard) ?? ""
-            let userID = storedAuthUserPayload(defaults: .standard)?.userId
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !userID.isEmpty,
-                  !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
-            return BackendAuthSessionLease(
-                sessionGeneration: authSessionEpoch(defaults: .standard),
-                userID: userID,
-                accessToken: accessTokenValue,
-                refreshToken: refreshTokenValue
+            capturedAuthSessionLease(
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
+                currentSharedUserID: { sharedUserIDLocked(defaults: .standard) }
             )
         }
+    }
+
+    static func capturedAuthSessionLease(
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?,
+        currentSharedUserID: () -> String?
+    ) -> BackendAuthSessionLease? {
+        guard authSessionStorageIsReadable(defaults: defaults) else { return nil }
+        let accessTokenValue = currentAccessToken()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let refreshTokenValue = currentRefreshToken()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedUserID = storedAuthUserPayload(defaults: defaults)?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sharedUserID = currentSharedUserID()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userID = storedUserID.isEmpty ? sharedUserID : storedUserID
+        guard !userID.isEmpty,
+              !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
+        return BackendAuthSessionLease(
+            sessionGeneration: authSessionEpoch(defaults: defaults),
+            userID: userID,
+            accessToken: accessTokenValue,
+            refreshToken: refreshTokenValue
+        )
     }
 
     static func requestIdentitySnapshot(
@@ -6766,6 +6806,7 @@ actor BackendMemoryAPI {
     private let session: URLSession
     private let baseURLOverride: URL?
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
+    private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
@@ -6797,11 +6838,15 @@ actor BackendMemoryAPI {
     init(
         session: URLSession = .shared,
         baseURL: URL? = nil,
-        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live
+        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live,
+        requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
+            BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+        }
     ) {
         self.session = session
         self.baseURLOverride = baseURL
         self.accountDeletionSessionHooks = accountDeletionSessionHooks
+        self.requestIdentityProvider = requestIdentityProvider
     }
 
     func currentSyncState() -> BackendSyncState {
@@ -6988,7 +7033,7 @@ actor BackendMemoryAPI {
     }
 
     private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
-        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let identity = requestIdentityProvider(true)
         let token = identity.clientToken
         guard !token.isEmpty else { return nil }
         guard let cachedAt = BackendAuthClient.sharedClientTokenCachedAt(),
@@ -7450,15 +7495,28 @@ actor BackendMemoryAPI {
         if !normalizedTurn.isEmpty {
             extraQuery.append(URLQueryItem(name: "sinceTurnId", value: normalizedTurn))
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/state",
             limit: max(1, historyLimit),
             extraQueryItems: extraQuery
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        var responsePair = try await session.data(for: request)
+        guard var http = responsePair.1 as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        if http.statusCode == 401, shouldRetryAfterAuthRotation(request) {
+            request = try makeRequest(
+                path: "/state",
+                limit: max(1, historyLimit),
+                extraQueryItems: extraQuery
+            )
+            responsePair = try await session.data(for: request)
+            guard let retryHTTP = responsePair.1 as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            http = retryHTTP
+        }
+        let data = responsePair.0
 
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
@@ -9886,9 +9944,7 @@ actor BackendMemoryAPI {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
-        let identity = BackendAuthClient.requestIdentitySnapshot(
-            generateUserIDIfMissing: includeUserIdentity
-        )
+        let identity = requestIdentityProvider(includeUserIdentity)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -9914,6 +9970,13 @@ actor BackendMemoryAPI {
             request.setValue(clientBuildHeaderValue, forHTTPHeaderField: "X-Them-Client-Build")
         }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+    }
+
+    private func shouldRetryAfterAuthRotation(_ request: URLRequest) -> Bool {
+        let currentToken = requestIdentityProvider(false).accessToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentToken.isEmpty else { return false }
+        return request.value(forHTTPHeaderField: "Authorization") != "Bearer \(currentToken)"
     }
 
     private func applyProjectOwnerHeaders(

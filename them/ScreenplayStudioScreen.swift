@@ -16272,6 +16272,11 @@ Look at the city.
             debugProjectClientTokenPresent: liveDraftBridge.debugClientTokenOwnerToken(
                 forProjectID: vm.selectedProjectID
             ) != nil,
+            debugDidLoadScreenplayProjectsFromBackend: vm.debugDidLoadScreenplayProjectsFromBackend,
+            debugIsCrossDeviceRefreshInFlight: vm.debugIsCrossDeviceRefreshInFlight,
+            debugIsDraftSaveInFlight: vm.debugIsDraftSaveInFlight,
+            debugIsLoading: vm.isLoading,
+            debugIsStreamingDraftPreviewActive: vm.isStreamingDraftPreviewActive,
             isSaving: vm.isSaving,
             loadedDraftProjectID: vm.debugLoadedDraftProjectID,
             loadProjectToken: trackedStudioDebugProjectLoadToken,

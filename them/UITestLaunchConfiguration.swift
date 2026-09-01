@@ -132,6 +132,13 @@ nonisolated enum UITestLaunchConfiguration {
             || hasStructuralStudioFixture(arguments: arguments)
     }
 
+    static func shouldRunAuthRefreshSmoke(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        arguments.contains("--ui-testing") &&
+            arguments.contains("--ui-auth-refresh-smoke")
+    }
+
     static func hasStructuralStudioFixture(
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {

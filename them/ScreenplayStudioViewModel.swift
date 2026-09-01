@@ -1817,6 +1817,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
         loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    #if DEBUG
+    var debugDidLoadScreenplayProjectsFromBackend: Bool {
+        didLoadScreenplayProjectsFromBackend
+    }
+
+    var debugIsCrossDeviceRefreshInFlight: Bool {
+        isCrossDeviceRefreshInFlight
+    }
+
+    var debugIsDraftSaveInFlight: Bool {
+        isDraftSaveInFlight
+    }
+    #endif
+
     func selectProject(_ projectID: String) async {
         selectedProjectID = projectID
         clearTransientProjectStateForSelectionChange(to: projectID)
@@ -4959,8 +4973,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func refreshCrossDeviceStateIfNeeded() async {
         await resumeQueuedDraftSavesIfNeeded()
-        guard didLoadScreenplayProjectsFromBackend,
-              !isCrossDeviceRefreshInFlight,
+        // A transient launch-time project-list failure must not permanently
+        // disable the timer that can recover that same list on reconnect.
+        guard !isCrossDeviceRefreshInFlight,
               !isLoading,
               !isSaving,
               !isStreamingDraftPreviewActive else {

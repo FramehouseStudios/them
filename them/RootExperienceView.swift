@@ -2529,6 +2529,16 @@ struct RootExperienceView: View {
         guard !evolution.needsOnboardingName else { return }
         let arguments = ProcessInfo.processInfo.arguments
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if UITestLaunchConfiguration.shouldRunAuthRefreshSmoke(arguments: arguments) {
+                Task { @MainActor in
+                    do {
+                        let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+                        print("[UITestAuthRefreshSmoke] authenticated=\(refreshed.isAuthenticated)")
+                    } catch {
+                        print("[UITestAuthRefreshSmoke] authenticated=false")
+                    }
+                }
+            }
             if arguments.contains("--ui-open-memories") {
                 uiTestForceStudioSurface = false
                 primarySurface = .home
