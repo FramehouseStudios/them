@@ -1832,6 +1832,68 @@ nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
 }
 
 nonisolated enum BackendAuthDebugSessionPolicy {
+    struct AutomationSessionOverride: Equatable, Sendable {
+        let userID: String
+        let clientToken: String
+        let accessToken: String
+
+        var user: BackendAuthUser {
+            BackendAuthUser(
+                userId: userID,
+                email: "",
+                authProvider: "debug",
+                emailVerified: true,
+                emailVerifiedAt: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+        }
+
+        var sessionState: BackendAuthSessionState {
+            BackendAuthSessionState(
+                user: user,
+                accessTokenPresent: true,
+                refreshTokenPresent: false,
+                accessExpiresAt: 0,
+                refreshExpiresAt: 0,
+                currentSessionId: "",
+                currentFamilyId: "",
+                tokenType: "Bearer",
+                pendingEmailVerification: false,
+                verificationRequired: false
+            )
+        }
+    }
+
+    static func automationSessionOverride(
+        arguments: [String],
+        environment: [String: String]
+    ) -> AutomationSessionOverride? {
+        guard IOThemRuntime.isStudioAutomationArguments(arguments),
+              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_SIGNED_IN"]),
+              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"]) else {
+            return nil
+        }
+        let accessToken = normalizedEnvironmentValue(
+            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"]
+        )
+        let userID = normalizedEnvironmentValue(environment["THEM_UITEST_USER_ID"])
+        let clientToken = normalizedEnvironmentValue(environment["THEM_UITEST_CLIENT_TOKEN"])
+        guard !accessToken.isEmpty, !userID.isEmpty, !clientToken.isEmpty else { return nil }
+        return AutomationSessionOverride(
+            userID: userID,
+            clientToken: clientToken,
+            accessToken: accessToken
+        )
+    }
+
+    static func shouldPersistSessionBootstrapIdentity(
+        arguments: [String],
+        environment: [String: String]
+    ) -> Bool {
+        automationSessionOverride(arguments: arguments, environment: environment) == nil
+    }
+
     static func syntheticUser(
         signedIn: Bool,
         accessToken: String,
@@ -1851,6 +1913,14 @@ nonisolated enum BackendAuthDebugSessionPolicy {
             createdAt: nil,
             updatedAt: nil
         )
+    }
+
+    private static func normalizedEnvironmentValue(_ raw: String?) -> String {
+        (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func environmentFlagIsEnabled(_ raw: String?) -> Bool {
+        ["1", "true", "yes", "on"].contains(normalizedEnvironmentValue(raw).lowercased())
     }
 }
 
@@ -3676,6 +3746,12 @@ nonisolated enum BackendAuthClient {
     private static func currentAuthSessionStateLocked(
         defaults: UserDefaults
     ) -> BackendAuthSessionState {
+#if DEBUG
+        if defaults === UserDefaults.standard,
+           let automationOverride = currentAutomationSessionOverride() {
+            return automationOverride.sessionState
+        }
+#endif
         guard authSessionStorageIsReadable(defaults: defaults) else {
             return .signedOut
         }
@@ -3847,6 +3923,17 @@ nonisolated enum BackendAuthClient {
         generateUserIDIfMissing: Bool,
         defaults: UserDefaults
     ) -> BackendAuthRequestIdentity {
+#if DEBUG
+        if defaults === UserDefaults.standard,
+           let automationOverride = currentAutomationSessionOverride() {
+            return BackendAuthRequestIdentity(
+                sessionEpoch: authSessionEpoch(defaults: defaults),
+                userID: automationOverride.userID,
+                clientToken: automationOverride.clientToken,
+                accessToken: automationOverride.accessToken
+            )
+        }
+#endif
         guard !authSessionTokenDeletionIsPending(defaults: defaults) else {
             return BackendAuthRequestIdentity(
                 sessionEpoch: authSessionEpoch(defaults: defaults),
@@ -3879,13 +3966,36 @@ nonisolated enum BackendAuthClient {
         userID: String?,
         persistClientToken: Bool
     ) -> Bool {
-        authSessionStateQueue.sync {
+        #if DEBUG
+        let processArguments = ProcessInfo.processInfo.arguments
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let automationOverride = BackendAuthDebugSessionPolicy.automationSessionOverride(
+            arguments: processArguments,
+            environment: processEnvironment
+        )
+        let shouldPersistIdentity = BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
+            arguments: processArguments,
+            environment: processEnvironment
+        )
+        #endif
+        return authSessionStateQueue.sync {
             guard sessionBootstrapIdentityCommitIsAllowed(
                 expectedSessionEpoch: expectedSessionEpoch,
                 defaults: .standard
             ) else {
                 return false
             }
+
+            #if DEBUG
+            if !shouldPersistIdentity {
+                guard let automationOverride else { return false }
+                let normalizedUserID = normalizedStoredUserID(userID)
+                guard normalizedUserID.isEmpty || normalizedUserID == automationOverride.userID else {
+                    return false
+                }
+                return true
+            }
+            #endif
 
             let normalizedUserID = normalizedStoredUserID(userID)
             if !normalizedUserID.isEmpty,
@@ -5656,9 +5766,23 @@ nonisolated enum BackendAuthClient {
     }
 
     static func authorizationHeaderValue() -> String? {
+#if DEBUG
+        if let automationOverride = currentAutomationSessionOverride() {
+            return "Bearer \(automationOverride.accessToken)"
+        }
+#endif
         guard let token = accessToken(), !token.isEmpty else { return nil }
         return "Bearer \(token)"
     }
+
+#if DEBUG
+    private static func currentAutomationSessionOverride() -> BackendAuthDebugSessionPolicy.AutomationSessionOverride? {
+        BackendAuthDebugSessionPolicy.automationSessionOverride(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+    }
+#endif
 
     private static func refreshToken() -> String? {
         authSessionStateQueue.sync {
@@ -6077,6 +6201,10 @@ nonisolated enum BackendAuthClient {
 
     static func studioDebugClientTokenOverride(defaults: UserDefaults = .standard) -> String? {
         #if DEBUG
+        if defaults === UserDefaults.standard,
+           let automationOverride = currentAutomationSessionOverride() {
+            return automationOverride.clientToken
+        }
         guard isStudioDebugClientTokenOverrideActive(defaults: defaults) else { return nil }
         let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
         return token.isEmpty ? nil : token

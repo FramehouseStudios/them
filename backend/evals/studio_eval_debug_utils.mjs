@@ -778,6 +778,7 @@ export function relaunchStudioAppWithHelper({
   helperPath = DEFAULT_STUDIO_APP_SESSION_HELPER_PATH,
   appPath,
   launchArguments = [],
+  launchEnvironment = {},
   timeoutSeconds = 20,
   pollMillis = 250,
   runOptional = runOptionalCommand,
@@ -793,6 +794,7 @@ export function relaunchStudioAppWithHelper({
   const result = runOptional("/bin/bash", helperArguments, {
     env: {
       ...process.env,
+      ...launchEnvironment,
       STUDIO_APP_SESSION_HELPER_TIMEOUT_SECONDS: String(timeoutSeconds),
       STUDIO_APP_SESSION_HELPER_POLL_MILLIS: String(pollMillis),
     },
@@ -844,6 +846,7 @@ export async function ensureStudioVisibleWithOpenHandshake({
   appPath,
   debugDefaults,
   launchArguments = [],
+  launchEnvironment = {},
   runOptional = runOptionalCommand,
   activateApp = () => {},
   appHasWindow = () => false,
@@ -875,6 +878,7 @@ export async function ensureStudioVisibleWithOpenHandshake({
       helperPath: resolvedHelperPath,
       appPath,
       launchArguments,
+      launchEnvironment,
       timeoutSeconds,
       pollMillis,
       runOptional,

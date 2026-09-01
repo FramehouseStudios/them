@@ -192,6 +192,9 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_acknowledge_diff_token") private var studioDebugAcknowledgeDiffToken: Int = 0
     @AppStorage("studio_debug_acknowledge_diff_key") private var studioDebugAcknowledgeDiffKey = ""
     @AppStorage("studio_debug_acknowledge_diff_ack_token") private var studioDebugAcknowledgeDiffAckToken: Int = 0
+    @AppStorage("studio_debug_focus_diff_token") private var studioDebugFocusDiffToken: Int = 0
+    @AppStorage("studio_debug_focus_diff_key") private var studioDebugFocusDiffKey = ""
+    @AppStorage("studio_debug_focus_diff_ack_token") private var studioDebugFocusDiffAckToken: Int = 0
     @AppStorage("studio_debug_submit_token") private var studioDebugSubmitToken: Int = 0
     @AppStorage("studio_debug_submit_command_received_token") private var studioDebugSubmitCommandReceivedToken: Int = 0
     @AppStorage("studio_debug_submit_text") private var studioDebugSubmitText = ""
@@ -308,6 +311,7 @@ struct ScreenplayStudioScreen: View {
     @FocusState private var studioInspectorFocused: Bool
 #if DEBUG || os(macOS)
     @State private var lastAppliedStudioDebugAcknowledgeToken: Int = 0
+    @State private var lastAppliedStudioDebugFocusDiffToken: Int = 0
     @State private var lastAppliedStudioDebugSubmitToken: Int = 0
     @State private var lastAppliedStudioDebugLoadProjectToken: Int = 0
     @State private var lastAppliedBridgeDebugProjectLoadToken: Int = 0
@@ -625,6 +629,9 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: studioDebugAcknowledgeDiffToken) { _, _ in
                 applyDebugAcknowledgedDiffIfNeeded()
             }
+            .onChange(of: studioDebugFocusDiffToken) { _, _ in
+                applyDebugFocusedDiffIfNeeded()
+            }
             .onChange(of: studioDebugSubmitToken) { _, _ in
                 applyDebugSubmittedStudioPromptIfNeeded()
             }
@@ -752,6 +759,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 applyDebugPreparedStudioPromptIfNeeded()
                 applyDebugSubmittedStudioPromptIfNeeded()
                 applyDebugAcknowledgedDiffIfNeeded()
+                applyDebugFocusedDiffIfNeeded()
                 applyDebugFocusPageIfNeeded()
                 applyDebugManualDraftEditIfNeeded()
                 applyDebugAutosaveToggleIfNeeded()
@@ -12853,20 +12861,22 @@ Return revised screenplay lines only.
             await Task.yield()
             try? await Task.sleep(nanoseconds: 250_000_000)
             while !Task.isCancelled {
-                handleStudioDebugLoadProjectRequestFileIfNeeded()
-                handleStudioDebugManualEditRequestFileIfNeeded()
-                handleStudioDebugAutosaveToggleRequestFileIfNeeded()
-                handleStudioDebugSaveRequestFileIfNeeded()
-                _ = synchronizeMirroredStudioDebugPrepareState()
-                _ = synchronizeMirroredStudioDebugInteractionState()
-                applyDebugLoadProjectIfNeeded()
-                applyDebugPreparedStudioPromptIfNeeded()
-                applyDebugSubmittedStudioPromptIfNeeded()
-                applyDebugFocusPageIfNeeded()
-                applyDebugManualDraftEditIfNeeded()
-                applyDebugAutosaveToggleIfNeeded()
-                applyDebugForceHydrateIfNeeded()
-                applyDebugManualSaveIfNeeded()
+                if IOThemRuntime.isStudioAutomationSession {
+                    handleStudioDebugLoadProjectRequestFileIfNeeded()
+                    handleStudioDebugManualEditRequestFileIfNeeded()
+                    handleStudioDebugAutosaveToggleRequestFileIfNeeded()
+                    handleStudioDebugSaveRequestFileIfNeeded()
+                    _ = synchronizeMirroredStudioDebugPrepareState()
+                    _ = synchronizeMirroredStudioDebugInteractionState()
+                    applyDebugLoadProjectIfNeeded()
+                    applyDebugPreparedStudioPromptIfNeeded()
+                    applyDebugSubmittedStudioPromptIfNeeded()
+                    applyDebugFocusPageIfNeeded()
+                    applyDebugManualDraftEditIfNeeded()
+                    applyDebugAutosaveToggleIfNeeded()
+                    applyDebugForceHydrateIfNeeded()
+                    applyDebugManualSaveIfNeeded()
+                }
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
         }
@@ -13679,6 +13689,37 @@ The door closes softly. That is worse than a slam.
         guard let targetExchange else { return }
         acknowledgeCurrentDraftVersion(for: targetExchange)
         studioDebugAcknowledgeDiffAckToken = studioDebugAcknowledgeDiffToken
+        publishDebugStudioDiffState()
+        #endif
+    }
+
+    private func applyDebugFocusedDiffIfNeeded() {
+        #if DEBUG
+        guard IOThemRuntime.isStudioAutomationSession else { return }
+        guard studioDebugFocusDiffToken > 0 else { return }
+        guard studioDebugFocusDiffToken != studioDebugFocusDiffAckToken else { return }
+        guard studioDebugFocusDiffToken != lastAppliedStudioDebugFocusDiffToken else { return }
+        let requestedKey = studioDebugFocusDiffKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !requestedKey.isEmpty,
+              let targetExchange = studioAskNoteHistory.first(where: { exchange in
+                  studioExchangePersistentActionKey(exchange) == requestedKey
+                      && fullThreadDraftComparison(for: exchange)?.state == .revisedInDraft
+              }) else {
+            return
+        }
+        lastAppliedStudioDebugFocusDiffToken = studioDebugFocusDiffToken
+        focusedPageDiffExchangeID = targetExchange.id
+        focusedPageDiffPersistentKey = requestedKey
+        isFocusedPageDiffOverlayPresented = false
+        highlightedStudioExchangeID = targetExchange.id
+        persistFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
+        studioDebugFocusDiffAckToken = studioDebugFocusDiffToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(
+            studioDebugFocusDiffToken,
+            forKey: "studio_debug_focus_diff_ack_token"
+        )
+        #endif
         publishDebugStudioDiffState()
         #endif
     }

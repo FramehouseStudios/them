@@ -311,8 +311,12 @@ actor ScreenplayDraftSaveOutbox {
     #endif
 
     private static func defaultStorageDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base = IOThemRuntime.currentAutomationOutboxRootURL
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        if IOThemRuntime.currentAutomationOutboxRootURL != nil {
+            return base.appendingPathComponent("ScreenplayDraftSaveOutbox", isDirectory: true)
+        }
         return base
             .appendingPathComponent("io.them", isDirectory: true)
             .appendingPathComponent("ScreenplayDraftSaveOutbox", isDirectory: true)

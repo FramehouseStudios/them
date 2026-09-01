@@ -880,7 +880,10 @@ function normalizeStoredScreenplayThreadViewState(entry) {
   const selectedSceneKey = normalizeSnippet(entry.selectedSceneKey ?? entry.selected_scene_key, 180);
   const scrollTargetKey = normalizeSnippet(entry.scrollTargetKey ?? entry.scroll_target_key, 180);
   const focusedDiffKey = normalizeSnippet(entry.focusedDiffKey ?? entry.focused_diff_key, 180);
-  const latestReopenedWriteID = normalizeSnippet(entry.latestReopenedWriteID ?? entry.latest_reopened_write_id, 180);
+  const latestReopenedWriteID = normalizeSnippet(
+    entry.latestReopenedWriteID ?? entry.latestReopenedWriteId ?? entry.latest_reopened_write_id,
+    180
+  );
   const reopenedLineageKeys = Array.isArray(entry.reopenedLineageKeys ?? entry.reopened_lineage_keys)
     ? [...new Set((entry.reopenedLineageKeys ?? entry.reopened_lineage_keys)
         .map((item) => normalizeSnippet(item, 180))
