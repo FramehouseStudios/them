@@ -703,6 +703,34 @@ final class BackendAccountDataControlsTests: XCTestCase {
 #endif
     }
 
+    func testBackendLiveAuthDefaultsNotificationWaitsForMutationQueue() {
+        let mutationQueue = DispatchQueue(label: "io.them.tests.auth-mutation")
+        let deliveryQueue = DispatchQueue(label: "io.them.tests.auth-notification")
+        let mutationStarted = expectation(description: "auth mutation started")
+        let notificationDelivered = expectation(description: "auth notification delivered")
+        let releaseMutation = DispatchSemaphore(value: 0)
+        let deliverySignal = DispatchSemaphore(value: 0)
+
+        mutationQueue.async {
+            mutationStarted.fulfill()
+            releaseMutation.wait()
+        }
+        wait(for: [mutationStarted], timeout: 2)
+
+        BackendLiveDefaultsNotificationScheduler.enqueue(
+            after: mutationQueue,
+            deliveryQueue: deliveryQueue
+        ) {
+            deliverySignal.signal()
+            notificationDelivered.fulfill()
+        }
+
+        XCTAssertEqual(deliverySignal.wait(timeout: .now() + 0.05), .timedOut)
+
+        releaseMutation.signal()
+        wait(for: [notificationDelivered], timeout: 2)
+    }
+
     func testMemoryHealthRejectsForeignJSONService() async throws {
         AccountDataControlsURLProtocolStub.handler = { request in
             XCTAssertTrue(request.url?.path == "/bridge" || request.url?.path == "/health")
@@ -1600,6 +1628,21 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testUITestAuthRefreshSmokeRequiresExactAutomationPair() {
+        XCTAssertTrue(UITestLaunchConfiguration.shouldRunAuthRefreshSmoke(
+            arguments: ["them", "--ui-testing", "--ui-auth-refresh-smoke"]
+        ))
+        XCTAssertFalse(UITestLaunchConfiguration.shouldRunAuthRefreshSmoke(
+            arguments: ["them", "--ui-auth-refresh-smoke"]
+        ))
+        XCTAssertFalse(UITestLaunchConfiguration.shouldRunAuthRefreshSmoke(
+            arguments: ["them", "--studio-eval", "--ui-auth-refresh-smoke"]
+        ))
+        XCTAssertFalse(UITestLaunchConfiguration.shouldRunAuthRefreshSmoke(
+            arguments: ["them", "--ui-testing-extra", "--ui-auth-refresh-smoke"]
+        ))
+    }
+
     func testNewWritesUseKeychainAndRemoveDefaults() {
         defaults.set("stale-user", forKey: "user_id")
         var keychain: [String: String] = [:]
@@ -1704,6 +1747,25 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertFalse(BackendAuthClient.isTerminalRefreshRejection(
             BackendMemoryAPIError.server(status: 403, message: "policy_denied")
         ))
+    }
+
+    func testAuthSessionLeaseFallsBackToKeychainBackedSharedUserID() throws {
+        defaults.set(true, forKey: "auth_signed_in")
+        let generation = BackendAuthClient.advanceAuthSessionEpoch(defaults: defaults)
+
+        let lease = try XCTUnwrap(BackendAuthClient.capturedAuthSessionLease(
+            defaults: defaults,
+            currentAccessToken: { " expired-access " },
+            currentRefreshToken: { " current-refresh " },
+            currentSharedUserID: { " keychain-user " }
+        ))
+
+        XCTAssertEqual(lease.sessionGeneration, generation)
+        XCTAssertEqual(lease.userID, "keychain-user")
+        XCTAssertEqual(lease.accessToken, "expired-access")
+        XCTAssertEqual(lease.refreshToken, "current-refresh")
+        XCTAssertNil(defaults.object(forKey: "auth_user_payload"))
+        XCTAssertNil(defaults.object(forKey: "user_id"))
     }
 
     func testAuthSessionLeaseRequiresSameGenerationAndExactTokens() {

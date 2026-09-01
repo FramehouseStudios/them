@@ -117,7 +117,28 @@ nonisolated enum BackendUserDefaultsStore {
 
     private static func publishLiveUIChangeIfNeeded(forKey key: String) {
         guard liveUIKeys.contains(key) else { return }
-        DispatchQueue.main.async {
+        BackendAuthClient.publishLiveUserDefaultsChangeAfterAuthMutation()
+    }
+}
+
+nonisolated enum BackendLiveDefaultsNotificationScheduler {
+    static func enqueue(
+        after mutationQueue: DispatchQueue,
+        deliveryQueue: DispatchQueue = .main,
+        publish: @escaping @Sendable () -> Void
+    ) {
+        mutationQueue.async {
+            deliveryQueue.async(execute: publish)
+        }
+    }
+}
+
+nonisolated extension BackendAuthClient {
+    fileprivate static func publishLiveUserDefaultsChangeAfterAuthMutation() {
+        // Live SwiftUI defaults observers may synchronously read auth state.
+        // Hop through the mutation queue so they cannot run until the current
+        // crash-safe Keychain/defaults transaction has released that queue.
+        BackendLiveDefaultsNotificationScheduler.enqueue(after: authSessionStateQueue) {
             NotificationCenter.default.post(
                 name: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard
@@ -3892,20 +3913,39 @@ nonisolated enum BackendAuthClient {
 
     static func captureAuthSessionLease() -> BackendAuthSessionLease? {
         authSessionStateQueue.sync {
-            guard authSessionStorageIsReadable(defaults: .standard) else { return nil }
-            let accessTokenValue = accessTokenLocked(defaults: .standard) ?? ""
-            let refreshTokenValue = refreshTokenLocked(defaults: .standard) ?? ""
-            let userID = storedAuthUserPayload(defaults: .standard)?.userId
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !userID.isEmpty,
-                  !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
-            return BackendAuthSessionLease(
-                sessionGeneration: authSessionEpoch(defaults: .standard),
-                userID: userID,
-                accessToken: accessTokenValue,
-                refreshToken: refreshTokenValue
+            capturedAuthSessionLease(
+                defaults: .standard,
+                currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
+                currentSharedUserID: { sharedUserIDLocked(defaults: .standard) }
             )
         }
+    }
+
+    static func capturedAuthSessionLease(
+        defaults: UserDefaults,
+        currentAccessToken: () -> String?,
+        currentRefreshToken: () -> String?,
+        currentSharedUserID: () -> String?
+    ) -> BackendAuthSessionLease? {
+        guard authSessionStorageIsReadable(defaults: defaults) else { return nil }
+        let accessTokenValue = currentAccessToken()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let refreshTokenValue = currentRefreshToken()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedUserID = storedAuthUserPayload(defaults: defaults)?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sharedUserID = currentSharedUserID()?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userID = storedUserID.isEmpty ? sharedUserID : storedUserID
+        guard !userID.isEmpty,
+              !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty else { return nil }
+        return BackendAuthSessionLease(
+            sessionGeneration: authSessionEpoch(defaults: defaults),
+            userID: userID,
+            accessToken: accessTokenValue,
+            refreshToken: refreshTokenValue
+        )
     }
 
     static func requestIdentitySnapshot(
