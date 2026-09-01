@@ -1,13 +1,23 @@
-// Thin talk-edge adapter for D008 Page-lane cancel-on-barge-in.
+// Thin talk-edge adapter for D008 Page-lane cancel-on-barge-in + Reflex short-circuit.
 //
 // Wires classifyIntent → laneForIntent without rewriting talk_handler.
-// When the lane is Page (or explicit page_edit), reserves before the
-// expensive path. Downstream must call store.proceed(id) before billing.
+// Order at the talk edge:
+//   1) classify lane
+//   2) if Reflex/Companion and tryReflexReply succeeds → HTTP short-circuit
+//      (no wallet reserve, no Spark / handleTalkRequest)
+//   3) else if Page → reserve (wallet + page AbortController) then talk_handler
+// Downstream must call store.proceed(id) before billing.
 // Each reservation owns an AbortController; cancel(id)/cancelByOwner abort
 // it. talk_handler injects req.clementine.abortSignal at chat call sites.
 
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
+import {
+  peekKnownFacts,
+  peekVoiceSpecHints,
+  tryTalkEdgeReflex,
+  sendReflexReply,
+} from "./talk_edge_adapter.js";
 
 function pickString(...candidates) {
   for (const c of candidates) {
@@ -203,6 +213,37 @@ function createPageLaneTalkAdapter({
     const hints = peekPageHints(req);
     const sessionId = resolveSessionId(req);
     const userId = resolveUserId(req);
+
+    // --- Reflex short-circuit (before wallet / Spark) ---
+    // greetings / thanks / check-ins / acks / soft silence via templates.
+    // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
+    const earlyLane = resolveTalkLane(utterance, hints);
+    const reflexHit = tryTalkEdgeReflex({
+      text: utterance,
+      laneInfo: earlyLane,
+      knownFacts: peekKnownFacts(req),
+      voiceSpecHints: peekVoiceSpecHints(req),
+    });
+    if (reflexHit?.handled) {
+      req.clementine = {
+        intent: earlyLane.intent,
+        lane: earlyLane.lane,
+        effort: earlyLane.effort,
+        walletMeter: "none",
+        reservationId: null,
+        reservation: null,
+        walletReservationId: null,
+        walletReservation: null,
+        commitWallet: null,
+        abortSignal: null,
+        reflex: reflexHit,
+        proceed: () => ({ ok: true, code: "reflex_short_circuit", reservation: null }),
+      };
+      logger?.log?.(
+        `[clementine/reflex] short-circuit template=${reflexHit.templateId} intent=${earlyLane.intent}`
+      );
+      return sendReflexReply(res, { reflex: reflexHit, laneInfo: earlyLane });
+    }
 
     let lane;
     let reservation = null;
