@@ -8,11 +8,10 @@ set -euo pipefail
 # - RUN_TALK_RECOVERY_GATE=1 runs the talk recovery contract test.
 # - RUN_ALERT=1 runs ops alert checks.
 # - RUN_LOAD=1 runs the load profile.
-# - RUN_CRAFT_COMPLETENESS_GATE=1 smokes the T23 craft completeness gate
-#   against backend/fixtures/craft/report_complete.json. Verifies the
-#   gate script works; real RC runs should also point CRAFT_GATE_FIXTURE
-#   at a project-specific fixture or pass --project/--version to check
-#   a stored report.
+# - RUN_CRAFT_COMPLETENESS_GATE=1 generates a fresh report through the
+#   production analyzer, then validates its schema, evidence, counts, scopes,
+#   and completeness. Set CRAFT_GATE_FIXTURE only for an explicit external RC
+#   report; a checked-in static fixture is never the default release proof.
 # Set any of these to 0 to skip that section intentionally.
 # This script is the canonical place to document gate env vars for local runs
 # and any external CI that is not checked into this repository.
@@ -29,7 +28,7 @@ RUN_LOAD="${RUN_LOAD:-0}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
 RUN_CRAFT_COMPLETENESS_GATE="${RUN_CRAFT_COMPLETENESS_GATE:-1}"
 RUN_CANON="${RUN_CANON:-1}"
-CRAFT_GATE_FIXTURE="${CRAFT_GATE_FIXTURE:-${BACKEND_DIR}/fixtures/craft/report_complete.json}"
+CRAFT_GATE_FIXTURE="${CRAFT_GATE_FIXTURE:-}"
 
 cd "${BACKEND_DIR}"
 
@@ -159,8 +158,15 @@ if [[ "${RUN_LOAD}" == "1" ]]; then
 fi
 
 if [[ "${RUN_CRAFT_COMPLETENESS_GATE}" == "1" ]]; then
-  echo "[quality-gate] running craft completeness gate (fixture=${CRAFT_GATE_FIXTURE}) ..."
-  node "${ROOT_DIR}/scripts/check_craft_completeness.mjs" --file "${CRAFT_GATE_FIXTURE}"
+  if [[ -n "${CRAFT_GATE_FIXTURE}" ]]; then
+    echo "[quality-gate] running craft completeness gate (explicit fixture=${CRAFT_GATE_FIXTURE}) ..."
+    node "${ROOT_DIR}/scripts/check_craft_completeness.mjs" --file "${CRAFT_GATE_FIXTURE}"
+  else
+    CRAFT_FRESH_REPORT="${TMPDIR:-/tmp}/io-them-craft-contract-complete-$$.json"
+    echo "[quality-gate] generating fresh craft contract report (${CRAFT_FRESH_REPORT}) ..."
+    node "${BACKEND_DIR}/evals/run_craft_analysis_contract_eval.mjs" --write-complete-report "${CRAFT_FRESH_REPORT}"
+    node "${ROOT_DIR}/scripts/check_craft_completeness.mjs" --file "${CRAFT_FRESH_REPORT}"
+  fi
 else
   echo "[quality-gate] skipping craft completeness gate (RUN_CRAFT_COMPLETENESS_GATE=${RUN_CRAFT_COMPLETENESS_GATE})"
 fi

@@ -147,6 +147,9 @@ public nonisolated struct ScreenplayCraftTurnOverrideMutation: Codable, Hashable
     public let page: Int?
     public let userId: String?
     public let expiresAt: String?
+    public let projectId: String?
+    public let versionId: String?
+    public let frameworkId: String?
 
     public init(
         turnId: String,
@@ -155,7 +158,10 @@ public nonisolated struct ScreenplayCraftTurnOverrideMutation: Codable, Hashable
         sceneId: String?,
         page: Int?,
         userId: String?,
-        expiresAt: String?
+        expiresAt: String?,
+        projectId: String? = nil,
+        versionId: String? = nil,
+        frameworkId: String? = nil
     ) {
         self.turnId = turnId
         self.action = action
@@ -164,6 +170,28 @@ public nonisolated struct ScreenplayCraftTurnOverrideMutation: Codable, Hashable
         self.page = page
         self.userId = userId
         self.expiresAt = expiresAt
+        self.projectId = projectId
+        self.versionId = versionId
+        self.frameworkId = frameworkId
+    }
+
+    public func scoped(
+        projectId: String,
+        versionId: String?,
+        frameworkId: String
+    ) -> ScreenplayCraftTurnOverrideMutation {
+        ScreenplayCraftTurnOverrideMutation(
+            turnId: turnId,
+            action: action,
+            reason: reason,
+            sceneId: sceneId,
+            page: page,
+            userId: userId,
+            expiresAt: expiresAt,
+            projectId: projectId,
+            versionId: versionId,
+            frameworkId: frameworkId
+        )
     }
 }
 

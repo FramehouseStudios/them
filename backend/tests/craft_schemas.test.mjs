@@ -135,6 +135,34 @@ test("Coverage missing requiredMajorTurnCount fails the schema", async () => {
   assert.ok(r.errors.some((e) => e.includes("requiredMajorTurnCount")));
 });
 
+test("AJV validation is strict and does not coerce or strip report data", async () => {
+  const fx = await loadFixture("report_complete.json");
+  fx.coverage.detectedMajorTurnCount = "4";
+  fx.coverage.unexpectedProof = true;
+  const before = structuredClone(fx);
+  const r = validateAgainstSchema(fx, REPORT_SCHEMA);
+  assert.equal(r.valid, false);
+  assert.ok(r.errors.some((e) => e.includes("detectedMajorTurnCount") && e.includes("type")));
+  assert.ok(r.errors.some((e) => e.includes("unexpectedProof")));
+  assert.deepEqual(fx, before);
+});
+
+test("scoped override fields and unavailable coverage count remain schema-v1 compatible", async () => {
+  const fx = await loadFixture("report_with_override.json");
+  const override = fx.overrides[0];
+  override.projectId = fx.projectId;
+  override.versionId = fx.versionId;
+  override.frameworkId = fx.framework.id;
+  Object.assign(fx.majorTurns.find((turn) => turn.override)?.override, {
+    projectId: fx.projectId,
+    versionId: fx.versionId,
+    frameworkId: fx.framework.id,
+  });
+  fx.coverage.unavailableMajorTurnCount = 0;
+  const r = validateAgainstSchema(fx, REPORT_SCHEMA);
+  assert.ok(r.valid, r.errors.join("; "));
+});
+
 // ---------- serializer omits undefined optionals ----------
 
 test("built-in frameworks serialize and required turn IDs map to required beats", () => {

@@ -18,6 +18,7 @@ import {
   storeReport,
   getStoredReport,
   recordOverride,
+  listOverrides,
   deleteOverride,
   getOverride,
 } from "./craft_analysis.js";
@@ -84,6 +85,9 @@ function errorCodeToStatus(code) {
     case "craft_invalid_screenplay":
     case "craft_schema_version_unsupported":
       return 400;
+    case "craft_analysis_input_too_large":
+    case "craft_analysis_scene_limit_exceeded":
+      return 413;
     case "craft_override_user_mismatch":
       return 403;
     default:
@@ -217,7 +221,7 @@ function mountCraftRoutes(app, deps = {}) {
     let report;
     try {
       report = await getStoredReport({
-        projectId: owned.storageProjectId,
+        storageProjectId: owned.storageProjectId,
         versionId: req.params.versionId,
       });
     } catch (e) {
@@ -237,13 +241,20 @@ function mountCraftRoutes(app, deps = {}) {
     const owned = await requireOwnedProject(req, res, body.projectId);
     if (!owned) return;
     try {
-      const report = analyzeScreenplay({
+      const overrides = await listOverrides({
+        userId: owned.userId,
+        projectId: owned.projectId,
+        versionId: body.versionId,
+        frameworkId: body.frameworkId,
+      });
+      const report = await analyzeScreenplay({
         screenplay: body.screenplay || {},
         frameworkId: body.frameworkId,
         projectId: owned.projectId,
         versionId: body.versionId,
+        overrides,
       });
-      await storeReport({ ...report, projectId: owned.storageProjectId });
+      await storeReport(report, { storageProjectId: owned.storageProjectId });
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ ...report, projectId: owned.projectId });
     } catch (e) {
@@ -254,10 +265,16 @@ function mountCraftRoutes(app, deps = {}) {
 
   app.post("/craft/overrides", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    if (typeof body.projectId !== "string" || !body.projectId.trim()) {
+      return sendKnownError(res, "craft_invalid_screenplay", "override.projectId is required");
+    }
+    const owned = await requireOwnedProject(req, res, body.projectId);
+    if (!owned) return;
     try {
       const stored = await recordOverride({
-        override: { ...(req.body || {}), userId: canonicalAuthenticatedUserId(req) },
-        requestingUserId: canonicalAuthenticatedUserId(req),
+        override: { ...body, projectId: owned.projectId, userId: owned.userId },
+        requestingUserId: owned.userId,
       });
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json(stored);
@@ -277,6 +294,10 @@ function mountCraftRoutes(app, deps = {}) {
       // Match the screenplay IDOR posture: do not reveal whether another
       // user's object exists.
       return sendKnownError(res, "craft_override_not_found");
+    }
+    if (existing.projectId) {
+      const owned = await requireOwnedProject(req, res, existing.projectId);
+      if (!owned) return;
     }
     try {
       await deleteOverride(id);

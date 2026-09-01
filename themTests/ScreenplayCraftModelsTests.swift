@@ -19,6 +19,61 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(report.snapshot?.versionId, "version-7")
     }
 
+    func testCraftOverrideMutationAddsAuthoritativeAnalysisScope() throws {
+        let unscoped = ScreenplayCraftTurnOverrideMutation(
+            turnId: "all-is-lost",
+            action: "mark-present",
+            reason: "The motel scene is the story's low point.",
+            sceneId: "scene-40",
+            page: 76,
+            userId: nil,
+            expiresAt: nil,
+            projectId: "stale-project",
+            versionId: "stale-version",
+            frameworkId: "three-act"
+        )
+
+        let scoped = unscoped.scoped(
+            projectId: "project-17",
+            versionId: "version-7",
+            frameworkId: "save-the-cat"
+        )
+        let encoded = try JSONEncoder().encode(scoped)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        XCTAssertEqual(object["projectId"] as? String, "project-17")
+        XCTAssertEqual(object["versionId"] as? String, "version-7")
+        XCTAssertEqual(object["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(object["turnId"] as? String, "all-is-lost")
+    }
+
+    func testCraftRailTimingKeepsUnavailableDistinctFromMissing() {
+        XCTAssertEqual(
+            ScreenplayCraftRailTurnPresentation.timingLabel(
+                status: "unavailable",
+                actualPage: nil,
+                driftPages: nil
+            ),
+            "Unavailable"
+        )
+        XCTAssertEqual(
+            ScreenplayCraftRailTurnPresentation.timingLabel(
+                status: "missing",
+                actualPage: nil,
+                driftPages: nil
+            ),
+            "Missing"
+        )
+        XCTAssertEqual(
+            ScreenplayCraftRailTurnPresentation.timingLabel(
+                status: "late",
+                actualPage: 14,
+                driftPages: 2
+            ),
+            "+2 pg"
+        )
+    }
+
     func testCraftReportRoundTripsWithSnakeCaseKeys() throws {
         let report = try decodeReportFixture()
         let encoder = JSONEncoder()

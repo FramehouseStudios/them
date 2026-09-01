@@ -9,6 +9,8 @@
 // Optional Swift fields are absent from `required` arrays; clients
 // must accept omitted keys (no null serialization).
 
+import Ajv from "ajv";
+
 const CRAFT_SCHEMA_VERSION = 1;
 
 const PAGE_RANGE_SCHEMA = Object.freeze({
@@ -42,6 +44,9 @@ const TURN_OVERRIDE_SCHEMA = Object.freeze({
   required: ["id", "turnId", "action"],
   properties: {
     id:        { type: "string", minLength: 1 },
+    projectId: { type: "string", minLength: 1 },
+    versionId: { type: "string", minLength: 1 },
+    frameworkId: { type: "string", minLength: 1 },
     turnId:    { type: "string", minLength: 1 },
     action:    { type: "string", minLength: 1 },
     reason:    { type: "string" },
@@ -166,6 +171,7 @@ const COVERAGE_SCHEMA = Object.freeze({
     detectedMajorTurnCount:   { type: "integer", minimum: 0 },
     overriddenMajorTurnCount: { type: "integer", minimum: 0 },
     missingMajorTurnCount:    { type: "integer", minimum: 0 },
+    unavailableMajorTurnCount:{ type: "integer", minimum: 0 },
     complete:                 { type: "boolean" },
     confidence:               { type: "number", minimum: 0, maximum: 1 },
   },
@@ -261,77 +267,62 @@ const ERROR_ENVELOPE_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
-// Tiny, dependency-free JSON Schema validator covering the subset
-// used by the craft schemas. Returns { valid, errors }. We avoid
-// pulling in ajv to keep backend deps lean for T18; real validation
-// rigor for evals can adopt ajv in T21 if needed.
+// AJV validates the complete draft-07 contract without coercing, defaulting,
+// stripping, or otherwise mutating production values. PageRange ordering is a
+// semantic invariant outside plain JSON Schema, so it remains an explicit pass.
+const ajv = new Ajv({
+  allErrors: true,
+  strict: true,
+  coerceTypes: false,
+  useDefaults: false,
+  removeAdditional: false,
+});
+const compiledValidators = new WeakMap();
+
+function formatAjvError(error, rootPath) {
+  const instancePath = String(error?.instancePath || "").replaceAll("/", ".");
+  const base = `${rootPath}${instancePath}`;
+  if (error?.keyword === "required") {
+    return `${base}: [required] missing required key "${error.params?.missingProperty}"`;
+  }
+  if (error?.keyword === "additionalProperties") {
+    return `${base}: [additionalProperties] unexpected key "${error.params?.additionalProperty}"`;
+  }
+  return `${base}: [${error?.keyword || "schema"}] ${error?.message || "validation failed"}`;
+}
+
+function collectPageRangeErrors(value, schema, path, errors) {
+  if (!schema || value === undefined || value === null) return;
+  if (
+    schema === PAGE_RANGE_SCHEMA
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Number.isInteger(value.start)
+    && Number.isInteger(value.end)
+    && value.start > value.end
+  ) {
+    errors.push(`${path}: PageRange.start (${value.start}) must be <= end (${value.end})`);
+  }
+  if (schema.type === "object" && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, childSchema] of Object.entries(schema.properties || {})) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        collectPageRangeErrors(value[key], childSchema, `${path}.${key}`, errors);
+      }
+    }
+  } else if (schema.type === "array" && Array.isArray(value) && schema.items) {
+    value.forEach((item, index) => collectPageRangeErrors(item, schema.items, `${path}[${index}]`, errors));
+  }
+}
+
 function validateAgainstSchema(value, schema, path = "$") {
-  const errors = [];
-  const visit = (val, sch, p) => {
-    if (sch === PAGE_RANGE_SCHEMA && val && typeof val === "object" && val.start > val.end) {
-      errors.push(`${p}: PageRange.start (${val.start}) must be <= end (${val.end})`);
-    }
-    if (sch.const !== undefined && val !== sch.const) {
-      errors.push(`${p}: expected const ${JSON.stringify(sch.const)} got ${JSON.stringify(val)}`);
-    }
-    const t = sch.type;
-    if (t === "object") {
-      if (val === null || typeof val !== "object" || Array.isArray(val)) {
-        errors.push(`${p}: expected object`);
-        return;
-      }
-      for (const key of sch.required || []) {
-        if (!Object.prototype.hasOwnProperty.call(val, key)) {
-          errors.push(`${p}: missing required key "${key}"`);
-        }
-      }
-      const props = sch.properties || {};
-      for (const key of Object.keys(val)) {
-        if (props[key]) {
-          visit(val[key], props[key], `${p}.${key}`);
-        } else if (sch.additionalProperties === false) {
-          errors.push(`${p}: unexpected key "${key}"`);
-        }
-      }
-    } else if (t === "array") {
-      if (!Array.isArray(val)) {
-        errors.push(`${p}: expected array`);
-        return;
-      }
-      if (sch.minItems !== undefined && val.length < sch.minItems) {
-        errors.push(`${p}: array length ${val.length} < minItems ${sch.minItems}`);
-      }
-      if (sch.items) {
-        val.forEach((item, idx) => visit(item, sch.items, `${p}[${idx}]`));
-      }
-    } else if (t === "string") {
-      if (typeof val !== "string") {
-        errors.push(`${p}: expected string`);
-        return;
-      }
-      if (sch.minLength !== undefined && val.length < sch.minLength) {
-        errors.push(`${p}: string length ${val.length} < minLength ${sch.minLength}`);
-      }
-    } else if (t === "integer") {
-      if (typeof val !== "number" || !Number.isInteger(val)) {
-        errors.push(`${p}: expected integer`);
-        return;
-      }
-      if (sch.minimum !== undefined && val < sch.minimum) {
-        errors.push(`${p}: ${val} < minimum ${sch.minimum}`);
-      }
-    } else if (t === "number") {
-      if (typeof val !== "number") {
-        errors.push(`${p}: expected number`);
-        return;
-      }
-      if (sch.minimum !== undefined && val < sch.minimum) errors.push(`${p}: ${val} < minimum ${sch.minimum}`);
-      if (sch.maximum !== undefined && val > sch.maximum) errors.push(`${p}: ${val} > maximum ${sch.maximum}`);
-    } else if (t === "boolean") {
-      if (typeof val !== "boolean") errors.push(`${p}: expected boolean`);
-    }
-  };
-  visit(value, schema, path);
+  let validator = compiledValidators.get(schema);
+  if (!validator) {
+    validator = ajv.compile(schema);
+    compiledValidators.set(schema, validator);
+  }
+  const valid = validator(value);
+  const errors = valid ? [] : (validator.errors || []).map((error) => formatAjvError(error, path));
+  collectPageRangeErrors(value, schema, path, errors);
   return { valid: errors.length === 0, errors };
 }
 

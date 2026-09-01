@@ -246,17 +246,19 @@ test("[exposure-lock] POST /visual/context rejects unauthenticated requests with
   }
 });
 
-test("[exposure-lock] paid-provider classification includes logline distill but not deterministic twist suggest", () => {
+test("[exposure-lock] paid-provider classification includes craft analyze and logline distill but not deterministic twist suggest", () => {
   const auth = setupSubsystem({ requireUserAuth: false });
 
-  const paidReq = makeReqWithHeaders();
-  paidReq.path = "/craft/logline/distill";
-  const paidRes = makeRes();
-  let paidNextCalled = false;
-  auth.protectPaidProviderRoutes(paidReq, paidRes, () => { paidNextCalled = true; });
-  assert.equal(paidNextCalled, false);
-  assert.equal(paidRes._status, 401);
-  assert.equal(paidRes._body?.stage, "auth_user");
+  for (const path of ["/craft/analyze", "/craft/logline/distill"]) {
+    const paidReq = makeReqWithHeaders();
+    paidReq.path = path;
+    const paidRes = makeRes();
+    let paidNextCalled = false;
+    auth.protectPaidProviderRoutes(paidReq, paidRes, () => { paidNextCalled = true; });
+    assert.equal(paidNextCalled, false);
+    assert.equal(paidRes._status, 401);
+    assert.equal(paidRes._body?.stage, "auth_user");
+  }
 
   const deterministicReq = makeReqWithHeaders();
   deterministicReq.path = "/craft/twist/suggest";

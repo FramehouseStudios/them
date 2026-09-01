@@ -207,6 +207,7 @@ import {
   talkIdempotencyCacheSize,
 } from "./lib/talk_state.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
+import { createDefaultClassifier as createDefaultCraftClassifier } from "./lib/craft_classifier.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
@@ -33474,7 +33475,12 @@ mountTalkPipelineRoutes(app, {
 // T22: wire craft analysis through the shared persistence adapter so
 // reports and overrides survive process restarts (Postgres-backed when
 // DATABASE_URL is set, JSON-file-backed otherwise).
-configureCraftAnalysis({ persistence: sharedPersistence });
+configureCraftAnalysis({
+  persistence: sharedPersistence,
+  // A process-scoped classifier preserves its provider circuit state across
+  // requests instead of resetting the cooldown for every analysis.
+  classifier: createDefaultCraftClassifier(),
+});
 // T-logline-distiller: routes use the shared adapter + the default
 // classifier (LLM when OPENAI_API_KEY is set; deterministic stub otherwise).
 configureLoglineDistiller({ persistence: sharedPersistence, classifier: defaultLoglineClassifier() });
@@ -33486,6 +33492,11 @@ configureAcceptedTwistLog({ persistence: sharedPersistence });
 // first-page-written/stats.
 configureFirstPageTelemetry({ persistence: sharedPersistence });
 mountFirstPageTelemetryRoute(app);
+app.use(
+  "/craft/analyze",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("craft_analyze"),
+);
 app.use(
   "/craft/logline/distill",
   backendRateLimiter.middleware("provider"),

@@ -57,10 +57,16 @@ test("[craft-auth] no token is rejected, cross-user projects are hidden, and sam
     const bob = await signup(server, "bob-craft-authorization@example.com");
     assert.notEqual(alice.userId, bob.userId);
 
+    const projectId = "shared-craft-project";
+    await createProject(server, alice, projectId);
+
     const aliceOverride = await apiRequest(server, "/craft/overrides", {
       method: "POST",
       headers: authHeaders(alice),
       json: {
+        projectId,
+        versionId: "v1",
+        frameworkId: "save-the-cat",
         turnId: "midpoint",
         action: "mark-present",
         userId: bob.userId,
@@ -83,9 +89,6 @@ test("[craft-auth] no token is rejected, cross-user projects are hidden, and sam
       headers: authHeaders(alice),
     });
     assert.equal(aliceOverrideDelete.status, 200);
-
-    const projectId = "shared-craft-project";
-    await createProject(server, alice, projectId);
 
     const anonymous = await apiRequest(server, `/craft/reports/${projectId}/v1`);
     assert.equal(anonymous.status, 401);

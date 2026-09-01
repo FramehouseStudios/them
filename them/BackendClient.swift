@@ -2724,6 +2724,8 @@ final class BackendClient {
     ) async throws -> ScreenplayCraftTurnOverride {
         _ = try requiredCraftBodyValue(override.turnId, field: "turnId")
         _ = try requiredCraftBodyValue(override.action, field: "action")
+        _ = try requiredCraftBodyValue(override.projectId ?? "", field: "projectId")
+        _ = try requiredCraftBodyValue(override.frameworkId ?? "", field: "frameworkId")
         return try await performCraftRequest(
             method: "POST",
             pathComponents: ["craft", "overrides"],

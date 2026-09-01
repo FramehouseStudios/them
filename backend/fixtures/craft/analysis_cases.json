@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "save-the-cat-complete",
+      "frameworkId": "save-the-cat",
+      "state": "complete",
+      "scenes": [
+        { "id": "stc-catalyst", "title": "INT. APARTMENT - MORNING", "pageStart": 12, "pageEnd": 12, "text": "A court notice changes Mara's life overnight.", "semanticBeatId": "catalyst" },
+        { "id": "stc-midpoint", "title": "EXT. CITY HALL - DAY", "pageStart": 55, "pageEnd": 55, "text": "Mara wins the vote, then learns the victory exposed her brother.", "semanticBeatId": "midpoint" },
+        { "id": "stc-all-is-lost", "title": "INT. EMPTY OFFICE - NIGHT", "pageStart": 75, "pageEnd": 75, "text": "The coalition abandons Mara and the evidence burns.", "semanticBeatId": "all-is-lost" },
+        { "id": "stc-finale", "title": "EXT. COURTHOUSE - DAWN", "pageStart": 96, "pageEnd": 96, "text": "Mara uses the surviving ledger to expose the scheme.", "semanticBeatId": "finale" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [] }
+    },
+    {
+      "id": "save-the-cat-missing",
+      "frameworkId": "save-the-cat",
+      "state": "missing",
+      "scenes": [
+        { "id": "stc-missing-catalyst", "title": "INT. APARTMENT - MORNING", "pageStart": 12, "pageEnd": 12, "text": "A court notice changes Mara's life overnight.", "semanticBeatId": "catalyst" },
+        { "id": "stc-midpoint-coincidence", "title": "INT. CAFE - DAY", "pageStart": 55, "pageEnd": 55, "text": "Mara orders coffee and checks the rain. Nothing pivots.", "semanticBeatId": null },
+        { "id": "stc-missing-all-is-lost", "title": "INT. EMPTY OFFICE - NIGHT", "pageStart": 75, "pageEnd": 75, "text": "The coalition abandons Mara and the evidence burns.", "semanticBeatId": "all-is-lost" },
+        { "id": "stc-missing-finale", "title": "EXT. COURTHOUSE - DAWN", "pageStart": 96, "pageEnd": 96, "text": "Mara uses the surviving ledger to expose the scheme.", "semanticBeatId": "finale" }
+      ],
+      "expected": { "complete": false, "detectedCount": 3, "missingTurnIds": ["midpoint"], "coincidenceSceneId": "stc-midpoint-coincidence" }
+    },
+    {
+      "id": "save-the-cat-drifted",
+      "frameworkId": "save-the-cat",
+      "state": "drifted",
+      "scenes": [
+        { "id": "stc-drift-catalyst", "title": "INT. APARTMENT - MORNING", "pageStart": 12, "pageEnd": 12, "text": "A court notice changes Mara's life overnight.", "semanticBeatId": "catalyst" },
+        { "id": "stc-drift-coincidence", "title": "INT. CAFE - DAY", "pageStart": 55, "pageEnd": 55, "text": "Mara orders coffee and checks the rain. Nothing pivots.", "semanticBeatId": null },
+        { "id": "stc-drift-midpoint", "title": "EXT. CITY HALL - NIGHT", "pageStart": 70, "pageEnd": 70, "text": "Mara wins the vote, then learns the victory exposed her brother.", "semanticBeatId": "midpoint" },
+        { "id": "stc-drift-all-is-lost", "title": "INT. EMPTY OFFICE - NIGHT", "pageStart": 75, "pageEnd": 75, "text": "The coalition abandons Mara and the evidence burns.", "semanticBeatId": "all-is-lost" },
+        { "id": "stc-drift-finale", "title": "EXT. COURTHOUSE - DAWN", "pageStart": 96, "pageEnd": 96, "text": "Mara uses the surviving ledger to expose the scheme.", "semanticBeatId": "finale" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [], "drift": { "turnId": "midpoint", "pages": 15, "sceneId": "stc-drift-midpoint", "coincidenceSceneId": "stc-drift-coincidence" } }
+    },
+    {
+      "id": "three-act-complete",
+      "frameworkId": "three-act",
+      "state": "complete",
+      "scenes": [
+        { "id": "three-inciting", "title": "INT. NEWSROOM - DAY", "pageStart": 12, "pageEnd": 12, "text": "Leah receives the recording that destroys her quiet assignment.", "semanticBeatId": "inciting-incident" },
+        { "id": "three-midpoint", "title": "EXT. RADIO TOWER - NIGHT", "pageStart": 55, "pageEnd": 55, "text": "Leah discovers her trusted editor made the recording.", "semanticBeatId": "midpoint-twist" },
+        { "id": "three-climax", "title": "INT. LIVE STUDIO - NIGHT", "pageStart": 100, "pageEnd": 100, "text": "Leah broadcasts the proof while the editor tries to cut power.", "semanticBeatId": "climax" }
+      ],
+      "expected": { "complete": true, "detectedCount": 3, "missingTurnIds": [] }
+    },
+    {
+      "id": "three-act-missing",
+      "frameworkId": "three-act",
+      "state": "missing",
+      "scenes": [
+        { "id": "three-missing-inciting", "title": "INT. NEWSROOM - DAY", "pageStart": 12, "pageEnd": 12, "text": "Leah receives the recording that destroys her quiet assignment.", "semanticBeatId": "inciting-incident" },
+        { "id": "three-midpoint-coincidence", "title": "INT. COPY ROOM - DAY", "pageStart": 55, "pageEnd": 55, "text": "Leah replaces the toner and returns to her desk.", "semanticBeatId": null },
+        { "id": "three-missing-climax", "title": "INT. LIVE STUDIO - NIGHT", "pageStart": 100, "pageEnd": 100, "text": "Leah broadcasts the proof while the editor tries to cut power.", "semanticBeatId": "climax" }
+      ],
+      "expected": { "complete": false, "detectedCount": 2, "missingTurnIds": ["midpoint-twist"], "coincidenceSceneId": "three-midpoint-coincidence" }
+    },
+    {
+      "id": "three-act-drifted",
+      "frameworkId": "three-act",
+      "state": "drifted",
+      "scenes": [
+        { "id": "three-drift-inciting", "title": "INT. NEWSROOM - DAY", "pageStart": 12, "pageEnd": 12, "text": "Leah receives the recording that destroys her quiet assignment.", "semanticBeatId": "inciting-incident" },
+        { "id": "three-drift-midpoint", "title": "EXT. RADIO TOWER - NIGHT", "pageStart": 55, "pageEnd": 55, "text": "Leah discovers her trusted editor made the recording.", "semanticBeatId": "midpoint-twist" },
+        { "id": "three-climax-coincidence", "title": "INT. HALLWAY - NIGHT", "pageStart": 100, "pageEnd": 100, "text": "Leah walks toward the vending machine. No confrontation occurs.", "semanticBeatId": null },
+        { "id": "three-drift-climax", "title": "INT. LIVE STUDIO - NIGHT", "pageStart": 110, "pageEnd": 110, "text": "Leah broadcasts the proof while the editor tries to cut power.", "semanticBeatId": "climax" }
+      ],
+      "expected": { "complete": true, "detectedCount": 3, "missingTurnIds": [], "drift": { "turnId": "climax", "pages": 5, "sceneId": "three-drift-climax", "coincidenceSceneId": "three-climax-coincidence" } }
+    },
+    {
+      "id": "story-circle-complete",
+      "frameworkId": "story-circle",
+      "state": "complete",
+      "scenes": [
+        { "id": "circle-need", "title": "INT. WORKSHOP - DAY", "pageStart": 10, "pageEnd": 10, "text": "Nia admits she needs a cure before the winter.", "semanticBeatId": "need" },
+        { "id": "circle-go", "title": "EXT. CITY GATE - DAWN", "pageStart": 25, "pageEnd": 25, "text": "Nia leaves the protected city for the poisoned valley.", "semanticBeatId": "go" },
+        { "id": "circle-find", "title": "INT. GREENHOUSE - NIGHT", "pageStart": 55, "pageEnd": 55, "text": "Nia finds the cure and learns it feeds on memory.", "semanticBeatId": "find" },
+        { "id": "circle-return", "title": "INT. WORKSHOP - DAWN", "pageStart": 100, "pageEnd": 100, "text": "Nia gives away her last memory and saves the city.", "semanticBeatId": "return-changed" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [] }
+    },
+    {
+      "id": "story-circle-missing",
+      "frameworkId": "story-circle",
+      "state": "missing",
+      "scenes": [
+        { "id": "circle-missing-need", "title": "INT. WORKSHOP - DAY", "pageStart": 10, "pageEnd": 10, "text": "Nia admits she needs a cure before the winter.", "semanticBeatId": "need" },
+        { "id": "circle-missing-go", "title": "EXT. CITY GATE - DAWN", "pageStart": 25, "pageEnd": 25, "text": "Nia leaves the protected city for the poisoned valley.", "semanticBeatId": "go" },
+        { "id": "circle-find-coincidence", "title": "EXT. RIVERBANK - DAY", "pageStart": 55, "pageEnd": 55, "text": "Nia fills a canteen. She neither finds nor learns anything.", "semanticBeatId": null },
+        { "id": "circle-missing-return", "title": "INT. WORKSHOP - DAWN", "pageStart": 100, "pageEnd": 100, "text": "Nia gives away her last memory and saves the city.", "semanticBeatId": "return-changed" }
+      ],
+      "expected": { "complete": false, "detectedCount": 3, "missingTurnIds": ["find"], "coincidenceSceneId": "circle-find-coincidence" }
+    },
+    {
+      "id": "story-circle-drifted",
+      "frameworkId": "story-circle",
+      "state": "drifted",
+      "scenes": [
+        { "id": "circle-drift-need", "title": "INT. WORKSHOP - DAY", "pageStart": 10, "pageEnd": 10, "text": "Nia admits she needs a cure before the winter.", "semanticBeatId": "need" },
+        { "id": "circle-go-coincidence", "title": "INT. WORKSHOP - DAY", "pageStart": 25, "pageEnd": 25, "text": "Nia sweeps the floor and stays safely at home.", "semanticBeatId": null },
+        { "id": "circle-drift-go", "title": "EXT. CITY GATE - DAWN", "pageStart": 40, "pageEnd": 40, "text": "Nia finally leaves the protected city for the poisoned valley.", "semanticBeatId": "go" },
+        { "id": "circle-drift-find", "title": "INT. GREENHOUSE - NIGHT", "pageStart": 55, "pageEnd": 55, "text": "Nia finds the cure and learns it feeds on memory.", "semanticBeatId": "find" },
+        { "id": "circle-drift-return", "title": "INT. WORKSHOP - DAWN", "pageStart": 100, "pageEnd": 100, "text": "Nia gives away her last memory and saves the city.", "semanticBeatId": "return-changed" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [], "drift": { "turnId": "go", "pages": 10, "sceneId": "circle-drift-go", "coincidenceSceneId": "circle-go-coincidence" } }
+    },
+    {
+      "id": "hero-journey-complete",
+      "frameworkId": "hero-journey",
+      "state": "complete",
+      "scenes": [
+        { "id": "hero-call", "title": "INT. HARBOR OFFICE - DAY", "pageStart": 12, "pageEnd": 12, "text": "Oren receives a distress signal from the forbidden island.", "semanticBeatId": "call-to-adventure" },
+        { "id": "hero-threshold", "title": "EXT. OPEN SEA - DAWN", "pageStart": 27, "pageEnd": 27, "text": "Oren sails beyond the last patrol buoy.", "semanticBeatId": "crossing-first-threshold" },
+        { "id": "hero-ordeal", "title": "INT. FLOODED TEMPLE - NIGHT", "pageStart": 60, "pageEnd": 60, "text": "Oren drowns, lets go of the map, and is pulled back alive.", "semanticBeatId": "ordeal" },
+        { "id": "hero-resurrection", "title": "EXT. HARBOR - STORM", "pageStart": 98, "pageEnd": 98, "text": "Oren risks the rescued fleet to face the storm one final time.", "semanticBeatId": "resurrection" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [] }
+    },
+    {
+      "id": "hero-journey-missing",
+      "frameworkId": "hero-journey",
+      "state": "missing",
+      "scenes": [
+        { "id": "hero-missing-call", "title": "INT. HARBOR OFFICE - DAY", "pageStart": 12, "pageEnd": 12, "text": "Oren receives a distress signal from the forbidden island.", "semanticBeatId": "call-to-adventure" },
+        { "id": "hero-missing-threshold", "title": "EXT. OPEN SEA - DAWN", "pageStart": 27, "pageEnd": 27, "text": "Oren sails beyond the last patrol buoy.", "semanticBeatId": "crossing-first-threshold" },
+        { "id": "hero-ordeal-coincidence", "title": "INT. SHIP GALLEY - NIGHT", "pageStart": 60, "pageEnd": 60, "text": "Oren eats soup and studies the weather. No central crisis occurs.", "semanticBeatId": null },
+        { "id": "hero-missing-resurrection", "title": "EXT. HARBOR - STORM", "pageStart": 98, "pageEnd": 98, "text": "Oren risks the rescued fleet to face the storm one final time.", "semanticBeatId": "resurrection" }
+      ],
+      "expected": { "complete": false, "detectedCount": 3, "missingTurnIds": ["ordeal"], "coincidenceSceneId": "hero-ordeal-coincidence" }
+    },
+    {
+      "id": "hero-journey-drifted",
+      "frameworkId": "hero-journey",
+      "state": "drifted",
+      "scenes": [
+        { "id": "hero-call-coincidence", "title": "INT. HARBOR OFFICE - DAY", "pageStart": 12, "pageEnd": 12, "text": "Oren files invoices. No invitation or disruption arrives.", "semanticBeatId": null },
+        { "id": "hero-drift-call", "title": "INT. HARBOR OFFICE - NIGHT", "pageStart": 5, "pageEnd": 5, "text": "Oren receives a distress signal from the forbidden island.", "semanticBeatId": "call-to-adventure" },
+        { "id": "hero-drift-threshold", "title": "EXT. OPEN SEA - DAWN", "pageStart": 27, "pageEnd": 27, "text": "Oren sails beyond the last patrol buoy.", "semanticBeatId": "crossing-first-threshold" },
+        { "id": "hero-drift-ordeal", "title": "INT. FLOODED TEMPLE - NIGHT", "pageStart": 60, "pageEnd": 60, "text": "Oren drowns, lets go of the map, and is pulled back alive.", "semanticBeatId": "ordeal" },
+        { "id": "hero-drift-resurrection", "title": "EXT. HARBOR - STORM", "pageStart": 98, "pageEnd": 98, "text": "Oren risks the rescued fleet to face the storm one final time.", "semanticBeatId": "resurrection" }
+      ],
+      "expected": { "complete": true, "detectedCount": 4, "missingTurnIds": [], "drift": { "turnId": "call-to-adventure", "pages": -5, "sceneId": "hero-drift-call", "coincidenceSceneId": "hero-call-coincidence" } }
+    }
+  ]
+}

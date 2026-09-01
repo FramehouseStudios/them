@@ -120,6 +120,7 @@ test("[day1-lock] strip happens regardless of auth configuration (defense in dep
 // --- B. protectUserRoutes gates the cost-attached provider paths -----
 
 const COST_PATHS = [
+  "/craft/analyze",
   "/realtime/call",
   "/realtime/client_secret",
   "/realtime/turn_commit",

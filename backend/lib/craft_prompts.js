@@ -68,15 +68,17 @@ function summarizeReportCoverage(report) {
       `detected=${cov.detectedMajorTurnCount ?? "?"} ` +
       `overridden=${cov.overriddenMajorTurnCount ?? "?"} ` +
       `missing=${cov.missingMajorTurnCount ?? "?"} ` +
+      `unavailable=${cov.unavailableMajorTurnCount ?? 0} ` +
       `complete=${cov.complete === true ? "yes" : "no"}`,
   );
   const drift = report.drift;
   if (drift && drift.status) lines.push(`drift: ${drift.status}`);
-  // Surface up to 3 missing-or-late major turns so the model knows what
-  // structural beats remain.
+  // Missing is a semantic result; unavailable is an analysis limitation.
+  // Keeping them separate prevents the writing model from treating a failed
+  // classifier run as a real structural diagnosis.
   if (Array.isArray(report.majorTurns)) {
     const missing = report.majorTurns
-      .filter((t) => t && (t.status === "missing" || t.status === "late" || (t.required && !t.detected)))
+      .filter((t) => t && (t.status === "missing" || t.status === "late" || t.status === "early"))
       .slice(0, 3);
     if (missing.length) {
       lines.push("missing-or-drifting:");
@@ -84,6 +86,13 @@ function summarizeReportCoverage(report) {
         const at = compactPageRange(t.expectedPageRange) || (Number.isInteger(t.expectedPage) ? `p${t.expectedPage}` : "?");
         lines.push(`  - ${t.turnId} (${t.label}) expected @ ${at}`);
       }
+    }
+    const unavailable = report.majorTurns
+      .filter((t) => t && t.status === "unavailable")
+      .slice(0, 3);
+    if (unavailable.length) {
+      lines.push("analysis-unavailable:");
+      for (const t of unavailable) lines.push(`  - ${t.turnId} (${t.label})`);
     }
   }
   return lines.join("\n");
@@ -123,8 +132,10 @@ function buildClassificationPromptBlock({ framework, scene } = {}) {
     .filter((b) => b && b.id && b.label)
     .map((b) => `${b.id}|${b.label}`)
     .join(", ");
+  // Keep each paid provider request bounded even when structured scene
+  // metadata contains unexpectedly large strings.
   const sceneText = (scene && scene.text) ? String(scene.text).slice(0, 1200) : "";
-  const sceneTitle = (scene && scene.title) ? String(scene.title) : "(untitled)";
+  const sceneTitle = (scene && scene.title) ? String(scene.title).slice(0, 200) : "(untitled)";
   const lines = [
     `Classify the following scene against the "${resolved.title}" framework beats.`,
     `Possible beats: ${beatList}`,
