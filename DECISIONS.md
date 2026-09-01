@@ -99,3 +99,19 @@ Each entry follows the ADR pattern:
   5. **iOS order of attack:** (I1) networking only via clients/services → (I2) split `ScreenplayLiveDraftBridge` into insert/outbox/reconcile/interrupt façades → (I3) feature ViewModels off Studio → (I4) compose god views from children last → (I5) eliminate duplicate shells (`AppShell` vs live root). New product `@State` does not land on Root/Studio god views.
   6. **Do not** start a parallel architecture rewrite (new app framework, wholesale Packages migration) as a substitute for strangling. Packages absorb code only after app-target façades are thin.
 - **Consequences:** Refactors are sequenced behind ship/Clementine work when they share a seam (e.g. interrupt + page-cancel). Weekly cadence prefers one seam merged over many open extract branches. Details and PR checklist live in `docs/engineering/god-file-strangler.md`.
+
+## D010 — Pluggable TTS + ElevenLabs BYOK (user-chosen voice)
+
+- **Date:** 2026-09-01
+- **Status:** accepted
+- **Context:** Clementine’s spoken voice must be separable from the Muse/OpenAI brain so writers can use their own voice (including ElevenLabs clones). Hardcoding a single vendor voice or putting platform API keys on the client would fight D008 custody lessons and barge-in cancel architecture.
+- **Decision:**
+  1. **Brain ≠ mouth.** LLM providers (Muse Standard / OpenAI) and TTS providers are separate adapters. Spoken reply text feeds a `TtsRouter`; barge-in/cancel must abort TTS the same way Page cancel aborts generation.
+  2. **v1 ElevenLabs = BYOK only.** The user supplies their ElevenLabs API key (Keychain / secure storage) and selects a `voice_id` from *their* `GET /v1/voices` list (library + clones). io.them does not pretend platform keys can speak private clones.
+  3. **Default voice remains the current built-in path** until the user opts into ElevenLabs. Platform-paid ElevenLabs voice packs are explicitly **out of v1** (may be proposed later as a separate decision).
+  4. **Custody:** never ship a shared ElevenLabs key in the client. Prefer native key storage; if a server proxy is used, it must use the *user’s* key per request (or a short-lived server session), not a long-lived copy of their secret in our DB by default.
+  5. **Minimize PII to TTS** — send only the sentence being spoken, not memory dumps or full screenplays.
+  6. **Latency:** prefer ElevenLabs streaming / flash-class models for companion turns; higher-quality models are a power-user setting.
+  7. **Wallet:** ElevenLabs BYOK usage is billed to the user’s ElevenLabs account. Do not silently burn io.them wallet turns for third-party TTS BYOK. Platform TTS (default) may remain on our cost surface.
+  8. **UI:** Voice settings expose provider + voice picker + connect/disconnect; disclose that audio is synthesized and which provider is active without trademark abuse.
+- **Consequences:** Implementation follows `docs/product/clementine-tts-providers.md`. New work adds `TtsRouter` / ElevenLabs adapter + iOS voice settings; does not fork HerVoice playback into a second interrupt path. Eval coverage should include TTFT-ish speak latency and barge-in cancel for ElevenLabs streams.
