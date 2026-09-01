@@ -1,5 +1,5 @@
 let configuredDeps = null;
-let outboxWorkerInFlight = false;
+let outboxWorkerPromise = null;
 
 function configureOutboxStore(deps = {}) {
   configuredDeps = deps;
@@ -200,15 +200,30 @@ async function runOutboxWorkerTick() {
     OUTBOX_WORKER_ENABLED,
   } = outboxStoreDeps();
   if (!OUTBOX_ENABLED || !OUTBOX_WORKER_ENABLED) return;
-  if (outboxWorkerInFlight) return;
-  outboxWorkerInFlight = true;
+  if (outboxWorkerPromise) return outboxWorkerPromise;
+  const activePromise = (async () => {
+    try {
+      return await processOutboxBatch({
+        limit: OUTBOX_WORKER_BATCH_SIZE,
+        reqId: "outbox_worker",
+      });
+    } catch (err) {
+      console.error(`[outbox_worker] error=${String(err?.message || err)}`);
+      return null;
+    }
+  })();
+  outboxWorkerPromise = activePromise;
   try {
-    await processOutboxBatch({ limit: OUTBOX_WORKER_BATCH_SIZE, reqId: "outbox_worker" });
-  } catch (err) {
-    console.error(`[outbox_worker] error=${String(err?.message || err)}`);
+    return await activePromise;
   } finally {
-    outboxWorkerInFlight = false;
+    if (outboxWorkerPromise === activePromise) {
+      outboxWorkerPromise = null;
+    }
   }
+}
+
+async function waitForOutboxWorkerIdle() {
+  return outboxWorkerPromise || undefined;
 }
 
 export {
@@ -220,4 +235,5 @@ export {
   processSingleOutboxItemById,
   retryOutboxAction,
   runOutboxWorkerTick,
+  waitForOutboxWorkerIdle,
 };

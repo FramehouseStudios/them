@@ -1,24 +1,28 @@
 # Spec: T-backend-graceful-shutdown
 
-**Status**: ready (support agent can implement).
-**Owner**: support.
+**Status**: implemented locally on `codex/T383-graceful-shutdown`; awaiting
+GitHub restoration and project review.
+**Owner**: codex.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes the V1 "deploy interrupts in-flight talk" gap.
-When Render/Fly sends SIGTERM during a deploy, the current `index.js`
-behavior is to immediately exit, killing every in-flight `/talk`
-turn mid-stream. Users see a network error.
+When Render/Fly sends SIGTERM during a deploy, active `/talk` streams must
+finish inside a bounded grace period rather than being truncated by a fixed,
+short close path.
 
 ## Problem
 
-`backend/index.js` currently registers SIGINT/SIGTERM/exit handlers
-for the scale-backplane (`closeScaleBackplaneOnce`), but does NOT:
+`backend/index.js` already had a partial inline eight-second close path when
+implementation began. It stopped the listener and closed persistence, but did
+not:
 
-- Stop accepting new connections.
 - Wait for in-flight requests (especially streaming `/talk`) to drain.
 - Drain the outbox worker tick before exiting.
+- Wait for an active account hard-delete sweep before closing persistence.
+- Cancel delayed hydration and knowledge-warmup work before it could start.
 
-The container orchestrator gives the process ~30s after SIGTERM
-before SIGKILL. We're not using that window.
+The container orchestrator gives the process about 30 seconds after SIGTERM
+before SIGKILL. The old eight-second deadline left most of that safe window
+unused.
 
 ## Scope
 
@@ -32,10 +36,12 @@ In:
   3. Track in-flight request counts (talkInFlight already exists);
      wait until it reaches 0 or the timeout fires.
   4. Drain the outbox worker (if running) — wait for the current
-     tick.
-  5. Call `closeScaleBackplaneOnce()` and `sharedPersistence.end()`
+     tick without claiming a new batch.
+  5. Wait for any active account hard-delete sweep and cancel delayed
+     boot/background work.
+  6. Call `closeScaleBackplaneOnce()` and `sharedPersistence.close()`
      (if defined).
-  6. Exit 0.
+  7. Exit 0.
 - Timeout: `SHUTDOWN_GRACE_MS` env, default 25_000 ms (leaves 5s
   margin before SIGKILL on most orchestrators).
 - During the drain, `/healthz` returns 503 so the LB pulls us out
@@ -47,38 +53,14 @@ Out:
 
 ## Approach
 
-```js
-// lib/shutdown.js
-function gracefulShutdown(server, {
-  inFlightCount,    // () => number
-  drainOutbox,      // async () => void
-  closeBackplane,   // async () => void
-  endPersistence,   // async () => void
-  setRuntimeStatus, // (s) => void
-  logger,
-  graceMs = 25_000,
-}) {
-  let started = false;
-  async function run(signal) {
-    if (started) return;
-    started = true;
-    logger.info("shutdown_started", { signal, in_flight: inFlightCount() });
-    setRuntimeStatus("draining");
-    server.close();  // stop new conns; existing keep going
-    const deadline = Date.now() + graceMs;
-    while (inFlightCount() > 0 && Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 100));
-    }
-    await drainOutbox().catch(e => logger.warn("outbox_drain_fail", { e: e.message }));
-    await closeBackplane().catch(() => {});
-    await endPersistence?.().catch(() => {});
-    logger.info("shutdown_done", { in_flight_at_exit: inFlightCount() });
-    process.exit(0);
-  }
-  process.on("SIGTERM", () => run("SIGTERM"));
-  process.on("SIGINT", () => run("SIGINT"));
-}
-```
+`createGracefulShutdown` is dependency-injected and returns one idempotent
+`run(signal)` promise. It marks readiness as draining synchronously, starts
+`server.close()`, cancels delayed/background jobs, waits for active talk and
+destructive purge work, waits for the current outbox tick, closes newly idle
+keep-alive connections, and then closes the backplane and canonical
+persistence adapter. One absolute deadline covers every phase. The helper
+returns a result; `index.js` owns the final process exit so tests never patch
+global process behavior.
 
 ## Acceptance
 
@@ -97,11 +79,17 @@ function gracefulShutdown(server, {
   not close existing ones until they finish naturally. Mitigation:
   the timeout enforces a hard deadline.
 - A request handler that never calls `res.end()` will hold the
-  drain forever (until timeout). Mitigation: log per-request when
-  drain timeout fires, naming the route.
+  drain forever (until timeout). Mitigation: the timeout log records the
+  active shutdown phase and aggregate in-flight count before force-closing
+  remaining sockets.
 
 ## Out-of-scope follow-ups
 
 - SIGHUP for config reload.
 - Persistent shutdown state (e.g. for a multi-instance graceful
   rollout).
+- Treat a repeated identical termination signal as another idempotent drain
+  request instead of the current operator force-stop behavior from
+  `process.once`.
+- Serialize overlapping diagnostic outbox snapshots so `stop()` can prove
+  every best-effort snapshot write has settled before persistence closes.
