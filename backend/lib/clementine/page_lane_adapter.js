@@ -111,6 +111,16 @@ function resolveTalkLane(utterance, hints = {}) {
 /**
  * If lane is Page, create a reservation. Returns { lane, reservation|null }.
  * Does not throw on missing session — uses resolveSessionId fallback.
+ *
+ * When walletStore is provided, reserves Page-lane turns from max_output_tokens
+ * first (hard stop wallet_empty). Links walletReservationId onto the page
+ * reservation so cancel → wallet.release.
+ *
+ * Commit stub: after successful Muse generation, callers should
+ *   walletStore.commit(walletReservationId, actualOutputTokens)
+ * Prefer doing that in talk_handler (or a thin post-success hook) once
+ * usage is known — this adapter has no response-success seam without
+ * rewriting handleTalkRequest. See docs/product/clementine-wallet.md.
  */
 function beginPageWork(store, {
   utterance = "",
@@ -118,6 +128,7 @@ function beginPageWork(store, {
   sessionId = "",
   userId = "",
   meta = null,
+  walletStore = null,
 } = {}) {
   if (!store || typeof store.reserve !== "function") {
     throw new Error("beginPageWork requires a page reservation store");
@@ -131,17 +142,43 @@ function beginPageWork(store, {
     hints.pageMode === true;
 
   if (!isPage) {
-    return { lane, reservation: null, reserved: false };
+    return { lane, reservation: null, reserved: false, walletReservation: null };
+  }
+
+  let walletReservation = null;
+  const ownerId = String(userId || "").trim() || String(sessionId || "").trim() || "anonymous";
+  const maxOutputTokens = hints.maxOutputTokens || 0;
+  if (walletStore && typeof walletStore.reserve === "function") {
+    walletReservation = walletStore.reserve({
+      ownerId,
+      lane: "page",
+      maxOutputTokens,
+      meta: { source: "beginPageWork" },
+    });
+  }
+
+  const metaObj = meta && typeof meta === "object" ? { ...meta } : {};
+  if (walletReservation?.reservationId) {
+    metaObj.walletReservationId = walletReservation.reservationId;
   }
 
   const reservation = store.reserve({
     sessionId: String(sessionId || "").trim() || "anonymous",
     userId,
-    maxOutputTokens: hints.maxOutputTokens || 0,
+    maxOutputTokens,
     reason: lane.intent || "page",
-    meta,
+    meta: Object.keys(metaObj).length ? metaObj : null,
   });
-  return { lane, reservation, reserved: true };
+
+  if (
+    walletReservation?.reservationId &&
+    walletStore &&
+    typeof walletStore.linkPageReservation === "function"
+  ) {
+    walletStore.linkPageReservation(walletReservation.reservationId, reservation.id);
+  }
+
+  return { lane, reservation, reserved: true, walletReservation };
 }
 
 /**
@@ -151,6 +188,7 @@ function beginPageWork(store, {
 function createPageLaneTalkAdapter({
   handleTalkRequest,
   pageReservationStore,
+  walletStore = null,
   logger = console,
 } = {}) {
   if (typeof handleTalkRequest !== "function") {
@@ -168,6 +206,7 @@ function createPageLaneTalkAdapter({
 
     let lane;
     let reservation = null;
+    let walletReservation = null;
     try {
       const started = beginPageWork(pageReservationStore, {
         utterance,
@@ -175,10 +214,24 @@ function createPageLaneTalkAdapter({
         sessionId,
         userId,
         meta: { source: "talk_edge" },
+        walletStore,
       });
       lane = started.lane;
       reservation = started.reservation;
+      walletReservation = started.walletReservation || null;
     } catch (err) {
+      if (err?.code === "wallet_empty") {
+        try {
+          res.setHeader("Cache-Control", "no-store");
+        } catch (_e) {
+          /* ignore */
+        }
+        return res.status(402).json({
+          ok: false,
+          error: "wallet_empty",
+          message: "You are out of Page turns. Top up to keep writing.",
+        });
+      }
       logger?.warn?.(
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
@@ -192,6 +245,19 @@ function createPageLaneTalkAdapter({
       walletMeter: lane.walletMeter,
       reservationId: reservation?.id || null,
       reservation,
+      walletReservationId: walletReservation?.reservationId || null,
+      walletReservation,
+      /**
+       * STUB — call after successful Muse generation with actual output tokens:
+       *   req.clementine.commitWallet?.(actualOutputTokens)
+       * No clear success hook in this adapter without rewriting talk_handler;
+       * wire commit in talk_handler (or muse_client completion) when usage lands.
+       */
+      commitWallet:
+        walletReservation?.reservationId && walletStore
+          ? (actualOutputTokens) =>
+              walletStore.commit(walletReservation.reservationId, actualOutputTokens)
+          : null,
       abortSignal: reservation?.id
         ? pageReservationStore.getAbortSignal(reservation.id)
         : null,

@@ -53,3 +53,18 @@ export {
   buildWorkingSetState,
 } from "./memory_working_set.js";
 export { createMemoryCompactionJob } from "./memory_compaction_job.js";
+export {
+  TOKENS_PER_TURN,
+  MILLITURNS_PER_TURN,
+  TURNS_PER_APPROX_CONVERSATION,
+  LOW_BALANCE_RATIO,
+  WALLET_LANE,
+  WALLET_LANE_VALUES,
+  WALLET_EMPTY_CODE,
+  tokensToMilliturns,
+  turnsToMilliturns,
+  milliturnsToTurns,
+  estimateReservationMilliturns,
+  createWalletEmptyError,
+  createWalletStore,
+} from "./wallet.js";
