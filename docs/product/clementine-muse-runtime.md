@@ -25,10 +25,12 @@ Product classifies **intent** first, then maps to a cost lane:
 
 | Intent examples | Lane | Brain / effort |
 | --- | --- | --- |
-| greeting, check-in, known fact | Reflex | tiny local / templates (later optional server Glimmer) |
+| greeting, check-in, known fact, thanks/ack | **Reflex** | tiny local templates (`reflex_lane.js`); later optional server Glimmer |
 | normal talk, light tools, memory write | Companion | Spark `minimal` → `low` |
 | voice→scene, continue, short rewrite, page propose | **Page** | Spark `low`; `medium` for multi-beat; **own cancel + own meter** |
 | plan, conflict, “think hard”, failed first pass | Deep | Spark `medium`; `high` only if user asked or visible “thinking longer” mode |
+
+See **`docs/product/clementine-reflex.md`** for Reflex short-circuit behavior at the talk edge (before wallet/Spark).
 
 ## Hard rules
 
@@ -39,6 +41,7 @@ Product classifies **intent** first, then maps to a cost lane:
 5. **Wallet caps the meter.** Reserve from `max_output_tokens`. Sell weeks of Clementine; never show TPM. Hard stop at zero; fail like a person.
 6. **Glimmer truth.** 30B open weights run on *our* hardware if used. iPhone V1 Reflex = tiny on-device classifier/templates first — not Glimmer-on-device.
 7. **Eval before tuning.** ~50 companion scenes including barge-in cancel and page propose. Ship the policy the eval wins.
+8. **Reflex before Spark.** Greetings must not burn Companion turns or hit Muse.
 
 ## Build order
 
@@ -48,7 +51,7 @@ Product classifies **intent** first, then maps to a cost lane:
 4. Memory structured tools + background compaction
 5. Wallet in turns
 6. Voice spec + eval set
-7. Reflex lane (tiny local → optional server Glimmer)
+7. Reflex lane (tiny local → optional server Glimmer) ← **this step**
 8. Skills markdown pack
 9. Native BYOK power-user; proxied BYOK only after legal review
 
@@ -59,3 +62,9 @@ Product classifies **intent** first, then maps to a cost lane:
 - Dumping 1M context as personality
 - Spark on every “gm”
 - Skinning Clementine as Meta AI (disclose once, cleanly)
+
+## Change log
+
+- 2026-09-01 — architecture note accepted with D008.
+- 2026-09-01 — Reflex lane wired (`T-clementine-reflex-lane`); see `clementine-reflex.md`.
+- 2026-09-01 — Muse Standard cutover gated for Companion/Page (`T-clementine-muse-standard-cutover`); see `clementine-muse-cutover.md`.

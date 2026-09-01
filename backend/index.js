@@ -168,6 +168,8 @@ import {
   normalizeOutlineRevision,
 } from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
+import { createWalletStore } from "./lib/clementine/wallet.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
@@ -18289,13 +18291,35 @@ function isAbortError(err) {
   return !!err && (err.name === "AbortError" || err.code === "ABORT_ERR");
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
+async function fetchWithTimeout(url, options = {}, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const parentSignal = options && options.signal ? options.signal : null;
+  const onParentAbort = () => {
+    if (controller.signal.aborted) return;
+    try {
+      controller.abort(parentSignal?.reason);
+    } catch (_e) {
+      try { controller.abort(); } catch (_e2) { /* ignore */ }
+    }
+  };
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      clearTimeout(timer);
+      const err = new Error("Aborted");
+      err.name = "AbortError";
+      err.code = "ABORT_ERR";
+      throw err;
+    }
+    parentSignal.addEventListener("abort", onParentAbort, { once: true });
+  }
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    if (parentSignal) {
+      parentSignal.removeEventListener("abort", onParentAbort);
+    }
   }
 }
 
@@ -20970,6 +20994,7 @@ async function streamChatReplyWithFirstSentence({
   apiMode = "chat_completions",
   reasoningEffort = "",
   fallbackModel = "",
+  signal = null,
 }) {
   const requestResult = await requestOpenAIText({
     apiKey: OPENAI_API_KEY,
@@ -20987,6 +21012,7 @@ async function streamChatReplyWithFirstSentence({
     ],
     fetchWithTimeout,
     timeoutMs: CHAT_TIMEOUT_MS,
+    signal,
   });
   const resp = requestResult.response;
 
@@ -33459,6 +33485,12 @@ app.post(
   requireOpenAIProviderForTalk,
   providerBudgetGuard.middleware("talk")
 );
+// D008 Page-lane cancel-on-barge-in + wallet-in-turns: process-local stores.
+// No Stripe — grants/credits are injected separately; API stays calm (turns).
+const clementineWalletStore = createWalletStore();
+const clementinePageReservationStore = createPageReservationStore({
+  walletStore: clementineWalletStore,
+});
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -33470,6 +33502,8 @@ mountTalkPipelineRoutes(app, {
   normalizeTalkTurnId: (value) => String(value || "").trim(),
   getTalkTurnMeta: (turnId) => readTalkTurnMeta(turnId, Date.now()),
   canReadTalkTurnMeta,
+  pageReservationStore: clementinePageReservationStore,
+  walletStore: clementineWalletStore,
 });
 
 // T22: wire craft analysis through the shared persistence adapter so

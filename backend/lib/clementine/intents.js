@@ -1,8 +1,10 @@
 // Clementine intent classification (D008 / T-clementine-muse-runtime-skeleton).
 //
 // Product-facing classification is intent-first. Intents then map to cost
-// lanes in lanes.js. v0 is rule-based heuristics — replace with a tiny
-// on-device / Reflex classifier later without changing the enum surface.
+// lanes in lanes.js. v0 is rule-based heuristics.
+// Greeting / check-in / silence → Reflex (see lanes.js + reflex_lane.js).
+// Template short-circuit lives in reflex_classifier.js (no Spark). Later:
+// optional on-device CoreML / server Glimmer without changing this enum surface.
 
 const INTENT = Object.freeze({
   GREETING: "greeting",

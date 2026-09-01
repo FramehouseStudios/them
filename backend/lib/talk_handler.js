@@ -68,6 +68,12 @@ import {
   evaluateStructuralScreenplayReply,
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
+import {
+  gatePageGeneration,
+  isPageCancelledError,
+  mapAbortToPageCancel,
+} from "./clementine/page_abort.js";
+import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -370,13 +376,18 @@ function createTalkHandler(deps) {
     fetchWithTimeout,
     isAbortError,
   });
-  const chatSupplier = deps.chatSupplier || createChatSupplier({
+  const openaiChatSupplier = deps.chatSupplier || createChatSupplier({
     OPENAI_API_KEY,
     CHAT_TIMEOUT_MS,
     fetchWithTimeout,
     isAbortError,
     streamChatReplyWithFirstSentence,
   });
+  // Muse Standard cutover (Companion/Page/Deep) when CLEMENTINE_MUSE_ENABLED /
+  // CLEMENTINE_PROVIDER=muse + MODEL_API_KEY|MUSE_API_KEY. Default stays OpenAI for CI.
+  const chatSupplier = deps.chatSupplier
+    ? openaiChatSupplier
+    : createMuseAwareChatSupplier({ openaiChatSupplier });
   const ttsSupplier = deps.ttsSupplier || createTtsSupplier({
     synthesizeSpeechMp3,
     synthesizeSpeechMp3OpenAI,
@@ -2904,8 +2915,11 @@ function createTalkHandler(deps) {
     const taskActionReply = taskActionResult
       ? buildTaskActionReply(taskActionResult)
       : "";
+    const reflexTemplateReply = req.clementine?.reflex?.handled
+      ? String(req.clementine.reflex.text || "").trim()
+      : "";
     const localActionReply =
-      actionGateReply || taskActionReply || noteCaptureReply;
+      actionGateReply || taskActionReply || noteCaptureReply || reflexTemplateReply;
     const actionLaneMeta = classifyActionLane({
       noteResult: noteCaptureResult,
       taskResult: taskActionResult,
@@ -3980,6 +3994,15 @@ ${directorOutputRule}
         );
       }
     } else {
+      // D008: Page mid-flight abort — thin inject (gate + AbortSignal).
+      let pageAbortSignal = null;
+      let pageReservationId = null;
+      if (req.clementine?.reservationId) {
+        const pageGate = gatePageGeneration(req.clementine);
+        pageAbortSignal = pageGate.signal;
+        pageReservationId = pageGate.reservationId;
+      }
+
       if (useChatStreaming) {
         try {
           const streamStart = Date.now();
@@ -3993,8 +4016,11 @@ ${directorOutputRule}
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
             apiMode: chatModelPlan.apiMode,
-            reasoningEffort: chatModelPlan.reasoningEffort,
+            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
+            signal: pageAbortSignal,
+            lane: req.clementine?.lane || "",
+            messages: chatMessages,
           });
           rawReply = String(streamResult.reply || "").trim();
           streamFirstSentence = String(streamResult.firstSentence || "").trim();
@@ -4007,10 +4033,27 @@ ${directorOutputRule}
           chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
           effectiveChatUsage = streamResult.usage || effectiveChatUsage;
           chatMs = Date.now() - streamStart;
+          if (typeof req.clementine?.commitWallet === "function" && rawReply) {
+            try {
+              req.clementine.commitWallet(
+                Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
+              );
+            } catch (walletErr) {
+              logger?.warn?.(
+                `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
+              );
+            }
+          }
           if (streamFirstSentence && !earlyTtsPromise) {
             maybeStartEarlyTts(streamFirstSentence);
           }
         } catch (err) {
+          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
+            reservationId: pageReservationId,
+          });
+          if (isPageCancelledError(mapped)) {
+            throw mapped;
+          }
           const streamDiagnostic = buildTalkFailureDiagnostics(err, {
             requestId: rid,
             providerStage: "chat",
@@ -4022,6 +4065,10 @@ ${directorOutputRule}
       }
 
       if (!rawReply) {
+        // Re-gate before non-stream billed call (cancel may have landed during stream attempt).
+        if (pageReservationId) {
+          gatePageGeneration(req.clementine);
+        }
         let chatResult;
         try {
           chatResult = await chatSupplier.chat({
@@ -4030,10 +4077,18 @@ ${directorOutputRule}
             maxTokens: chatMaxTokens,
             messages: chatMessages,
             apiMode: chatModelPlan.apiMode,
-            reasoningEffort: chatModelPlan.reasoningEffort,
+            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
+            signal: pageAbortSignal,
+            lane: req.clementine?.lane || "",
           });
         } catch (err) {
+          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
+            reservationId: pageReservationId,
+          });
+          if (isPageCancelledError(mapped)) {
+            throw mapped;
+          }
           throw createTalkFailureError({
             requestId: rid,
             providerStage: "chat",
@@ -4052,6 +4107,17 @@ ${directorOutputRule}
         chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
         effectiveChatUsage = chatResult.usage || effectiveChatUsage;
         chatMs = Date.now() - chatStart;
+        if (typeof req.clementine?.commitWallet === "function") {
+          try {
+            req.clementine.commitWallet(
+              Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
+            );
+          } catch (walletErr) {
+            logger?.warn?.(
+              `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
+            );
+          }
+        }
 
         if (!chatResp.ok) {
           const diagnostic = buildTalkFailureDiagnostics(
@@ -5436,6 +5502,36 @@ ${directorOutputRule}
     return res.send(audioBuffer);
   } catch (err) {
     const totalMs = Date.now() - t0;
+    if (isPageCancelledError(err) && !res.headersSent) {
+      clearTalkIdempotencyPending(req, { keepCompleted: true });
+      const reservationId =
+        err.reservationId || req.clementine?.reservationId || null;
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("x-clementine-page-cancelled", "1");
+      if (reservationId) {
+        res.setHeader("x-clementine-page-reservation", String(reservationId));
+      }
+      recordTalkMetric({
+        statusCode: 409,
+        totalMs,
+        sttMs,
+        chatMs,
+        ttsMs,
+        streamAudio: false,
+        chatStreamUsed: false,
+        talkStatus: "cancelled",
+        lane: "page_cancelled",
+        model: "none",
+      });
+      return res.status(409).json({
+        ok: false,
+        error: "page_generation_cancelled",
+        cancelled: true,
+        reservation_id: reservationId,
+        cancel_reason: err.cancelReason || null,
+        status: "cancelled",
+      });
+    }
     const diagnostic = buildTalkFailureDiagnostics(err, {
       requestId: rid,
       providerStage: err?.stage || "server",
