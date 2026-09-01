@@ -3227,6 +3227,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var activeSyncedVoiceAnchorLineHint: Int?
     private var suppressSyncedVoiceInsertUntil: Date?
     var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int, ScreenplaySyncedInsertInterruptionReason?) -> Void)?
+    /// Fired for barge-in / manual typing / cancel so clients can POST /talk/page-cancel.
+    var onPageGenerationInterrupted: ((ScreenplaySyncedInsertInterruptionReason) -> Void)?
 
 #if DEBUG
     private let debugReplacementTraceStorageKey = "studio_debug_replacement_trace_json"
@@ -5469,7 +5471,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         if autoInsertStatusText == "io.them is writing..." {
             autoInsertStatusText = ""
         }
-        return wasStreaming || cancelledSynced
+        let didInterrupt = wasStreaming || cancelledSynced
+        switch reason {
+        case .manualTyping, .bargeIn, .cancel:
+            // Always notify for writer-take-back reasons, even if local stream already idle
+            // (backend Page generation may still be in flight).
+            onPageGenerationInterrupted?(reason)
+        case .other:
+            break
+        }
+        return didInterrupt
     }
 
     func jumpToLine(_ line: Int) {
