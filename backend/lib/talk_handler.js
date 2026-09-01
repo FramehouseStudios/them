@@ -9,12 +9,11 @@
 // V1 effect: infrastructure for the V1 voice-to-page route — the largest
 // single function in index.js now lives behind a tested lib seam.
 //
-// BYTE-IDENTICAL MOVE. The function body below is the verbatim text from
-// backend/index.js (handleTalkRequest @ main #328, inner body lines
-// 27674-31235). Response envelopes, log prefixes, status codes, headers,
-// counter order, error classes and side-effect ordering are unchanged
-// because the body is unchanged. Supplier glue (STT/chat/TTS calls) is
-// left inline — boxing it is Phase 7c, explicitly out of 7b scope.
+// Originally a BYTE-IDENTICAL MOVE from backend/index.js (Phase 7b).
+// D009 B3: extract real stages only — talk_prompt.composeTalkSystemPrompt and
+// talk_generate.runTalkGenerate (Muse/OpenAI + page abort + commitWallet).
+// Persist/memory/turn-meta stay in this orchestrator (hooks are interleaved;
+// a pass-through persist module would be cosmetic). Behavior unchanged.
 //
 // No mutable module-scope state here (#238 inheritance): every binding
 // the handler closes over arrives via the injected `deps` object. The
@@ -69,11 +68,11 @@ import {
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
 import {
-  gatePageGeneration,
   isPageCancelledError,
-  mapAbortToPageCancel,
 } from "./clementine/page_abort.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
+import { composeTalkSystemPrompt } from "./talk_prompt.js";
+import { runTalkGenerate } from "./talk_generate.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -3799,40 +3798,37 @@ ${directorOutputRule}
 `.trim();
     }
 
-    const systemWithIdentity = appendDirectorAddendum(systemBase, assistantSelfNameAddendum);
-    const systemWithStyle = appendDirectorAddendum(systemWithIdentity, humanStyleAddendum);
-    const systemWithTherapeuticDepth = appendDirectorAddendum(systemWithStyle, therapeuticDepthAddendum);
-    const systemWithSocialSpark = appendDirectorAddendum(systemWithTherapeuticDepth, socialSparkAddendum);
-    const systemWithSocialSparkMemory = appendDirectorAddendum(
-      systemWithSocialSpark,
-      socialSparkMemoryHookAddendum
-    );
-    const systemWithKnowledge = appendDirectorAddendum(systemWithSocialSparkMemory, knowledgeAddendum);
-    const systemWithHiddenMode = appendDirectorAddendum(systemWithKnowledge, hiddenDepthModeAddendum);
-    const systemWithSeasonalWave = appendDirectorAddendum(systemWithHiddenMode, seasonalWaveAddendum);
-    const systemWithCycleEvolution = appendDirectorAddendum(systemWithSeasonalWave, cycleEvolutionAddendum);
-    const systemWithCycleMemory = appendDirectorAddendum(
-      systemWithCycleEvolution,
-      cycleConsciousMemoryAddendum
-    );
-    const systemWithBackReference = appendDirectorAddendum(
-      systemWithCycleMemory,
-      backReferenceAddendum
-    );
-    const systemWithTexture = appendDirectorAddendum(systemWithBackReference, characterTextureAddendum);
-    const systemWithTrajectory = appendDirectorAddendum(systemWithTexture, trajectoryAddendum);
-    const systemWithTimeTone = appendDirectorAddendum(systemWithTrajectory, timeOfDayToneAddendum);
-    const systemWithArc = appendDirectorAddendum(systemWithTimeTone, weeklyArcAddendum);
-    const systemWithExpansion = appendDirectorAddendum(systemWithArc, weeklyExpansionAddendum);
-    const systemWithMovement = appendDirectorAddendum(systemWithExpansion, movementAddendum);
-    const systemWithSelfAwareness = appendDirectorAddendum(systemWithMovement, selfAwarenessAddendum);
-    const systemWithMelancholy = appendDirectorAddendum(systemWithSelfAwareness, melancholySeedAddendum);
-    const rawSystem = appendDirectorAddendum(systemWithMelancholy, directorAddendum);
-    const system = fitSystemPromptForTurnLatency(rawSystem, {
+    // ---- talk_prompt stage: compose system prompt ----
+    const { rawSystem, system } = composeTalkSystemPrompt({
+      systemBase,
+      appendDirectorAddendum,
+      fitSystemPromptForTurnLatency,
       turnPlanner,
       flags,
       routingLane,
       chatModelPlan,
+      addenda: {
+        assistantSelfNameAddendum,
+        humanStyleAddendum,
+        therapeuticDepthAddendum,
+        socialSparkAddendum,
+        socialSparkMemoryHookAddendum,
+        knowledgeAddendum,
+        hiddenDepthModeAddendum,
+        seasonalWaveAddendum,
+        cycleEvolutionAddendum,
+        cycleConsciousMemoryAddendum,
+        backReferenceAddendum,
+        characterTextureAddendum,
+        trajectoryAddendum,
+        timeOfDayToneAddendum,
+        weeklyArcAddendum,
+        weeklyExpansionAddendum,
+        movementAddendum,
+        selfAwarenessAddendum,
+        melancholySeedAddendum,
+        directorAddendum,
+      },
     });
     if (process.env.NODE_ENV !== "production" && rawSystem.length !== system.length) {
       logger.log(
@@ -3994,174 +3990,33 @@ ${directorOutputRule}
         );
       }
     } else {
-      // D008: Page mid-flight abort — thin inject (gate + AbortSignal).
-      let pageAbortSignal = null;
-      let pageReservationId = null;
-      if (req.clementine?.reservationId) {
-        const pageGate = gatePageGeneration(req.clementine);
-        pageAbortSignal = pageGate.signal;
-        pageReservationId = pageGate.reservationId;
-      }
-
-      if (useChatStreaming) {
-        try {
-          const streamStart = Date.now();
-          const streamResult = await chatSupplier.stream({
-            rid,
-            system,
-            shortTermContextMessages,
-            transcript: talkGenerationTranscript,
-            onFirstSentence: maybeStartEarlyTts,
-            model: chatModelPlan.model,
-            temperature: chatTemperature,
-            maxTokens: chatMaxTokens,
-            apiMode: chatModelPlan.apiMode,
-            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
-            fallbackModel: chatModelPlan.fallbackModel,
-            signal: pageAbortSignal,
-            lane: req.clementine?.lane || "",
-            messages: chatMessages,
-          });
-          rawReply = String(streamResult.reply || "").trim();
-          streamFirstSentence = String(streamResult.firstSentence || "").trim();
-          streamChatUsed = Boolean(rawReply);
-          effectiveChatModel = String(streamResult.model || effectiveChatModel);
-          effectiveChatApiMode = String(streamResult.apiMode || effectiveChatApiMode);
-          effectiveChatReasoningEffort = String(
-            streamResult.reasoningEffort ?? effectiveChatReasoningEffort
-          );
-          chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
-          effectiveChatUsage = streamResult.usage || effectiveChatUsage;
-          chatMs = Date.now() - streamStart;
-          if (typeof req.clementine?.commitWallet === "function" && rawReply) {
-            try {
-              req.clementine.commitWallet(
-                Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
-              );
-            } catch (walletErr) {
-              logger?.warn?.(
-                `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
-              );
-            }
-          }
-          if (streamFirstSentence && !earlyTtsPromise) {
-            maybeStartEarlyTts(streamFirstSentence);
-          }
-        } catch (err) {
-          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
-            reservationId: pageReservationId,
-          });
-          if (isPageCancelledError(mapped)) {
-            throw mapped;
-          }
-          const streamDiagnostic = buildTalkFailureDiagnostics(err, {
-            requestId: rid,
-            providerStage: "chat",
-            status: Number(err?.status || 500),
-          });
-          logger.log(`[${rid}] CHAT stream fallback ${streamDiagnostic.supportMessage}`);
-          rawReply = "";
-        }
-      }
-
-      if (!rawReply) {
-        // Re-gate before non-stream billed call (cancel may have landed during stream attempt).
-        if (pageReservationId) {
-          gatePageGeneration(req.clementine);
-        }
-        let chatResult;
-        try {
-          chatResult = await chatSupplier.chat({
-            model: chatModelPlan.model,
-            temperature: chatTemperature,
-            maxTokens: chatMaxTokens,
-            messages: chatMessages,
-            apiMode: chatModelPlan.apiMode,
-            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
-            fallbackModel: chatModelPlan.fallbackModel,
-            signal: pageAbortSignal,
-            lane: req.clementine?.lane || "",
-          });
-        } catch (err) {
-          const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
-            reservationId: pageReservationId,
-          });
-          if (isPageCancelledError(mapped)) {
-            throw mapped;
-          }
-          throw createTalkFailureError({
-            requestId: rid,
-            providerStage: "chat",
-            status: Number(err?.status || 500),
-            message: String(err?.message || "Chat completion failed."),
-          });
-        }
-
-        const chatResp = chatResult.response;
-        const chatText = chatResult.rawText;
-        effectiveChatModel = String(chatResult.model || effectiveChatModel);
-        effectiveChatApiMode = String(chatResult.apiMode || effectiveChatApiMode);
-        effectiveChatReasoningEffort = String(
-          chatResult.reasoningEffort ?? effectiveChatReasoningEffort
-        );
-        chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
-        effectiveChatUsage = chatResult.usage || effectiveChatUsage;
-        chatMs = Date.now() - chatStart;
-        if (typeof req.clementine?.commitWallet === "function") {
-          try {
-            req.clementine.commitWallet(
-              Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
-            );
-          } catch (walletErr) {
-            logger?.warn?.(
-              `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
-            );
-          }
-        }
-
-        if (!chatResp.ok) {
-          const diagnostic = buildTalkFailureDiagnostics(
-            { stage: "chat", status: chatResp.status, rawBody: chatText },
-            {
-              requestId: rid,
-              providerStage: "chat",
-              status: chatResp.status,
-              rawBody: chatText,
-            }
-          );
-          logger.log(`[${rid}] CHAT failed ${diagnostic.supportMessage}`);
-          throw createTalkFailureError({
-            requestId: rid,
-            providerStage: "chat",
-            status: chatResp.status,
-            rawBody: chatText,
-          });
-        }
-
-        let chatJson;
-        try {
-          chatJson = JSON.parse(chatText);
-        } catch (_) {
-          throw createTalkFailureError({
-            requestId: rid,
-            providerStage: "chat",
-            status: 502,
-            message: "Chat completion response was invalid JSON.",
-            errorClass: "response_invalid",
-          });
-        }
-        rawReply = (chatJson.choices?.[0]?.message?.content || "").trim();
-      }
-
-      if (!rawReply) {
-        throw createTalkFailureError({
-          requestId: rid,
-          providerStage: "chat",
-          status: 502,
-          message: "Chat completion returned an empty reply.",
-          errorClass: "response_invalid",
-        });
-      }
+      // ---- talk_generate stage: Muse/OpenAI + abort + commitWallet ----
+      const generated = await runTalkGenerate({
+        req,
+        rid,
+        logger,
+        chatSupplier,
+        useChatStreaming,
+        system,
+        shortTermContextMessages,
+        talkGenerationTranscript,
+        chatMessages,
+        chatModelPlan,
+        chatTemperature,
+        chatMaxTokens,
+        chatStart,
+        maybeStartEarlyTts,
+        earlyTtsPromise,
+      });
+      rawReply = generated.rawReply;
+      streamFirstSentence = generated.streamFirstSentence;
+      streamChatUsed = generated.streamChatUsed;
+      effectiveChatModel = generated.effectiveChatModel;
+      effectiveChatApiMode = generated.effectiveChatApiMode;
+      effectiveChatReasoningEffort = generated.effectiveChatReasoningEffort;
+      chatModelFallbackUsed = generated.chatModelFallbackUsed;
+      effectiveChatUsage = generated.effectiveChatUsage;
+      chatMs = generated.chatMs;
     }
 
     const forceDayFeelingOpener = shouldForceSessionCheckInOpener({
