@@ -3,7 +3,10 @@
 // + required-deps guard + JSON parser limit.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { mountAuthRoutes, AUTH_BODY_LIMIT } from "../lib/auth_routes.js";
@@ -195,4 +198,16 @@ test("[auth-routes] routes work without app-level express.json() upstream (produ
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.body, { email: "x@y.com" });
   });
+});
+
+test("[auth-routes] index.js wires mountAuthRoutes and has no inline /auth route registration", () => {
+  const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.js");
+  const source = fs.readFileSync(indexPath, "utf8");
+  assert.match(source, /mountAuthRoutes\(app,\s*\{\s*userAuth\s*\}\)/);
+  assert.match(source, /from ["']\.\/lib\/auth_routes\.js["']/);
+  // Strangler rule: no parallel inline auth HTTP registration left in the god file.
+  assert.doesNotMatch(source, /app\.post\(\s*["']\/auth\//);
+  assert.doesNotMatch(source, /app\.get\(\s*["']\/auth\//);
+  assert.doesNotMatch(source, /const authJson\s*=/);
+  assert.doesNotMatch(source, /wrapAuthHandler/);
 });
