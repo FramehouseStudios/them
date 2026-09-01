@@ -17270,136 +17270,47 @@ Look at the city.
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
-        Task { await vm.refreshFormatLint(source: "Export " + format.uppercased()) }
-        do {
-            let artifact: BackendScreenplayExportArtifact
-            #if os(macOS)
-            artifact = try localExportArtifact(format: format)
-            #elseif DEBUG
-            if IOThemRuntime.isRunningUITests {
-                artifact = try uiTestExportArtifact(format: format)
-            } else {
-                artifact = try await vm.exportArtifact(format: format)
-            }
-            #else
-            artifact = try await vm.exportArtifact(format: format)
-            #endif
-            let savedURL = try saveExportArtifact(artifact)
-            if let savedURL {
-                let folderName = savedURL.deletingLastPathComponent().lastPathComponent
-                if folderName.isEmpty {
-                    vm.infoText = "\(artifact.filename) saved."
-                } else {
-                    vm.infoText = "Saved \(artifact.filename) to \(folderName)."
-                }
-            }
-        } catch {
-            vm.errorText = ScreenplayExportFormatMenu.displayMessage(for: error, format: format)
-        }
-    }
-
-    #if DEBUG && !os(macOS)
-    private func uiTestExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {
-        let cleanDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDraft.isEmpty else {
-            throw BackendMemoryAPIError.server(status: 400, message: "Draft is empty.")
-        }
-        let cleanTitle = (vm.selectedProject?.title ?? "UITest Screenplay")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeTitle = cleanTitle.isEmpty ? "UITest-Screenplay" : cleanTitle
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalizedFormat == "fdx" {
-            let xml = """
-<?xml version="1.0" encoding="UTF-8"?>
-<FinalDraft DocumentType="Script" Template="No" Version="1">
-  <Content>
-    <Paragraph Type="Scene Heading"><Text>\(cleanDraft.components(separatedBy: .newlines).first ?? "INT. ROOM - DAY")</Text></Paragraph>
-  </Content>
-</FinalDraft>
-"""
-            return BackendScreenplayExportArtifact(
-                format: "fdx",
-                filename: "\(safeTitle).fdx",
-                contentType: "application/xml",
-                data: Data(xml.utf8)
-            )
-        }
-        return BackendScreenplayExportArtifact(
-            format: normalizedFormat == "markdown" ? "md" : normalizedFormat,
-            filename: "\(safeTitle).md",
-            contentType: "text/markdown; charset=utf-8",
-            data: Data("# \(cleanTitle.isEmpty ? "UITest Screenplay" : cleanTitle)\n\n\(cleanDraft)\n".utf8)
-        )
-    }
-    #endif
-
-    #if os(macOS)
-    private func localExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {
-        let title = (vm.selectedProject?.title ?? "screenplay")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return try ScreenplayLocalExport.makeArtifact(
+    private func studioExportDependencies() -> ScreenplayStudioExportSupport.Dependencies {
+        ScreenplayStudioExportSupport.Dependencies(
             draft: vm.fountainDraft,
-            title: title,
-            format: format
+            projectTitle: vm.selectedProject?.title,
+            navigatorCurrentURL: navigatorCurrentURL,
+            isRunningUITests: IOThemRuntime.isRunningUITests,
+            refreshFormatLint: { source in
+                await vm.refreshFormatLint(source: source)
+            },
+            exportFromBackend: { format in
+                try await vm.exportArtifact(format: format)
+            },
+            setInfo: { message in
+                vm.infoText = message
+            },
+            setError: { message in
+                vm.errorText = message
+            },
+            noteSavedDirectory: { directoryURL in
+                navigatorCurrentURL = directoryURL
+                refreshNavigatorEntries()
+            },
+            openURL: { url in
+                openURL(url)
+            }
         )
     }
-    #endif
-
-    private func openInGoogleDocs(draft: String) {
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else {
-            vm.errorText = "Draft is empty."
-            return
-        }
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(clean, forType: .string)
-        #endif
-        if let url = URL(string: "https://docs.new") {
-            openURL(url)
-            vm.infoText = "Opened Google Docs. Draft copied to clipboard."
-        } else {
-            vm.errorText = "Could not open Google Docs."
-        }
-    }
-
 
     @MainActor
-    private func saveExportArtifact(_ artifact: BackendScreenplayExportArtifact) throws -> URL? {
-        #if os(macOS)
-        let savePanel = NSSavePanel()
-        savePanel.title = "Save Screenplay Export"
-        savePanel.nameFieldStringValue = artifact.filename
-        savePanel.canCreateDirectories = true
-        savePanel.isExtensionHidden = false
-        savePanel.directoryURL = preferredExportDirectoryURL()
-        savePanel.allowedContentTypes = [ScreenplayLocalExport.allowedContentType(for: artifact)]
-        let accepted = savePanel.runModal()
-        guard accepted == .OK, let destinationURL = savePanel.url else { return nil }
-        try artifact.data.write(to: destinationURL, options: .atomic)
-        navigatorCurrentURL = destinationURL.deletingLastPathComponent()
-        refreshNavigatorEntries()
-        return destinationURL
-        #else
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(artifact.filename)
-        try artifact.data.write(to: tempURL, options: .atomic)
-        return tempURL
-        #endif
+    private func exportCurrentDraft(format: String) async {
+        await ScreenplayStudioExportSupport.exportCurrentDraft(
+            format: format,
+            deps: studioExportDependencies()
+        )
     }
 
-    private func preferredExportDirectoryURL() -> URL? {
-        if let navigatorCurrentURL {
-            return navigatorCurrentURL
-        }
-        let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-        if let desktop {
-            return desktop
-        }
-        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+    @MainActor
+    private func openInGoogleDocs(draft: String) {
+        var deps = studioExportDependencies()
+        deps.draft = draft
+        ScreenplayStudioExportSupport.openInGoogleDocs(deps: deps)
     }
 
 
