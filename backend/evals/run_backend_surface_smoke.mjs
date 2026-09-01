@@ -136,6 +136,9 @@ try {
   }
   {
     const created = await postJson(baseURL, "/craft/overrides", {
+      projectId: "smoke-proj-1",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
       turnId: "midpoint", action: "mark-present", userId: "smoke-user-1",
     });
     check("POST /craft/overrides 200 + ov_ id", created.status === 200 && /^ov_/.test(String(created.body?.id || "")));

@@ -11,6 +11,7 @@ import {
   CLASSIFY_BLOCK_OPEN,
 } from "../lib/craft_prompts.js";
 import {
+  DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
   createDeterministicClassifier,
   createLLMClassifier,
   createDefaultClassifier,
@@ -56,6 +57,29 @@ test("buildCraftContextBlock summarizes report coverage when present", () => {
   assert.ok(block.includes("all-is-lost"));
 });
 
+test("buildCraftContextBlock does not mislabel unavailable analysis as a missing beat", () => {
+  const block = buildCraftContextBlock({
+    framework: "three-act",
+    report: {
+      coverage: {
+        requiredMajorTurnCount: 3,
+        detectedMajorTurnCount: 0,
+        overriddenMajorTurnCount: 0,
+        missingMajorTurnCount: 0,
+        unavailableMajorTurnCount: 3,
+        complete: false,
+      },
+      drift: { status: "unavailable" },
+      majorTurns: [
+        { turnId: "midpoint-twist", label: "Midpoint Twist", required: true, detected: false, status: "unavailable" },
+      ],
+    },
+  });
+  assert.ok(block.includes("unavailable=3"));
+  assert.ok(block.includes("analysis-unavailable:"));
+  assert.ok(!block.includes("missing-or-drifting:"));
+});
+
 test("buildClassificationPromptBlock embeds the candidate beats and scene excerpt", () => {
   const block = buildClassificationPromptBlock({
     framework: "three-act",
@@ -73,17 +97,32 @@ test("buildClassificationPromptBlock returns empty string for unknown framework"
   assert.equal(buildClassificationPromptBlock({ framework: "no-such" }), "");
 });
 
+test("buildClassificationPromptBlock bounds structured scene metadata", () => {
+  const block = buildClassificationPromptBlock({
+    framework: "three-act",
+    scene: { title: "T".repeat(500), text: "X".repeat(5_000) },
+  });
+  assert.ok(block.includes("T".repeat(200)));
+  assert.ok(!block.includes("T".repeat(201)));
+  assert.ok(block.includes("X".repeat(1_200)));
+  assert.ok(!block.includes("X".repeat(1_201)));
+});
+
 // ---------- craft_classifier ----------
 
-test("deterministic classifier produces partial covering all required major turns", async () => {
+test("deterministic classifier truthfully reports semantic analysis unavailable", async () => {
   const c = createDeterministicClassifier();
   const out = await c.classifyScreenplay({ frameworkId: "save-the-cat", framework: "save-the-cat", screenplay: {} });
   assert.equal(c.kind, "deterministic-stub");
   assert.equal(out.source, "deterministic-stub");
-  assert.equal(out.coverage.requiredMajorTurnCount, 4);
-  assert.equal(out.coverage.detectedMajorTurnCount, 4);
-  assert.equal(out.coverage.complete, true);
-  assert.equal(out.majorTurns.length, 4);
+  assert.equal(out.coverage.complete, false);
+  assert.equal(out.coverage.confidence, 0);
+  assert.equal(out.majorTurns.length, 0);
+  assert.ok(out.beats.every((beat) => beat.status === "unavailable"));
+  const scene = await c.classifyScene({ framework: "save-the-cat", scene: { text: "A decoy." } });
+  assert.equal(scene.status, "unavailable");
+  assert.equal(scene.beatId, null);
+  assert.equal(scene.confidence, 0);
 });
 
 test("LLM classifier rejects construction without OPENAI_API_KEY", () => {
@@ -96,7 +135,7 @@ test("LLM classifier rejects construction without OPENAI_API_KEY", () => {
 test("LLM classifier classifyScene parses a strict-JSON model response", async () => {
   const recordedBody = [];
   const fetchImpl = async (url, init) => {
-    recordedBody.push({ url, body: JSON.parse(init.body) });
+    recordedBody.push({ url, body: JSON.parse(init.body), signal: init.signal });
     return {
       ok: true,
       status: 200,
@@ -115,13 +154,16 @@ test("LLM classifier classifyScene parses a strict-JSON model response", async (
     scene: { title: "INT. ROOFTOP - DAWN", text: "she finds the letter." },
   });
   assert.equal(result.beatId, "midpoint");
+  assert.equal(result.status, "classified");
   assert.equal(result.confidence, 0.83);
   assert.equal(result.rationale, "a clear pivot");
   assert.equal(recordedBody.length, 1);
   assert.equal(recordedBody[0].url, "https://api.openai.com/v1/chat/completions");
   assert.equal(recordedBody[0].body.model, "gpt-4o-mini");
   assert.equal(recordedBody[0].body.temperature, 0);
+  assert.equal(recordedBody[0].body.max_tokens, DEFAULT_OPENAI_MAX_OUTPUT_TOKENS);
   assert.equal(recordedBody[0].body.response_format.type, "json_object");
+  assert.ok(recordedBody[0].signal instanceof AbortSignal);
 });
 
 test("LLM classifier classifyScene returns null beatId on unparseable response", async () => {
@@ -138,6 +180,7 @@ test("LLM classifier classifyScene returns null beatId on unparseable response",
     scene: { title: "x", text: "y" },
   });
   assert.equal(r.beatId, null);
+  assert.equal(r.status, "unavailable");
   assert.equal(r.confidence, 0);
 });
 
@@ -150,15 +193,66 @@ test("LLM classifier classifyScene throws on non-OK response", async () => {
   );
 });
 
-test("LLM classifier aggregate source is honest until scene-level macro coverage is wired", async () => {
+test("LLM classifier times out a hung request and opens its failure circuit", async () => {
+  let calls = 0;
+  const fetchImpl = async (_url, init) => {
+    calls += 1;
+    return await new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    });
+  };
+  const c = createLLMClassifier({
+    openaiApiKey: "k",
+    fetchImpl,
+    timeoutMs: 100,
+    failureThreshold: 1,
+    circuitCooldownMs: 5_000,
+  });
+  await assert.rejects(
+    () => c.classifyScene({ framework: "save-the-cat", scene: { title: "t", text: "x" } }),
+    (error) => error?.code === "craft_classifier_timeout",
+  );
+  await assert.rejects(
+    () => c.classifyScene({ framework: "save-the-cat", scene: { title: "t2", text: "y" } }),
+    (error) => error?.code === "craft_classifier_circuit_open",
+  );
+  assert.equal(calls, 1, "an open circuit must not issue another paid request");
+});
+
+test("LLM classifier clamps caller-supplied output budgets", async () => {
+  let requestBody = null;
+  const c = createLLMClassifier({
+    openaiApiKey: "k",
+    maxOutputTokens: 50_000,
+    fetchImpl: async (_url, init) => {
+      requestBody = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { choices: [{ message: { content: '{"beatId":null,"confidence":0,"rationale":"none"}' } }] };
+        },
+      };
+    },
+  });
+  await c.classifyScene({ framework: "save-the-cat", scene: { title: "t", text: "x" } });
+  assert.equal(requestBody.max_tokens, 256);
+});
+
+test("LLM classifier aggregate never fabricates macro coverage", async () => {
   const c = createLLMClassifier({ openaiApiKey: "k", fetchImpl: async () => ({ ok: true }) });
   const out = await c.classifyScreenplay({
     framework: "save-the-cat",
     screenplay: { pageCount: 110, title: "Smoke" },
   });
-  assert.equal(out.source, "openai-scene-classifier+deterministic-macro");
+  assert.equal(out.source, "openai-scene-classifier");
   assert.equal(typeof out._classifyScene, "function");
-  assert.notEqual(out.source, "openai");
+  assert.equal(out.coverage.complete, false);
+  assert.ok(out.beats.every((beat) => beat.status === "unavailable"));
 });
 
 test("createDefaultClassifier returns deterministic when no API key is set", () => {

@@ -11,8 +11,8 @@
 // first. This eval catches it at the backend.
 //
 // What's checked per framework:
-//   - report.coverage.complete is a boolean (true for the canonical
-//     full-pageCount fixture)
+//   - report.coverage is honestly incomplete/unavailable when the offline
+//     classifier has no semantic evidence
 //   - report.majorTurns.length matches the framework's
 //     requiredMajorTurnIds length
 //   - every majorTurn carries id + turnId + label + status + detected
@@ -45,7 +45,7 @@ function check(label, cond, detail = "") {
   }
 }
 
-function analyzeFor(frameworkId, projectId) {
+async function analyzeFor(frameworkId, projectId) {
   return analyzeScreenplay({
     screenplay: { pageCount: FIXTURE_PAGE_COUNT, title: "Eval Fixture" },
     frameworkId,
@@ -70,7 +70,7 @@ for (const ref of refs) {
   const projectId = `eval-${ref.id.replace(/[^a-z0-9-]/gi, "")}`;
   let report;
   try {
-    report = analyzeFor(ref.id, projectId);
+    report = await analyzeFor(ref.id, projectId);
   } catch (e) {
     check(`analyzeScreenplay(${ref.id}) does not throw`, false, e?.message || "threw");
     continue;
@@ -98,6 +98,10 @@ for (const ref of refs) {
     typeof report?.coverage?.complete === "boolean",
   );
   check(
+    `evidence-free report is incomplete with zero detected turns`,
+    report?.coverage?.complete === false && report?.coverage?.detectedMajorTurnCount === 0,
+  );
+  check(
     `report.majorTurns.length matches requiredMajorTurnIds.length (${framework.requiredMajorTurnIds.length})`,
     Array.isArray(report.majorTurns) && report.majorTurns.length === framework.requiredMajorTurnIds.length,
     `got ${report?.majorTurns?.length}`,
@@ -118,6 +122,10 @@ for (const ref of refs) {
         && typeof turn.label === "string"
         && typeof turn.status === "string"
         && typeof turn.detected === "boolean",
+    );
+    check(
+      `evidence-free majorTurn is unavailable without an actual page (turnId=${turn.turnId})`,
+      turn.status === "unavailable" && turn.detected === false && !("actualPage" in turn),
     );
   }
 }

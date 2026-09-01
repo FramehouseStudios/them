@@ -50,6 +50,7 @@ const USER_PROTECTED_PATTERNS = [
 // REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
 // intentionally excluded — they are unauth health/proxy surfaces.
 const PAID_PROVIDER_PATTERNS = [
+  /^\/craft\/analyze(?:\/|$)/,
   /^\/craft\/logline\/distill(?:\/|$)/,
   /^\/realtime\/client_secret(?:\/|$)/,
   /^\/realtime\/project_grounding(?:\/|$)/,

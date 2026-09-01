@@ -56,6 +56,7 @@ public nonisolated struct ScreenplayCraftCoverage: Codable, Hashable {
     public let detectedMajorTurnCount: Int
     public let overriddenMajorTurnCount: Int
     public let missingMajorTurnCount: Int
+    public let unavailableMajorTurnCount: Int?
     public let complete: Bool
     public let confidence: Double?
 }
@@ -174,6 +175,9 @@ public nonisolated struct ScreenplayCraftTurnOverride: Codable, Hashable, Identi
     public let userId: String?
     public let createdAt: String?
     public let expiresAt: String?
+    public let projectId: String?
+    public let versionId: String?
+    public let frameworkId: String?
 }
 
 public nonisolated struct ScreenplayCraftEvidence: Codable, Hashable, Identifiable {

@@ -963,8 +963,11 @@ final class BackendClientCraftAPITests: XCTestCase {
                 return .json(#"""
                 {
                   "id": "override-1",
+                  "projectId": "proj-17",
+                  "versionId": "v1",
+                  "frameworkId": "save-the-cat",
                   "turnId": "all-is-lost",
-                  "action": "mark_false_positive",
+                  "action": "mark-present",
                   "reason": "This is a dream beat, not the actual low point.",
                   "sceneId": "s040",
                   "page": 76,
@@ -981,12 +984,15 @@ final class BackendClientCraftAPITests: XCTestCase {
 
         let override = try await client.recordCraftTurnOverride(ScreenplayCraftTurnOverrideMutation(
             turnId: "all-is-lost",
-            action: "mark_false_positive",
+            action: "mark-present",
             reason: "This is a dream beat, not the actual low point.",
             sceneId: "s040",
             page: 76,
             userId: "usr_test",
-            expiresAt: nil
+            expiresAt: nil,
+            projectId: "proj-17",
+            versionId: "v1",
+            frameworkId: "save-the-cat"
         ))
         let deleted = try await client.deleteCraftTurnOverride(id: "override-1")
 
@@ -997,7 +1003,41 @@ final class BackendClientCraftAPITests: XCTestCase {
             "DELETE /craft/overrides/override-1"
         ])
         XCTAssertEqual(recorder.requests.first?.bodyObject?["turnId"] as? String, "all-is-lost")
-        XCTAssertEqual(recorder.requests.first?.bodyObject?["action"] as? String, "mark_false_positive")
+        XCTAssertEqual(recorder.requests.first?.bodyObject?["action"] as? String, "mark-present")
+        XCTAssertEqual(recorder.requests.first?.bodyObject?["projectId"] as? String, "proj-17")
+        XCTAssertEqual(recorder.requests.first?.bodyObject?["versionId"] as? String, "v1")
+        XCTAssertEqual(recorder.requests.first?.bodyObject?["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(override.projectId, "proj-17")
+        XCTAssertEqual(override.versionId, "v1")
+        XCTAssertEqual(override.frameworkId, "save-the-cat")
+    }
+
+    func testOverrideMutationRejectsUnscopedWriteBeforeNetwork() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { _ in
+            XCTFail("Unscoped override must fail before transport")
+            return .json(#"{ "error": "unexpected_request" }"#, status: 500)
+        }
+
+        do {
+            _ = try await client.recordCraftTurnOverride(ScreenplayCraftTurnOverrideMutation(
+                turnId: "all-is-lost",
+                action: "mark-present",
+                reason: nil,
+                sceneId: nil,
+                page: 76,
+                userId: nil,
+                expiresAt: nil
+            ))
+            XCTFail("Expected unscoped override to be rejected")
+        } catch BackendError.stage(let stage, let message) {
+            XCTAssertEqual(stage, "craft")
+            XCTAssertTrue(message.contains("projectId"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertTrue(recorder.requests.isEmpty)
     }
 
     func testFormatLintPostsTextAndFramework() async throws {

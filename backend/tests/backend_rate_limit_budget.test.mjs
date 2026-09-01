@@ -111,3 +111,49 @@ test("[day2-budget] provider daily budget returns support-safe 429", async () =>
     await server.stop();
   }
 });
+
+test("[craft-budget] /craft/analyze uses the shared provider rate and daily budget guard", async () => {
+  const server = await startBackend({
+    env: {
+      AUTH_RATE_LIMIT_MAX: "20",
+      PROVIDER_RATE_LIMIT_MAX: "20",
+      PROVIDER_DAILY_BUDGET_LIMIT: "1",
+    },
+    unsetEnv: ["OPENAI_API_KEY"],
+  });
+  try {
+    const token = await signup(server, "craft-budget-alice@example.com");
+    const headers = { Authorization: "Bearer " + token };
+    const created = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers,
+      json: { project_id: "craft-budget-project", title: "Budget guard fixture" },
+    });
+    assert.equal(created.status, 201, created.text);
+
+    const payload = {
+      projectId: "craft-budget-project",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
+      screenplay: { title: "Budget guard fixture", pageCount: 90 },
+    };
+    const first = await apiRequest(server, "/craft/analyze", {
+      method: "POST",
+      headers,
+      json: payload,
+    });
+    assert.equal(first.status, 200, first.text);
+
+    const denied = await apiRequest(server, "/craft/analyze", {
+      method: "POST",
+      headers,
+      json: payload,
+    });
+    assert.equal(denied.status, 429);
+    assert.equal(denied.json?.stage, "provider_budget");
+    assert.equal(denied.json?.error, "provider_budget_exceeded");
+    assert.equal(denied.json?.route_class, "craft_analyze");
+  } finally {
+    await server.stop();
+  }
+});

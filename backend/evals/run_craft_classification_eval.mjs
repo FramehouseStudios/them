@@ -40,8 +40,8 @@ function fail(label, detail = "") {
 
 // ---------- Phase 1: deterministic schema-shape eval ----------
 
-function checkDeterministic({ frameworkId, pageCount, title }) {
-  const report = analyzeScreenplay({
+async function checkDeterministic({ frameworkId, pageCount, title }) {
+  const report = await analyzeScreenplay({
     frameworkId,
     projectId: `eval-${frameworkId}`,
     versionId: "v1",
@@ -49,7 +49,13 @@ function checkDeterministic({ frameworkId, pageCount, title }) {
   });
   const v = validateAgainstSchema(report, REPORT_SCHEMA);
   if (!v.valid) return fail(`deterministic ${frameworkId}: schema invalid`, v.errors.join("; "));
-  if (!report.coverage.complete) return fail(`deterministic ${frameworkId}: coverage.complete should be true`);
+  if (report.coverage.complete) return fail(`deterministic ${frameworkId}: evidence-free coverage must not be complete`);
+  if (report.coverage.detectedMajorTurnCount !== 0) {
+    return fail(`deterministic ${frameworkId}: evidence-free detected count must be zero`);
+  }
+  if (!report.majorTurns.every((turn) => turn.status === "unavailable" && turn.detected === false)) {
+    return fail(`deterministic ${frameworkId}: every unresolved turn must be unavailable`);
+  }
   if (!Array.isArray(report.majorTurns) || !report.majorTurns.length) {
     return fail(`deterministic ${frameworkId}: majorTurns empty`);
   }
@@ -59,7 +65,7 @@ function checkDeterministic({ frameworkId, pageCount, title }) {
 for (const c of [
   { frameworkId: "save-the-cat", pageCount: 110, title: "Smoke STC" },
   { frameworkId: "three-act",    pageCount: 110, title: "Smoke 3A"  },
-]) checkDeterministic(c);
+]) await checkDeterministic(c);
 
 // ---------- Phase 2: classifier interface contract ----------
 

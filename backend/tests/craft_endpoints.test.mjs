@@ -19,6 +19,7 @@ import {
 import {
   _resetCraftStores,
   configureCraftAnalysis,
+  MAX_CRAFT_ANALYSIS_SCENES,
 } from "../lib/craft_analysis.js";
 import { configureLoglineDistiller } from "../lib/logline_distiller.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
@@ -180,7 +181,12 @@ test("POST /craft/analyze + GET /craft/reports/:projectId/:versionId roundtrip",
     const v = validateAgainstSchema(body, REPORT_SCHEMA);
     assert.ok(v.valid, `report should validate: ${v.errors.join("; ")}`);
     assert.equal(body.projectId, "proj-int-1");
-    assert.equal(body.coverage.complete, true);
+    assert.equal(body.coverage.complete, false);
+    assert.equal(body.coverage.detectedMajorTurnCount, 0);
+    assert.equal(body.coverage.missingMajorTurnCount, 0);
+    assert.equal(body.coverage.unavailableMajorTurnCount, 4);
+    assert.ok(body.majorTurns.every((turn) => turn.status === "unavailable"));
+    assert.ok(body.majorTurns.every((turn) => turn.detected === false && !("actualPage" in turn)));
     assert.equal(body.majorTurns.length, 4);
 
     const fetched = await get(baseURL, "/craft/reports/proj-int-1/v1");
@@ -192,6 +198,9 @@ test("POST /craft/analyze + GET /craft/reports/:projectId/:versionId roundtrip",
 test("POST /craft/overrides records and returns an override", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/craft/overrides", {
+      projectId: "override-project",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
       turnId: "all-is-lost",
       action: "mark-present",
       reason: "writer flagged scene",
@@ -202,6 +211,9 @@ test("POST /craft/overrides records and returns an override", async () => {
     assert.equal(status, 200);
     assert.equal(body.turnId, "all-is-lost");
     assert.equal(body.action, "mark-present");
+    assert.equal(body.projectId, "override-project");
+    assert.equal(body.versionId, "v1");
+    assert.equal(body.frameworkId, "save-the-cat");
     assert.equal(body.userId, "craft-route-test-user");
     assert.ok(body.id);
     assert.ok(body.createdAt);
@@ -211,6 +223,9 @@ test("POST /craft/overrides records and returns an override", async () => {
 test("DELETE /craft/overrides/:id removes an override", async () => {
   await withTestServer(async ({ baseURL }) => {
     const created = await postJson(baseURL, "/craft/overrides", {
+      projectId: "override-delete-project",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
       turnId: "midpoint",
       action: "mark-present",
       userId: "user-9",
@@ -265,6 +280,23 @@ test("POST /craft/analyze rejects missing projectId with craft_invalid_screenpla
   });
 });
 
+test("POST /craft/analyze returns structured 413 before excessive per-scene provider work", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const scenes = Array.from({ length: MAX_CRAFT_ANALYSIS_SCENES + 1 }, (_, index) => ({
+      id: `scene-${index}`,
+      title: `INT. ROOM ${index} - DAY`,
+      text: "A short scene.",
+    }));
+    const { status, body } = await postJson(baseURL, "/craft/analyze", {
+      projectId: "too-many-scenes-route",
+      frameworkId: "save-the-cat",
+      screenplay: { scenes },
+    });
+    assert.equal(status, 413);
+    assert.equal(body.error, "craft_analysis_scene_limit_exceeded");
+  });
+});
+
 test("X-Craft-Schema-Version header > server version returns craft_schema_version_unsupported", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await get(baseURL, "/craft/frameworks", {
@@ -279,6 +311,9 @@ test("POST /craft/overrides ignores caller-supplied userId and stores canonical 
   await withTestServer(
     async ({ baseURL }) => {
       const { status, body } = await postJson(baseURL, "/craft/overrides", {
+        projectId: "override-identity-project",
+        versionId: "v1",
+        frameworkId: "save-the-cat",
         turnId: "midpoint",
         action: "mark-present",
         userId: "user-impostor",
@@ -333,6 +368,9 @@ test("[T22] overrides survive a simulated process restart via persistence", asyn
   await withTestServer(
     async ({ baseURL }) => {
       const { status, body } = await postJson(baseURL, "/craft/overrides", {
+        projectId: "override-persistence-project",
+        versionId: "v1",
+        frameworkId: "save-the-cat",
         turnId: "all-is-lost",
         action: "mark-present",
         reason: "writer-flagged",
@@ -401,9 +439,11 @@ test("[format-linter] POST /craft/format/lint requires text", async () => {
 test("[T22] override IDs are UUID-shaped (survive restart)", async () => {
   await withTestServer(async ({ baseURL }) => {
     const r1 = await postJson(baseURL, "/craft/overrides", {
+      projectId: "override-id-project", versionId: "v1", frameworkId: "save-the-cat",
       turnId: "midpoint", action: "mark-present", userId: "u1",
     });
     const r2 = await postJson(baseURL, "/craft/overrides", {
+      projectId: "override-id-project", versionId: "v1", frameworkId: "save-the-cat",
       turnId: "midpoint", action: "mark-present", userId: "u1",
     });
     assert.notEqual(r1.body.id, r2.body.id);

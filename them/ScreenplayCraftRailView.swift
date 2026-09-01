@@ -99,6 +99,28 @@ struct ScreenplayCraftLoglineRailState: Equatable {
     }
 }
 
+enum ScreenplayCraftRailTurnPresentation {
+    static func timingLabel(
+        status: String,
+        actualPage: Int?,
+        driftPages: Int?
+    ) -> String {
+        if let driftPages {
+            if driftPages == 0 { return "On time" }
+            return driftPages > 0 ? "+\(driftPages) pg" : "\(driftPages) pg"
+        }
+
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "unavailable":
+            return "Unavailable"
+        case "missing", "absent", "failed":
+            return "Missing"
+        default:
+            return actualPage == nil ? "Unavailable" : "On page"
+        }
+    }
+}
+
 
 struct ScreenplayCraftRailView: View {
     let projectTitle: String
@@ -452,6 +474,9 @@ struct ScreenplayCraftRailView: View {
             HStack(spacing: 8) {
                 craftMetric("Turns", value: "\(report.coverage.detectedMajorTurnCount)/\(max(report.coverage.requiredMajorTurnCount, 1))")
                 craftMetric("Missing", value: "\(report.coverage.missingMajorTurnCount)")
+                if let unavailableCount = report.coverage.unavailableMajorTurnCount, unavailableCount > 0 {
+                    craftMetric("Unavailable", value: "\(unavailableCount)")
+                }
                 craftMetric("Beats", value: "\(report.beatSheet.beats.count)")
             }
 
@@ -832,11 +857,11 @@ struct ScreenplayCraftRailView: View {
     }
 
     private func driftText(_ turn: ScreenplayCraftTurnDrift) -> String {
-        guard let drift = turn.driftPages else {
-            return turn.actualPage == nil ? "Missing" : "On page"
-        }
-        if drift == 0 { return "On time" }
-        return drift > 0 ? "+\(drift) pg" : "\(drift) pg"
+        ScreenplayCraftRailTurnPresentation.timingLabel(
+            status: turn.status,
+            actualPage: turn.actualPage,
+            driftPages: turn.driftPages
+        )
     }
 
     private func pageText(_ page: Int?) -> String {

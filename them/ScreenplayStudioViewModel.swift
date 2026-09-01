@@ -4385,12 +4385,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func createCraftTurnOverride(_ override: ScreenplayCraftTurnOverrideMutation) async {
         guard !isCraftOverrideSaving else { return }
+        guard let project = selectedProject else {
+            craftErrorText = ""
+            craftInfoText = "Select a screenplay project before saving a craft override."
+            return
+        }
+        guard let frameworkId = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id else {
+            craftErrorText = ""
+            craftInfoText = "Choose a craft framework before saving an override."
+            return
+        }
 
         isCraftOverrideSaving = true
         defer { isCraftOverrideSaving = false }
         craftErrorText = ""
         do {
-            let stored = try await craftClient.recordCraftTurnOverride(override)
+            let scopedOverride = override.scoped(
+                projectId: project.id,
+                versionId: activeCraftVersionID,
+                frameworkId: frameworkId
+            )
+            let stored = try await craftClient.recordCraftTurnOverride(scopedOverride)
             craftInfoText = "Override saved for \(stored.turnId). Run Analyze to rebuild craft coverage."
         } catch {
             craftErrorText = StudioCraftResilience.presentedError(

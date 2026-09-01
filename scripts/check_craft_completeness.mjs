@@ -19,6 +19,10 @@ import path from "node:path";
 import process from "node:process";
 
 import { createPersistence } from "../backend/lib/persistence_adapter.js";
+import { getFrameworkById } from "../backend/lib/craft_frameworks.js";
+import { REPORT_SCHEMA, validateAgainstSchema } from "../backend/lib/craft_schemas.js";
+
+const REPORT_LIST_PAGE_SIZE = 1000;
 
 function parseArgs(argv) {
   const out = { file: null, project: null, version: null };
@@ -45,22 +49,56 @@ async function reportFromAdapter({ project, version }) {
     throw new Error("--project requires DATABASE_URL or PERSISTENCE_JSON_ROOT");
   }
   const persistence = createPersistence();
-  const key = version ? `${project}:${version}` : `${project}:`;
-  const report = await persistence.get({ domain: "craft_reports", key });
-  if (typeof persistence.close === "function") await persistence.close();
-  if (!report) {
-    throw new Error(`craft report not found for project="${project}" version="${version || ""}"`);
+  const expectedProject = String(project || "").trim();
+  const expectedVersion = String(version || "").trim();
+  try {
+    // Preserve the direct lookup for legacy/non-owner-scoped report keys.
+    const direct = await persistence.get({
+      domain: "craft_reports",
+      key: `${expectedProject}:${expectedVersion}`,
+    });
+    if (direct) return direct;
+
+    // Authenticated routes key reports by an opaque owner namespace. The
+    // public project id remains in the report payload, so use the adapter's
+    // supported paginated list operation instead of decoding internal keys.
+    const matches = [];
+    let afterKey = "";
+    while (true) {
+      const page = await persistence.list({
+        domain: "craft_reports",
+        afterKey,
+        limit: REPORT_LIST_PAGE_SIZE,
+      });
+      for (const row of page) {
+        const report = row?.value;
+        if (
+          report?.projectId === expectedProject
+          && String(report?.versionId || "") === expectedVersion
+        ) matches.push(report);
+      }
+      if (page.length < REPORT_LIST_PAGE_SIZE) break;
+      afterKey = page[page.length - 1]?.key || "";
+      if (!afterKey) break;
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `multiple craft reports found for project="${expectedProject}" version="${expectedVersion}"`,
+      );
+    }
+    if (matches.length === 1) return matches[0];
+  } finally {
+    if (typeof persistence.close === "function") await persistence.close();
   }
-  return report;
+  throw new Error(`craft report not found for project="${expectedProject}" version="${expectedVersion}"`);
 }
 
 function diagnoseIncomplete(report) {
   const lines = [];
   const cov = report?.coverage || {};
-  lines.push(`coverage: complete=${cov.complete} required=${cov.requiredMajorTurnCount} detected=${cov.detectedMajorTurnCount} overridden=${cov.overriddenMajorTurnCount} missing=${cov.missingMajorTurnCount}`);
+  lines.push(`coverage: complete=${cov.complete} required=${cov.requiredMajorTurnCount} detected=${cov.detectedMajorTurnCount} overridden=${cov.overriddenMajorTurnCount} missing=${cov.missingMajorTurnCount} unavailable=${cov.unavailableMajorTurnCount || 0}`);
   if (Array.isArray(report?.majorTurns)) {
-    const missing = report.majorTurns.filter((t) => t && t.required && !t.detected
-      && t.status !== "overridden" && t.status !== "manually_present" && t.status !== "accepted");
+    const missing = report.majorTurns.filter((t) => t && t.required && t.status === "missing");
     if (missing.length) {
       lines.push("Missing required major turns:");
       for (const t of missing) {
@@ -71,6 +109,12 @@ function diagnoseIncomplete(report) {
       }
       lines.push("");
       lines.push("Resolve by either landing the missing beat in the screenplay or recording an explicit override via POST /craft/overrides.");
+    }
+    const unavailable = report.majorTurns.filter((t) => t && t.required && t.status === "unavailable");
+    if (unavailable.length) {
+      lines.push("Analysis unavailable for required major turns:");
+      for (const t of unavailable) lines.push(`  - ${t.turnId} (${t.label})`);
+      lines.push("Run semantic scene classification before treating these turns as missing or complete.");
     }
   }
   if (report?.drift?.status && report.drift.status !== "on-target" && report.drift.status !== "on-target-with-overrides") {
@@ -83,6 +127,68 @@ function diagnoseIncomplete(report) {
     }
   }
   return lines.join("\n");
+}
+
+function validateCompletenessIntegrity(report) {
+  const errors = [];
+  const schema = validateAgainstSchema(report, REPORT_SCHEMA);
+  if (!schema.valid) errors.push(...schema.errors);
+  if (!report || typeof report !== "object") return errors;
+
+  const framework = getFrameworkById(report.framework?.id);
+  if (!framework) errors.push(`unknown framework: ${report.framework?.id || "<missing>"}`);
+  const turns = Array.isArray(report.majorTurns) ? report.majorTurns.filter((turn) => turn?.required) : [];
+  const requiredIds = new Set(framework?.requiredMajorTurnIds || []);
+  const emittedIds = new Set(turns.map((turn) => turn.turnId));
+  if (requiredIds.size !== emittedIds.size || [...requiredIds].some((id) => !emittedIds.has(id))) {
+    errors.push("required major turns do not exactly match the selected framework");
+  }
+
+  const detected = turns.filter((turn) => turn.detected === true);
+  const overridden = turns.filter((turn) => turn.detected === false && turn.status === "manually_present");
+  const missing = turns.filter((turn) => turn.detected === false && turn.status === "missing");
+  const unavailable = turns.filter((turn) => turn.detected === false && turn.status === "unavailable");
+  for (const turn of detected) {
+    if (turn.status !== "present") errors.push(`${turn.turnId}: detected turn must have status=present`);
+    if (!Array.isArray(turn.evidence) || turn.evidence.length === 0) {
+      errors.push(`${turn.turnId}: detected turn has no semantic evidence`);
+    }
+  }
+  for (const turn of overridden) {
+    const override = turn.override;
+    if (
+      !override
+      || override.action !== "mark-present"
+      || override.turnId !== turn.turnId
+      || override.projectId !== report.projectId
+      || String(override.versionId || "") !== String(report.versionId || "")
+      || override.frameworkId !== report.framework?.id
+    ) errors.push(`${turn.turnId}: writer override is missing valid project/version/framework scope`);
+  }
+  const declaredOverrides = new Map((report.overrides || []).map((override) => [override.id, override]));
+  for (const turn of overridden) {
+    if (!declaredOverrides.has(turn.override?.id)) errors.push(`${turn.turnId}: applied override is absent from report.overrides`);
+  }
+
+  const cov = report.coverage || {};
+  const expected = {
+    requiredMajorTurnCount: turns.length,
+    detectedMajorTurnCount: detected.length,
+    overriddenMajorTurnCount: overridden.length,
+    missingMajorTurnCount: missing.length,
+    unavailableMajorTurnCount: unavailable.length,
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    const declared = field === "unavailableMajorTurnCount" && cov[field] === undefined ? 0 : cov[field];
+    if (declared !== value) errors.push(`coverage.${field}=${declared} does not match derived value ${value}`);
+  }
+  const derivedComplete = turns.length === detected.length + overridden.length
+    && missing.length === 0
+    && unavailable.length === 0;
+  if (cov.complete !== derivedComplete) {
+    errors.push(`coverage.complete=${cov.complete} does not match derived value ${derivedComplete}`);
+  }
+  return errors;
 }
 
 async function main() {
@@ -100,6 +206,13 @@ async function main() {
     }
   } catch (e) {
     console.error(`error: ${e.message}`);
+    process.exit(2);
+  }
+
+  const integrityErrors = validateCompletenessIntegrity(report);
+  if (integrityErrors.length) {
+    console.error("craft completeness gate: INVALID REPORT");
+    for (const error of integrityErrors) console.error(`  - ${error}`);
     process.exit(2);
   }
 
