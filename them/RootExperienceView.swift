@@ -797,6 +797,7 @@ struct RootExperienceView: View {
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
 
     @State private var backend = BackendClient()
+    @State private var pageInterruptService: ClementinePageInterruptService?
     private let screenplayPromptBuilder = ScreenplayPromptBuilder()
     @StateObject private var orbAudio = OrbAudioDriver()
     @StateObject private var speculativeTalk = SpeculativeTalkEngine()
@@ -1647,6 +1648,12 @@ struct RootExperienceView: View {
             ?? canonicalizedStudioDebugBackendURL(from: rawPinnedURL)
         setStudioDebugPreferenceString(pinnedURL.absoluteString, forKey: "backend_base_url")
         backend = BackendClient(baseURL: pinnedURL, fallbackURL: pinnedURL)
+        let service = ClementinePageInterruptService(backend: backend)
+        pageInterruptService = service
+        bindPageInterruptObservation(to: service)
+        screenplayDraftBridge.onPageGenerationInterrupted = { reason in
+            requestPageLaneCancelOnInterrupt(reason: reason)
+        }
         #endif
     }
 
@@ -2602,7 +2609,39 @@ struct RootExperienceView: View {
     }
     #endif
 
+
+    private func ensurePageInterruptService() -> ClementinePageInterruptService {
+        if let existing = pageInterruptService {
+            return existing
+        }
+        let created = ClementinePageInterruptService(backend: backend)
+        pageInterruptService = created
+        bindPageInterruptObservation(to: created)
+        return created
+    }
+
+    private func bindPageInterruptObservation(to service: ClementinePageInterruptService) {
+        backend.onPageReservationObserved = { reservationId in
+            Task { @MainActor in
+                service.notePageReservationId(reservationId)
+            }
+        }
+        backend.onPageTalkInFlightChanged = { inFlight in
+            Task { @MainActor in
+                service.markPageTalkInFlight(inFlight)
+            }
+        }
+    }
+
+    private func requestPageLaneCancelOnInterrupt(reason: ScreenplaySyncedInsertInterruptionReason) {
+        ensurePageInterruptService().handleInterrupt(reason: reason)
+    }
+
     private func configureVoiceCallbacks() {
+        _ = ensurePageInterruptService()
+        screenplayDraftBridge.onPageGenerationInterrupted = { reason in
+            requestPageLaneCancelOnInterrupt(reason: reason)
+        }
         voice.stopAssistantPlayback = {
             let typedTurnID = typedReplySpeaker.activeTurnID
             let turnBasedTurnID = orbAudio.isSpeaking
@@ -2628,6 +2667,7 @@ struct RootExperienceView: View {
             inFlightTalkTask?.cancel()
             inFlightTalkTask = nil
             isThinking = false
+            requestPageLaneCancelOnInterrupt(reason: .bargeIn)
         }
         voice.isAssistantPlaying = {
             orbAudio.isSpeaking ||

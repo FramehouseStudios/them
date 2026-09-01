@@ -1468,6 +1468,17 @@ struct BackendTalkResponseMetadata {
     let reply: String?
 }
 
+
+struct BackendPageCancelResult: Equatable {
+    let ok: Bool
+    let cancelled: Bool
+    let reservationId: String?
+    let sessionId: String?
+    let dropped: [String]
+    let cancelReason: String?
+    let status: String?
+}
+
 struct BackendTalkDebugEvent {
     let stage: String
     let resolvedBaseURL: String?
@@ -2243,6 +2254,11 @@ final class BackendClient {
 
     private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
     private let personaFlowKey = "clementine"
+    /// Observed when talk responses include `x-clementine-page-reservation` (D008 Page lane).
+    var onPageReservationObserved: ((String) -> Void)?
+    /// Observed when multipart talk body targets `screenplay_target=page`.
+    var onPageTalkInFlightChanged: ((Bool) -> Void)?
+
 
     private var cachedClientToken: String?
     private var cachedClientTokenExpiry: Date?
@@ -2256,6 +2272,7 @@ final class BackendClient {
     private let healthCacheTTL: TimeInterval = 30
     private var cachedHealthyURL: URL?
     private var cachedHealthyAt: Date = .distantPast
+
 
     private static var defaultPrimaryBaseURL: URL {
         BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
@@ -3001,6 +3018,121 @@ final class BackendClient {
         persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         _ = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+    }
+
+
+    /// POST `/talk/page-cancel` — cancel by `reservation_id` and/or session owner.
+    /// Body shape matches `mountPageCancelRoute` (`reservation_id` / `session_id` / `reason`).
+    @discardableResult
+    func cancelPageLane(
+        reservationId: String? = nil,
+        sessionId: String? = nil,
+        reason: String = "barge_in"
+    ) async throws -> BackendPageCancelResult {
+        let cleanReservation = (reservationId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedReason = cleanReason.isEmpty ? "barge_in" : cleanReason
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        let cleanSession = (sessionId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveSession = cleanSession.isEmpty ? clientToken : cleanSession
+
+        guard !cleanReservation.isEmpty || !effectiveSession.isEmpty else {
+            throw BackendError.stage(
+                "page_cancel",
+                "reservation_id or session_id is required."
+            )
+        }
+
+        var body: [String: Any] = [
+            "reason": normalizedReason,
+        ]
+        if !cleanReservation.isEmpty {
+            body["reservation_id"] = cleanReservation
+        }
+        if !effectiveSession.isEmpty {
+            body["session_id"] = effectiveSession
+        }
+        if !userID.isEmpty {
+            body["user_id"] = userID
+        }
+
+        var request = URLRequest(
+            url: resolvedBaseURL
+                .appendingPathComponent("talk")
+                .appendingPathComponent("page-cancel")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !effectiveSession.isEmpty {
+            request.setValue(effectiveSession, forHTTPHeaderField: "x-session-id")
+        }
+        if shouldAttachUserIDHeader, !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        attachAuthorizationHeader(to: &request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.stage("page_cancel", "Invalid page-cancel response.")
+        }
+        // Missing reservation is a soft no-op for barge-in races.
+        if http.statusCode == 404, !cleanReservation.isEmpty {
+            return BackendPageCancelResult(
+                ok: false,
+                cancelled: false,
+                reservationId: cleanReservation,
+                sessionId: effectiveSession.isEmpty ? nil : effectiveSession,
+                dropped: [],
+                cancelReason: normalizedReason,
+                status: "reservation_not_found"
+            )
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(
+                http.statusCode,
+                raw.isEmpty ? "Page cancel failed." : raw
+            )
+        }
+
+        let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let droppedRaw = payload["dropped"] as? [Any] ?? []
+        let dropped = droppedRaw.compactMap { value -> String? in
+            let text = String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+        let reservationFromBody = (payload["reservation_id"] as? String)
+            ?? (payload["reservationId"] as? String)
+        let sessionFromBody = (payload["session_id"] as? String)
+            ?? (payload["sessionId"] as? String)
+        let cancelReason = (payload["cancel_reason"] as? String)
+            ?? (payload["cancelReason"] as? String)
+        let status = payload["status"] as? String
+        let ok = (payload["ok"] as? Bool) ?? true
+        let cancelled = (payload["cancelled"] as? Bool) ?? (!dropped.isEmpty)
+
+        return BackendPageCancelResult(
+            ok: ok,
+            cancelled: cancelled,
+            reservationId: reservationFromBody ?? (cleanReservation.isEmpty ? nil : cleanReservation),
+            sessionId: sessionFromBody ?? (effectiveSession.isEmpty ? nil : effectiveSession),
+            dropped: dropped,
+            cancelReason: cancelReason ?? normalizedReason,
+            status: status
+        )
     }
 
     func prepareSpeculativeTalk(
@@ -4032,6 +4164,10 @@ final class BackendClient {
         allowAudioValidationRetry: Bool,
         forceNoStreamAudio: Bool
     ) async throws -> BackendTalkResult {
+        defer {
+            onPageTalkInFlightChanged?(false)
+        }
+
         let boundary = "Boundary-\(UUID().uuidString)"
         let url = baseURL.appendingPathComponent("talk")
         onDebugEvent?(
@@ -4275,6 +4411,9 @@ final class BackendClient {
                 body.appendString(String(target.prefix(24)))
                 body.appendString("\r\n")
             }
+            if target == "page" {
+                onPageTalkInFlightChanged?(true)
+            }
             let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
             if !promptSource.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -4464,6 +4603,13 @@ final class BackendClient {
                 )
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
+                if let pageReservationHeader = self.parseOptionalHeaderString(
+                    http,
+                    field: "x-clementine-page-reservation"
+                )?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !pageReservationHeader.isEmpty {
+                    self.onPageReservationObserved?(pageReservationHeader)
+                }
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
