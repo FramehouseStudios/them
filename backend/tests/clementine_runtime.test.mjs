@@ -150,3 +150,47 @@ test("[clementine] muse client fails closed without api key", async () => {
     if (prevMuse !== undefined) process.env.MUSE_API_KEY = prevMuse;
   }
 });
+
+test("[clementine] cancel(reservationId) + proceed rejects cancelled work", () => {
+  const store = createPageReservationStore({ now: () => 1_700_000_000_100 });
+  const r = store.reserve({
+    sessionId: "s-page",
+    userId: "u1",
+    maxOutputTokens: 512,
+    reason: "page_edit",
+  });
+  assert.equal(store.proceed(r.id).ok, true);
+  assert.equal(store.proceed(r.id).code, "ok");
+
+  const cancelled = store.cancel(r.id, { reason: "barge_in" });
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.cancelReason, "barge_in");
+
+  const again = store.cancel(r.id, { reason: "barge_in" });
+  assert.equal(again.cancelled, false); // idempotent no-op
+
+  const gate = store.proceed(r.id);
+  assert.equal(gate.ok, false);
+  assert.equal(gate.code, "page_reservation_cancelled");
+  assert.equal(gate.reservation.status, "cancelled");
+
+  assert.equal(store.proceed("missing-id").ok, false);
+  assert.equal(store.proceed("missing-id").code, "page_reservation_missing");
+});
+
+test("[clementine] cancelByOwner drops session page work; proceed no-ops billing", () => {
+  const store = createPageReservationStore({ now: () => 1_700_000_000_200 });
+  const a = store.reserve({ sessionId: "owner-s", userId: "u-a", maxOutputTokens: 100 });
+  const b = store.reserve({ sessionId: "owner-s", userId: "u-a", maxOutputTokens: 200 });
+  const other = store.reserve({ sessionId: "other-s", userId: "u-b", maxOutputTokens: 50 });
+
+  const dropped = store.cancelByOwner(
+    { sessionId: "owner-s", userId: "u-a" },
+    { reason: "manual_typing" }
+  );
+  assert.deepEqual(dropped.sort(), [a.id, b.id].sort());
+  assert.equal(store.proceed(a.id).ok, false);
+  assert.equal(store.proceed(b.id).ok, false);
+  assert.equal(store.proceed(other.id).ok, true);
+});

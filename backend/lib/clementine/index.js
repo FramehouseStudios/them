@@ -15,6 +15,15 @@ export {
 } from "./cache_policy.js";
 export { createPageReservationStore } from "./page_cancel.js";
 export {
+  peekUtterance,
+  peekPageHints,
+  resolveSessionId,
+  resolveUserId,
+  resolveTalkLane,
+  beginPageWork,
+  createPageLaneTalkAdapter,
+} from "./page_lane_adapter.js";
+export {
   DEFAULT_BASE_URL,
   buildMuseResponsesRequest,
   createMuseClient,
