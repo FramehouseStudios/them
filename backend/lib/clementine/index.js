@@ -68,3 +68,21 @@ export {
   createWalletEmptyError,
   createWalletStore,
 } from "./wallet.js";
+
+export { classifyReflex } from "./reflex_classifier.js";
+export {
+  TEMPLATE_BANK,
+  TEMPLATE_IDS,
+  interpolate,
+  renderReflexTemplate,
+  listTemplateIds,
+} from "./reflex_templates.js";
+export { tryReflexReply } from "./reflex_lane.js";
+export {
+  peekKnownFacts,
+  peekVoiceSpecHints,
+  isReflexEligibleLane,
+  tryTalkEdgeReflex,
+  sendReflexReply,
+} from "./talk_edge_adapter.js";
+
