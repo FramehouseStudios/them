@@ -108,6 +108,7 @@ function createChatSupplier({
       apiMode = "chat_completions",
       reasoningEffort = "",
       fallbackModel = "",
+      signal = null,
     } = {}) {
       let requestResult;
       try {
@@ -122,9 +123,20 @@ function createChatSupplier({
           fallbackModel,
           fetchWithTimeout: fetcher,
           timeoutMs: CHAT_TIMEOUT_MS,
+          signal,
         });
       } catch (err) {
         if (isAbort(err)) {
+          if (signal?.aborted || err?.cancelled || err?.code === "page_generation_cancelled") {
+            const cancelErr = new Error("Page generation cancelled");
+            cancelErr.name = "AbortError";
+            cancelErr.code = "page_generation_cancelled";
+            cancelErr.status = 409;
+            cancelErr.cancelled = true;
+            cancelErr.stage = "chat";
+            cancelErr.errorClass = "page_generation_cancelled";
+            throw cancelErr;
+          }
           throw timeoutError("chat", "Chat completion timed out.");
         }
         throw err;

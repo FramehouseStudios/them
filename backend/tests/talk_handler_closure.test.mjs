@@ -45,6 +45,9 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
+  "gatePageGeneration",
+  "isPageCancelledError",
+  "mapAbortToPageCancel",
   "createPendingScreenplayLearningQuestion",
   "createTalkFailureError",
   "formatRankedStoryRescueMoveLine",
@@ -59,6 +62,10 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "selectPendingScreenplayLearningQuestion",
   "selectStoryMoveLibraryLinesForContext",
   "upsertPendingScreenplayLearningQuestion",
+  "buildStructuralScreenplayRepairMessages",
+  "evaluateStructuralScreenplayReply",
+  "shouldAcceptStructuralRepair",
+  "mergeProviderUsage",
 ]);
 
 test("[writer-block-learning] extracts the delivered rank without treating it as writer taste", () => {
