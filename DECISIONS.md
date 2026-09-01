@@ -85,3 +85,17 @@ Each entry follows the ADR pattern:
   8. **Skills:** Clementine capabilities live as Markdown skills (Muse Code–importable packaging). Rare tools stay behind `tool_search` / defer_loading so the cached prefix stays intact.
   9. **Eval before knob-tuning:** ship a ~50-scene companion golden set (comfort, tease, boundary, memory recall, “I don’t want advice,” page propose, barge-in cancel) and choose effort policy from numbers.
 - **Consequences:** Implementation work follows docs in `docs/product/clementine-muse-runtime.md` and `docs/product/clementine-voice-spec.md`. Existing OpenAI/provider adapters remain behind the same product lanes until cutover. Disclose “powered by Muse Spark” once in settings/first run; do not skin Clementine as Meta AI. Legal ToS/geo review and CORS probe for web BYOK remain launch gates; native BYOK is the power-user path first. Contributor is never the default for companion traffic.
+
+## D009 — God-file strangler rules (keep behavior, move seams)
+
+- **Date:** 2026-09-01
+- **Status:** accepted
+- **Context:** Several production files (`backend/index.js`, `talk_handler`, `ScreenplayLiveDraftBridge`, `RootExperienceView`, `ScreenplayStudioScreen`, and peers) are too large to safely rewrite. Big-bang splits risk voice/auth/outbox regressions. The repo already has a partial backend extract pattern (`backend/lib` + `mountX(app, deps)`) that stalled mid-flight (e.g. `auth_routes` not wired).
+- **Decision:**
+  1. **No big-bang rewrites** of god files. Use the strangler pattern: keep a façade, extract one capability per PR, delete the old path in the same PR once tests pass (feature-flag at most one release).
+  2. **Extract by capability, not by line range** (e.g. “auth HTTP mounts”, “page interrupt policy”), never “move lines 8k–12k.”
+  3. **Characterization before move** — routes/status codes and critical iOS smokes must stay green; god-file line count must not grow on feature PRs.
+  4. **Backend order of attack:** (B1) wire existing `auth_routes` and remove inline duplicates → (B2) keep talk edge / Clementine adapters owning HTTP → (B3) stage-split `talk_handler` → (B4) stop growing stores inside `index.js` → (B5) `index.js` is boot/wire-up only. New routes belong in `backend/lib/...`; PRs that grow `index.js` need an explicit justification.
+  5. **iOS order of attack:** (I1) networking only via clients/services → (I2) split `ScreenplayLiveDraftBridge` into insert/outbox/reconcile/interrupt façades → (I3) feature ViewModels off Studio → (I4) compose god views from children last → (I5) eliminate duplicate shells (`AppShell` vs live root). New product `@State` does not land on Root/Studio god views.
+  6. **Do not** start a parallel architecture rewrite (new app framework, wholesale Packages migration) as a substitute for strangling. Packages absorb code only after app-target façades are thin.
+- **Consequences:** Refactors are sequenced behind ship/Clementine work when they share a seam (e.g. interrupt + page-cancel). Weekly cadence prefers one seam merged over many open extract branches. Details and PR checklist live in `docs/engineering/god-file-strangler.md`.
