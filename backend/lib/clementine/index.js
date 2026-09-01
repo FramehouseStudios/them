@@ -37,3 +37,19 @@ export {
   normalizeEffort,
   resolveApiKey,
 } from "./muse_client.js";
+export {
+  MEMORY_TOOL_NAMES,
+  MEMORY_KINDS,
+  buildMemoryToolSchemas,
+  createMemoryTools,
+} from "./memory_tools.js";
+export {
+  DEFAULT_MAX_RECENT_TURNS,
+  DEFAULT_COMPACT_TURN_THRESHOLD,
+  DEFAULT_COMPACT_TOKEN_ESTIMATE,
+  estimateTokensFromText,
+  shouldCompact,
+  compactWorkingSet,
+  buildWorkingSetState,
+} from "./memory_working_set.js";
+export { createMemoryCompactionJob } from "./memory_compaction_job.js";
