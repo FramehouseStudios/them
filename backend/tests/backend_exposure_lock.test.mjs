@@ -246,6 +246,31 @@ test("[exposure-lock] POST /visual/context rejects unauthenticated requests with
   }
 });
 
+test("[exposure-lock] paid-provider classification includes logline distill but not deterministic twist suggest", () => {
+  const auth = setupSubsystem({ requireUserAuth: false });
+
+  const paidReq = makeReqWithHeaders();
+  paidReq.path = "/craft/logline/distill";
+  const paidRes = makeRes();
+  let paidNextCalled = false;
+  auth.protectPaidProviderRoutes(paidReq, paidRes, () => { paidNextCalled = true; });
+  assert.equal(paidNextCalled, false);
+  assert.equal(paidRes._status, 401);
+  assert.equal(paidRes._body?.stage, "auth_user");
+
+  const deterministicReq = makeReqWithHeaders();
+  deterministicReq.path = "/craft/twist/suggest";
+  const deterministicRes = makeRes();
+  let deterministicNextCalled = false;
+  auth.protectPaidProviderRoutes(
+    deterministicReq,
+    deterministicRes,
+    () => { deterministicNextCalled = true; },
+  );
+  assert.equal(deterministicNextCalled, true);
+  assert.equal(deterministicRes._status, 200);
+});
+
 test("[exposure-lock] GET /realtime/health remains unauthenticated (health/proxy surface)", async () => {
   const server = await startBackend();
   try {

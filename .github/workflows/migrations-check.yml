@@ -12,6 +12,19 @@ on:
       - "scripts/apply_migrations.mjs"
       - "backend/lib/persistence_postgres.js"
       - "backend/lib/persistence_adapter.js"
+      - "backend/tests/persistence_adapter.test.mjs"
+      - "backend/tests/persistence_postgres_live.test.mjs"
+      - ".github/workflows/migrations-check.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/migrations/**"
+      - "scripts/apply_migrations.mjs"
+      - "backend/lib/persistence_postgres.js"
+      - "backend/lib/persistence_adapter.js"
+      - "backend/tests/persistence_adapter.test.mjs"
+      - "backend/tests/persistence_postgres_live.test.mjs"
       - ".github/workflows/migrations-check.yml"
   workflow_dispatch:
 
@@ -59,7 +72,7 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: backend
-        run: npm install
+        run: npm ci
 
       - name: Status (should list every migration as PENDING)
         run: |
@@ -95,3 +108,6 @@ jobs:
             echo "::error::re-applying migrations was not a no-op"
             exit 1
           fi
+
+      - name: Verify literal prefix queries against Postgres
+        run: node --test backend/tests/persistence_postgres_live.test.mjs

@@ -28,6 +28,12 @@ function createPgMock() {
     if (!tables.has(t)) tables.set(t, new Map());
     return tables.get(t);
   }
+  function literalPrefix(pattern) {
+    const withoutWildcard = String(pattern).endsWith("%")
+      ? String(pattern).slice(0, -1)
+      : String(pattern);
+    return withoutWildcard.replace(/\\([\\%_])/g, "$1");
+  }
   return {
     async query(sql, params = []) {
       const trimmed = sql.replace(/\s+/g, " ").trim();
@@ -73,10 +79,10 @@ function createPgMock() {
         return { rowCount: had ? 1 : 0 };
       }
       // LIST with prefix + cursor
-      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 AND key > \$2 ORDER BY key ASC LIMIT \$3$/i);
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 ESCAPE E'\\\\' AND key > \$2 ORDER BY key ASC LIMIT \$3$/i);
       if (m) {
         const tbl = ensure(m[1]);
-        const rawPrefix = String(params[0]).replace(/%$/, "");
+        const rawPrefix = literalPrefix(params[0]);
         const afterKey = String(params[1]);
         const cap = Number(params[2]);
         const rows = [...tbl.entries()]
@@ -87,10 +93,10 @@ function createPgMock() {
         return { rows };
       }
       // LIST with prefix
-      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 ORDER BY key ASC LIMIT \$2$/i);
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE key LIKE \$1 ESCAPE E'\\\\' ORDER BY key ASC LIMIT \$2$/i);
       if (m) {
         const tbl = ensure(m[1]);
-        const rawPrefix = String(params[0]).replace(/%$/, "");
+        const rawPrefix = literalPrefix(params[0]);
         const cap = Number(params[1]);
         const rows = [...tbl.entries()]
           .filter(([k]) => k.startsWith(rawPrefix))
@@ -175,6 +181,31 @@ test("[postgres] pool deadlines bound acquisition, server execution, and client 
   assert.equal(clamped.statement_timeout, 29_000);
   assert.equal(clamped.query_timeout, 29_100);
   assert.ok(clamped.statement_timeout < clamped.query_timeout);
+});
+
+test("[postgres] list escapes LIKE metacharacters and declares the escape character", async () => {
+  const calls = [];
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql, params) {
+        calls.push({ sql: sql.replace(/\s+/g, " ").trim(), params });
+        return { rows: [] };
+      },
+    },
+  });
+
+  await p.list({
+    domain: "screenplay",
+    prefix: "project%_\\",
+    afterKey: "project%_\\first",
+    limit: 25,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /WHERE key LIKE \$1 ESCAPE E'\\\\' AND key > \$2/);
+  assert.equal(calls[0].params[0], "project\\%\\_\\\\%");
+  assert.equal(calls[0].params[1], "project%_\\first");
+  assert.equal(calls[0].params[2], 25);
 });
 
 // ---------- contract tests, run against both impls ----------
@@ -263,6 +294,28 @@ for (const impl of makeImplementations()) {
         afterKey: "byUserId:alpha",
       });
       assert.deepEqual(prefixedAfterFirst.map((r) => r.key), ["byUserId:zebra"]);
+    } finally {
+      await p.close();
+    }
+  });
+
+  test(`[${impl.name}] list treats LIKE metacharacters in prefixes literally`, async () => {
+    const p = impl.create();
+    const prefix = "project%_\\folder";
+    try {
+      await p.put({ domain: "screenplay", key: `${prefix}:alpha`, value: { exact: 1 } });
+      await p.put({ domain: "screenplay", key: `${prefix}:beta`, value: { exact: 2 } });
+      await p.put({
+        domain: "screenplay",
+        key: "project-anyXfolder:wrong",
+        value: { wildcardMatchOnly: true },
+      });
+
+      const exact = await p.list({ domain: "screenplay", prefix });
+      assert.deepEqual(
+        exact.map((record) => record.key),
+        [`${prefix}:alpha`, `${prefix}:beta`],
+      );
     } finally {
       await p.close();
     }

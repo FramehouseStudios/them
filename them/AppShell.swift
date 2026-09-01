@@ -895,7 +895,7 @@ struct ProfileAccountScreen: View {
                         Text(
                             sessionState.isAuthenticated
                                 ? (sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
-                                : "Email auth is live in this app now. Sign in, create an account, or finish a reset here."
+                                : "Sign in to keep your projects, preferences, and writing sessions connected."
                         )
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(.white.opacity(0.62))
@@ -911,8 +911,8 @@ struct ProfileAccountScreen: View {
                     .padding(.top, 32)
 
                     accountCard(
-                        title: "Status",
-                        subtitle: sessionState.isAuthenticated ? "Live auth session details pulled from the promoted backend client." : "The app is currently using anonymous local state."
+                        title: "Account Status",
+                        subtitle: sessionState.isAuthenticated ? "Your account is connected." : "You can explore in guest mode, then sign in when you’re ready to protect and sync your work."
                     ) {
                         HStack(spacing: 10) {
                             statusChip(sessionState.isAuthenticated ? "Signed In" : "Signed Out")
@@ -927,9 +927,9 @@ struct ProfileAccountScreen: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             metricRow(label: "Email", value: sessionState.email.isEmpty ? "Not signed in" : sessionState.email)
-                            metricRow(label: "User", value: currentUserID)
-                            metricRow(label: "Session", value: sessionState.currentSessionId.isEmpty ? "Not established yet" : sessionState.currentSessionId)
-                            metricRow(label: "Family", value: sessionState.currentFamilyId.isEmpty ? "Not available" : sessionState.currentFamilyId)
+                            metricRow(label: "Profile", value: sessionState.isAuthenticated ? "Connected" : "Guest")
+                            metricRow(label: "Session", value: sessionState.isAuthenticated ? "Active" : "Starts after sign-in")
+                            metricRow(label: "Workspace", value: "Personal")
                         }
                     }
 
@@ -1205,11 +1205,6 @@ struct ProfileAccountScreen: View {
         ) { _ in
             restoreRememberedLoginCredentials()
         }
-    }
-
-    private var currentUserID: String {
-        let value = sessionState.user?.userId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? "Anonymous" : value
     }
 
     private var authProviderStatusLabel: String? {

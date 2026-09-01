@@ -10659,6 +10659,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> HollywoodScreenplayUITextView {
         let textView = HollywoodScreenplayUITextView()
         textView.delegate = context.coordinator
+        textView.accessibilityIdentifier = "studio.draft.editor"
         textView.backgroundColor = .white
         textView.textColor = .black
         textView.tintColor = .black
@@ -10843,12 +10844,29 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func synchronizeParagraphElementsWithCurrentText(in textView: UITextView) {
             let nextText = textView.text ?? ""
             let activeLineIndex = screenplayLineIndex(for: currentLineLocation(in: textView), in: nextText)
+            let previousLines = screenplayLineTexts(lastKnownTextSnapshot)
+            let nextLines = screenplayLineTexts(nextText)
+            let activeLineElement: ScreenplayEditorElement? = {
+                if let explicitCurrentLineElement {
+                    return explicitCurrentLineElement
+                }
+                guard activeLineIndex < previousLines.count,
+                      activeLineIndex < nextLines.count,
+                      previousLines[activeLineIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !nextLines[activeLineIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+                // A capitalized first keystroke (for example, "S" in "She")
+                // is not enough evidence for a character cue. Preserve the
+                // user's selected element when typing begins on a blank line.
+                return parent.activeScreenplayElement
+            }()
             paragraphElements = reconcileScreenplayParagraphElements(
                 previousText: lastKnownTextSnapshot,
                 nextText: nextText,
                 previousElements: paragraphElements,
                 activeLineIndex: activeLineIndex,
-                explicitCurrentLineElement: explicitCurrentLineElement
+                explicitCurrentLineElement: activeLineElement
             )
             lastKnownTextSnapshot = nextText
             ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(text: nextText, elements: paragraphElements)
@@ -10932,6 +10950,17 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             if replacementText == "\n" {
                 handleInsertNewline(in: textView, replacementRange: range)
                 return false
+            }
+            if !replacementText.isEmpty {
+                let details = screenplayCurrentLineDetails(for: range.location, in: textView.text ?? "")
+                if details.lineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // UIKit may publish its selection change before
+                    // textViewDidChange. Pin the selected screenplay element
+                    // before that callback can infer a one-letter capital as
+                    // a character cue.
+                    explicitCurrentLineElement = parent.activeScreenplayElement
+                    explicitCurrentLineLocation = details.lineRange.location
+                }
             }
             return true
         }

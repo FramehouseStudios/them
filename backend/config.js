@@ -14,6 +14,10 @@ const HOST = String(
 ).trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
 const APP_TOKEN = process.env.APP_TOKEN || "";
+// Server-side credential for the global outbox inspection/retry control plane.
+// This value is never shipped in the app. An empty value disables the HTTP
+// surface while leaving the internal outbox worker running.
+const OUTBOX_OPERATOR_TOKEN = String(process.env.OUTBOX_OPERATOR_TOKEN || "").trim();
 const CORS_ALLOW_ORIGIN = String(process.env.CORS_ALLOW_ORIGIN || "").trim();
 const API_SCHEMA_VERSION = parsePositiveInt(process.env.API_SCHEMA_VERSION, 1);
 const BACKEND_BUILD = String(process.env.BACKEND_BUILD || "dev").trim() || "dev";
@@ -110,6 +114,12 @@ function assertProductionEnv(env = process.env) {
   if (!String(env.APP_TOKEN || "").trim()) {
     missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
   }
+  const outboxOperatorToken = String(env.OUTBOX_OPERATOR_TOKEN || "").trim();
+  if (outboxOperatorToken && outboxOperatorToken.length < 32) {
+    missing.push(
+      "OUTBOX_OPERATOR_TOKEN — when enabled, use at least 32 characters; leave unset to disable outbox HTTP access."
+    );
+  }
   if (!String(env.AUTH_APPLE_AUDIENCE || "").trim()) {
     missing.push("AUTH_APPLE_AUDIENCE — required to validate Sign in with Apple token audiences.");
   }
@@ -150,6 +160,7 @@ export {
   MAX_FILE_MB,
   NODE_ENV,
   OPENAI_API_KEY,
+  OUTBOX_OPERATOR_TOKEN,
   PORT,
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,

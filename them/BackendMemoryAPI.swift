@@ -3114,6 +3114,15 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
     case invalidResponse
     case server(status: Int, message: String)
 
+    var requiresUserAuthentication: Bool {
+        guard case let .server(status, message) = self, status == 401 else { return false }
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.contains("user_auth_required") ||
+            normalized.contains("expired_user_token") ||
+            normalized.contains("invalid_user_token") ||
+            normalized.contains("revoked_user_token")
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidBaseURL:
@@ -3121,6 +3130,9 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
         case .invalidResponse:
             return "Backend returned an invalid response."
         case .server(let status, let message):
+            if requiresUserAuthentication {
+                return "Sign in to create projects and keep your screenplay work connected."
+            }
             return "Backend error \(status): \(message)"
         }
     }

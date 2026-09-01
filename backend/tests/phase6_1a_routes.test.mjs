@@ -34,6 +34,7 @@ function routes(app) {
 const find = (rs, p, m) => rs.find((r) => r.path === p && r.methods.includes(m));
 
 const outboxDeps = {
+  OUTBOX_OPERATOR_TOKEN: "test-outbox-operator-token-at-least-32-chars",
   OUTBOX_WORKER_BATCH_SIZE: 25, createRequestId: () => "rid",
   parseQueryLimit: () => 50, processOutboxBatch: async () => ({}),
   processSingleOutboxItemById: async () => ({}), scaleBackplane: {},
@@ -71,8 +72,8 @@ test("[6.1a] mountOutboxRoutes registers GET /outbox + POST /outbox/retry (with 
   assert.ok(find(rs, "/outbox", "get"), "GET /outbox registered");
   const retry = find(rs, "/outbox/retry", "post");
   assert.ok(retry, "POST /outbox/retry registered");
-  // route-local express.json parser + handler => >= 2 handlers on the route
-  assert.ok(retry.handlerCount >= 2, `/outbox/retry must carry its own parser (handlers=${retry.handlerCount})`);
+  // operator guard + route-local express.json parser + handler => >= 3 handlers
+  assert.ok(retry.handlerCount >= 3, `/outbox/retry must carry operator auth + own parser (handlers=${retry.handlerCount})`);
 });
 
 test("[6.1a] mountStateRoute registers GET /state", () => {

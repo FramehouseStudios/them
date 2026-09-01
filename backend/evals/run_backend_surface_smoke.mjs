@@ -85,10 +85,13 @@ async function startServer() {
   const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
   const app = express();
   app.use(express.json());
-  // Stand-in auth middleware: a deterministic test user so userId-
-  // gated endpoints have something to resolve.
-  app.use((req, _res, next) => { req.user = { id: "smoke-user-1" }; next(); });
-  mountCraftRoutes(app);
+  // Stand-in canonical auth identity for the isolated smoke server.
+  app.use((req, _res, next) => {
+    req.authUser = { id: "smoke-user-1" };
+    req.userId = req.authUser.id;
+    next();
+  });
+  mountCraftRoutes(app, { authorizeProjectAccess: async () => true });
   mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
   mountCharacterTraitRoute(app, { creativeMemoryStore });
   mountBlockSignalRoute(app, { creativeMemoryStore });

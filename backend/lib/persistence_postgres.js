@@ -21,6 +21,10 @@ function tableName(domain) {
   return `persistence_${domain}`;
 }
 
+function escapeLikePrefix(prefix) {
+  return String(prefix).replace(/[\\%_]/g, "\\$&");
+}
+
 function boundedTimeout(value, fallback, min, max) {
   const parsed = Number(value);
   const resolved = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
@@ -168,22 +172,23 @@ function createPostgresPersistence({
       assertDomain(domain);
       const c = await client();
       const cap = Math.max(1, Math.min(10_000, Math.floor(Number(limit) || 1000)));
+      const escapedPrefixPattern = prefix ? `${escapeLikePrefix(prefix)}%` : "";
       let r;
       if (prefix && afterKey) {
         r = await c.query(
           `SELECT key, value FROM ${tableName(domain)}
-           WHERE key LIKE $1 AND key > $2
+           WHERE key LIKE $1 ESCAPE E'\\\\' AND key > $2
            ORDER BY key ASC
            LIMIT $3`,
-          [`${prefix}%`, afterKey, cap],
+          [escapedPrefixPattern, afterKey, cap],
         );
       } else if (prefix) {
         r = await c.query(
           `SELECT key, value FROM ${tableName(domain)}
-           WHERE key LIKE $1
+           WHERE key LIKE $1 ESCAPE E'\\\\'
            ORDER BY key ASC
            LIMIT $2`,
-          [`${prefix}%`, cap],
+          [escapedPrefixPattern, cap],
         );
       } else if (afterKey) {
         r = await c.query(
