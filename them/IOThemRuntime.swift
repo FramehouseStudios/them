@@ -69,7 +69,11 @@ nonisolated enum StudioDebugPreferenceFileBridge {
         isDirectory: true
     )
 
-    static func value(forKey key: String) -> Any? {
+    static func value(
+        forKey key: String,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Any? {
+        guard IOThemRuntime.isStudioAutomationArguments(arguments) else { return nil }
         let url = valueURL(forKey: key)
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -78,7 +82,12 @@ nonisolated enum StudioDebugPreferenceFileBridge {
         return object["value"]
     }
 
-    static func write(_ value: Any, forKey key: String) {
+    static func write(
+        _ value: Any,
+        forKey key: String,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) {
+        guard IOThemRuntime.isStudioAutomationArguments(arguments) else { return }
         guard JSONSerialization.isValidJSONObject(["value": value]),
               let data = try? JSONSerialization.data(withJSONObject: ["value": value]) else {
             return
@@ -88,6 +97,10 @@ nonisolated enum StudioDebugPreferenceFileBridge {
             withIntermediateDirectories: true
         )
         try? data.write(to: valueURL(forKey: key), options: .atomic)
+    }
+
+    static func removeValue(forKey key: String) {
+        try? FileManager.default.removeItem(at: valueURL(forKey: key))
     }
 
     private static func valueURL(forKey key: String) -> URL {

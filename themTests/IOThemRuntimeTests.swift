@@ -43,6 +43,42 @@ final class IOThemRuntimeTests: XCTestCase {
         ]))
     }
 
+    func testStudioDebugPreferenceFileBridgeRequiresExplicitAutomationMarker() throws {
+        let key = "io.them.tests.studio-debug-bridge.\(UUID().uuidString)"
+        defer { StudioDebugPreferenceFileBridge.removeValue(forKey: key) }
+
+        StudioDebugPreferenceFileBridge.write(
+            "must-not-persist",
+            forKey: key,
+            arguments: ["them"]
+        )
+        XCTAssertNil(StudioDebugPreferenceFileBridge.value(
+            forKey: key,
+            arguments: ["them", "--studio-eval"]
+        ))
+
+        StudioDebugPreferenceFileBridge.write(
+            "automation-only",
+            forKey: key,
+            arguments: ["them", "--studio-eval"]
+        )
+        XCTAssertNil(StudioDebugPreferenceFileBridge.value(
+            forKey: key,
+            arguments: ["them"]
+        ))
+        XCTAssertNil(StudioDebugPreferenceFileBridge.value(
+            forKey: key,
+            arguments: ["them", "--studio-eval-disabled"]
+        ))
+        XCTAssertEqual(
+            StudioDebugPreferenceFileBridge.value(
+                forKey: key,
+                arguments: ["them", "--ui-testing"]
+            ) as? String,
+            "automation-only"
+        )
+    }
+
     func testExplicitPreferenceArgumentsOverrideOnlyTheirExactKey() {
         let arguments = [
             "/Applications/them.app/Contents/MacOS/them",
