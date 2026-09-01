@@ -174,7 +174,39 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             pdfUnavailableText: "PDF unavailable."
         )
         XCTAssertEqual(document.statusText, ScreenplayStudioDraftDocumentPresentation.fallbackStatusText)
+        XCTAssertEqual(document.statusSystemImage, "icloud")
+        XCTAssertFalse(document.statusIsConfirmed)
         XCTAssertEqual(document.notice, .warning("Format service unavailable."))
+
+        let savedDocument = ScreenplayStudioDraftDocumentPresentation(
+            isSaving: false,
+            exportItems: [],
+            autosaveStatusText: "Autosaved",
+            exportFormatsErrorText: "",
+            pdfUnavailableText: ""
+        )
+        XCTAssertEqual(savedDocument.statusSystemImage, "checkmark.circle.fill")
+        XCTAssertTrue(savedDocument.statusIsConfirmed)
+
+        let pendingDocument = ScreenplayStudioDraftDocumentPresentation(
+            isSaving: false,
+            exportItems: [],
+            autosaveStatusText: "Sync pending",
+            exportFormatsErrorText: "",
+            pdfUnavailableText: ""
+        )
+        XCTAssertEqual(pendingDocument.statusSystemImage, "clock.badge.exclamationmark")
+        XCTAssertFalse(pendingDocument.statusIsConfirmed)
+
+        let savingDocument = ScreenplayStudioDraftDocumentPresentation(
+            isSaving: true,
+            exportItems: [],
+            autosaveStatusText: "Autosaved",
+            exportFormatsErrorText: "",
+            pdfUnavailableText: ""
+        )
+        XCTAssertEqual(savingDocument.statusSystemImage, "arrow.triangle.2.circlepath")
+        XCTAssertFalse(savingDocument.statusIsConfirmed)
 
         let questions = (1...5).map { "Can you help with block \($0)?" }.joined(separator: "\n\n")
         let issues = FountainFormatter.screenplayIntegrityIssues(in: questions)

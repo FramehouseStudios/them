@@ -775,6 +775,9 @@ struct RootExperienceView: View {
     @State private var showingProfileAccount = false
     @State private var resumeStudioAfterAccountSignIn = false
     @State private var isRestoringWorkspaceAuthSession = false
+    @State private var studioOwnerUserIDSnapshot: String?
+    @State private var studioWasAuthenticatedSnapshot: Bool?
+    @State private var studioAccountIdentityGeneration = 0
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
@@ -2456,6 +2459,11 @@ struct RootExperienceView: View {
         processPendingStudioDebugCommandsIfNeeded()
         #endif
         #endif
+        if studioOwnerUserIDSnapshot == nil || studioWasAuthenticatedSnapshot == nil {
+            let session = BackendAuthClient.currentAuthSessionState()
+            studioOwnerUserIDSnapshot = session.user?.userId ?? ""
+            studioWasAuthenticatedSnapshot = session.isAuthenticated && !session.accessExpired
+        }
         ensureSessionBumped()
         onboardingName = evolution.preferredName
         if evolution.needsOnboardingName {
@@ -3822,6 +3830,7 @@ struct RootExperienceView: View {
                 shouldRouteStudioPromptToPage(prompt, preferredTarget: routingMode)
             }
         )
+        .id(studioAccountIdentityGeneration)
         .ignoresSafeArea()
     }
 
@@ -4132,8 +4141,33 @@ struct RootExperienceView: View {
 
     @MainActor
     private func handleAccountSessionChanged() {
-        screenplayDraftBridge.reconcileCharacterVoiceMemoryAccount()
         let session = BackendAuthClient.currentAuthSessionState()
+        let nextOwnerUserID = session.user?.userId ?? ""
+        let nextIsAuthenticated = session.isAuthenticated && !session.accessExpired
+        let shouldResetStudio = ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: studioOwnerUserIDSnapshot,
+            previousWasAuthenticated: studioWasAuthenticatedSnapshot,
+            nextOwnerUserID: nextOwnerUserID,
+            nextIsAuthenticated: nextIsAuthenticated,
+            nextAccessExpired: session.accessExpired
+        )
+        studioOwnerUserIDSnapshot = nextOwnerUserID
+        studioWasAuthenticatedSnapshot = nextIsAuthenticated
+
+        if shouldResetStudio {
+            studioAccountIdentityGeneration = studioAccountIdentityGeneration == Int.max
+                ? 1
+                : studioAccountIdentityGeneration + 1
+            liveScreenplayProjectID = ""
+            liveScreenplayVersionID = ""
+            sessionContinuitySnapshot = nil
+            dismissedSessionContinuityFingerprint = ""
+            if isStudioSurfaceActive {
+                closeStudio()
+            }
+        }
+
+        screenplayDraftBridge.reconcileAccountStorage()
         guard session.isAuthenticated, !session.accessExpired else { return }
 
         scheduleBackendHydration()

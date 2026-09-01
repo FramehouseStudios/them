@@ -2,19 +2,21 @@ import XCTest
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
+    private let defaultsSuiteName = "io.them.ScreenplayStudioDraftRecoveryTests"
     private let recoveryKey = "screenplay.studio.localDraftRecovery.tests"
+    private let ownerUserID = "user-recovery"
     private var defaults: UserDefaults!
     private var store: ScreenplayLocalDraftRecoveryStore!
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: "io.them.ScreenplayStudioDraftRecoveryTests")!
-        defaults.removeObject(forKey: recoveryKey)
+        defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
     }
 
     override func tearDown() {
-        defaults.removeObject(forKey: recoveryKey)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         store = nil
         defaults = nil
         super.tearDown()
@@ -61,6 +63,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         """
 
         store.save(
+            ownerUserId: ownerUserID,
             projectId: " project-recovery ",
             draft: draft,
             baseVersionId: "version-before-edit",
@@ -68,7 +71,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             savedAt: 1_700_000_000
         )
 
-        let payload = store.payloads()["project-recovery"]
+        let payload = store.payloads(ownerUserId: ownerUserID)["project-recovery"]
         XCTAssertEqual(payload?["draft"] as? String, draft)
         XCTAssertEqual(payload?["baseVersionId"] as? String, "version-before-edit")
         XCTAssertEqual(payload?["dirty"] as? Bool, true)
@@ -76,18 +79,19 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     func testClearRemovesOnlyRequestedProjectRecoverySnapshot() {
-        store.save(projectId: "project-a", draft: "A", baseVersionId: "v-a", dirty: true)
-        store.save(projectId: "project-b", draft: "B", baseVersionId: "v-b", dirty: true)
+        store.save(ownerUserId: ownerUserID, projectId: "project-a", draft: "A", baseVersionId: "v-a", dirty: true)
+        store.save(ownerUserId: ownerUserID, projectId: "project-b", draft: "B", baseVersionId: "v-b", dirty: true)
 
-        store.clear(projectId: " project-a ")
+        store.clear(ownerUserId: ownerUserID, projectId: " project-a ")
 
-        let payloads = store.payloads()
+        let payloads = store.payloads(ownerUserId: ownerUserID)
         XCTAssertNil(payloads["project-a"])
         XCTAssertEqual(payloads["project-b"]?["draft"] as? String, "B")
     }
 
     func testRecoverySnapshotPreservesUnsavedDraftBasedOnCurrentServerVersion() {
         store.save(
+            ownerUserId: ownerUserID,
             projectId: "project-recovery",
             draft: "INT. MOTEL ROOM - NIGHT\n\nShe adds the line she cannot forget.",
             baseVersionId: "server-current",
@@ -96,6 +100,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         )
 
         let snapshot = store.recoverySnapshot(
+            ownerUserId: ownerUserID,
             projectId: "project-recovery",
             serverDraft: "INT. MOTEL ROOM - NIGHT",
             fingerprint: stableFingerprint
@@ -109,6 +114,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
 
     func testRecoverySnapshotClearsWhenStoredDraftMatchesServerDraft() {
         store.save(
+            ownerUserId: ownerUserID,
             projectId: "project-recovery",
             draft: "INT. MOTEL ROOM - NIGHT",
             baseVersionId: "server-current",
@@ -117,13 +123,159 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         )
 
         let snapshot = store.recoverySnapshot(
+            ownerUserId: ownerUserID,
             projectId: "project-recovery",
             serverDraft: "INT. MOTEL ROOM - NIGHT",
             fingerprint: stableFingerprint
         )
 
         XCTAssertNil(snapshot)
-        XCTAssertNil(store.payloads()["project-recovery"])
+        XCTAssertNil(store.payloads(ownerUserId: ownerUserID)["project-recovery"])
+    }
+
+    func testRecoverySnapshotsAreIsolatedByAuthenticatedOwner() {
+        store.save(
+            ownerUserId: "user-a",
+            projectId: "shared-project-id",
+            draft: "A private draft",
+            baseVersionId: "version-a",
+            dirty: true
+        )
+        store.save(
+            ownerUserId: "user-b",
+            projectId: "shared-project-id",
+            draft: "B private draft",
+            baseVersionId: "version-b",
+            dirty: true
+        )
+
+        XCTAssertEqual(
+            store.payloads(ownerUserId: "user-a")["shared-project-id"]?["draft"] as? String,
+            "A private draft"
+        )
+        XCTAssertEqual(
+            store.payloads(ownerUserId: "user-b")["shared-project-id"]?["draft"] as? String,
+            "B private draft"
+        )
+    }
+
+    func testLegacyRecoveryPayloadIsQuarantinedFromAuthenticatedAccounts() {
+        defaults.set([
+            "legacy-project": [
+                "draft": "Legacy draft without owner metadata",
+                "baseVersionId": "legacy-version",
+                "dirty": true,
+                "savedAt": 1_700_000_999,
+            ],
+        ], forKey: recoveryKey)
+
+        XCTAssertTrue(store.payloads(ownerUserId: "user-a").isEmpty)
+        XCTAssertTrue(store.payloads(ownerUserId: "user-b").isEmpty)
+        XCTAssertEqual(
+            store.payloads(ownerUserId: "")["legacy-project"]?["draft"] as? String,
+            "Legacy draft without owner metadata"
+        )
+        XCTAssertNil(defaults.object(forKey: recoveryKey))
+    }
+
+    func testLegacyRecoveryQuarantinePreservesExistingAnonymousWork() {
+        let anonymousKey = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: recoveryKey,
+            ownerUserID: ""
+        )
+        defaults.set([
+            "shared-project": ["draft": "Existing anonymous draft", "dirty": true],
+        ], forKey: anonymousKey)
+        defaults.set([
+            "shared-project": ["draft": "Older legacy draft", "dirty": true],
+            "legacy-only": ["draft": "Legacy-only draft", "dirty": true],
+        ], forKey: recoveryKey)
+
+        XCTAssertTrue(store.payloads(ownerUserId: "user-a").isEmpty)
+        let quarantined = store.payloads(ownerUserId: "")
+        XCTAssertEqual(quarantined["shared-project"]?["draft"] as? String, "Existing anonymous draft")
+        XCTAssertEqual(quarantined["legacy-only"]?["draft"] as? String, "Legacy-only draft")
+        XCTAssertNil(defaults.object(forKey: recoveryKey))
+    }
+
+    func testAuthContextRejectsAccountAndInteractiveSessionChanges() {
+        let expected = ScreenplayStudioAuthContext(userID: "user-a", sessionIntentGeneration: 7)
+        XCTAssertTrue(ScreenplayStudioAuthContextPolicy.matches(
+            expected: expected,
+            current: ScreenplayStudioAuthContext(userID: " user-a ", sessionIntentGeneration: 7)
+        ))
+        XCTAssertFalse(ScreenplayStudioAuthContextPolicy.matches(
+            expected: expected,
+            current: ScreenplayStudioAuthContext(userID: "user-b", sessionIntentGeneration: 7)
+        ))
+        XCTAssertFalse(ScreenplayStudioAuthContextPolicy.matches(
+            expected: expected,
+            current: ScreenplayStudioAuthContext(userID: "user-a", sessionIntentGeneration: 8)
+        ))
+    }
+
+    func testOwnerScopedStorageKeysSeparateAccountsAndAnonymousState() {
+        let userA = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "draft",
+            ownerUserID: "user-a"
+        )
+        let userB = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "draft",
+            ownerUserID: "user-b"
+        )
+        let anonymous = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "draft",
+            ownerUserID: ""
+        )
+
+        XCTAssertNotEqual(userA, userB)
+        XCTAssertNotEqual(userA, anonymous)
+        XCTAssertNotEqual(userB, anonymous)
+        XCTAssertEqual(
+            anonymous,
+            ScreenplayOwnerScopedStoragePolicy.storageKey(
+                baseKey: "draft",
+                ownerUserID: " anonymous "
+            )
+        )
+    }
+
+    func testStudioAccountTransitionResetsAcrossSignOutAndDifferentAccount() {
+        XCTAssertFalse(ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: nil,
+            previousWasAuthenticated: nil,
+            nextOwnerUserID: "user-a",
+            nextIsAuthenticated: true,
+            nextAccessExpired: false
+        ))
+        XCTAssertTrue(ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: "user-a",
+            previousWasAuthenticated: true,
+            nextOwnerUserID: "",
+            nextIsAuthenticated: false,
+            nextAccessExpired: false
+        ))
+        XCTAssertTrue(ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: "",
+            previousWasAuthenticated: false,
+            nextOwnerUserID: "user-b",
+            nextIsAuthenticated: true,
+            nextAccessExpired: false
+        ))
+        XCTAssertFalse(ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: "user-b",
+            previousWasAuthenticated: true,
+            nextOwnerUserID: " user-b ",
+            nextIsAuthenticated: true,
+            nextAccessExpired: false
+        ))
+        XCTAssertTrue(ScreenplayStudioAccountTransitionPolicy.requiresStudioStateReset(
+            previousOwnerUserID: "user-b",
+            previousWasAuthenticated: true,
+            nextOwnerUserID: "user-b",
+            nextIsAuthenticated: false,
+            nextAccessExpired: true
+        ))
     }
 
     func testProjectScopedStateRequiresMatchingNonEmptyProjectIds() {

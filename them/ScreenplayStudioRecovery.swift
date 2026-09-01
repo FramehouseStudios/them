@@ -140,8 +140,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         self.key = key
     }
 
-    func payloads() -> [String: [String: Any]] {
-        let raw = defaults.dictionary(forKey: key) ?? [:]
+    func payloads(ownerUserId: String) -> [String: [String: Any]] {
+        let scopedKey = ownerScopedKey(ownerUserId)
+        migrateLegacyPayloadsIfNeeded()
+        let raw = defaults.dictionary(forKey: scopedKey) ?? [:]
         var out: [String: [String: Any]] = [:]
         for (key, value) in raw {
             guard let payload = value as? [String: Any] else { continue }
@@ -151,6 +153,7 @@ struct ScreenplayLocalDraftRecoveryStore {
     }
 
     func save(
+        ownerUserId: String,
         projectId: String,
         draft: String,
         baseVersionId: String,
@@ -159,32 +162,33 @@ struct ScreenplayLocalDraftRecoveryStore {
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
-        var nextPayloads = payloads()
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
         nextPayloads[normalizedProjectId] = [
             "draft": draft,
             "baseVersionId": baseVersionId,
             "dirty": dirty,
             "savedAt": savedAt,
         ]
-        defaults.set(nextPayloads, forKey: key)
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
-    func clear(projectId: String) {
+    func clear(ownerUserId: String, projectId: String) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
-        var nextPayloads = payloads()
+        var nextPayloads = payloads(ownerUserId: ownerUserId)
         nextPayloads.removeValue(forKey: normalizedProjectId)
-        defaults.set(nextPayloads, forKey: key)
+        defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
     }
 
     func recoverySnapshot(
+        ownerUserId: String,
         projectId: String,
         serverDraft: String,
         fingerprint: (String) -> String
     ) -> ScreenplayLocalDraftRecoverySnapshot? {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return nil }
-        guard let stored = payloads()[normalizedProjectId] else { return nil }
+        guard let stored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
 
         let storedDraft = String(describing: stored["draft"] ?? "")
         let storedDirty = stored["dirty"] as? Bool ?? false
@@ -195,7 +199,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
         let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
         guard serverFingerprint != localFingerprint else {
-            clear(projectId: normalizedProjectId)
+            clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }
 
@@ -205,5 +209,22 @@ struct ScreenplayLocalDraftRecoveryStore {
             baseVersionId: String(describing: stored["baseVersionId"] ?? ""),
             savedAt: stored["savedAt"] as? TimeInterval ?? 0
         )
+    }
+
+    private func ownerScopedKey(_ ownerUserId: String) -> String {
+        ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: key, ownerUserID: ownerUserId)
+    }
+
+    private func migrateLegacyPayloadsIfNeeded() {
+        let quarantineKey = ownerScopedKey(ScreenplayLegacyWorkspaceMigrationPolicy.quarantineOwnerUserID)
+        guard let legacy = defaults.dictionary(forKey: key),
+              !legacy.isEmpty else { return }
+        var quarantined = legacy
+        for (projectID, payload) in defaults.dictionary(forKey: quarantineKey) ?? [:] {
+            // Existing anonymous work is newer and wins project-ID collisions.
+            quarantined[projectID] = payload
+        }
+        defaults.set(quarantined, forKey: quarantineKey)
+        defaults.removeObject(forKey: key)
     }
 }

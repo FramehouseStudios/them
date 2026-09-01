@@ -3,6 +3,47 @@ import XCTest
 
 @MainActor
 final class StudioThreadViewStateSupportTests: XCTestCase {
+    func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
+        let generation = 41
+        let requirements = [
+            generation: ScreenplayDeferredTextPublicationRequirement(
+                text: "queued draft",
+                requestID: nil
+            )
+        ]
+
+        XCTAssertFalse(
+            ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+                generation,
+                requirements: requirements,
+                currentText: "newer external draft",
+                lastAppliedInsertionID: nil,
+                activeInsertionRequestID: nil
+            )
+        )
+    }
+
+    func testDeferredEditorTransactionRejectsCancelledInsertionRequest() {
+        let generation = 42
+        let requestID = UUID()
+        let requirements = [
+            generation: ScreenplayDeferredTextPublicationRequirement(
+                text: "queued insertion",
+                requestID: requestID
+            )
+        ]
+
+        XCTAssertFalse(
+            ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+                generation,
+                requirements: requirements,
+                currentText: "queued insertion",
+                lastAppliedInsertionID: requestID,
+                activeInsertionRequestID: nil
+            )
+        )
+    }
+
     func testLegacyDecodeDefaultsMissingReopenedFields() throws {
         let payload = """
         {

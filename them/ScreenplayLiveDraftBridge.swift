@@ -2724,16 +2724,23 @@ nonisolated struct ScreenplayLiveDraftFileStore {
     private static let directoryName = "io.them"
     private static let fileName = "live-screenplay-draft.fountain"
 
-    static func restoredDraft(fileManager: FileManager = .default) -> String {
-        guard let data = try? Data(contentsOf: draftURL(fileManager: fileManager)),
+    static func restoredDraft(
+        ownerUserID: String? = nil,
+        fileManager: FileManager = .default
+    ) -> String {
+        guard let data = try? Data(contentsOf: draftURL(ownerUserID: ownerUserID, fileManager: fileManager)),
               let draft = String(data: data, encoding: .utf8) else {
             return ""
         }
         return ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: draft)
     }
 
-    static func persist(_ draft: String?, fileManager: FileManager = .default) {
-        let url = draftURL(fileManager: fileManager)
+    static func persist(
+        _ draft: String?,
+        ownerUserID: String? = nil,
+        fileManager: FileManager = .default
+    ) {
+        let url = draftURL(ownerUserID: ownerUserID, fileManager: fileManager)
         guard let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft ?? "") else {
             try? fileManager.removeItem(at: url)
             return
@@ -2750,18 +2757,42 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         }
     }
 
-    static func remove(fileManager: FileManager = .default) {
-        try? fileManager.removeItem(at: draftURL(fileManager: fileManager))
+    static func remove(ownerUserID: String? = nil, fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: draftURL(ownerUserID: ownerUserID, fileManager: fileManager))
     }
 
-    private static func draftURL(fileManager: FileManager) -> URL {
+    static func migrateDraftIfNeeded(
+        from sourceOwnerUserID: String?,
+        to destinationOwnerUserID: String,
+        fileManager: FileManager = .default
+    ) {
+        let destinationURL = draftURL(ownerUserID: destinationOwnerUserID, fileManager: fileManager)
+        guard !fileManager.fileExists(atPath: destinationURL.path) else { return }
+        let sourceDraft = restoredDraft(ownerUserID: sourceOwnerUserID, fileManager: fileManager)
+        guard !sourceDraft.isEmpty else { return }
+        persist(sourceDraft, ownerUserID: destinationOwnerUserID, fileManager: fileManager)
+        if sourceOwnerUserID == nil {
+            remove(fileManager: fileManager)
+        }
+    }
+
+    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
+        let resolvedFileName: String
+        if let ownerUserID {
+            resolvedFileName = ScreenplayOwnerScopedStoragePolicy.storageKey(
+                baseKey: "live-screenplay-draft",
+                ownerUserID: ownerUserID
+            ) + ".fountain"
+        } else {
+            resolvedFileName = fileName
+        }
         return applicationSupport
             .appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent(fileName, isDirectory: false)
+            .appendingPathComponent(resolvedFileName, isDirectory: false)
     }
 }
 
@@ -2910,6 +2941,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
     private static let latestAppliedMemoryStorageKey = "studio_latest_applied_memory_v1"
     private static let characterVoiceMemoriesStorageKey = "studio_character_voice_memories_v1"
+    private static let ownerScopedStorageKeys = [
+        draftTextStorageKey,
+        draftOriginStorageKey,
+        structuredDraftStorageKey,
+        preferredProjectIDStorageKey,
+        preferredVersionIDStorageKey,
+        projectRecentTurnsStorageKey,
+        companionRecentTurnsStorageKey,
+        projectBindingStorageKey,
+        featureWorkflowContextStorageKey,
+        latestAppliedMemoryStorageKey,
+    ]
+    private var storageOwnerUserID: String = ""
+    private var isReconcilingAccountStorage = false
 
     @Published var draftText: String = "" {
         didSet {
@@ -3205,6 +3250,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private init() {
+        let storageOwnerUserID = Self.currentAuthenticatedUserID()
+        self.storageOwnerUserID = storageOwnerUserID
+        Self.migrateLegacyWorkspaceIfNeeded()
         self.autoInsertEnabled = UserDefaults.standard.object(forKey: Self.autoInsertStorageKey) as? Bool ?? true
         if let saved = UserDefaults.standard.string(forKey: Self.activeElementStorageKey),
            let element = ScreenplayEditorElement(rawValue: saved) {
@@ -3214,28 +3262,31 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            let mode = StudioCompanionMode(rawValue: savedMode) {
             self.companionMode = mode
         }
-        let restoredDraftText = Self.restoreDraftText()
-        let restoredProjectBinding = Self.restoreProjectBindingSnapshot()
+        let restoredDraftText = Self.restoreDraftText(ownerUserID: storageOwnerUserID)
+        let restoredProjectBinding = Self.restoreProjectBindingSnapshot(ownerUserID: storageOwnerUserID)
         self.preferredProjectID = Self.restorePreferredProjectID(
+            ownerUserID: storageOwnerUserID,
             bindingProjectID: restoredProjectBinding.projectID
         )
         self.preferredVersionID = Self.restorePreferredVersionID(
+            ownerUserID: storageOwnerUserID,
             bindingVersionID: restoredProjectBinding.versionID
         )
         self.projectBinding = restoredProjectBinding
         self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            ownerUserID: storageOwnerUserID,
             restoredDraftText: restoredDraftText,
             restoredProjectID: self.preferredProjectID,
             restoredVersionID: self.preferredVersionID,
             fallbackProjectID: restoredProjectBinding.projectID,
             fallbackVersionID: restoredProjectBinding.versionID
         )
-        self.structuredDraft = Self.restoreStructuredDraft()
+        self.structuredDraft = Self.restoreStructuredDraft(ownerUserID: storageOwnerUserID)
         self.draftText = restoredDraftText
-        self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
-        self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
-        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
-        self.latestAppliedMemory = Self.restoreLatestAppliedMemory()
+        self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey, ownerUserID: storageOwnerUserID)
+        self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey, ownerUserID: storageOwnerUserID)
+        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: storageOwnerUserID)
+        self.latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: storageOwnerUserID)
         if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
             self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
             self.characterVoiceMemories = voiceMemorySnapshot.memories
@@ -3259,8 +3310,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         #endif
     }
 
-    private static func restoreStructuredDraft() -> ScreenplayStructuredDraft {
-        guard let stored = UserDefaults.standard.string(forKey: structuredDraftStorageKey),
+    private static func restoreStructuredDraft(ownerUserID: String) -> ScreenplayStructuredDraft {
+        guard let stored = UserDefaults.standard.string(forKey: ownerScopedKey(structuredDraftStorageKey, ownerUserID: ownerUserID)),
               let data = stored.data(using: .utf8) else {
             return .empty
         }
@@ -3269,33 +3320,33 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayStructuredDraft.self, from: data)) ?? .empty
     }
 
-    private static func restoreDraftText() -> String {
+    private static func restoreDraftText(ownerUserID: String) -> String {
         let storedDraft = ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
-            from: UserDefaults.standard.string(forKey: draftTextStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(draftTextStorageKey, ownerUserID: ownerUserID))
         )
         if !storedDraft.isEmpty {
             return storedDraft
         }
-        return ScreenplayLiveDraftFileStore.restoredDraft()
+        return ScreenplayLiveDraftFileStore.restoredDraft(ownerUserID: ownerUserID)
     }
 
-    private static func restorePreferredProjectID(bindingProjectID: String) -> String {
+    private static func restorePreferredProjectID(ownerUserID: String, bindingProjectID: String) -> String {
         ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
-            storedPreferredProjectID: UserDefaults.standard.string(forKey: preferredProjectIDStorageKey),
+            storedPreferredProjectID: UserDefaults.standard.string(forKey: ownerScopedKey(preferredProjectIDStorageKey, ownerUserID: ownerUserID)),
             bindingProjectID: bindingProjectID
         )
     }
 
-    private static func restorePreferredVersionID(bindingVersionID: String) -> String {
+    private static func restorePreferredVersionID(ownerUserID: String, bindingVersionID: String) -> String {
         ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
-            storedPreferredVersionID: UserDefaults.standard.string(forKey: preferredVersionIDStorageKey),
+            storedPreferredVersionID: UserDefaults.standard.string(forKey: ownerScopedKey(preferredVersionIDStorageKey, ownerUserID: ownerUserID)),
             bindingVersionID: bindingVersionID
         )
     }
 
-    private static func restoreProjectBindingSnapshot() -> ScreenplayProjectBindingSnapshot {
+    private static func restoreProjectBindingSnapshot(ownerUserID: String) -> ScreenplayProjectBindingSnapshot {
         let stored = ScreenplayProjectBindingStoragePolicy.restoredValue(
-            productValue: UserDefaults.standard.string(forKey: projectBindingStorageKey),
+            productValue: UserDefaults.standard.string(forKey: ownerScopedKey(projectBindingStorageKey, ownerUserID: ownerUserID)),
             legacyDebugValue: UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
             isAutomationSession: IOThemRuntime.isStudioAutomationSession
         )
@@ -3309,6 +3360,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private static func restoreLiveDraftOriginSnapshot(
+        ownerUserID: String,
         restoredDraftText: String,
         restoredProjectID: String,
         restoredVersionID: String,
@@ -3318,7 +3370,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
             return .empty
         }
-        if let stored = UserDefaults.standard.string(forKey: draftOriginStorageKey),
+        if let stored = UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
            let data = stored.data(using: .utf8) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -3337,8 +3389,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return snapshot.isEmpty ? .empty : snapshot
     }
 
-    private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
-        guard let stored = UserDefaults.standard.string(forKey: key),
+    private static func restoreConversationTurns(forKey key: String, ownerUserID: String) -> [ScreenplayConversationTurn] {
+        guard let stored = UserDefaults.standard.string(forKey: ownerScopedKey(key, ownerUserID: ownerUserID)),
               let data = stored.data(using: .utf8) else {
             return []
         }
@@ -3347,21 +3399,47 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode([ScreenplayConversationTurn].self, from: data)) ?? []
     }
 
-    private static func restoreFeatureWorkflowContext() -> ScreenplayFeatureWorkflowSessionContext? {
+    private static func restoreFeatureWorkflowContext(ownerUserID: String) -> ScreenplayFeatureWorkflowSessionContext? {
         ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
-            from: UserDefaults.standard.string(forKey: featureWorkflowContextStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(featureWorkflowContextStorageKey, ownerUserID: ownerUserID))
         )
     }
 
-    private static func restoreLatestAppliedMemory() -> ScreenplayStudioAppliedMemoryState {
+    private static func restoreLatestAppliedMemory(ownerUserID: String) -> ScreenplayStudioAppliedMemoryState {
         ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
-            from: UserDefaults.standard.string(forKey: latestAppliedMemoryStorageKey)
+            from: UserDefaults.standard.string(forKey: ownerScopedKey(latestAppliedMemoryStorageKey, ownerUserID: ownerUserID))
         )
     }
 
     private static func currentAuthenticatedUserID() -> String {
         BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func ownerScopedKey(_ baseKey: String, ownerUserID: String) -> String {
+        ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: baseKey,
+            ownerUserID: ownerUserID
+        )
+    }
+
+    private func ownerScopedKey(_ baseKey: String) -> String {
+        Self.ownerScopedKey(baseKey, ownerUserID: storageOwnerUserID)
+    }
+
+    private static func migrateLegacyWorkspaceIfNeeded() {
+        let ownerUserID = ScreenplayLegacyWorkspaceMigrationPolicy.quarantineOwnerUserID
+        for baseKey in ownerScopedStorageKeys {
+            let destinationKey = ownerScopedKey(baseKey, ownerUserID: ownerUserID)
+            guard UserDefaults.standard.object(forKey: destinationKey) == nil,
+                  let legacyValue = UserDefaults.standard.object(forKey: baseKey) else { continue }
+            UserDefaults.standard.set(legacyValue, forKey: destinationKey)
+            UserDefaults.standard.removeObject(forKey: baseKey)
+        }
+        ScreenplayLiveDraftFileStore.migrateDraftIfNeeded(
+            from: nil,
+            to: ownerUserID
+        )
     }
 
     private static func restoreCharacterVoiceMemorySnapshot() -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
@@ -3385,84 +3463,94 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistStructuredDraft() {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(structuredDraft),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: Self.structuredDraftStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.structuredDraftStorageKey))
     }
 
     private func persistDraftText(_ text: String) {
+        guard !isReconcilingAccountStorage else { return }
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
-            UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
+            UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
             persistDraftOriginForCurrentContext()
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
-            ScreenplayLiveDraftFileStore.remove()
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftTextStorageKey))
+            ScreenplayLiveDraftFileStore.remove(ownerUserID: storageOwnerUserID)
             draftOrigin = .empty
-            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
         }
     }
 
     private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
         guard let committedWrite, committedWrite.isAuthoritativeWrite else { return }
         persistDraftText(committedWrite.committedDraft)
-        ScreenplayLiveDraftFileStore.persist(committedWrite.committedDraft)
+        ScreenplayLiveDraftFileStore.persist(
+            committedWrite.committedDraft,
+            ownerUserID: storageOwnerUserID
+        )
         UserDefaults.standard.synchronize()
     }
 
     private func persistDraftOriginForCurrentContext() {
+        guard !isReconcilingAccountStorage else { return }
         let snapshot = ScreenplayLiveDraftOriginSnapshot(
             projectID: committedWriteProjectIDSnapshot(),
             versionID: committedWriteVersionIDSnapshot()
         )
         draftOrigin = snapshot
         guard !snapshot.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
             return
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: Self.draftOriginStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
     }
 
     private func persistPreferredProjectContext() {
+        guard !isReconcilingAccountStorage else { return }
         if let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredProjectID) {
-            UserDefaults.standard.set(projectID, forKey: Self.preferredProjectIDStorageKey)
+            UserDefaults.standard.set(projectID, forKey: ownerScopedKey(Self.preferredProjectIDStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.preferredProjectIDStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.preferredProjectIDStorageKey))
         }
 
         if let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredVersionID) {
-            UserDefaults.standard.set(versionID, forKey: Self.preferredVersionIDStorageKey)
+            UserDefaults.standard.set(versionID, forKey: ownerScopedKey(Self.preferredVersionIDStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.preferredVersionIDStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.preferredVersionIDStorageKey))
         }
     }
 
     private func persistConversationTurns(_ turns: [ScreenplayConversationTurn], key: String) {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(turns),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        UserDefaults.standard.set(encoded, forKey: key)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(key))
     }
 
     private func persistFeatureWorkflowContext() {
+        guard !isReconcilingAccountStorage else { return }
         if let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(latestFeatureWorkflowContext) {
-            UserDefaults.standard.set(payload, forKey: Self.featureWorkflowContextStorageKey)
+            UserDefaults.standard.set(payload, forKey: ownerScopedKey(Self.featureWorkflowContextStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.featureWorkflowContextStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.featureWorkflowContextStorageKey))
         }
     }
 
     private func persistLatestAppliedMemory() {
+        guard !isReconcilingAccountStorage else { return }
         if let payload = ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(latestAppliedMemory) {
-            UserDefaults.standard.set(payload, forKey: Self.latestAppliedMemoryStorageKey)
+            UserDefaults.standard.set(payload, forKey: ownerScopedKey(Self.latestAppliedMemoryStorageKey))
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.latestAppliedMemoryStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.latestAppliedMemoryStorageKey))
         }
     }
 
@@ -3476,6 +3564,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func persistProjectBindingDebugMirror() {
+        guard !isReconcilingAccountStorage else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(projectBinding),
@@ -3484,14 +3573,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 UserDefaults.standard.removeObject(forKey: Self.debugProjectBindingStorageKey)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: Self.projectBindingStorageKey)
+            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.projectBindingStorageKey))
             return
         }
         if IOThemRuntime.isStudioAutomationSession {
             UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
             return
         }
-        UserDefaults.standard.set(encoded, forKey: Self.projectBindingStorageKey)
+        UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.projectBindingStorageKey))
     }
 
     private func reconcileFeatureWorkflowContextWithActiveProject() {
@@ -6525,6 +6614,67 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         characterVoiceMemoryUserID = resolvedUserID
         characterVoiceMemories = memories
         persistCharacterVoiceMemories()
+    }
+
+    func reconcileAccountStorage() {
+        let nextOwnerUserID = Self.currentAuthenticatedUserID()
+        guard ScreenplayOwnerScopedStoragePolicy.normalizedOwnerID(nextOwnerUserID) !=
+                ScreenplayOwnerScopedStoragePolicy.normalizedOwnerID(storageOwnerUserID) else {
+            reconcileCharacterVoiceMemoryAccount()
+            return
+        }
+
+        Self.migrateLegacyWorkspaceIfNeeded()
+        isReconcilingAccountStorage = true
+        storageOwnerUserID = nextOwnerUserID
+
+        let restoredBinding = Self.restoreProjectBindingSnapshot(ownerUserID: nextOwnerUserID)
+        let restoredDraft = Self.restoreDraftText(ownerUserID: nextOwnerUserID)
+        let restoredProjectID = Self.restorePreferredProjectID(
+            ownerUserID: nextOwnerUserID,
+            bindingProjectID: restoredBinding.projectID
+        )
+        let restoredVersionID = Self.restorePreferredVersionID(
+            ownerUserID: nextOwnerUserID,
+            bindingVersionID: restoredBinding.versionID
+        )
+
+        preferredProjectID = restoredProjectID
+        preferredVersionID = restoredVersionID
+        projectBinding = restoredBinding
+        draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            ownerUserID: nextOwnerUserID,
+            restoredDraftText: restoredDraft,
+            restoredProjectID: restoredProjectID,
+            restoredVersionID: restoredVersionID,
+            fallbackProjectID: restoredBinding.projectID,
+            fallbackVersionID: restoredBinding.versionID
+        )
+        structuredDraft = Self.restoreStructuredDraft(ownerUserID: nextOwnerUserID)
+        draftText = restoredDraft
+        projectRecentTurns = Self.restoreConversationTurns(
+            forKey: Self.projectRecentTurnsStorageKey,
+            ownerUserID: nextOwnerUserID
+        )
+        companionRecentTurns = Self.restoreConversationTurns(
+            forKey: Self.companionRecentTurnsStorageKey,
+            ownerUserID: nextOwnerUserID
+        )
+        latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: nextOwnerUserID)
+        latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: nextOwnerUserID)
+        lastCommittedWrite = nil
+        pendingInsertion = nil
+        pendingReplacementTarget = nil
+        submittedReplacementTarget = nil
+        latestVoiceTurn = ""
+        latestUserTranscript = ""
+        featureSpine = .empty
+        projectBindingContext = nil
+        isReconcilingAccountStorage = false
+
+        reconcileCharacterVoiceMemoryAccount()
+        reconcileFeatureWorkflowContextWithActiveProject()
+        refreshIntelligenceReport()
     }
 
     func reconcileCharacterVoiceMemoryAccount() {
@@ -10635,6 +10785,37 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
+struct ScreenplayDeferredTextPublicationRequirement: Equatable {
+    var text: String
+    var requestID: UUID?
+}
+
+enum ScreenplayDeferredPublicationGate {
+    static func requestIsCurrent(
+        _ requestID: UUID?,
+        lastAppliedInsertionID: UUID?,
+        activeInsertionRequestID: UUID?
+    ) -> Bool {
+        guard let requestID else { return true }
+        return lastAppliedInsertionID == requestID && activeInsertionRequestID == requestID
+    }
+
+    static func acceptsTextGeneration(
+        _ generation: Int,
+        requirements: [Int: ScreenplayDeferredTextPublicationRequirement],
+        currentText: String,
+        lastAppliedInsertionID: UUID?,
+        activeInsertionRequestID: UUID?
+    ) -> Bool {
+        guard let requirement = requirements[generation] else { return true }
+        return currentText == requirement.text && requestIsCurrent(
+            requirement.requestID,
+            lastAppliedInsertionID: lastAppliedInsertionID,
+            activeInsertionRequestID: activeInsertionRequestID
+        )
+    }
+}
+
 private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var activeScreenplayElement: ScreenplayEditorElement
@@ -10689,6 +10870,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         textView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
             coordinator?.updateEditorLayout(width: width)
         }
+        context.coordinator.beginRepresentableUpdate()
+        defer { context.coordinator.endRepresentableUpdate() }
         context.coordinator.textView = textView
         context.coordinator.primeParagraphElements(
             for: textView.text ?? "",
@@ -10699,6 +10882,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: HollywoodScreenplayUITextView, context: Context) {
+        context.coordinator.beginRepresentableUpdate()
+        defer { context.coordinator.endRepresentableUpdate() }
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
@@ -10709,7 +10894,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         if previousPendingID != currentPendingID ||
             previousSubmittedID != currentSubmittedID ||
             previousInsertionID != currentInsertionID {
-            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+            context.coordinator.traceReplacementTarget(
                 kind: "ios-update-parent-sync",
                 target: submittedReplacementTarget ?? pendingReplacementTarget,
                 detail: "Synced representable parent. pending=\(previousPendingID?.uuidString.lowercased() ?? "nil")->\(currentPendingID?.uuidString.lowercased() ?? "nil") submitted=\(previousSubmittedID?.uuidString.lowercased() ?? "nil")->\(currentSubmittedID?.uuidString.lowercased() ?? "nil") insertion=\(previousInsertionID?.uuidString.lowercased() ?? "nil")->\(currentInsertionID?.uuidString.lowercased() ?? "nil")"
@@ -10777,6 +10962,31 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        private struct DeferredBindingValue<Value: Equatable> {
+            var expected: Value
+            var value: Value
+            var generation: Int
+            var requestID: UUID?
+        }
+
+        private struct DeferredStructuredDraftSnapshot {
+            var text: String
+            var elements: [ScreenplayEditorElement?]
+            var generation: Int
+        }
+
+        private struct DeferredUserEdit {
+            var expectedText: String
+            var generation: Int
+        }
+
+        private struct DeferredReplacementTrace {
+            var kind: String
+            var target: ScreenplayPendingReplacementTarget?
+            var detail: String
+            var requestID: String?
+        }
+
         var parent: IOSCursorInsertTextEditor
         weak var textView: UITextView?
         var lastKnownActiveElement: ScreenplayEditorElement
@@ -10812,11 +11022,323 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        private var representableUpdateDepth = 0
+        private var representableUpdateGeneration = 0
+        private var activeRepresentableUpdateGeneration: Int?
+        private var deferredFlushScheduled = false
+        private var deferredText: DeferredBindingValue<String>?
+        private var deferredActiveElement: DeferredBindingValue<ScreenplayEditorElement>?
+        private var deferredCurrentCursorLine: DeferredBindingValue<Int>?
+        private var deferredEditorSelection: DeferredBindingValue<ScreenplayEditorSelectionSnapshot?>?
+        private var deferredLastCommittedWrite: DeferredBindingValue<ScreenplayCommittedWrite?>?
+        private var deferredInsertionRequest: DeferredBindingValue<ScreenplayInsertionRequest?>?
+        private var deferredPendingReplacementTarget: DeferredBindingValue<ScreenplayPendingReplacementTarget?>?
+        private var deferredSubmittedReplacementTarget: DeferredBindingValue<ScreenplayPendingReplacementTarget?>?
+        private var deferredStructuredDraftSnapshot: DeferredStructuredDraftSnapshot?
+        private var deferredUserEdit: DeferredUserEdit?
+        private var deferredTextRequirements: [Int: ScreenplayDeferredTextPublicationRequirement] = [:]
+        private var deferredReplacementTraces: [DeferredReplacementTrace] = []
 
         init(_ parent: IOSCursorInsertTextEditor) {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+        }
+
+        func beginRepresentableUpdate() {
+            if representableUpdateDepth == 0 {
+                representableUpdateGeneration &+= 1
+                activeRepresentableUpdateGeneration = representableUpdateGeneration
+            }
+            representableUpdateDepth += 1
+        }
+
+        func endRepresentableUpdate() {
+            representableUpdateDepth = max(0, representableUpdateDepth - 1)
+            guard representableUpdateDepth == 0 else { return }
+            activeRepresentableUpdateGeneration = nil
+            scheduleDeferredPublicationFlush()
+        }
+
+        private func coalesce<Value: Equatable>(
+            _ pending: inout DeferredBindingValue<Value>?,
+            current: Value,
+            value: Value,
+            requestID: UUID? = nil
+        ) {
+            let generation = activeRepresentableUpdateGeneration ?? representableUpdateGeneration
+            if var existing = pending, existing.generation == generation {
+                existing.value = value
+                existing.requestID = requestID ?? existing.requestID
+                pending = existing
+            } else {
+                pending = DeferredBindingValue(
+                    expected: current,
+                    value: value,
+                    generation: generation,
+                    requestID: requestID
+                )
+            }
+            scheduleDeferredPublicationFlush()
+        }
+
+        private func publishText(_ value: String, requestID: UUID? = nil) {
+            guard representableUpdateDepth > 0 else {
+                parent.text = value
+                return
+            }
+            coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
+            if let deferredText {
+                deferredTextRequirements[deferredText.generation] = ScreenplayDeferredTextPublicationRequirement(
+                    text: deferredText.value,
+                    requestID: deferredText.requestID
+                )
+            }
+        }
+
+        private func publishActiveElement(_ value: ScreenplayEditorElement) {
+            guard representableUpdateDepth > 0 else {
+                parent.activeScreenplayElement = value
+                return
+            }
+            coalesce(&deferredActiveElement, current: parent.activeScreenplayElement, value: value)
+        }
+
+        private func publishCurrentCursorLine(_ value: Int) {
+            guard representableUpdateDepth > 0 else {
+                parent.currentCursorLine = value
+                return
+            }
+            coalesce(&deferredCurrentCursorLine, current: parent.currentCursorLine, value: value)
+        }
+
+        private func publishEditorSelection(_ value: ScreenplayEditorSelectionSnapshot?) {
+            guard representableUpdateDepth > 0 else {
+                parent.editorSelection = value
+                return
+            }
+            coalesce(&deferredEditorSelection, current: parent.editorSelection, value: value)
+        }
+
+        private func publishLastCommittedWrite(_ value: ScreenplayCommittedWrite?, requestID: UUID? = nil) {
+            guard representableUpdateDepth > 0 else {
+                parent.lastCommittedWrite = value
+                return
+            }
+            coalesce(
+                &deferredLastCommittedWrite,
+                current: parent.lastCommittedWrite,
+                value: value,
+                requestID: requestID
+            )
+        }
+
+        private func publishInsertionRequest(_ value: ScreenplayInsertionRequest?) {
+            guard representableUpdateDepth > 0 else {
+                parent.insertionRequest = value
+                return
+            }
+            coalesce(&deferredInsertionRequest, current: parent.insertionRequest, value: value)
+        }
+
+        private func publishPendingReplacementTarget(_ value: ScreenplayPendingReplacementTarget?) {
+            guard representableUpdateDepth > 0 else {
+                parent.pendingReplacementTarget = value
+                return
+            }
+            coalesce(
+                &deferredPendingReplacementTarget,
+                current: parent.pendingReplacementTarget,
+                value: value
+            )
+        }
+
+        private func publishSubmittedReplacementTarget(_ value: ScreenplayPendingReplacementTarget?) {
+            guard representableUpdateDepth > 0 else {
+                parent.submittedReplacementTarget = value
+                return
+            }
+            coalesce(
+                &deferredSubmittedReplacementTarget,
+                current: parent.submittedReplacementTarget,
+                value: value
+            )
+        }
+
+        private func publishUserEdit(expectedText: String) {
+            guard representableUpdateDepth > 0 else {
+                parent.onUserEdit?()
+                return
+            }
+            deferredUserEdit = DeferredUserEdit(
+                expectedText: expectedText,
+                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration
+            )
+            scheduleDeferredPublicationFlush()
+        }
+
+        private func publishStructuredDraftSnapshot(
+            text: String,
+            elements: [ScreenplayEditorElement?]
+        ) {
+            guard representableUpdateDepth > 0 else {
+                ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(
+                    text: text,
+                    elements: elements
+                )
+                return
+            }
+            deferredStructuredDraftSnapshot = DeferredStructuredDraftSnapshot(
+                text: text,
+                elements: elements,
+                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration
+            )
+            scheduleDeferredPublicationFlush()
+        }
+
+        func traceReplacementTarget(
+            kind: String,
+            target: ScreenplayPendingReplacementTarget?,
+            detail: String,
+            requestID: String? = nil
+        ) {
+            guard representableUpdateDepth > 0 else {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: kind,
+                    target: target,
+                    detail: detail,
+                    requestID: requestID
+                )
+                return
+            }
+            deferredReplacementTraces.append(
+                DeferredReplacementTrace(
+                    kind: kind,
+                    target: target,
+                    detail: detail,
+                    requestID: requestID
+                )
+            )
+            scheduleDeferredPublicationFlush()
+        }
+
+        private func scheduleDeferredPublicationFlush() {
+            guard !deferredFlushScheduled else { return }
+            deferredFlushScheduled = true
+            DispatchQueue.main.async { [self] in
+                self.deferredFlushScheduled = false
+                guard self.representableUpdateDepth == 0 else {
+                    self.scheduleDeferredPublicationFlush()
+                    return
+                }
+
+                let text = self.deferredText
+                let activeElement = self.deferredActiveElement
+                let cursorLine = self.deferredCurrentCursorLine
+                let editorSelection = self.deferredEditorSelection
+                let committedWrite = self.deferredLastCommittedWrite
+                let insertionRequest = self.deferredInsertionRequest
+                let pendingReplacementTarget = self.deferredPendingReplacementTarget
+                let submittedReplacementTarget = self.deferredSubmittedReplacementTarget
+                let snapshot = self.deferredStructuredDraftSnapshot
+                let userEdit = self.deferredUserEdit
+                let textRequirements = self.deferredTextRequirements
+                let traces = self.deferredReplacementTraces
+
+                self.deferredText = nil
+                self.deferredActiveElement = nil
+                self.deferredCurrentCursorLine = nil
+                self.deferredEditorSelection = nil
+                self.deferredLastCommittedWrite = nil
+                self.deferredInsertionRequest = nil
+                self.deferredPendingReplacementTarget = nil
+                self.deferredSubmittedReplacementTarget = nil
+                self.deferredStructuredDraftSnapshot = nil
+                self.deferredUserEdit = nil
+                self.deferredTextRequirements.removeAll(keepingCapacity: true)
+                self.deferredReplacementTraces.removeAll(keepingCapacity: true)
+
+                func requestIsCurrent(_ requestID: UUID?) -> Bool {
+                    ScreenplayDeferredPublicationGate.requestIsCurrent(
+                        requestID,
+                        lastAppliedInsertionID: self.lastAppliedInsertionID,
+                        activeInsertionRequestID: self.parent.insertionRequest?.id
+                    )
+                }
+
+                func generationIsAccepted(_ generation: Int) -> Bool {
+                    ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+                        generation,
+                        requirements: textRequirements,
+                        currentText: self.parent.text,
+                        lastAppliedInsertionID: self.lastAppliedInsertionID,
+                        activeInsertionRequestID: self.parent.insertionRequest?.id
+                    )
+                }
+
+                if let text,
+                   self.parent.text == text.expected,
+                   requestIsCurrent(text.requestID) {
+                    self.parent.text = text.value
+                }
+                if let activeElement,
+                   generationIsAccepted(activeElement.generation),
+                   self.parent.activeScreenplayElement == activeElement.expected {
+                    self.parent.activeScreenplayElement = activeElement.value
+                }
+                if let cursorLine,
+                   generationIsAccepted(cursorLine.generation),
+                   self.parent.currentCursorLine == cursorLine.expected {
+                    self.parent.currentCursorLine = cursorLine.value
+                }
+                if let editorSelection,
+                   generationIsAccepted(editorSelection.generation),
+                   self.parent.editorSelection == editorSelection.expected {
+                    self.parent.editorSelection = editorSelection.value
+                }
+                if let committedWrite,
+                   generationIsAccepted(committedWrite.generation),
+                   self.parent.lastCommittedWrite == committedWrite.expected,
+                   requestIsCurrent(committedWrite.requestID) {
+                    self.parent.lastCommittedWrite = committedWrite.value
+                }
+                if let insertionRequest,
+                   generationIsAccepted(insertionRequest.generation),
+                   self.parent.insertionRequest == insertionRequest.expected {
+                    self.parent.insertionRequest = insertionRequest.value
+                }
+                if let pendingReplacementTarget,
+                   generationIsAccepted(pendingReplacementTarget.generation),
+                   self.parent.pendingReplacementTarget == pendingReplacementTarget.expected {
+                    self.parent.pendingReplacementTarget = pendingReplacementTarget.value
+                }
+                if let submittedReplacementTarget,
+                   generationIsAccepted(submittedReplacementTarget.generation),
+                   self.parent.submittedReplacementTarget == submittedReplacementTarget.expected {
+                    self.parent.submittedReplacementTarget = submittedReplacementTarget.value
+                }
+                if let snapshot,
+                   generationIsAccepted(snapshot.generation),
+                   self.parent.text == snapshot.text {
+                    ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(
+                        text: snapshot.text,
+                        elements: snapshot.elements
+                    )
+                }
+                if let userEdit,
+                   generationIsAccepted(userEdit.generation),
+                   self.parent.text == userEdit.expectedText {
+                    self.parent.onUserEdit?()
+                }
+                for trace in traces {
+                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                        kind: trace.kind,
+                        target: trace.target,
+                        detail: trace.detail,
+                        requestID: trace.requestID
+                    )
+                }
+            }
         }
 
         func updateEditorLayout(width: CGFloat) {
@@ -10838,7 +11360,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         func primeParagraphElements(for text: String, attributedText: NSAttributedString? = nil) {
             paragraphElements = bootstrapScreenplayParagraphElements(for: text, attributedText: attributedText)
             lastKnownTextSnapshot = text
-            ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(text: text, elements: paragraphElements)
+            publishStructuredDraftSnapshot(text: text, elements: paragraphElements)
         }
 
         private func synchronizeParagraphElementsWithCurrentText(in textView: UITextView) {
@@ -10869,7 +11391,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 explicitCurrentLineElement: activeLineElement
             )
             lastKnownTextSnapshot = nextText
-            ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(text: nextText, elements: paragraphElements)
+            publishStructuredDraftSnapshot(text: nextText, elements: paragraphElements)
         }
 
         private func updateParagraphElementMetadata(
@@ -10893,7 +11415,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
             paragraphElements[lineIndex] = lines[lineIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : element
             lastKnownTextSnapshot = text
-            ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(text: text, elements: paragraphElements)
+            publishStructuredDraftSnapshot(text: text, elements: paragraphElements)
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -10905,9 +11427,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             refreshScreenplayPresentationAndTyping()
             let next = textView.text ?? ""
             if parent.text != next {
-                parent.text = next
+                publishText(next)
             }
-            parent.onUserEdit?()
+            publishUserEdit(expectedText: next)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
         }
@@ -10917,7 +11439,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let hadVoiceReveal = voiceRevealContentRange != nil
             guard hadStreamingInsert || hadVoiceReveal else { return }
             let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+            traceReplacementTarget(
                 kind: hadVoiceReveal
                     ? "ios-voice-reveal-manual-edit-interrupt"
                     : "ios-streaming-lines-manual-edit-interrupt",
@@ -10927,9 +11449,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     : "Cancelled streamed line insertion after a user edit to preserve the current draft."
             )
             _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
-            parent.insertionRequest = nil
-            parent.pendingReplacementTarget = nil
-            parent.submittedReplacementTarget = nil
+            publishInsertionRequest(nil)
+            publishPendingReplacementTarget(nil)
+            publishSubmittedReplacementTarget(nil)
             resetStreamingInsertState()
             clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
         }
@@ -11017,7 +11539,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let targetRange = rangeForLine(targetLine, in: content)
             textView.selectedRange = NSRange(location: targetRange.location, length: 0)
             textView.scrollRangeToVisible(targetRange)
-            parent.currentCursorLine = targetLine
+            publishCurrentCursorLine(targetLine)
             refreshAnchoredTextRectSnapshot()
             lastAppliedLineJumpID = request.id
             DispatchQueue.main.async {
@@ -11086,9 +11608,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             refreshScreenplayPresentationAndTyping()
             let next = textView.text ?? ""
             if parent.text != next {
-                parent.text = next
+                publishText(next)
             }
-            parent.onUserEdit?()
+            publishUserEdit(expectedText: next)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
             lastAppliedEditorActionID = request.id
@@ -11103,7 +11625,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard let textView else { return }
             let line = lineNumber(for: textView.selectedRange.location, in: textView.text ?? "")
             if parent.currentCursorLine != line {
-                parent.currentCursorLine = line
+                publishCurrentCursorLine(line)
             }
             refreshEditorSelectionSnapshot()
         }
@@ -11112,7 +11634,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard let textView else { return }
             let snapshot = selectionSnapshot(in: textView)
             if parent.editorSelection != snapshot {
-                parent.editorSelection = snapshot
+                publishEditorSelection(snapshot)
             }
         }
 
@@ -11145,7 +11667,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func applyActiveElement(_ element: ScreenplayEditorElement) {
             lastKnownActiveElement = element
             if parent.activeScreenplayElement != element {
-                parent.activeScreenplayElement = element
+                publishActiveElement(element)
             }
         }
 
@@ -11174,9 +11696,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             refreshScreenplayPresentationAndTyping()
 
             if parent.text != nextText {
-                parent.text = nextText
+                publishText(nextText)
             }
-            parent.onUserEdit?()
+            publishUserEdit(expectedText: nextText)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
         }
@@ -11258,7 +11780,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: adjustedLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText)
         }
 
         private func applyParagraphNormalizationIfNeeded(for element: ScreenplayEditorElement, in textView: UITextView) {
@@ -11284,8 +11806,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
-            parent.onUserEdit?()
+            publishText(nextText)
+            publishUserEdit(expectedText: nextText)
         }
 
         private func normalizedLineText(
@@ -11470,14 +11992,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+            traceReplacementTarget(
                 kind: insertionContext.isReplacement ? "ios-commit-standard-replacement" : "ios-commit-standard-insert",
                 target: replacementTarget,
                 detail: "Applied standard insertion."
             )
-            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
+            let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
                 previousDraft: current,
                 committedDraft: nextText,
@@ -11490,6 +12012,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 endLine: committedLines.end,
                 committedAt: Date()
             )
+            publishLastCommittedWrite(committedWrite, requestID: request.id)
             updateCurrentCursorLine()
             applyCommitHighlight(highlightRange, in: textView, contentLength: (nextText as NSString).length)
             refreshAnchoredTextRectSnapshot()
@@ -11573,7 +12096,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             updateCurrentCursorLine()
             streamingPreviewRange = nextRange
             refreshAnchoredTextRectSnapshot()
@@ -11636,14 +12159,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+            traceReplacementTarget(
                 kind: replacementTarget != nil ? "ios-commit-stream-replacement" : "ios-commit-stream-insert",
                 target: replacementTarget,
                 detail: "Applied streaming commit."
             )
-            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
+            let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
                 previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
                 committedDraft: nextText,
@@ -11656,6 +12179,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 endLine: committedLines.end,
                 committedAt: Date()
             )
+            publishLastCommittedWrite(committedWrite, requestID: request.id)
             updateCurrentCursorLine()
             applyCommitHighlight(highlightRange, in: textView, contentLength: (nextText as NSString).length)
             resetStreamingPreviewState()
@@ -11741,7 +12265,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             updateCurrentCursorLine()
             streamingInsertRange = nextRange
             refreshAnchoredTextRectSnapshot()
@@ -11804,14 +12328,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+            traceReplacementTarget(
                 kind: replacementTarget != nil ? "ios-commit-streaming-lines-replacement" : "ios-commit-streaming-lines-insert",
                 target: replacementTarget,
                 detail: "Applied streamed line insertion."
             )
-            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
+            let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
                 previousDraft: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
                 committedDraft: nextText,
@@ -11824,6 +12348,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 endLine: committedLines.end,
                 committedAt: Date()
             )
+            publishLastCommittedWrite(committedWrite, requestID: request.id)
             updateCurrentCursorLine()
             applyCommitHighlight(highlightRange, in: textView, contentLength: (nextText as NSString).length)
             resetStreamingInsertState()
@@ -11860,7 +12385,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText)
             updateCurrentCursorLine()
             resetStreamingPreviewState()
             refreshAnchoredTextRectSnapshot()
@@ -11896,7 +12421,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = baseText
+            publishText(baseText)
             updateCurrentCursorLine()
             resetStreamingInsertState()
             refreshAnchoredTextRectSnapshot()
@@ -11980,7 +12505,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = nextText
+            publishText(nextText, requestID: request.id)
             voiceRevealBaseText = current
             voiceRevealOriginalSelection = selection
             voiceRevealInsertedRange = insertedRange
@@ -12038,7 +12563,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let committedLines = committedLineRange(for: safeRange, in: current)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
+            let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
                 previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
                 committedDraft: current,
@@ -12051,6 +12576,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 endLine: committedLines.end,
                 committedAt: Date()
             )
+            publishLastCommittedWrite(committedWrite, requestID: request.id)
             resetVoiceRevealState()
             refreshScreenplayPresentationAndTyping()
             applyCommitHighlight(safeRange, in: textView, contentLength: (current as NSString).length)
@@ -12109,7 +12635,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             textView.selectedRange = NSRange(location: caretLocation, length: 0)
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            parent.text = baseText
+            publishText(baseText)
             updateCurrentCursorLine()
             resetVoiceRevealState()
             refreshScreenplayPresentationAndTyping()
@@ -12168,7 +12694,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         range: activeRange
                     )
                     textView.scrollRangeToVisible(activeRange)
-                    parent.currentCursorLine = lineNumber(for: activeRange.location, in: textView.text ?? "")
+                    let line = lineNumber(for: activeRange.location, in: textView.text ?? "")
+                    publishCurrentCursorLine(line)
                 }
             }
         }
@@ -12352,7 +12879,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
         ) -> (range: NSRange, isReplacement: Bool) {
             guard let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                traceReplacementTarget(
                     kind: "ios-resolve-miss-no-target",
                     target: nil,
                     detail: "No replacement target available during resolution."
@@ -12370,7 +12897,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             if candidateRange.length > 0 {
                 let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
                 if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    traceReplacementTarget(
                         kind: "ios-resolve-match-line-range",
                         target: target,
                         detail: "Matched replacement target using stored line range."
@@ -12382,7 +12909,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             if !cleanTarget.isEmpty {
                 let exactRange = ns.range(of: cleanTarget)
                 if exactRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    traceReplacementTarget(
                         kind: "ios-resolve-match-exact",
                         target: target,
                         detail: "Matched replacement target using exact text."
@@ -12392,7 +12919,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
                 let caseInsensitiveRange = ns.range(of: cleanTarget, options: [.caseInsensitive])
                 if caseInsensitiveRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    traceReplacementTarget(
                         kind: "ios-resolve-match-case-insensitive",
                         target: target,
                         detail: "Matched replacement target using case-insensitive text."

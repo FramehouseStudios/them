@@ -450,6 +450,15 @@ struct ScreenplayStudioScreen: View {
             "is_saving": vm.isSaving,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
+            "debug_auth_session_authenticated": BackendAuthClient.currentAuthSessionState().isAuthenticated,
+            "debug_auth_header_present": BackendAuthClient.authorizationHeaderValue() != nil,
+            "debug_project_client_owner": liveDraftBridge.usesDebugClientTokenOwner(
+                forProjectID: vm.selectedProjectID
+            ),
+            "debug_project_client_token_present": liveDraftBridge.debugClientTokenOwnerToken(
+                forProjectID: vm.selectedProjectID
+            ) != nil,
             "outline_revision": vm.outlineRevision,
             "queued_outline_mutation_count": vm.queuedOutlineMutationCount,
             "parked_outline_mutation_count": vm.parkedOutlineMutationCount,
@@ -2604,6 +2613,10 @@ private func directionOneDraftShortcutDot(_ shortcut: DirectionOneDraftShortcut)
             : (hoveredDirectionOneDraftShortcut == shortcut ? nil : hoveredDirectionOneDraftShortcut)
     }
     .accessibilityLabel(shortcut.label)
+    .accessibilityHint("Opens \(shortcut.hoverLabel.lowercased()) in the Studio inspector.")
+    .accessibilityValue(isActive ? "Selected" : "Not selected")
+    .accessibilityIdentifier("studio.draft-shortcut.\(shortcut.rawValue)")
+    .accessibilityAddTraits(isActive ? .isSelected : [])
     .help(shortcut.hoverLabel)
 }
 
@@ -3881,6 +3894,12 @@ Detail:
 
     private var directionOneBeatsPanel: some View {
         sectionCard(title: "Beats") {
+            inspectorPanelLead(
+                title: "Build the story turn by turn.",
+                detail: "Add, link, reorder, and refine beats without leaving the screenplay page."
+            )
+            .accessibilityIdentifier("studio.beats.panel")
+
             beatsInspectorContent
         }
     }
@@ -3938,6 +3957,12 @@ Detail:
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
             let featureSnapshot = featureWorkflowSnapshot
+
+            inspectorPanelLead(
+                title: "See the whole movie at a glance.",
+                detail: "Track structural progress, choose the next move, and keep the story spine connected to the page."
+            )
+            .accessibilityIdentifier("studio.outline.panel")
 
             ScreenplayStudioOutlineInspectorLayout(
                 actCount: vm.outline.acts.count,
@@ -16197,6 +16222,15 @@ Look at the city.
             initialLoadSettled: studioDebugInitialLoadSettled,
             selectedProjectPresent: vm.selectedProject != nil,
             errorText: vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
+            debugAutomationSession: IOThemRuntime.isStudioAutomationSession,
+            debugAuthSessionAuthenticated: BackendAuthClient.currentAuthSessionState().isAuthenticated,
+            debugAuthHeaderPresent: BackendAuthClient.authorizationHeaderValue() != nil,
+            debugProjectClientOwner: liveDraftBridge.usesDebugClientTokenOwner(
+                forProjectID: vm.selectedProjectID
+            ),
+            debugProjectClientTokenPresent: liveDraftBridge.debugClientTokenOwnerToken(
+                forProjectID: vm.selectedProjectID
+            ) != nil,
             isSaving: vm.isSaving,
             loadedDraftProjectID: vm.debugLoadedDraftProjectID,
             loadProjectToken: trackedStudioDebugProjectLoadToken,
