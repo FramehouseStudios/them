@@ -99,6 +99,26 @@ function createMuseClient({
     });
 
     const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const externalSignal = opts.signal || null;
+    const onExternalAbort = () => {
+      if (!controller || controller.signal.aborted) return;
+      try {
+        controller.abort(externalSignal?.reason);
+      } catch (_e) {
+        try { controller.abort(); } catch (_e2) { /* ignore */ }
+      }
+    };
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        const err = new Error("Muse responses request cancelled");
+        err.name = "AbortError";
+        err.code = "page_generation_cancelled";
+        err.status = 409;
+        err.cancelled = true;
+        throw err;
+      }
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     let resp;
     try {
@@ -112,15 +132,25 @@ function createMuseClient({
         signal: controller?.signal,
       });
     } catch (e) {
-      const aborted = e?.name === "AbortError";
-      const err = new Error(aborted
-        ? "Muse responses request timed out"
-        : `Muse responses request failed: ${e?.message || e}`);
-      err.code = "muse_client_request_failed";
-      err.status = aborted ? 504 : 502;
+      const aborted = e?.name === "AbortError" || e?.code === "ABORT_ERR";
+      const cancelled = Boolean(externalSignal?.aborted || e?.cancelled);
+      const err = new Error(
+        cancelled
+          ? "Muse responses request cancelled"
+          : aborted
+            ? "Muse responses request timed out"
+            : `Muse responses request failed: ${e?.message || e}`
+      );
+      err.name = aborted || cancelled ? "AbortError" : (e?.name || "Error");
+      err.code = cancelled ? "page_generation_cancelled" : "muse_client_request_failed";
+      err.status = cancelled ? 409 : aborted ? 504 : 502;
+      if (cancelled) err.cancelled = true;
       throw err;
     } finally {
       if (timeout) clearTimeout(timeout);
+      if (externalSignal) {
+        externalSignal.removeEventListener("abort", onExternalAbort);
+      }
     }
 
     const rawText = await resp.text();

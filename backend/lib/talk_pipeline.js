@@ -2,8 +2,9 @@
 // caller — userId when authenticated, else the request IP. Keeps
 // unauthenticated traffic from pooling behind a single bucket.
 //
-// D008 / T-clementine-page-cancel-e2e: optional Page-lane adapter +
-// POST /talk/page-cancel for barge-in cancel of in-flight Page work.
+// D008 / T-clementine-page-cancel-e2e + page-abort-midflight: optional
+// Page-lane adapter + POST /talk/page-cancel. Cancel aborts the
+// reservation AbortController; talk_handler passes the signal into chat.
 
 import express from "express";
 import {

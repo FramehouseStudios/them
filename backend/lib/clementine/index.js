@@ -15,6 +15,13 @@ export {
 } from "./cache_policy.js";
 export { createPageReservationStore } from "./page_cancel.js";
 export {
+  PAGE_CANCELLED_CODE,
+  createPageCancelledError,
+  isPageCancelledError,
+  gatePageGeneration,
+  mapAbortToPageCancel,
+} from "./page_abort.js";
+export {
   peekUtterance,
   peekPageHints,
   resolveSessionId,
