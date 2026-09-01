@@ -168,6 +168,12 @@ function createTtsSupplier({
   synthesizeSpeechMp3,
   synthesizeSpeechMp3OpenAI,
   synthesizeTalkScreenplayPageAudio,
+  listElevenLabsVoices = null,
+  supportedKinds = Object.freeze([
+    "openai",
+    "elevenlabs_platform",
+    "elevenlabs_byok",
+  ]),
 } = {}) {
   const synthesize = requireFunction("synthesizeSpeechMp3", synthesizeSpeechMp3);
   const synthesizeOpenAI = requireFunction("synthesizeSpeechMp3OpenAI", synthesizeSpeechMp3OpenAI);
@@ -175,9 +181,12 @@ function createTtsSupplier({
     "synthesizeTalkScreenplayPageAudio",
     synthesizeTalkScreenplayPageAudio
   );
+  const listVoices = typeof listElevenLabsVoices === "function" ? listElevenLabsVoices : null;
 
   return Object.freeze({
     kind: "runtime-tts",
+    // D010: openai | elevenlabs_platform (env key) | elevenlabs_byok (per-request user key)
+    supportedKinds: Object.freeze([...supportedKinds]),
     async synthesize(args = {}) {
       return synthesize(args);
     },
@@ -186,6 +195,15 @@ function createTtsSupplier({
     },
     async synthesizeScreenplayPage(args = {}) {
       return synthesizeScreenplayPage(args);
+    },
+    async listVoices(args = {}) {
+      if (!listVoices) {
+        const err = new Error("TTS supplier has no listVoices implementation.");
+        err.stage = "tts";
+        err.status = 501;
+        throw err;
+      }
+      return listVoices(args);
     },
   });
 }

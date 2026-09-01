@@ -46,3 +46,13 @@ spoken text
 
 - D008 Clementine Muse runtime (brain)
 - D009 God-file strangler (extract TTS service; don’t grow RootExperienceView)
+
+## Implementation notes (first slice)
+
+- Server companion audio remains mp3 via `createTtsSupplier` / `backend/lib/tts_speech.js`.
+- Provider kinds: `openai` | `elevenlabs_platform` (env `ELEVENLABS_API_KEY`) | `elevenlabs_byok` (per-request user key).
+- Legacy env/persona value `elevenlabs` maps to **platform**, not BYOK.
+- iOS stores BYOK key in Keychain; `/talk` receives `X-Tts-Provider: elevenlabs_byok` + `X-ElevenLabs-Api-Key` + `X-ElevenLabs-Voice-Id` only when the writer opts in.
+- Do not change `INTERACTIVE_TTS_PROVIDER` default (`openai`) as a side effect of BYOK work.
+- BYOK audio is billed to the user's ElevenLabs account (`walletBillable=false`).
+
