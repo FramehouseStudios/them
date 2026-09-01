@@ -27,6 +27,22 @@ function pickString(...candidates) {
   return "";
 }
 
+
+function expectsAudioTalkResponse(req) {
+  if (req?.file) return true;
+  if (Array.isArray(req?.files) && req.files.length) return true;
+  if (req?.files && typeof req.files === "object") {
+    for (const value of Object.values(req.files)) {
+      if (value) return true;
+    }
+  }
+  const accept = String(req?.get?.("accept") || req?.headers?.accept || "").toLowerCase();
+  if (accept.includes("audio/")) return true;
+  const ct = String(req?.headers?.["content-type"] || req?.get?.("content-type") || "").toLowerCase();
+  if (ct.includes("multipart/form-data")) return true;
+  return false;
+}
+
 function peekUtterance(req) {
   const body = req?.body && typeof req.body === "object" ? req.body : {};
   return pickString(
@@ -239,10 +255,27 @@ function createPageLaneTalkAdapter({
         reflex: reflexHit,
         proceed: () => ({ ok: true, code: "reflex_short_circuit", reservation: null }),
       };
+      // Voice /talk (multipart audio) must still TTS the template — JSON short-circuit
+      // breaks clients expecting audio/mpeg. Text-shaped requests keep no-Spark JSON path.
+      if (!expectsAudioTalkResponse(req)) {
+        logger?.log?.(
+          `[clementine/reflex] short-circuit template=${reflexHit.templateId} intent=${earlyLane.intent}`
+        );
+        return sendReflexReply(res, { reflex: reflexHit, laneInfo: earlyLane });
+      }
       logger?.log?.(
-        `[clementine/reflex] short-circuit template=${reflexHit.templateId} intent=${earlyLane.intent}`
+        `[clementine/reflex] audio path template=${reflexHit.templateId} intent=${earlyLane.intent} (TTS, no Spark)`
       );
-      return sendReflexReply(res, { reflex: reflexHit, laneInfo: earlyLane });
+      try {
+        res.setHeader("x-clementine-lane", earlyLane.lane || LANE.REFLEX);
+        res.setHeader("x-clementine-reflex", "1");
+        if (reflexHit.templateId) {
+          res.setHeader("x-clementine-reflex-template", String(reflexHit.templateId));
+        }
+      } catch (_e) {
+        /* headers may already be sent */
+      }
+      return handleTalkRequest(req, res);
     }
 
     let lane;
@@ -325,6 +358,7 @@ function createPageLaneTalkAdapter({
 }
 
 export {
+  expectsAudioTalkResponse,
   peekUtterance,
   peekPageHints,
   resolveSessionId,

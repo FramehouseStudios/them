@@ -73,6 +73,7 @@ import {
   isPageCancelledError,
   mapAbortToPageCancel,
 } from "./clementine/page_abort.js";
+import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveCanonicalWritableMemoryContext","createTalkMemoryCommitter","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts","applyClementineVoiceDirection"]);
 
@@ -375,13 +376,18 @@ function createTalkHandler(deps) {
     fetchWithTimeout,
     isAbortError,
   });
-  const chatSupplier = deps.chatSupplier || createChatSupplier({
+  const openaiChatSupplier = deps.chatSupplier || createChatSupplier({
     OPENAI_API_KEY,
     CHAT_TIMEOUT_MS,
     fetchWithTimeout,
     isAbortError,
     streamChatReplyWithFirstSentence,
   });
+  // Muse Standard cutover (Companion/Page/Deep) when CLEMENTINE_MUSE_ENABLED /
+  // CLEMENTINE_PROVIDER=muse + MODEL_API_KEY|MUSE_API_KEY. Default stays OpenAI for CI.
+  const chatSupplier = deps.chatSupplier
+    ? openaiChatSupplier
+    : createMuseAwareChatSupplier({ openaiChatSupplier });
   const ttsSupplier = deps.ttsSupplier || createTtsSupplier({
     synthesizeSpeechMp3,
     synthesizeSpeechMp3OpenAI,
@@ -2909,8 +2915,11 @@ function createTalkHandler(deps) {
     const taskActionReply = taskActionResult
       ? buildTaskActionReply(taskActionResult)
       : "";
+    const reflexTemplateReply = req.clementine?.reflex?.handled
+      ? String(req.clementine.reflex.text || "").trim()
+      : "";
     const localActionReply =
-      actionGateReply || taskActionReply || noteCaptureReply;
+      actionGateReply || taskActionReply || noteCaptureReply || reflexTemplateReply;
     const actionLaneMeta = classifyActionLane({
       noteResult: noteCaptureResult,
       taskResult: taskActionResult,
@@ -4007,9 +4016,11 @@ ${directorOutputRule}
             temperature: chatTemperature,
             maxTokens: chatMaxTokens,
             apiMode: chatModelPlan.apiMode,
-            reasoningEffort: chatModelPlan.reasoningEffort,
+            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
             signal: pageAbortSignal,
+            lane: req.clementine?.lane || "",
+            messages: chatMessages,
           });
           rawReply = String(streamResult.reply || "").trim();
           streamFirstSentence = String(streamResult.firstSentence || "").trim();
@@ -4022,6 +4033,17 @@ ${directorOutputRule}
           chatModelFallbackUsed = Boolean(streamResult.fallbackUsed);
           effectiveChatUsage = streamResult.usage || effectiveChatUsage;
           chatMs = Date.now() - streamStart;
+          if (typeof req.clementine?.commitWallet === "function" && rawReply) {
+            try {
+              req.clementine.commitWallet(
+                Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
+              );
+            } catch (walletErr) {
+              logger?.warn?.(
+                `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
+              );
+            }
+          }
           if (streamFirstSentence && !earlyTtsPromise) {
             maybeStartEarlyTts(streamFirstSentence);
           }
@@ -4055,9 +4077,10 @@ ${directorOutputRule}
             maxTokens: chatMaxTokens,
             messages: chatMessages,
             apiMode: chatModelPlan.apiMode,
-            reasoningEffort: chatModelPlan.reasoningEffort,
+            reasoningEffort: req.clementine?.effort || chatModelPlan.reasoningEffort,
             fallbackModel: chatModelPlan.fallbackModel,
             signal: pageAbortSignal,
+            lane: req.clementine?.lane || "",
           });
         } catch (err) {
           const mapped = mapAbortToPageCancel(err, pageAbortSignal, {
@@ -4084,6 +4107,17 @@ ${directorOutputRule}
         chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
         effectiveChatUsage = chatResult.usage || effectiveChatUsage;
         chatMs = Date.now() - chatStart;
+        if (typeof req.clementine?.commitWallet === "function") {
+          try {
+            req.clementine.commitWallet(
+              Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
+            );
+          } catch (walletErr) {
+            logger?.warn?.(
+              `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
+            );
+          }
+        }
 
         if (!chatResp.ok) {
           const diagnostic = buildTalkFailureDiagnostics(

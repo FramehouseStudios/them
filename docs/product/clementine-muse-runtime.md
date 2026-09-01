@@ -67,3 +67,4 @@ See **`docs/product/clementine-reflex.md`** for Reflex short-circuit behavior at
 
 - 2026-09-01 — architecture note accepted with D008.
 - 2026-09-01 — Reflex lane wired (`T-clementine-reflex-lane`); see `clementine-reflex.md`.
+- 2026-09-01 — Muse Standard cutover gated for Companion/Page (`T-clementine-muse-standard-cutover`); see `clementine-muse-cutover.md`.

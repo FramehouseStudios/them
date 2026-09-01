@@ -86,3 +86,12 @@ export {
   sendReflexReply,
 } from "./talk_edge_adapter.js";
 
+export {
+  isClementineMuseEnabled,
+  shouldUseMuseForLane,
+  messagesToMuseParts,
+  extractMuseOutputText,
+  normalizeMuseUsage,
+  createMuseAwareChatSupplier,
+} from "./muse_provider.js";
+
