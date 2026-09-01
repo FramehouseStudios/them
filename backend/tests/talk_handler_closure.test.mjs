@@ -42,12 +42,11 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "buildMomentumRescueFallbackReply",
   "buildScreenplayQuestionPlan",
   "buildTalkScreenplayExecutionBriefLines",
+  "composeTalkSystemPrompt",
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
-  "gatePageGeneration",
   "isPageCancelledError",
-  "mapAbortToPageCancel",
   "createPendingScreenplayLearningQuestion",
   "createTalkFailureError",
   "formatRankedStoryRescueMoveLine",
@@ -59,6 +58,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "rankStoryRescueMovesForContext",
   "removePendingScreenplayLearningQuestion",
   "resolvePendingScreenplayLearningAnswer",
+  "runTalkGenerate",
   "selectPendingScreenplayLearningQuestion",
   "selectStoryMoveLibraryLinesForContext",
   "upsertPendingScreenplayLearningQuestion",
@@ -254,6 +254,24 @@ test("[screenplay-budget] live talk handler budgets against the full Studio gene
     /x-screenplay-repair-outcome",\s*"exhausted"/,
     "recovered audio must explicitly report that page repair was exhausted"
   );
+});
+
+test("[D009-B3] talk_handler orchestrates real prompt + generate stages", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(src, /composeTalkSystemPrompt\(/);
+  assert.match(src, /runTalkGenerate\(/);
+  assert.match(src, /createMuseAwareChatSupplier\(/);
+  assert.match(src, /storeTalkTurnMeta\(\{/);
+  assert.doesNotMatch(src, /from "\.\/talk_persist\.js"/);
+  const generateSrc = fs.readFileSync(path.join(HERE, "..", "lib", "talk_generate.js"), "utf8");
+  assert.match(generateSrc, /gatePageGeneration\(/);
+  assert.match(generateSrc, /commitWallet/);
+  assert.match(generateSrc, /chatSupplier\.stream\(/);
+  assert.match(generateSrc, /chatSupplier\.chat\(/);
+  assert.match(generateSrc, /mapAbortToPageCancel\(/);
+  // No dual path: abort/wallet live only in talk_generate after extract.
+  assert.doesNotMatch(src, /gatePageGeneration\(/);
+  assert.doesNotMatch(src, /req\.clementine\?\.commitWallet/);
 });
 
 test("[phase7b] freevars analyzer is sound on known fixtures", () => {
