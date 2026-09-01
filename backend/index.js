@@ -168,6 +168,7 @@ import {
   normalizeOutlineRevision,
 } from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
@@ -33458,6 +33459,9 @@ app.post(
   requireOpenAIProviderForTalk,
   providerBudgetGuard.middleware("talk")
 );
+// D008 Page-lane cancel-on-barge-in: process-local reservation store.
+// Wallet-backed store is a later build-order item; API stays stable.
+const clementinePageReservationStore = createPageReservationStore();
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -33469,6 +33473,7 @@ mountTalkPipelineRoutes(app, {
   normalizeTalkTurnId: (value) => String(value || "").trim(),
   getTalkTurnMeta: (turnId) => readTalkTurnMeta(turnId, Date.now()),
   canReadTalkTurnMeta,
+  pageReservationStore: clementinePageReservationStore,
 });
 
 // T22: wire craft analysis through the shared persistence adapter so
