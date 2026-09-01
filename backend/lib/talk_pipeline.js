@@ -2,9 +2,10 @@
 // caller — userId when authenticated, else the request IP. Keeps
 // unauthenticated traffic from pooling behind a single bucket.
 //
-// D008 / T-clementine-page-cancel-e2e + page-abort-midflight: optional
-// Page-lane adapter + POST /talk/page-cancel. Cancel aborts the
-// reservation AbortController; talk_handler passes the signal into chat.
+// D008 / T-clementine-page-cancel-e2e + page-abort-midflight + wallet-turns:
+// optional Page-lane adapter + POST /talk/page-cancel (+ optional wallet).
+// Cancel aborts the reservation AbortController and releases linked wallet
+// funds; talk_handler passes the signal into chat.
 
 import express from "express";
 import {
@@ -110,6 +111,55 @@ function mountPageCancelRoute(app, { pageReservationStore } = {}) {
   );
 }
 
+
+/**
+ * Mount POST /talk/wallet — read-only calm balance (no TPM fields).
+ * Body/query: { owner_id? } else auth user / session fallback.
+ * Same light auth posture as page-cancel (caller may wrap middleware).
+ */
+function mountTalkWalletRoute(app, { walletStore } = {}) {
+  if (!app || typeof app.post !== "function") {
+    throw new Error("mountTalkWalletRoute requires an Express app");
+  }
+  if (!walletStore || typeof walletStore.getBalance !== "function") {
+    throw new Error("mountTalkWalletRoute requires walletStore");
+  }
+
+  app.post(
+    "/talk/wallet",
+    express.json({ limit: PAGE_CANCEL_BODY_LIMIT }),
+    (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const ownerId = pickString(
+        body.owner_id,
+        body.ownerId,
+        body.user_id,
+        body.userId,
+        req?.authUser?.id,
+        req?.user?.id,
+        req.get?.("x-session-id"),
+        req.headers?.["x-session-id"]
+      );
+      if (!ownerId) {
+        return res.status(400).json({
+          ok: false,
+          error: "owner_id_required",
+        });
+      }
+      const balance = walletStore.getBalance(ownerId);
+      // Explicit allow-list — never leak TPM / token-rate internals.
+      return res.status(200).json({
+        ok: true,
+        companionTurnsLeft: balance.companionTurnsLeft,
+        pageTurnsLeft: balance.pageTurnsLeft,
+        approxConversationsLeft: balance.approxConversationsLeft,
+        lowBalance: balance.lowBalance === true,
+      });
+    }
+  );
+}
+
 function mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -128,6 +178,8 @@ function mountTalkPipelineRoutes(app, {
   turnReadRateLimitKey = defaultRateLimitKey,
   // D008 Page cancel-on-barge-in (optional; omit → legacy behavior).
   pageReservationStore = null,
+  // D008 wallet-in-turns (optional).
+  walletStore = null,
   logger = console,
 } = {}) {
   app.get("/talk/turn/:turnId", (req, res) => {
@@ -186,9 +238,13 @@ function mountTalkPipelineRoutes(app, {
     talkHandler = createPageLaneTalkAdapter({
       handleTalkRequest,
       pageReservationStore,
+      walletStore,
       logger,
     });
     mountPageCancelRoute(app, { pageReservationStore });
+  }
+  if (walletStore) {
+    mountTalkWalletRoute(app, { walletStore });
   }
 
   app.post(
@@ -206,4 +262,5 @@ function mountTalkPipelineRoutes(app, {
 export {
   mountTalkPipelineRoutes,
   mountPageCancelRoute,
+  mountTalkWalletRoute,
 };
