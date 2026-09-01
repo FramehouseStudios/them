@@ -6766,6 +6766,7 @@ actor BackendMemoryAPI {
     private let session: URLSession
     private let baseURLOverride: URL?
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
+    private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
@@ -6797,11 +6798,15 @@ actor BackendMemoryAPI {
     init(
         session: URLSession = .shared,
         baseURL: URL? = nil,
-        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live
+        accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live,
+        requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
+            BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+        }
     ) {
         self.session = session
         self.baseURLOverride = baseURL
         self.accountDeletionSessionHooks = accountDeletionSessionHooks
+        self.requestIdentityProvider = requestIdentityProvider
     }
 
     func currentSyncState() -> BackendSyncState {
@@ -6988,7 +6993,7 @@ actor BackendMemoryAPI {
     }
 
     private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
-        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+        let identity = requestIdentityProvider(true)
         let token = identity.clientToken
         guard !token.isEmpty else { return nil }
         guard let cachedAt = BackendAuthClient.sharedClientTokenCachedAt(),
@@ -7450,15 +7455,28 @@ actor BackendMemoryAPI {
         if !normalizedTurn.isEmpty {
             extraQuery.append(URLQueryItem(name: "sinceTurnId", value: normalizedTurn))
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/state",
             limit: max(1, historyLimit),
             extraQueryItems: extraQuery
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        var responsePair = try await session.data(for: request)
+        guard var http = responsePair.1 as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
+        if http.statusCode == 401, shouldRetryAfterAuthRotation(request) {
+            request = try makeRequest(
+                path: "/state",
+                limit: max(1, historyLimit),
+                extraQueryItems: extraQuery
+            )
+            responsePair = try await session.data(for: request)
+            guard let retryHTTP = responsePair.1 as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            http = retryHTTP
+        }
+        let data = responsePair.0
 
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
@@ -9886,9 +9904,7 @@ actor BackendMemoryAPI {
         includeClientToken: Bool = true,
         includeAuthToken: Bool = true
     ) {
-        let identity = BackendAuthClient.requestIdentitySnapshot(
-            generateUserIDIfMissing: includeUserIdentity
-        )
+        let identity = requestIdentityProvider(includeUserIdentity)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -9914,6 +9930,13 @@ actor BackendMemoryAPI {
             request.setValue(clientBuildHeaderValue, forHTTPHeaderField: "X-Them-Client-Build")
         }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+    }
+
+    private func shouldRetryAfterAuthRotation(_ request: URLRequest) -> Bool {
+        let currentToken = requestIdentityProvider(false).accessToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentToken.isEmpty else { return false }
+        return request.value(forHTTPHeaderField: "Authorization") != "Bearer \(currentToken)"
     }
 
     private func applyProjectOwnerHeaders(

@@ -15,6 +15,11 @@ extension ScreenplayStudioScreen {
         let debugAuthHeaderPresent: Bool
         let debugProjectClientOwner: Bool
         let debugProjectClientTokenPresent: Bool
+        let debugDidLoadScreenplayProjectsFromBackend: Bool
+        let debugIsCrossDeviceRefreshInFlight: Bool
+        let debugIsDraftSaveInFlight: Bool
+        let debugIsLoading: Bool
+        let debugIsStreamingDraftPreviewActive: Bool
         let isSaving: Bool
         let loadedDraftProjectID: String
         let loadProjectToken: Int
