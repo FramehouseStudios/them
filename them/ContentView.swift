@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -16,29 +17,39 @@ private struct RememberedLoginKeychainCleanupModifier: ViewModifier {
     func body(content: Content) -> some View {
 #if os(iOS)
         content
-            .onAppear(perform: handleKeychainAvailability)
+            .onAppear(perform: scheduleKeychainAvailabilityHandling)
             .onReceive(
                 NotificationCenter.default.publisher(
                     for: UIApplication.protectedDataDidBecomeAvailableNotification
                 )
+                .receive(on: DispatchQueue.main)
             ) { _ in
-                handleKeychainAvailability()
+                scheduleKeychainAvailabilityHandling()
             }
 #elseif os(macOS)
         content
-            .onAppear(perform: handleKeychainAvailability)
+            .onAppear(perform: scheduleKeychainAvailabilityHandling)
             .onReceive(
                 NSWorkspace.shared.notificationCenter.publisher(
                     for: NSWorkspace.sessionDidBecomeActiveNotification
                 )
+                .receive(on: DispatchQueue.main)
             ) { _ in
-                handleKeychainAvailability()
+                scheduleKeychainAvailabilityHandling()
             }
 #else
-        content.onAppear(perform: handleKeychainAvailability)
+        content.onAppear(perform: scheduleKeychainAvailabilityHandling)
 #endif
     }
 
+    private func scheduleKeychainAvailabilityHandling() {
+        Task { @MainActor in
+            await Task.yield()
+            handleKeychainAvailability()
+        }
+    }
+
+    @MainActor
     private func handleKeychainAvailability() {
         BackendAuthClient.retryPendingAuthSessionTokenDeletion()
         BackendAuthClient.retryPendingRememberedLoginDeletion()

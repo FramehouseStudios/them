@@ -683,7 +683,10 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: studioDebugInspectorInteractionToken) { _, _ in
                 applyDebugInspectorInteractionIfNeeded()
             }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            .onReceive(
+                NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+                    .receive(on: DispatchQueue.main)
+            ) { _ in
                 applyDebugPageWriteToastInteractionIfNeeded()
                 applyDebugShortcutIfNeeded()
             }
