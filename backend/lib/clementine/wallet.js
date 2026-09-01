@@ -1,0 +1,427 @@
+// Clementine wallet in turns (D008 build order #5).
+//
+// In-memory, DI-ready store. Balances are per owner + lane so Page never
+// shares a bill with Companion chit-chat. Users see days/weeks framing —
+// never TPM / tokens-per-minute in API responses.
+//
+// Units: milliturns internally (1000 = 1 turn). Public summaries expose
+// whole/fractional turns only.
+//
+// Formula (published): 1 turn ≈ TOKENS_PER_TURN output tokens.
+//   milliturns = ceil(max(0, tokens) / TOKENS_PER_TURN * 1000)
+// Reserve holds that cost; commit settles to actual output; release refunds.
+
+import { randomUUID } from "node:crypto";
+
+/** Output tokens billed as one Companion/Page turn (published constant). */
+const TOKENS_PER_TURN = 400;
+
+/** Milliturns per full turn. */
+const MILLITURNS_PER_TURN = 1000;
+
+/** Rough Companion turns per calm "conversation" for approxConversationsLeft. */
+const TURNS_PER_APPROX_CONVERSATION = 20;
+
+/** Warn threshold for product UX (docs / optional flag). */
+const LOW_BALANCE_RATIO = 0.1;
+
+const WALLET_LANE = Object.freeze({
+  COMPANION: "companion",
+  PAGE: "page",
+});
+
+const WALLET_LANE_VALUES = Object.freeze([
+  WALLET_LANE.COMPANION,
+  WALLET_LANE.PAGE,
+]);
+
+const WALLET_EMPTY_CODE = "wallet_empty";
+
+function normalizeLane(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (s === "page" || s === "p") return WALLET_LANE.PAGE;
+  if (s === "companion" || s === "c" || s === "chat") return WALLET_LANE.COMPANION;
+  return "";
+}
+
+function tokensToMilliturns(tokens, tokensPerTurn = TOKENS_PER_TURN) {
+  const t = Math.max(0, Number(tokens) || 0);
+  const per = Math.max(1, Number(tokensPerTurn) || TOKENS_PER_TURN);
+  if (t <= 0) return 0;
+  return Math.ceil((t / per) * MILLITURNS_PER_TURN);
+}
+
+function turnsToMilliturns(turns) {
+  const n = Math.max(0, Number(turns) || 0);
+  return Math.ceil(n * MILLITURNS_PER_TURN);
+}
+
+function milliturnsToTurns(milliturns) {
+  const m = Math.max(0, Number(milliturns) || 0);
+  // Three decimal places of a turn (1 milliturn = 0.001 turn).
+  return Math.round(m) / MILLITURNS_PER_TURN;
+}
+
+function createWalletEmptyError({
+  ownerId = "",
+  lane = "",
+  neededMilliturns = 0,
+  availableMilliturns = 0,
+} = {}) {
+  const err = new Error("Wallet empty — not enough turns left");
+  err.code = WALLET_EMPTY_CODE;
+  err.ownerId = String(ownerId || "");
+  err.lane = String(lane || "");
+  err.neededTurns = milliturnsToTurns(neededMilliturns);
+  err.availableTurns = milliturnsToTurns(availableMilliturns);
+  return err;
+}
+
+/**
+ * Compute reservation cost in milliturns from max_output_tokens and/or
+ * an explicit estimatedTurns override (turns win when provided).
+ */
+function estimateReservationMilliturns({
+  maxOutputTokens = 0,
+  estimatedTurns = null,
+  tokensPerTurn = TOKENS_PER_TURN,
+} = {}) {
+  if (estimatedTurns !== null && estimatedTurns !== undefined && estimatedTurns !== "") {
+    const turns = Number(estimatedTurns);
+    if (Number.isFinite(turns) && turns > 0) {
+      return Math.max(1, turnsToMilliturns(turns));
+    }
+  }
+  const fromTokens = tokensToMilliturns(maxOutputTokens, tokensPerTurn);
+  // Always reserve at least a thin slice when a billed call is requested
+  // with a positive token cap; zero-token reserve is free (Reflex path).
+  if (fromTokens > 0) return fromTokens;
+  const caps = Math.max(0, Math.round(Number(maxOutputTokens) || 0));
+  return caps > 0 ? 1 : 0;
+}
+
+function emptyOwnerBalances() {
+  return {
+    [WALLET_LANE.COMPANION]: 0,
+    [WALLET_LANE.PAGE]: 0,
+    grantedCompanion: 0,
+    grantedPage: 0,
+  };
+}
+
+/**
+ * In-memory wallet store. Inject a durable adapter later without changing
+ * reserve / commit / release / getBalance shapes.
+ *
+ * @param {object} [opts]
+ * @param {() => number} [opts.now]
+ * @param {number} [opts.tokensPerTurn] override published constant (tests)
+ * @param {Map|object} [opts.initialBalances] ownerId → { companion?, page? } turns
+ */
+function createWalletStore({
+  now = () => Date.now(),
+  tokensPerTurn = TOKENS_PER_TURN,
+  initialBalances = null,
+} = {}) {
+  /** @type {Map<string, ReturnType<typeof emptyOwnerBalances>>} */
+  const balances = new Map();
+  /** @type {Map<string, object>} */
+  const reservations = new Map();
+
+  function ensureOwner(ownerId) {
+    const id = String(ownerId || "").trim();
+    if (!id) {
+      const err = new Error("wallet requires ownerId");
+      err.code = "wallet_owner_required";
+      throw err;
+    }
+    if (!balances.has(id)) {
+      balances.set(id, emptyOwnerBalances());
+    }
+    return id;
+  }
+
+  function getRaw(ownerId) {
+    const id = ensureOwner(ownerId);
+    return balances.get(id);
+  }
+
+  // Seed optional starting packs (turns, not milliturns).
+  if (initialBalances && typeof initialBalances === "object") {
+    const entries =
+      initialBalances instanceof Map
+        ? initialBalances.entries()
+        : Object.entries(initialBalances);
+    for (const [ownerId, pack] of entries) {
+      if (!pack || typeof pack !== "object") continue;
+      const id = ensureOwner(ownerId);
+      const row = balances.get(id);
+      const c = turnsToMilliturns(pack.companion ?? pack.companionTurns ?? 0);
+      const p = turnsToMilliturns(pack.page ?? pack.pageTurns ?? 0);
+      row[WALLET_LANE.COMPANION] += c;
+      row[WALLET_LANE.PAGE] += p;
+      row.grantedCompanion += c;
+      row.grantedPage += p;
+    }
+  }
+
+  /**
+   * Credit turns onto a lane (no Stripe — packs / grants / tests).
+   */
+  function credit({ ownerId, lane, turns = 0 } = {}) {
+    const id = ensureOwner(ownerId);
+    const laneKey = normalizeLane(lane);
+    if (!laneKey) {
+      const err = new Error("wallet credit requires lane companion|page");
+      err.code = "wallet_lane_invalid";
+      throw err;
+    }
+    const add = turnsToMilliturns(turns);
+    const row = balances.get(id);
+    row[laneKey] += add;
+    if (laneKey === WALLET_LANE.COMPANION) row.grantedCompanion += add;
+    else row.grantedPage += add;
+    return getBalance(id);
+  }
+
+  function reserve({
+    ownerId,
+    lane,
+    maxOutputTokens = 0,
+    estimatedTurns = null,
+    meta = null,
+  } = {}) {
+    const id = ensureOwner(ownerId);
+    const laneKey = normalizeLane(lane);
+    if (!laneKey) {
+      const err = new Error("wallet reserve requires lane companion|page");
+      err.code = "wallet_lane_invalid";
+      throw err;
+    }
+    const cost = estimateReservationMilliturns({
+      maxOutputTokens,
+      estimatedTurns,
+      tokensPerTurn,
+    });
+    const row = balances.get(id);
+    const available = row[laneKey];
+    if (cost > available) {
+      throw createWalletEmptyError({
+        ownerId: id,
+        lane: laneKey,
+        neededMilliturns: cost,
+        availableMilliturns: available,
+      });
+    }
+    row[laneKey] = available - cost;
+    const reservationId = randomUUID();
+    const entry = {
+      reservationId,
+      ownerId: id,
+      lane: laneKey,
+      reservedMilliturns: cost,
+      maxOutputTokens: Math.max(0, Math.round(Number(maxOutputTokens) || 0)),
+      status: "reserved",
+      createdAt: now(),
+      committedAt: null,
+      releasedAt: null,
+      actualOutputTokens: null,
+      settledMilliturns: null,
+      pageReservationId: null,
+      meta: meta && typeof meta === "object" ? { ...meta } : null,
+    };
+    reservations.set(reservationId, entry);
+    return {
+      reservationId,
+      ownerId: id,
+      lane: laneKey,
+      reservedTurns: milliturnsToTurns(cost),
+      maxOutputTokens: entry.maxOutputTokens,
+      status: entry.status,
+    };
+  }
+
+  function getReservation(reservationId) {
+    const entry = reservations.get(String(reservationId || ""));
+    if (!entry) return null;
+    return {
+      reservationId: entry.reservationId,
+      ownerId: entry.ownerId,
+      lane: entry.lane,
+      reservedTurns: milliturnsToTurns(entry.reservedMilliturns),
+      maxOutputTokens: entry.maxOutputTokens,
+      status: entry.status,
+      actualOutputTokens: entry.actualOutputTokens,
+      settledTurns:
+        entry.settledMilliturns == null
+          ? null
+          : milliturnsToTurns(entry.settledMilliturns),
+      pageReservationId: entry.pageReservationId,
+    };
+  }
+
+  /**
+   * Link a page-cancel reservation id so cancel can release funds.
+   */
+  function linkPageReservation(walletReservationId, pageReservationId) {
+    const entry = reservations.get(String(walletReservationId || ""));
+    if (!entry) return false;
+    entry.pageReservationId = String(pageReservationId || "") || null;
+    return true;
+  }
+
+  /**
+   * Settle a reservation against actual output tokens.
+   * Refunds unused milliturns when actual < reserved; never charges more
+   * than reserved without a second reserve (hard cap at reserved).
+   */
+  function commit(reservationId, actualOutputTokens = 0) {
+    const entry = reservations.get(String(reservationId || ""));
+    if (!entry) {
+      return { ok: false, code: "wallet_reservation_missing" };
+    }
+    if (entry.status === "committed") {
+      return {
+        ok: true,
+        code: "already_committed",
+        reservation: getReservation(entry.reservationId),
+      };
+    }
+    if (entry.status === "released") {
+      return {
+        ok: false,
+        code: "wallet_reservation_released",
+        reservation: getReservation(entry.reservationId),
+      };
+    }
+    const actual = Math.max(0, Math.round(Number(actualOutputTokens) || 0));
+    let settled = tokensToMilliturns(actual, tokensPerTurn);
+    if (actual > 0 && settled === 0) settled = 1;
+    // Cap at reserved — overage would need a fresh reserve.
+    if (settled > entry.reservedMilliturns) {
+      settled = entry.reservedMilliturns;
+    }
+    const refund = entry.reservedMilliturns - settled;
+    if (refund > 0) {
+      const row = balances.get(entry.ownerId) || getRaw(entry.ownerId);
+      row[entry.lane] += refund;
+    }
+    entry.status = "committed";
+    entry.committedAt = now();
+    entry.actualOutputTokens = actual;
+    entry.settledMilliturns = settled;
+    return {
+      ok: true,
+      code: "committed",
+      refundedTurns: milliturnsToTurns(refund),
+      settledTurns: milliturnsToTurns(settled),
+      reservation: getReservation(entry.reservationId),
+    };
+  }
+
+  /**
+   * Cancel path: return reserved milliturns to the lane balance.
+   * Idempotent for already-released; no-op success for committed.
+   */
+  function release(reservationId) {
+    const id = String(reservationId || "");
+    const entry = reservations.get(id);
+    if (!entry) {
+      return { ok: false, code: "wallet_reservation_missing", released: false };
+    }
+    if (entry.status === "released") {
+      return {
+        ok: true,
+        code: "already_released",
+        released: false,
+        reservation: getReservation(id),
+      };
+    }
+    if (entry.status === "committed") {
+      // Funds already settled — cancel after success does not refund.
+      return {
+        ok: true,
+        code: "already_committed",
+        released: false,
+        reservation: getReservation(id),
+      };
+    }
+    const row = balances.get(entry.ownerId) || getRaw(entry.ownerId);
+    row[entry.lane] += entry.reservedMilliturns;
+    entry.status = "released";
+    entry.releasedAt = now();
+    return {
+      ok: true,
+      code: "released",
+      released: true,
+      refundedTurns: milliturnsToTurns(entry.reservedMilliturns),
+      reservation: getReservation(id),
+    };
+  }
+
+  /**
+   * Calm user-facing summary. No TPM / token-rate fields.
+   */
+  function getBalance(ownerId) {
+    const id = ensureOwner(ownerId);
+    const row = balances.get(id);
+    const companionTurnsLeft = milliturnsToTurns(row[WALLET_LANE.COMPANION]);
+    const pageTurnsLeft = milliturnsToTurns(row[WALLET_LANE.PAGE]);
+    const approxConversationsLeft = Math.floor(
+      companionTurnsLeft / TURNS_PER_APPROX_CONVERSATION
+    );
+    const grantedC = milliturnsToTurns(row.grantedCompanion);
+    const grantedP = milliturnsToTurns(row.grantedPage);
+    const lowCompanion =
+      grantedC > 0 && companionTurnsLeft / grantedC <= LOW_BALANCE_RATIO;
+    const lowPage = grantedP > 0 && pageTurnsLeft / grantedP <= LOW_BALANCE_RATIO;
+    return {
+      ownerId: id,
+      companionTurnsLeft,
+      pageTurnsLeft,
+      approxConversationsLeft,
+      /** Product may surface a soft “running low” at ≤10% of granted pack. */
+      lowBalance: lowCompanion || lowPage,
+    };
+  }
+
+  function clear() {
+    balances.clear();
+    reservations.clear();
+  }
+
+  function size() {
+    return reservations.size;
+  }
+
+  return {
+    reserve,
+    commit,
+    release,
+    getBalance,
+    getReservation,
+    linkPageReservation,
+    credit,
+    clear,
+    size,
+    tokensPerTurn,
+  };
+}
+
+export {
+  TOKENS_PER_TURN,
+  MILLITURNS_PER_TURN,
+  TURNS_PER_APPROX_CONVERSATION,
+  LOW_BALANCE_RATIO,
+  WALLET_LANE,
+  WALLET_LANE_VALUES,
+  WALLET_EMPTY_CODE,
+  tokensToMilliturns,
+  turnsToMilliturns,
+  milliturnsToTurns,
+  estimateReservationMilliturns,
+  createWalletEmptyError,
+  createWalletStore,
+};

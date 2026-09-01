@@ -1,7 +1,8 @@
 // Page-lane reservation + cancel-on-barge-in (D008).
 //
 // In-memory Map is enough for v0 unit tests / single-process. Production
-// will move reservations behind the wallet store without changing this API.
+// Optional walletStore DI: cancel/cancelByOwner release linked wallet
+// reservations (meta.walletReservationId) without changing this API.
 //
 // Billing gate: call proceed(reservationId) before charging / calling Muse.
 // Cancelled or missing reservations short-circuit (ok:false) — no bill path.
@@ -46,9 +47,32 @@ function abortEntry(entry, reason = "cancel") {
   return true;
 }
 
-function createPageReservationStore({ now = () => Date.now() } = {}) {
+function createPageReservationStore({
+  now = () => Date.now(),
+  /** Optional D008 wallet store — cancel releases linked wallet reservation. */
+  walletStore = null,
+} = {}) {
   /** @type {Map<string, object>} */
   const reservations = new Map();
+
+  function linkedWalletId(entry) {
+    if (!entry) return "";
+    const fromField = entry.walletReservationId;
+    const fromMeta = entry.meta && entry.meta.walletReservationId;
+    return String(fromField || fromMeta || "").trim();
+  }
+
+  function releaseLinkedWallet(entry) {
+    const wid = linkedWalletId(entry);
+    if (!wid || !walletStore || typeof walletStore.release !== "function") {
+      return null;
+    }
+    try {
+      return walletStore.release(wid);
+    } catch (_e) {
+      return null;
+    }
+  }
 
   function reserve({
     sessionId,
@@ -64,6 +88,10 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
       throw err;
     }
     const id = randomUUID();
+    const metaObj = meta && typeof meta === "object" ? { ...meta } : null;
+    const walletReservationId = String(
+      (metaObj && metaObj.walletReservationId) || ""
+    ).trim() || null;
     const entry = {
       id,
       sessionId: sid,
@@ -74,7 +102,8 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
       createdAt: now(),
       cancelledAt: null,
       cancelReason: null,
-      meta: meta && typeof meta === "object" ? { ...meta } : null,
+      walletReservationId,
+      meta: metaObj,
       abortController: createAbortController(),
     };
     reservations.set(id, entry);
@@ -113,6 +142,7 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
     entry.cancelledAt = now();
     entry.cancelReason = String(reason || "cancel");
     abortEntry(entry, entry.cancelReason);
+    releaseLinkedWallet(entry);
     reservations.set(id, entry);
     return publicView(entry, { cancelled: true });
   }
@@ -140,6 +170,7 @@ function createPageReservationStore({ now = () => Date.now() } = {}) {
       entry.cancelledAt = ts;
       entry.cancelReason = cancelReason;
       abortEntry(entry, cancelReason);
+      releaseLinkedWallet(entry);
       reservations.set(id, entry);
       dropped.push(id);
     }
