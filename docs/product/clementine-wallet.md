@@ -1,6 +1,6 @@
 # Clementine wallet (turns) — D008
 
-> Build-order step **Wallet in turns**. Companion to `clementine-muse-runtime.md`. No Stripe in this scaffold — in-memory / DI store only.
+> Build-order step **Wallet in turns**. Companion to `clementine-muse-runtime.md`. In-memory / DI store for meters; **IAP pack top-ups are D011** (`clementine-monetization.md`) — StoreKit in-app, not Stripe Checkout on iOS.
 
 ## Sell weeks, not TPM
 
@@ -58,3 +58,4 @@ When remaining turns on a granted pack drop to **≤10%**, `getBalance` sets `lo
 ## Change log
 
 - 2026-09-01 — v0 scaffold (T-clementine-wallet-turns).
+- 2026-09-01 — D011 StoreKit pack credit seam (`creditPack` + transaction ledger); see `clementine-monetization.md`.

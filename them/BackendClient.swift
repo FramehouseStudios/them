@@ -1479,6 +1479,19 @@ struct BackendPageCancelResult: Equatable {
     let status: String?
 }
 
+/// D011 — calm wallet balance after StoreKit IAP credit (no TPM fields).
+struct BackendIapCreditResult: Equatable {
+    let ok: Bool
+    let companionTurnsLeft: Double
+    let pageTurnsLeft: Double
+    let approxConversationsLeft: Int
+    let lowBalance: Bool
+    let alreadyCredited: Bool
+    let transactionId: String?
+    let packId: String?
+    let productId: String?
+}
+
 struct BackendTalkDebugEvent {
     let stage: String
     let resolvedBaseURL: String?
@@ -6137,6 +6150,74 @@ final class BackendClient {
         // Protect against unresolved placeholders like "$(APP_TOKEN)".
         if value.hasPrefix("$("), value.hasSuffix(")") { return false }
         return true
+    }
+
+    /// D011 — POST `/billing/iap/credit` after StoreKit 2 purchase.
+    /// Sends `Transaction.jwsRepresentation` (or equivalent signed payload).
+    /// Uses Keychain-backed session via `attachAuthorizationHeader` (Bearer).
+    @discardableResult
+    func creditIapPack(signedTransaction: String) async throws -> BackendIapCreditResult {
+        let jws = signedTransaction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !jws.isEmpty else {
+            throw BackendError.stage("iap_credit", "signedTransaction is required.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        _ = try await resolveClientToken(for: resolvedBaseURL, userID: resolveUserID())
+
+        var request = URLRequest(
+            url: resolvedBaseURL
+                .appendingPathComponent("billing")
+                .appendingPathComponent("iap")
+                .appendingPathComponent("credit")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        attachAuthorizationHeader(to: &request)
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["signedTransaction": jws],
+            options: []
+        )
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.stage("iap_credit", "Invalid IAP credit response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(
+                http.statusCode,
+                raw.isEmpty ? "IAP credit failed." : raw
+            )
+        }
+
+        let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let pack = payload["pack"] as? [String: Any]
+        return BackendIapCreditResult(
+            ok: (payload["ok"] as? Bool) ?? true,
+            companionTurnsLeft: Self.doubleValue(payload["companionTurnsLeft"]),
+            pageTurnsLeft: Self.doubleValue(payload["pageTurnsLeft"]),
+            approxConversationsLeft: Int(Self.doubleValue(payload["approxConversationsLeft"])),
+            lowBalance: (payload["lowBalance"] as? Bool) ?? false,
+            alreadyCredited: (payload["alreadyCredited"] as? Bool) ?? false,
+            transactionId: (payload["transactionId"] as? String)
+                ?? (payload["transaction_id"] as? String),
+            packId: (pack?["id"] as? String),
+            productId: (pack?["productId"] as? String) ?? (pack?["product_id"] as? String)
+        )
+    }
+
+    private static func doubleValue(_ raw: Any?) -> Double {
+        if let n = raw as? Double { return n }
+        if let n = raw as? Int { return Double(n) }
+        if let n = raw as? NSNumber { return n.doubleValue }
+        if let s = raw as? String, let n = Double(s) { return n }
+        return 0
     }
 
     /// D010 — attach request-scoped ElevenLabs BYOK headers when provider=elevenlabs.
