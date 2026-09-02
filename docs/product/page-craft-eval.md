@@ -40,8 +40,9 @@ Synthetic Fountain/page excerpts only. Labels pass|fail with optional fail_modes
 
 ## How this feeds F2
 
-F2 multi-pass revise will consume this scorer as an acceptance signal. F1 is measurement + goldens only.
+F2 multi-pass (`docs/product/page-multipass.md`) consumes this scorer as an acceptance signal between draft → critique → revise (and optional repair when `PAGE_MULTIPASS_REPAIR=1`). Heuristic `scorePageHeuristic` / PASS floor `overall >= 3.5` is the MVP gate. F1 remains measurement + goldens; F2 productizes the craft loop behind `CLEMENTINE_PAGE_MULTIPASS`.
 
 ## Change log
 
 - 2026-09-01 — F1 started: rubric, heuristic scorer, optional model-judge seam, 14 fixtures, CI heuristic gate.
+- 2026-09-01 — F2 multipass wired to consume heuristic scorer as acceptance seam.

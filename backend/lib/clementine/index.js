@@ -123,3 +123,16 @@ export {
 } from "./iap_app_store_verify.js";
 export { mountIapCreditRoute, calmBalancePayload } from "./iap_credit_route.js";
 
+export {
+  FLAG_MULTIPASS as PAGE_MULTIPASS_FLAG,
+  FLAG_REPAIR as PAGE_MULTIPASS_REPAIR_FLAG,
+  STAGES as PAGE_MULTIPASS_STAGES,
+  isPageMultipassEnabled,
+  isPageMultipassRepairEnabled,
+  shouldRunPageMultipass,
+  multipassWalletReserveTokenMultiplier,
+  critiquePageHeuristic,
+  runPageMultipass,
+  runTalkGeneratePageMultipass,
+} from "./page_multipass.js";
+

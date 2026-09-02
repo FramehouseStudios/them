@@ -32,6 +32,10 @@ Product classifies **intent** first, then maps to a cost lane:
 
 See **`docs/product/clementine-reflex.md`** for Reflex short-circuit behavior at the talk edge (before wallet/Spark).
 
+## Page multipass (F2)
+
+Optional flag-gated craft loop: Plan → Draft → Critique → Revise. See **`docs/product/page-multipass.md`**. Default off (`CLEMENTINE_PAGE_MULTIPASS`).
+
 ## Hard rules
 
 1. **Page is sacred.** Barge-in / manual typing cancels in-flight Page work and drops the reservation. Never finish the paragraph after the writer took the page back.

@@ -1,0 +1,780 @@
+// F2 — Page multi-pass craft loop (Plan → Draft → Critique → Revise).
+//
+// Flag-gated MVP. Default OFF so main stays safe.
+//   CLEMENTINE_PAGE_MULTIPASS=1  — enable pipeline for Page lane
+//   PAGE_MULTIPASS_REPAIR=1      — one extra revise if F1 heuristic FAIL-style
+//
+// Wallet honesty (documented product choice):
+//   Meter Page turns for **draft + revise** (and optional repair revise) only.
+//   Plan and critique are unmetered craft overhead — cheap outline + score —
+//   so writers are not billed for scaffolding that does not produce page text.
+//   When multipass is on, beginPageWork doubles max_output_tokens for the
+//   wallet reserve so draft+revise headroom is held up front.
+//
+// Abort: every stage checks AbortSignal / page cancel before work and after
+// supplier returns. Throws createPageCancelledError on abort.
+//
+// Acceptance seam: reuses F1 scorePageHeuristic (page_craft eval) after
+// revise (or draft if revise skipped). Optional repair revise when overall
+// is below PASS floor (3.5) and PAGE_MULTIPASS_REPAIR=1.
+
+import {
+  scorePageHeuristic,
+  DIMENSIONS,
+  THRESHOLDS,
+} from "../../evals/page_craft/score_page.js";
+import {
+  createPageCancelledError,
+  gatePageGeneration,
+} from "./page_abort.js";
+import { LANE } from "./lanes.js";
+
+const FLAG_MULTIPASS = "CLEMENTINE_PAGE_MULTIPASS";
+const FLAG_REPAIR = "PAGE_MULTIPASS_REPAIR";
+
+const STAGES = Object.freeze(["plan", "draft", "critique", "revise", "repair"]);
+
+function trimToString(v) {
+  return v === null || v === undefined ? "" : String(v).trim();
+}
+
+function envFlagTruthy(value) {
+  const n = trimToString(value).toLowerCase();
+  return n === "1" || n === "true" || n === "yes" || n === "on";
+}
+
+function isPageMultipassEnabled(env = process.env) {
+  return envFlagTruthy(env?.[FLAG_MULTIPASS]);
+}
+
+function isPageMultipassRepairEnabled(env = process.env) {
+  return envFlagTruthy(env?.[FLAG_REPAIR]);
+}
+
+/**
+ * True when this talk request should run the multipass pipeline.
+ * Requires flag + Page lane (or explicit pageMultipass on clementine).
+ */
+function shouldRunPageMultipass(req, env = process.env) {
+  if (!isPageMultipassEnabled(env)) return false;
+  const c = req?.clementine;
+  if (!c) return false;
+  if (c.pageMultipass === false) return false;
+  if (c.pageMultipass === true) return true;
+  const lane = trimToString(c.lane);
+  return lane === LANE.PAGE || lane.toLowerCase() === "page";
+}
+
+/**
+ * Wallet reserve headroom multiplier when multipass is on (draft + revise).
+ * Plan/critique are not metered; do not multiply for them.
+ */
+function multipassWalletReserveTokenMultiplier(env = process.env) {
+  return isPageMultipassEnabled(env) ? 2 : 1;
+}
+
+function assertNotAborted(signal, { reservationId = null, stage = "" } = {}) {
+  if (signal?.aborted) {
+    const reason =
+      (typeof signal.reason === "string" && signal.reason) || "cancelled";
+    const err = createPageCancelledError({ reason, reservationId });
+    err.multipassStage = stage || null;
+    throw err;
+  }
+}
+
+function extractChatText(chatResult) {
+  if (!chatResult) return "";
+  if (typeof chatResult.text === "string" && chatResult.text.trim()) {
+    return chatResult.text.trim();
+  }
+  if (typeof chatResult.reply === "string" && chatResult.reply.trim()) {
+    return chatResult.reply.trim();
+  }
+  if (typeof chatResult.rawText === "string") {
+    try {
+      const json = JSON.parse(chatResult.rawText);
+      const content = json?.choices?.[0]?.message?.content;
+      if (typeof content === "string") return content.trim();
+    } catch (_e) {
+      /* fall through */
+    }
+    return chatResult.rawText.trim();
+  }
+  return "";
+}
+
+function usageOutputTokens(chatResult) {
+  const u = chatResult?.usage;
+  if (!u || typeof u !== "object") return 0;
+  return Math.max(
+    0,
+    Math.round(Number(u.outputTokens ?? u.output_tokens ?? 0) || 0)
+  );
+}
+
+/**
+ * Heuristic critique against F1 rubric dimensions.
+ * Returns structured JSON-shaped object (no live API).
+ */
+function critiquePageHeuristic(pageText = "", { scoreFn = scorePageHeuristic } = {}) {
+  const scored = scoreFn(pageText);
+  const dimensions = scored?.dimensions || {};
+  const overall = Number(scored?.overall) || 1;
+  const weaknesses = [];
+  const strengths = [];
+  for (const dim of DIMENSIONS) {
+    const n = Number(dimensions[dim]);
+    if (!Number.isFinite(n)) continue;
+    if (n < 3.5) {
+      weaknesses.push({
+        dimension: dim,
+        score: n,
+        note: `Below owner-bar floor on ${dim}`,
+      });
+    } else if (n >= 4) {
+      strengths.push({ dimension: dim, score: n });
+    }
+  }
+  const directives = weaknesses.slice(0, 4).map((w) => {
+    switch (w.dimension) {
+      case "distinct_character_voice":
+        return "Separate character diction/rhythm; avoid interchangeable writer-voice.";
+      case "subtext_density":
+        return "Cut on-the-nose labels; imply emotion through behavior and tactic.";
+      case "continuity_want_obstacle_cost":
+        return "Keep a live want, a blocking pressure, and a visible cost on the page.";
+      case "motif_image_echo":
+        return "Echo one concrete image/object so the page feels designed.";
+      case "anti_cliche":
+        return "Replace stock phrases with specific, fresh wording and behavior.";
+      case "format_playability":
+        return "Tighten Fountain shape; make beats camera/actor-playable.";
+      default:
+        return `Improve ${w.dimension}.`;
+    }
+  });
+  return {
+    mode: "heuristic",
+    overall,
+    dimensions,
+    passFloor: THRESHOLDS.passMinOverall,
+    failsPassFloor: overall < THRESHOLDS.passMinOverall,
+    weaknesses,
+    strengths,
+    directives,
+    notes: Array.isArray(scored?.notes) ? scored.notes : [],
+  };
+}
+
+function buildPlanPrompt(utterance = "") {
+  return [
+    "You are Clementine planning one screenplay page (Fountain).",
+    "Write a SHORT beat/intent outline only (4–8 lines). No full page.",
+    "Cover: want, obstacle, cost, motif, and voice tactic.",
+    "Do not write dialogue blocks or scene text yet.",
+    utterance ? `Writer ask: ${utterance}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildDraftPrompt({ utterance = "", plan = "" } = {}) {
+  return [
+    "Write one Fountain screenplay page (or tight half-page) that executes the plan.",
+    "Owner bar: top-class creative writer — distinct voice, subtext, want/obstacle/cost, motif, anti-cliché, playable format.",
+    plan ? `PLAN:\n${plan}` : "",
+    utterance ? `Writer ask: ${utterance}` : "",
+    "Output only Fountain page text.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildRevisePrompt({ draft = "", critique = null, utterance = "" } = {}) {
+  const directives = Array.isArray(critique?.directives)
+    ? critique.directives
+    : [];
+  const weak = Array.isArray(critique?.weaknesses)
+    ? critique.weaknesses
+        .map((w) => `- ${w.dimension}: ${w.score}`)
+        .join("\n")
+    : "";
+  return [
+    "Revise the Fountain page once using the critique. Keep what already works.",
+    "Output only the revised Fountain page — no preamble.",
+    utterance ? `Writer ask: ${utterance}` : "",
+    directives.length ? `Directives:\n${directives.map((d) => `- ${d}`).join("\n")}` : "",
+    weak ? `Weak dimensions:\n${weak}` : "",
+    critique?.overall != null ? `Critique overall: ${critique.overall}` : "",
+    `DRAFT:\n${draft}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Default LLM-backed stage supplier using an injected chat() fn.
+ * chatFn({ messages, maxTokens, temperature, effort, signal, stage }) →
+ *   { text, usage, raw? }
+ */
+function createChatStageSupplier(chatFn, defaults = {}) {
+  if (typeof chatFn !== "function") {
+    throw new Error("createChatStageSupplier requires chatFn");
+  }
+  return async function stageChat(args = {}) {
+    const result = await chatFn({
+      ...defaults,
+      ...args,
+    });
+    return {
+      text: extractChatText(result),
+      usage: result?.usage || {
+        outputTokens: usageOutputTokens(result),
+      },
+      raw: result,
+    };
+  };
+}
+
+/**
+ * Run Plan → Draft → Critique → Revise (+ optional repair).
+ *
+ * All stage suppliers are injectable (tests use fakes; production wires
+ * chatSupplier). scoreFn defaults to F1 scorePageHeuristic.
+ *
+ * @returns {Promise<{
+ *   page: string,
+ *   plan: string,
+ *   critique: object|null,
+ *   stages: object[],
+ *   scores: object,
+ *   meteredOutputTokens: number,
+ *   multipass: true,
+ * }>}
+ */
+async function runPageMultipass({
+  signal = null,
+  reservationId = null,
+  utterance = "",
+  /** Optional pre-built messages/context for draft (unused by default prompts). */
+  context = null,
+  planSupplier = null,
+  draftSupplier = null,
+  critiqueSupplier = null,
+  reviseSupplier = null,
+  scoreFn = scorePageHeuristic,
+  /** Called with output tokens for each metered stage (draft/revise/repair). */
+  walletMeter = null,
+  env = process.env,
+  logger = null,
+  now = () => Date.now(),
+} = {}) {
+  if (typeof draftSupplier !== "function") {
+    throw new Error("runPageMultipass requires draftSupplier");
+  }
+  const repairEnabled = isPageMultipassRepairEnabled(env);
+  const stages = [];
+  let plan = "";
+  let draft = "";
+  let critique = null;
+  let page = "";
+  let meteredOutputTokens = 0;
+  const scores = {};
+
+  async function runStage(name, { metered = false, fn }) {
+    assertNotAborted(signal, { reservationId, stage: name });
+    const started = now();
+    const record = {
+      name,
+      ok: false,
+      ms: 0,
+      metered: Boolean(metered),
+      outputTokens: 0,
+      aborted: false,
+      error: null,
+    };
+    try {
+      const result = await fn();
+      assertNotAborted(signal, { reservationId, stage: name });
+      record.ok = true;
+      record.ms = Math.max(0, now() - started);
+      if (result && typeof result === "object") {
+        if (result.outputTokens != null) {
+          record.outputTokens = Math.max(
+            0,
+            Math.round(Number(result.outputTokens) || 0)
+          );
+        }
+        if (result.score != null) record.score = result.score;
+        if (result.meta && typeof result.meta === "object") {
+          record.meta = result.meta;
+        }
+      }
+      if (metered && record.outputTokens > 0 && typeof walletMeter === "function") {
+        walletMeter(record.outputTokens, { stage: name });
+        meteredOutputTokens += record.outputTokens;
+      } else if (metered && record.outputTokens > 0) {
+        meteredOutputTokens += record.outputTokens;
+      }
+      stages.push(record);
+      return result;
+    } catch (err) {
+      record.ms = Math.max(0, now() - started);
+      record.error = trimToString(err?.message || err) || "stage_failed";
+      if (err?.cancelled || err?.code === "page_generation_cancelled") {
+        record.aborted = true;
+      }
+      stages.push(record);
+      throw err;
+    }
+  }
+
+  // --- plan (unmetered, cheap) ---
+  if (typeof planSupplier === "function") {
+    const planResult = await runStage("plan", {
+      metered: false,
+      fn: async () => {
+        const out = await planSupplier({
+          signal,
+          utterance,
+          context,
+          prompt: buildPlanPrompt(utterance),
+        });
+        plan = trimToString(out?.text || out?.plan || "");
+        return {
+          outputTokens: usageOutputTokens(out) || Number(out?.usage?.outputTokens || 0) || 0,
+          meta: { planChars: plan.length },
+        };
+      },
+    });
+    void planResult;
+  } else {
+    stages.push({
+      name: "plan",
+      ok: true,
+      ms: 0,
+      metered: false,
+      outputTokens: 0,
+      skipped: true,
+      reason: "no_plan_supplier",
+    });
+  }
+
+  // --- draft (metered) ---
+  {
+    const draftResult = await runStage("draft", {
+      metered: true,
+      fn: async () => {
+        const out = await draftSupplier({
+          signal,
+          utterance,
+          plan,
+          context,
+          prompt: buildDraftPrompt({ utterance, plan }),
+        });
+        draft = trimToString(out?.text || out?.page || "");
+        if (!draft) {
+          const err = new Error("Page multipass draft returned empty text");
+          err.code = "page_multipass_empty_draft";
+          throw err;
+        }
+        page = draft;
+        const scored = scoreFn(draft);
+        scores.afterDraft = {
+          overall: scored.overall,
+          dimensions: scored.dimensions,
+        };
+        return {
+          outputTokens:
+            Number(out?.usage?.outputTokens) ||
+            usageOutputTokens(out) ||
+            0,
+          score: scored.overall,
+        };
+      },
+    });
+    void draftResult;
+  }
+
+  // --- critique (unmetered; heuristic by default) ---
+  {
+    await runStage("critique", {
+      metered: false,
+      fn: async () => {
+        if (typeof critiqueSupplier === "function") {
+          critique = await critiqueSupplier({
+            signal,
+            page: draft,
+            utterance,
+            plan,
+            scoreFn,
+          });
+        } else {
+          critique = critiquePageHeuristic(draft, { scoreFn });
+        }
+        if (!critique || typeof critique !== "object") {
+          critique = critiquePageHeuristic(draft, { scoreFn });
+        }
+        scores.afterCritique = {
+          overall: critique.overall,
+          dimensions: critique.dimensions,
+          failsPassFloor: Boolean(critique.failsPassFloor),
+        };
+        return {
+          score: critique.overall,
+          meta: {
+            failsPassFloor: Boolean(critique.failsPassFloor),
+            directiveCount: Array.isArray(critique.directives)
+              ? critique.directives.length
+              : 0,
+          },
+        };
+      },
+    });
+  }
+
+  // --- revise (metered) — skip only when supplier missing ---
+  let revised = false;
+  if (typeof reviseSupplier === "function") {
+    await runStage("revise", {
+      metered: true,
+      fn: async () => {
+        const out = await reviseSupplier({
+          signal,
+          utterance,
+          plan,
+          draft,
+          critique,
+          prompt: buildRevisePrompt({ draft, critique, utterance }),
+        });
+        const text = trimToString(out?.text || out?.page || "");
+        if (text) {
+          page = text;
+          revised = true;
+        }
+        const scored = scoreFn(page);
+        scores.afterRevise = {
+          overall: scored.overall,
+          dimensions: scored.dimensions,
+        };
+        return {
+          outputTokens:
+            Number(out?.usage?.outputTokens) ||
+            usageOutputTokens(out) ||
+            0,
+          score: scored.overall,
+          meta: { revised },
+        };
+      },
+    });
+  } else {
+    stages.push({
+      name: "revise",
+      ok: true,
+      ms: 0,
+      metered: false,
+      outputTokens: 0,
+      skipped: true,
+      reason: "no_revise_supplier",
+    });
+    scores.afterRevise = scores.afterDraft;
+  }
+
+  // --- optional repair revise when below F1 PASS floor ---
+  const finalForGate = scores.afterRevise || scores.afterDraft;
+  const belowFloor =
+    Number(finalForGate?.overall) < THRESHOLDS.passMinOverall;
+  if (repairEnabled && belowFloor && typeof reviseSupplier === "function") {
+    await runStage("repair", {
+      metered: true,
+      fn: async () => {
+        const repairCritique =
+          critique && typeof critique === "object"
+            ? {
+                ...critique,
+                directives: [
+                  ...(critique.directives || []),
+                  "F1 acceptance FAIL-style: raise overall toward owner bar (≥3.5).",
+                ],
+              }
+            : critiquePageHeuristic(page, { scoreFn });
+        const out = await reviseSupplier({
+          signal,
+          utterance,
+          plan,
+          draft: page,
+          critique: repairCritique,
+          repair: true,
+          prompt: buildRevisePrompt({
+            draft: page,
+            critique: repairCritique,
+            utterance,
+          }),
+        });
+        const text = trimToString(out?.text || out?.page || "");
+        if (text) page = text;
+        const scored = scoreFn(page);
+        scores.afterRepair = {
+          overall: scored.overall,
+          dimensions: scored.dimensions,
+        };
+        return {
+          outputTokens:
+            Number(out?.usage?.outputTokens) ||
+            usageOutputTokens(out) ||
+            0,
+          score: scored.overall,
+        };
+      },
+    });
+  } else if (repairEnabled && !belowFloor) {
+    stages.push({
+      name: "repair",
+      ok: true,
+      ms: 0,
+      metered: false,
+      outputTokens: 0,
+      skipped: true,
+      reason: "above_pass_floor",
+    });
+  } else if (!repairEnabled) {
+    stages.push({
+      name: "repair",
+      ok: true,
+      ms: 0,
+      metered: false,
+      outputTokens: 0,
+      skipped: true,
+      reason: "PAGE_MULTIPASS_REPAIR off",
+    });
+  }
+
+  const finalScore = scoreFn(page);
+  scores.final = {
+    overall: finalScore.overall,
+    dimensions: finalScore.dimensions,
+  };
+
+  logger?.log?.(
+    `[page_multipass] stages=${stages.map((s) => s.name + (s.skipped ? ":skip" : "")).join(",")} overall=${scores.final.overall} meteredTokens=${meteredOutputTokens}`
+  );
+
+  return {
+    page,
+    plan,
+    critique,
+    stages,
+    scores,
+    meteredOutputTokens,
+    multipass: true,
+    revised,
+    repairEnabled,
+  };
+}
+
+/**
+ * Bridge for talk_generate: build suppliers from chatSupplier.chat and run
+ * multipass. Commits wallet once for summed draft+revise(+repair) tokens.
+ * Streaming is skipped for multipass MVP (correctness over TTFT).
+ */
+async function runTalkGeneratePageMultipass({
+  req,
+  rid,
+  logger,
+  chatSupplier,
+  system = "",
+  shortTermContextMessages = [],
+  talkGenerationTranscript = "",
+  chatMessages = [],
+  chatModelPlan = null,
+  chatTemperature = 0.7,
+  chatMaxTokens = 1000,
+  chatStart = Date.now(),
+  env = process.env,
+} = {}) {
+  let pageAbortSignal = null;
+  let pageReservationId = null;
+  if (req?.clementine?.reservationId) {
+    const pageGate = gatePageGeneration(req.clementine);
+    pageAbortSignal = pageGate.signal;
+    pageReservationId = pageGate.reservationId;
+  }
+
+  const utterance =
+    trimToString(talkGenerationTranscript) ||
+    trimToString(
+      [...(Array.isArray(chatMessages) ? chatMessages : [])]
+        .reverse()
+        .find((m) => m?.role === "user")?.content
+    );
+
+  const baseMessages = Array.isArray(chatMessages) ? chatMessages : [];
+
+  async function callChat({ prompt, maxTokens, effort, signal, stage }) {
+    assertNotAborted(signal || pageAbortSignal, {
+      reservationId: pageReservationId,
+      stage,
+    });
+    // Re-gate before each metered/unmetered LLM call.
+    if (pageReservationId && req?.clementine) {
+      gatePageGeneration(req.clementine);
+    }
+    const messages = [
+      ...baseMessages,
+      {
+        role: "user",
+        content: trimToString(prompt),
+      },
+    ];
+    const systemWithStage = [
+      trimToString(system),
+      stage === "plan"
+        ? "Stage=plan: outline only."
+        : stage === "revise" || stage === "repair"
+          ? "Stage=revise: output revised Fountain only."
+          : "Stage=draft: output Fountain page only.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    // Prefer injecting system as first message if supplier ignores a system field.
+    const withSystem =
+      systemWithStage && !messages.some((m) => m.role === "system")
+        ? [{ role: "system", content: systemWithStage }, ...messages]
+        : messages;
+
+    const chatResult = await chatSupplier.chat({
+      model: chatModelPlan?.model,
+      temperature: stage === "plan" ? Math.min(chatTemperature, 0.4) : chatTemperature,
+      maxTokens: maxTokens,
+      messages: withSystem,
+      apiMode: chatModelPlan?.apiMode,
+      reasoningEffort: effort || req?.clementine?.effort || chatModelPlan?.reasoningEffort,
+      fallbackModel: chatModelPlan?.fallbackModel,
+      signal: signal || pageAbortSignal,
+      lane: req?.clementine?.lane || LANE.PAGE,
+    });
+    return chatResult;
+  }
+
+  const planSupplier = async ({ signal, prompt }) => {
+    const raw = await callChat({
+      prompt,
+      maxTokens: Math.min(400, Math.max(120, Math.round(chatMaxTokens * 0.25))),
+      effort: "minimal",
+      signal,
+      stage: "plan",
+    });
+    return {
+      text: extractChatText(raw),
+      usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
+      raw,
+    };
+  };
+
+  const draftSupplier = async ({ signal, prompt }) => {
+    const raw = await callChat({
+      prompt,
+      maxTokens: chatMaxTokens,
+      effort: req?.clementine?.effort || chatModelPlan?.reasoningEffort || "low",
+      signal,
+      stage: "draft",
+    });
+    return {
+      text: extractChatText(raw),
+      usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
+      raw,
+    };
+  };
+
+  const reviseSupplier = async ({ signal, prompt, repair }) => {
+    const raw = await callChat({
+      prompt,
+      maxTokens: chatMaxTokens,
+      effort: repair ? "medium" : req?.clementine?.effort || "low",
+      signal,
+      stage: repair ? "repair" : "revise",
+    });
+    return {
+      text: extractChatText(raw),
+      usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
+      raw,
+    };
+  };
+
+  // Accumulate metered tokens; single commitWallet at end (wallet honesty).
+  let pendingMetered = 0;
+  const result = await runPageMultipass({
+    signal: pageAbortSignal,
+    reservationId: pageReservationId,
+    utterance,
+    context: { shortTermContextMessages },
+    planSupplier,
+    draftSupplier,
+    critiqueSupplier: null, // heuristic default
+    reviseSupplier,
+    walletMeter: (tokens) => {
+      pendingMetered += Math.max(0, Number(tokens) || 0);
+    },
+    env,
+    logger,
+  });
+
+  if (typeof req?.clementine?.commitWallet === "function" && pendingMetered > 0) {
+    try {
+      req.clementine.commitWallet(pendingMetered);
+    } catch (walletErr) {
+      logger?.warn?.(
+        `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
+      );
+    }
+  }
+
+  req.clementine = req.clementine || {};
+  req.clementine.multipass = {
+    stages: result.stages,
+    scores: result.scores,
+    plan: result.plan,
+    critique: result.critique,
+    meteredOutputTokens: result.meteredOutputTokens,
+  };
+
+  return {
+    rawReply: result.page,
+    streamFirstSentence: "",
+    streamChatUsed: false,
+    effectiveChatModel: String(chatModelPlan?.model || "unknown"),
+    effectiveChatApiMode: String(chatModelPlan?.apiMode || "chat_completions"),
+    effectiveChatReasoningEffort: String(
+      req?.clementine?.effort || chatModelPlan?.reasoningEffort || ""
+    ),
+    chatModelFallbackUsed: false,
+    effectiveChatUsage: {
+      inputTokens: 0,
+      outputTokens: result.meteredOutputTokens,
+      reasoningTokens: 0,
+      totalTokens: result.meteredOutputTokens,
+    },
+    chatMs: Math.max(0, Date.now() - chatStart),
+    multipass: result,
+  };
+}
+
+export {
+  FLAG_MULTIPASS,
+  FLAG_REPAIR,
+  STAGES,
+  isPageMultipassEnabled,
+  isPageMultipassRepairEnabled,
+  shouldRunPageMultipass,
+  multipassWalletReserveTokenMultiplier,
+  critiquePageHeuristic,
+  buildPlanPrompt,
+  buildDraftPrompt,
+  buildRevisePrompt,
+  createChatStageSupplier,
+  runPageMultipass,
+  runTalkGeneratePageMultipass,
+  extractChatText,
+  assertNotAborted,
+};
