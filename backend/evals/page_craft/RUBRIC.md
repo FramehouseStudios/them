@@ -45,6 +45,6 @@ Documented in `run_page_craft_eval.mjs`:
 - **FAIL** fixtures: `overall <= 2.8`
 - Runner exits non-zero if any PASS fixture scores below floor or any FAIL fixture scores above ceiling.
 
-## F2 (later)
+## F2 (shipped MVP)
 
-Multi-pass revise loops will consume this scorer as an acceptance signal between draft → diagnose → revise. F1 only stands up measurement + golden fixtures.
+Multi-pass revise loops consume this scorer as an acceptance signal between draft → critique → revise (optional repair). See `docs/product/page-multipass.md`. F1 remains measurement + golden fixtures; F2 is flag-gated productization.

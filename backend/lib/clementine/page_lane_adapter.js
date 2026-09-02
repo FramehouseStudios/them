@@ -18,6 +18,10 @@ import {
   tryTalkEdgeReflex,
   sendReflexReply,
 } from "./talk_edge_adapter.js";
+import {
+  isPageMultipassEnabled,
+  multipassWalletReserveTokenMultiplier,
+} from "./page_multipass.js";
 
 function pickString(...candidates) {
   for (const c of candidates) {
@@ -173,13 +177,22 @@ function beginPageWork(store, {
 
   let walletReservation = null;
   const ownerId = String(userId || "").trim() || String(sessionId || "").trim() || "anonymous";
-  const maxOutputTokens = hints.maxOutputTokens || 0;
+  const multipassOn = isPageMultipassEnabled();
+  // Wallet honesty: draft+revise are both metered when multipass is on —
+  // reserve 2× max_output_tokens headroom (plan/critique remain unmetered).
+  const maxOutputTokens = Math.max(
+    0,
+    Math.round(Number(hints.maxOutputTokens || 0) || 0)
+  ) * (multipassOn ? multipassWalletReserveTokenMultiplier() : 1);
   if (walletStore && typeof walletStore.reserve === "function") {
     walletReservation = walletStore.reserve({
       ownerId,
       lane: "page",
       maxOutputTokens,
-      meta: { source: "beginPageWork" },
+      meta: {
+        source: "beginPageWork",
+        pageMultipass: multipassOn,
+      },
     });
   }
 
@@ -312,11 +325,13 @@ function createPageLaneTalkAdapter({
       lane = resolveTalkLane(utterance, hints);
     }
 
+    const pageMultipass = isPageMultipassEnabled();
     req.clementine = {
       intent: lane.intent,
       lane: lane.lane,
       effort: lane.effort,
       walletMeter: lane.walletMeter,
+      pageMultipass,
       reservationId: reservation?.id || null,
       reservation,
       walletReservationId: walletReservation?.reservationId || null,

@@ -130,3 +130,16 @@ Each entry follows the ADR pattern:
   6. **Live API hosting is required** for verify+credit even if them.io DNS is still parked. Document and use the Render/API host (`api.them.io` or the current Render URL) as the credit endpoint base.
 - **Consequences:** Implementation follows `docs/product/clementine-monetization.md` and extends the D008 wallet. New seams: `pack_catalog`, `iap_verify`, `POST /billing/iap/credit` (auth required, idempotent by `transactionId`). Wallet balances + IAP ledger persist via migration `012_wallet_iap_persistence.sql` when `DATABASE_URL` is set (unique `transaction_id` fail-closed); reservations remain process-local until a follow-up.
 
+## D012 — Page multipass craft loop (F2), flag-gated
+
+- **Date:** 2026-09-01
+- **Status:** proposed
+- **Context:** F1 page_craft eval measures craft; product still needed an intentional Plan→Draft→Critique→Revise loop on the Page lane without billing writers for scaffolding or enabling risky behavior on main by default.
+- **Decision:**
+  1. Ship multipass behind **`CLEMENTINE_PAGE_MULTIPASS`** (default off). Optional **`PAGE_MULTIPASS_REPAIR`** for one extra revise when F1 heuristic overall is below PASS floor 3.5.
+  2. Stages: plan → draft → critique → revise (+ optional repair). Each stage honors Page AbortSignal / cancel.
+  3. **Wallet:** meter **draft + revise (+ repair)** only; plan/critique are unmetered. When multipass is on, wallet reserve uses 2× `max_output_tokens` headroom.
+  4. Wire via thin hooks in `page_lane_adapter` + `talk_generate` — do not grow `talk_handler.js` or rewrite ScreenplayStudioScreen for this MVP.
+  5. Reuse F1 `scorePageHeuristic` as the acceptance seam.
+- **Consequences:** See `docs/product/page-multipass.md`. F3 owns per-stage model routing. Do not enable multipass by default in production until validated.
+

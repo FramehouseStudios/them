@@ -13,6 +13,10 @@ import {
   isPageCancelledError,
   mapAbortToPageCancel,
 } from "./clementine/page_abort.js";
+import {
+  shouldRunPageMultipass,
+  runTalkGeneratePageMultipass,
+} from "./clementine/page_multipass.js";
 
 /**
  * Run the billed chat generation stage (stream optional, then non-stream).
@@ -69,6 +73,25 @@ async function runTalkGenerate({
     const pageGate = gatePageGeneration(req.clementine);
     pageAbortSignal = pageGate.signal;
     pageReservationId = pageGate.reservationId;
+  }
+
+  // F2: Page multipass (Plan→Draft→Critique→Revise). Flag-gated; thin hook.
+  // Skips streaming — craft loop needs discrete stages + abort between them.
+  if (shouldRunPageMultipass(req)) {
+    return runTalkGeneratePageMultipass({
+      req,
+      rid,
+      logger,
+      chatSupplier,
+      system,
+      shortTermContextMessages,
+      talkGenerationTranscript,
+      chatMessages,
+      chatModelPlan,
+      chatTemperature,
+      chatMaxTokens,
+      chatStart,
+    });
   }
 
   if (useChatStreaming) {
