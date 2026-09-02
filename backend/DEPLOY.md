@@ -94,9 +94,11 @@ git push origin main
 # check at /healthz responds 200.
 ```
 
-The blueprint provisions a managed Postgres alongside the web service. After
-the first launch, copy the generated `DATABASE_URL` into the service env
-vars (Render does not auto-link the two on the free plan).
+The blueprint provisions a managed Postgres alongside the web service and
+injects its private `connectionString` into `DATABASE_URL`. Never copy or
+commit the generated database URL. Render also generates the backend-only
+`JWT_SECRET`; provide the app-shared `APP_TOKEN` separately so it can match the
+signed client configuration.
 
 ## Other targets
 

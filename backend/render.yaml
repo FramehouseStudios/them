@@ -9,7 +9,7 @@ services:
   - type: web
     name: them-backend
     runtime: docker
-    plan: starter
+    plan: 0.5c-512mb
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -20,11 +20,17 @@ services:
         value: production
       - key: PORT
         value: "3000"
-      # Secrets — set these in the Render dashboard, NOT in this file.
+      # Link Postgres through Render's private network. Do not paste or commit a
+      # generated connection string.
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: them-postgres
+          property: connectionString
+      # Render owns this backend-only signing secret. APP_TOKEN remains a
+      # dashboard prompt because the signed app must use the same value.
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
+      # Secrets — set these in the Render dashboard, NOT in this file.
       - key: OPENAI_API_KEY
         sync: false
       - key: APP_TOKEN
