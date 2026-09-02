@@ -1,0 +1,9 @@
+{
+  "id": "fail_voice_clash_01",
+  "label": "fail",
+  "fail_modes": [
+    "voice_clash"
+  ],
+  "notes": "Synthetic FAIL: interchangeable dialogue voice / identical cadence.",
+  "text": "INT. OFFICE - DAY\n\nALEX and BLAKE stand by a printer.\n\nALEX\nWhat do you mean?\n\nBLAKE\nWhat do you mean?\n\nALEX\nI don't understand.\n\nBLAKE\nI don't understand.\n\nALEX\nAre you okay?\n\nBLAKE\nAre you okay?\n\nALEX\nThis changes everything.\n\nBLAKE\nThis changes everything.\n"
+}

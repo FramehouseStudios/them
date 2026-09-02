@@ -1,0 +1,9 @@
+{
+  "id": "fail_no_cost_flat_01",
+  "label": "fail",
+  "fail_modes": [
+    "continuity_want_obstacle_cost"
+  ],
+  "notes": "Synthetic FAIL: polite chat with no want/obstacle/cost engine.",
+  "text": "INT. CAFE - DAY\n\nTwo acquaintances sip tea.\n\nANNA\nNice weather today.\n\nBEN\nYes. Very nice.\n\nANNA\nHow is work?\n\nBEN\nFine. How is yours?\n\nANNA\nAlso fine. See you next week.\n\nBEN\nOkay. Bye.\n"
+}

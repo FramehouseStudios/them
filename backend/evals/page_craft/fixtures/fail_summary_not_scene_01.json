@@ -1,0 +1,10 @@
+{
+  "id": "fail_summary_not_scene_01",
+  "label": "fail",
+  "fail_modes": [
+    "format_unplayable",
+    "cliche"
+  ],
+  "notes": "Synthetic FAIL: summary-like prose pretending to be a scene.",
+  "text": "INT. CITY - DAY\n\nThey go around town and basically talk about their feelings while things somehow escalate. Everyone learns a lesson. The city watches. It is emotional and important. Then they decide to be honest and raise the stakes before fading out as the audience understands everything.\n"
+}

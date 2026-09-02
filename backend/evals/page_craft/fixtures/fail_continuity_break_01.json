@@ -1,0 +1,9 @@
+{
+  "id": "fail_continuity_break_01",
+  "label": "fail",
+  "fail_modes": [
+    "continuity_break"
+  ],
+  "notes": "Synthetic FAIL: dead character casually returns; marked continuity break.",
+  "text": "INT. HOSPITAL HALL - NIGHT\n\nA nurse confirms SAM is dead. Sheet up. Machines quiet.\n\nNURSE\nTime of death, 02:14. Sam was killed in the crash.\n\nCUT TO:\n\nINT. KITCHEN - MORNING\n\nSam walks in, stands there smiling, hands Maya coffee.\n\nSAM\nTraffic was light. CONTINUITY_BREAK: alive again after the sheet.\n\nMAYA\nDid you get bagels?\n\nSAM\nI forgot the fire. Also I never died.\n"
+}

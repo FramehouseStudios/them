@@ -8,6 +8,7 @@ set -euo pipefail
 # - RUN_TALK_RECOVERY_GATE=1 runs the talk recovery contract test.
 # - RUN_ALERT=1 runs ops alert checks.
 # - RUN_LOAD=1 runs the load profile.
+# - RUN_PAGE_CRAFT=1 runs heuristic page craft eval (F1).
 # - RUN_CRAFT_COMPLETENESS_GATE=1 generates a fresh report through the
 #   production analyzer, then validates its schema, evidence, counts, scopes,
 #   and completeness. Set CRAFT_GATE_FIXTURE only for an explicit external RC
@@ -28,6 +29,7 @@ RUN_LOAD="${RUN_LOAD:-0}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
 RUN_CRAFT_COMPLETENESS_GATE="${RUN_CRAFT_COMPLETENESS_GATE:-1}"
 RUN_CANON="${RUN_CANON:-1}"
+RUN_PAGE_CRAFT="${RUN_PAGE_CRAFT:-1}"
 CRAFT_GATE_FIXTURE="${CRAFT_GATE_FIXTURE:-}"
 
 cd "${BACKEND_DIR}"
@@ -103,6 +105,13 @@ if [[ "${RUN_CANON}" == "1" ]]; then
   npm run eval:canon
 else
   echo "[quality-gate] skipping canon umbrella (RUN_CANON=${RUN_CANON})"
+fi
+
+if [[ "${RUN_PAGE_CRAFT}" == "1" ]]; then
+  echo "[quality-gate] running page craft eval [heuristic] ..."
+  node evals/page_craft/run_page_craft_eval.mjs
+else
+  echo "[quality-gate] skipping page craft eval (RUN_PAGE_CRAFT=${RUN_PAGE_CRAFT})"
 fi
 
 if [[ "${RUN_EVAL}" == "1" ]]; then
