@@ -61,3 +61,6 @@ build/
 # ── Office lock files & misc temp ──
 .~lock.*
 *.tmp
+
+# Page craft eval local summary
+backend/evals/page_craft/last_page_craft_summary.json

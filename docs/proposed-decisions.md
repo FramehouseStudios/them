@@ -100,3 +100,15 @@ Each entry is in ADR form ready to paste. The `Status` field is `proposed` here;
 Copy each entry above into `DECISIONS.md`, replacing `D???` with the next sequential ID and `Status: proposed` with `Status: accepted` (or `rejected` if you choose not to accept). Keep the `Source:` line so future readers can trace back to the design doc and PR. Reject entries you disagree with by adding them with `Status: rejected` and a one-line `Rejected because:` note.
 
 After acceptance, this `proposed-decisions.md` file can be deleted; new proposals get added to it as design docs land in future PRs.
+
+---
+
+## Note — F1 page craft eval started (2026-09-01)
+
+- **Date:** 2026-09-01
+- **Status:** note (not a formal D###; awaiting human if a decision ID is needed)
+- **Source:** F1 audit follow-up / docs/product/page-craft-eval.md
+- **Context:** Page/scriptwriting quality was not yet measurable against the owner bar (smartest creative writer craft). Clementine voice eval (D008) covers companion voice, not page craft.
+- **Decision (working):** Ship Page craft eval v1 with a six-dimension rubric, heuristic scorer (CI), optional model judge behind env flag, and synthetic PASS/FAIL Fountain fixtures. Multi-pass revise product is deferred to F2 and will consume this scorer.
+- **Consequences:** backend/evals/page_craft/* and eval:page-craft enter the heuristic CI path. No god-file refactors in F1.
+

@@ -1,0 +1,9 @@
+{
+  "id": "fail_on_the_nose_01",
+  "label": "fail",
+  "fail_modes": [
+    "on_the_nose"
+  ],
+  "notes": "Synthetic FAIL: emotion labels, lecture dialogue, no subtext.",
+  "text": "INT. LIVING ROOM - NIGHT\n\nJANE and MARK sit on a couch.\n\nJANE\nI feel angry and betrayed because you lied to me about the money.\n\nMARK\nI am sorry. Tell me the truth about what you want.\n\nJANE\nWe need to talk about our feelings. This is important and hard.\n\nMARK\nYou hurt me. I don't know what to say.\n\nJANE\nWe have to be honest. I just want you to understand.\n"
+}

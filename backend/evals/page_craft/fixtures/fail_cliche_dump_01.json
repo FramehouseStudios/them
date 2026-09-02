@@ -1,0 +1,9 @@
+{
+  "id": "fail_cliche_dump_01",
+  "label": "fail",
+  "fail_modes": [
+    "cliche"
+  ],
+  "notes": "Synthetic FAIL: stacked screenwriting clich\u00e9s.",
+  "text": "INT. ROOFTOP - NIGHT\n\nHERO and VILLAIN face each other.\n\nHERO\nIn a world where only you can stop this, trust your instinct.\n\nVILLAIN\nThis changes everything. You just don't get it.\n\nHERO\nWe need to talk. Are you okay? I'm sorry.\n\nVILLAIN\nRaise the stakes. It was all a dream unless you love me.\n\nHERO\nI love you.\nI can't do this anymore.\nWhat do you mean?\n"
+}
