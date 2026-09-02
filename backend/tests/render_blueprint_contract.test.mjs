@@ -15,6 +15,8 @@ test("[render-blueprint] production resources remain single-region and manually 
   assert.match(blueprint, /^\s+autoDeploy: false\b/m);
   assert.match(blueprint, /^\s+plan: 0\.5c-512mb$/m);
   assert.doesNotMatch(blueprint, /^\s+plan: starter$/m);
+  assert.match(blueprint, /^\s+dockerfilePath: \.\/backend\/Dockerfile$/m);
+  assert.match(blueprint, /^\s+dockerContext: \.\/backend$/m);
   assert.equal((blueprint.match(/^\s+- type: web$/gm) ?? []).length, 1);
   assert.equal((blueprint.match(/^\s+- name: them-postgres$/gm) ?? []).length, 1);
   assert.equal((blueprint.match(/^\s+region: oregon$/gm) ?? []).length, 2);

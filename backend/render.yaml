@@ -11,8 +11,10 @@ services:
     runtime: docker
     plan: 0.5c-512mb
     region: oregon
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    # Blueprint paths resolve from the repository root, even though this file
+    # lives under backend/.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     healthCheckPath: /healthz
     autoDeploy: false  # require explicit promotion; CI runs the quality gate
     envVars:
