@@ -128,5 +128,5 @@ Each entry follows the ADR pattern:
   4. **Pack SKUs map to `companionTurns` + `pageTurns` only.** Never expose TPM, token rates, or supplier meters in product copy or API responses.
   5. **Fail closed** if verification fails or App Store verify secrets are missing in production — no optimistic credit.
   6. **Live API hosting is required** for verify+credit even if them.io DNS is still parked. Document and use the Render/API host (`api.them.io` or the current Render URL) as the credit endpoint base.
-- **Consequences:** Implementation follows `docs/product/clementine-monetization.md` and extends the D008 wallet. New seams: `pack_catalog`, `iap_verify`, `POST /billing/iap/credit` (auth required, idempotent by `transactionId`). Process-memory wallet + transaction ledger is not prod-durable until a persistence adapter lands; double-credit is still blocked in-process by `transactionId`.
+- **Consequences:** Implementation follows `docs/product/clementine-monetization.md` and extends the D008 wallet. New seams: `pack_catalog`, `iap_verify`, `POST /billing/iap/credit` (auth required, idempotent by `transactionId`). Wallet balances + IAP ledger persist via migration `012_wallet_iap_persistence.sql` when `DATABASE_URL` is set (unique `transaction_id` fail-closed); reservations remain process-local until a follow-up.
 

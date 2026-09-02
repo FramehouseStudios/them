@@ -1,6 +1,6 @@
 # Clementine wallet (turns) — D008
 
-> Build-order step **Wallet in turns**. Companion to `clementine-muse-runtime.md`. In-memory / DI store for meters; **IAP pack top-ups are D011** (`clementine-monetization.md`) — StoreKit in-app, not Stripe Checkout on iOS.
+> Build-order step **Wallet in turns**. Companion to `clementine-muse-runtime.md`. DI store for meters (Postgres/JSON persistence for balances + IAP ledger; reservations process-local); **IAP pack top-ups are D011** (`clementine-monetization.md`) — StoreKit in-app, not Stripe Checkout on iOS.
 
 ## Sell weeks, not TPM
 

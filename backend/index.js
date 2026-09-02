@@ -170,6 +170,10 @@ import {
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createWalletStore } from "./lib/clementine/wallet.js";
+import {
+  createPostgresWalletPersistence,
+  createAdapterWalletPersistence,
+} from "./lib/clementine/wallet_persistence.js";
 import { mountIapCreditRoute } from "./lib/clementine/iap_credit_route.js";
 import { createIapVerifier } from "./lib/clementine/iap_verify.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
@@ -33214,10 +33218,27 @@ app.post(
   requireOpenAIProviderForTalk,
   providerBudgetGuard.middleware("talk")
 );
-// D008 Page-lane cancel-on-barge-in + wallet-in-turns: process-local stores.
+// D008 Page-lane cancel-on-barge-in + wallet-in-turns.
 // D011 StoreKit IAP credits via mountIapCreditRoute (not Stripe Checkout on iOS).
-// Process memory — not prod-ready across multi-instance; transactionId ledger is in-process only.
-const clementineWalletStore = createWalletStore();
+// T-wallet-postgres-persistence: durable balances + IAP ledger when DATABASE_URL
+// (postgres dedicated tables) or JSON persistence adapter domains; else memory.
+const clementineWalletPersistence =
+  sharedPersistence.kind === "postgres"
+    ? createPostgresWalletPersistence({ client: sharedPersistence })
+    : createAdapterWalletPersistence({ persistence: sharedPersistence });
+const clementineWalletStore = createWalletStore({
+  persistence: clementineWalletPersistence,
+});
+try {
+  const hydrated = await clementineWalletStore.hydrate();
+  console.log(
+    `[wallet] persistence=${clementineWalletStore.persistenceKind} balances=${hydrated.balances} iapTxns=${hydrated.transactions}`
+  );
+} catch (err) {
+  console.error(
+    `[wallet] hydrate failed (${err?.message || err}); continuing with empty process memory`
+  );
+}
 const clementinePageReservationStore = createPageReservationStore({
   walletStore: clementineWalletStore,
 });
@@ -33236,7 +33257,7 @@ mountTalkPipelineRoutes(app, {
   walletStore: clementineWalletStore,
 });
 // D011 — StoreKit IAP verify+credit (auth required; fail closed without ASC secrets).
-// Wallet + transactionId ledger are process-memory — not prod-durable / multi-instance.
+// Wallet balances + transactionId ledger persist via clementineWalletPersistence.
 mountIapCreditRoute(app, {
   walletStore: clementineWalletStore,
   requireAuthenticatedUser: userAuth.requireAuthenticatedUser,
