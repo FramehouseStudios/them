@@ -78,6 +78,6 @@ databases:
   - name: them-postgres
     databaseName: them
     user: them
-    plan: starter
+    plan: 0.1c-256mb
     region: oregon
     postgresMajorVersion: "16"
