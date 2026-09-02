@@ -32,9 +32,9 @@ Product classifies **intent** first, then maps to a cost lane:
 
 See **`docs/product/clementine-reflex.md`** for Reflex short-circuit behavior at the talk edge (before wallet/Spark).
 
-## Page multipass (F2)
+## Page multipass (F2 / F3)
 
-Optional flag-gated craft loop: Plan → Draft → Critique → Revise. See **`docs/product/page-multipass.md`**. Default off (`CLEMENTINE_PAGE_MULTIPASS`).
+Optional flag-gated craft loop: Plan → Draft → Critique → Revise. See **`docs/product/page-multipass.md`**. Default off (`CLEMENTINE_PAGE_MULTIPASS`). F3 routes plan/critique cheap (OpenAI-fast when Muse is on via `preferProvider`) and draft/revise on Muse Standard / structural at higher effort — without forcing Muse globally.
 
 ## Hard rules
 

@@ -253,3 +253,81 @@ test("[muse-provider] expectsAudioTalkResponse detects multipart / file", () => 
     true
   );
 });
+
+test("[muse-provider] preferProvider=openai bypasses Muse on Page lane", async () => {
+  await withEnv(
+    {
+      CLEMENTINE_MUSE_ENABLED: "1",
+      MODEL_API_KEY: "test-meta-key",
+      MUSE_API_KEY: "",
+    },
+    async () => {
+      const openaiCalls = [];
+      const museFetches = [];
+      const openai = {
+        chat: async (args) => {
+          openaiCalls.push(args);
+          return {
+            response: { ok: true, status: 200 },
+            rawText: JSON.stringify({
+              choices: [{ message: { content: "from-openai" } }],
+            }),
+            model: args.model || "gpt-4o-mini",
+            apiMode: "chat_completions",
+            reasoningEffort: args.reasoningEffort || "",
+            usage: { inputTokens: 1, outputTokens: 2, reasoningTokens: 0, totalTokens: 3 },
+          };
+        },
+        stream: async () => {
+          throw new Error("stream unused");
+        },
+      };
+      const museClient = createMuseClient({
+        apiKey: "test-meta-key",
+        fetchImpl: async (url, init) => {
+          museFetches.push({ url, init });
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                id: "resp_mock",
+                model: "muse-spark-1.2",
+                output_text: "from-muse",
+                usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+              }),
+          };
+        },
+      });
+      const supplier = createMuseAwareChatSupplier({
+        openaiChatSupplier: openai,
+        museClient,
+      });
+      const cheap = await supplier.chat({
+        lane: LANE.PAGE,
+        preferProvider: "openai",
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: "outline only" }],
+        maxTokens: 64,
+        reasoningEffort: "low",
+      });
+      assert.equal(cheap.model, "gpt-4o-mini");
+      assert.match(cheap.rawText, /from-openai/);
+      assert.equal(openaiCalls.length, 1);
+      assert.equal(museFetches.length, 0);
+
+      const craft = await supplier.chat({
+        lane: LANE.PAGE,
+        model: "muse-spark-1.2",
+        messages: [{ role: "user", content: "write the page" }],
+        maxTokens: 64,
+        reasoningEffort: "medium",
+      });
+      assert.equal(craft.provider, "muse");
+      assert.equal(museFetches.length, 1);
+      const sent = JSON.parse(museFetches[0].init.body);
+      assert.equal(sent.reasoning.effort, "medium");
+      assert.equal(sent.model, "muse-spark-1.2");
+    }
+  );
+});

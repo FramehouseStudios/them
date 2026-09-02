@@ -171,6 +171,7 @@ function createMuseAwareChatSupplier({
     });
 
   async function chatViaMuse({
+    model: requestedModel = "",
     maxTokens = 512,
     messages = [],
     reasoningEffort = "",
@@ -181,6 +182,7 @@ function createMuseAwareChatSupplier({
     const mapped = messagesToMuseParts(messages);
     const resolvedEffort = normalizeEffort(effort || reasoningEffort || "low");
     const result = await muse.createResponse({
+      model: String(requestedModel || "").trim() || undefined,
       instructions: mapped.instructions,
       input: mapped.input,
       maxOutputTokens: maxTokens,
@@ -214,7 +216,12 @@ function createMuseAwareChatSupplier({
     kind: "muse-aware-chat",
     museEnabled: () => isClementineMuseEnabled(env),
     async stream(args = {}) {
-      if (shouldUseMuseForLane(args.lane, env) && muse.hasApiKey) {
+      const prefer = String(args.preferProvider || args.provider || "").trim().toLowerCase();
+      const useMuse =
+        prefer !== "openai" &&
+        shouldUseMuseForLane(args.lane, env) &&
+        muse.hasApiKey;
+      if (useMuse) {
         const chatResult = await chatViaMuse(args);
         let reply = "";
         try {
@@ -237,7 +244,12 @@ function createMuseAwareChatSupplier({
       return openaiChatSupplier.stream(args);
     },
     async chat(args = {}) {
-      if (shouldUseMuseForLane(args.lane, env) && muse.hasApiKey) {
+      const prefer = String(args.preferProvider || args.provider || "").trim().toLowerCase();
+      const useMuse =
+        prefer !== "openai" &&
+        shouldUseMuseForLane(args.lane, env) &&
+        muse.hasApiKey;
+      if (useMuse) {
         return chatViaMuse(args);
       }
       return openaiChatSupplier.chat(args);

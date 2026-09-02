@@ -1,8 +1,10 @@
-// F2 — Page multi-pass craft loop (Plan → Draft → Critique → Revise).
+// F2/F3 — Page multi-pass craft loop (Plan → Draft → Critique → Revise).
 //
 // Flag-gated MVP. Default OFF so main stays safe.
 //   CLEMENTINE_PAGE_MULTIPASS=1  — enable pipeline for Page lane
 //   PAGE_MULTIPASS_REPAIR=1      — one extra revise if F1 heuristic FAIL-style
+// F3 routing (see page_multipass_routing.js):
+//   PAGE_MULTIPASS_{PLAN,CRITIQUE,DRAFT,REVISE,REPAIR}_{MODEL,EFFORT}
 //
 // Wallet honesty (documented product choice):
 //   Meter Page turns for **draft + revise** (and optional repair revise) only.
@@ -28,6 +30,11 @@ import {
   gatePageGeneration,
 } from "./page_abort.js";
 import { LANE } from "./lanes.js";
+import { isClementineMuseEnabled } from "./muse_provider.js";
+import {
+  resolvePageMultipassStageRoute,
+  resolveAllPageMultipassStageRoutes,
+} from "./page_multipass_routing.js";
 
 const FLAG_MULTIPASS = "CLEMENTINE_PAGE_MULTIPASS";
 const FLAG_REPAIR = "PAGE_MULTIPASS_REPAIR";
@@ -344,7 +351,10 @@ async function runPageMultipass({
         plan = trimToString(out?.text || out?.plan || "");
         return {
           outputTokens: usageOutputTokens(out) || Number(out?.usage?.outputTokens || 0) || 0,
-          meta: { planChars: plan.length },
+          meta: {
+            planChars: plan.length,
+            ...(out?.route ? { route: out.route } : {}),
+          },
         };
       },
     });
@@ -391,6 +401,7 @@ async function runPageMultipass({
             usageOutputTokens(out) ||
             0,
           score: scored.overall,
+          meta: out?.route ? { route: out.route } : undefined,
         };
       },
     });
@@ -464,7 +475,10 @@ async function runPageMultipass({
             usageOutputTokens(out) ||
             0,
           score: scored.overall,
-          meta: { revised },
+          meta: {
+            revised,
+            ...(out?.route ? { route: out.route } : {}),
+          },
         };
       },
     });
@@ -525,6 +539,7 @@ async function runPageMultipass({
             usageOutputTokens(out) ||
             0,
           score: scored.overall,
+          meta: out?.route ? { route: out.route } : undefined,
         };
       },
     });
@@ -611,7 +626,15 @@ async function runTalkGeneratePageMultipass({
 
   const baseMessages = Array.isArray(chatMessages) ? chatMessages : [];
 
-  async function callChat({ prompt, maxTokens, effort, signal, stage }) {
+  const museEnabled = isClementineMuseEnabled(env);
+  const stageRoutes = resolveAllPageMultipassStageRoutes({
+    env,
+    chatModelPlan,
+    museEnabled,
+  });
+  const routingLog = [];
+
+  async function callChat({ prompt, maxTokens, signal, stage }) {
     assertNotAborted(signal || pageAbortSignal, {
       reservationId: pageReservationId,
       stage,
@@ -620,6 +643,17 @@ async function runTalkGeneratePageMultipass({
     if (pageReservationId && req?.clementine) {
       gatePageGeneration(req.clementine);
     }
+    const route =
+      stageRoutes[stage] ||
+      resolvePageMultipassStageRoute(stage, { env, chatModelPlan, museEnabled });
+    routingLog.push({
+      stage,
+      model: route.model,
+      effort: route.effort,
+      apiMode: route.apiMode,
+      preferProvider: route.preferProvider || "",
+      family: route.family,
+    });
     const messages = [
       ...baseMessages,
       {
@@ -633,7 +667,9 @@ async function runTalkGeneratePageMultipass({
         ? "Stage=plan: outline only."
         : stage === "revise" || stage === "repair"
           ? "Stage=revise: output revised Fountain only."
-          : "Stage=draft: output Fountain page only.",
+          : stage === "critique"
+            ? "Stage=critique: structured craft notes only."
+            : "Stage=draft: output Fountain page only.",
     ]
       .filter(Boolean)
       .join("\n");
@@ -644,24 +680,28 @@ async function runTalkGeneratePageMultipass({
         : messages;
 
     const chatResult = await chatSupplier.chat({
-      model: chatModelPlan?.model,
-      temperature: stage === "plan" ? Math.min(chatTemperature, 0.4) : chatTemperature,
+      model: route.model,
+      temperature: stage === "plan" || stage === "critique"
+        ? Math.min(chatTemperature, 0.4)
+        : chatTemperature,
       maxTokens: maxTokens,
       messages: withSystem,
-      apiMode: chatModelPlan?.apiMode,
-      reasoningEffort: effort || req?.clementine?.effort || chatModelPlan?.reasoningEffort,
-      fallbackModel: chatModelPlan?.fallbackModel,
+      apiMode: route.apiMode || chatModelPlan?.apiMode,
+      reasoningEffort: route.effort,
+      effort: route.effort,
+      fallbackModel: route.fallbackModel || chatModelPlan?.fallbackModel,
+      preferProvider: route.preferProvider || undefined,
       signal: signal || pageAbortSignal,
       lane: req?.clementine?.lane || LANE.PAGE,
+      multipassStage: stage,
     });
-    return chatResult;
+    return { chatResult, route };
   }
 
   const planSupplier = async ({ signal, prompt }) => {
-    const raw = await callChat({
+    const { chatResult: raw, route } = await callChat({
       prompt,
       maxTokens: Math.min(400, Math.max(120, Math.round(chatMaxTokens * 0.25))),
-      effort: "minimal",
       signal,
       stage: "plan",
     });
@@ -669,14 +709,14 @@ async function runTalkGeneratePageMultipass({
       text: extractChatText(raw),
       usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
       raw,
+      route,
     };
   };
 
   const draftSupplier = async ({ signal, prompt }) => {
-    const raw = await callChat({
+    const { chatResult: raw, route } = await callChat({
       prompt,
       maxTokens: chatMaxTokens,
-      effort: req?.clementine?.effort || chatModelPlan?.reasoningEffort || "low",
       signal,
       stage: "draft",
     });
@@ -684,14 +724,14 @@ async function runTalkGeneratePageMultipass({
       text: extractChatText(raw),
       usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
       raw,
+      route,
     };
   };
 
   const reviseSupplier = async ({ signal, prompt, repair }) => {
-    const raw = await callChat({
+    const { chatResult: raw, route } = await callChat({
       prompt,
       maxTokens: chatMaxTokens,
-      effort: repair ? "medium" : req?.clementine?.effort || "low",
       signal,
       stage: repair ? "repair" : "revise",
     });
@@ -699,6 +739,7 @@ async function runTalkGeneratePageMultipass({
       text: extractChatText(raw),
       usage: raw?.usage || { outputTokens: usageOutputTokens(raw) },
       raw,
+      route,
     };
   };
 
@@ -737,16 +778,19 @@ async function runTalkGeneratePageMultipass({
     plan: result.plan,
     critique: result.critique,
     meteredOutputTokens: result.meteredOutputTokens,
+    routing: routingLog,
+    stageRoutes,
   };
 
+  const craftRoute = stageRoutes.draft || stageRoutes.revise;
   return {
     rawReply: result.page,
     streamFirstSentence: "",
     streamChatUsed: false,
-    effectiveChatModel: String(chatModelPlan?.model || "unknown"),
-    effectiveChatApiMode: String(chatModelPlan?.apiMode || "chat_completions"),
+    effectiveChatModel: String(craftRoute?.model || chatModelPlan?.model || "unknown"),
+    effectiveChatApiMode: String(craftRoute?.apiMode || chatModelPlan?.apiMode || "chat_completions"),
     effectiveChatReasoningEffort: String(
-      req?.clementine?.effort || chatModelPlan?.reasoningEffort || ""
+      craftRoute?.effort || req?.clementine?.effort || chatModelPlan?.reasoningEffort || ""
     ),
     chatModelFallbackUsed: false,
     effectiveChatUsage: {
@@ -756,7 +800,11 @@ async function runTalkGeneratePageMultipass({
       totalTokens: result.meteredOutputTokens,
     },
     chatMs: Math.max(0, Date.now() - chatStart),
-    multipass: result,
+    multipass: {
+      ...result,
+      routing: routingLog,
+      stageRoutes,
+    },
   };
 }
 
@@ -777,4 +825,6 @@ export {
   runTalkGeneratePageMultipass,
   extractChatText,
   assertNotAborted,
+  resolvePageMultipassStageRoute,
+  resolveAllPageMultipassStageRoutes,
 };
