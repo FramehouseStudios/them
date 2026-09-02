@@ -112,8 +112,14 @@ export {
 } from "./pack_catalog.js";
 export {
   hasAppStoreVerifySecrets,
+  hasCompleteAppStoreVerifyConfig,
   createIapVerifier,
   createMockIapVerifier,
 } from "./iap_verify.js";
+export {
+  createAppStoreServerVerifyImpl,
+  resolveAppStoreEnvironment,
+  decodeJwsPayloadUnverified,
+} from "./iap_app_store_verify.js";
 export { mountIapCreditRoute, calmBalancePayload } from "./iap_credit_route.js";
 

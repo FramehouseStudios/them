@@ -35,6 +35,17 @@ services:
         sync: false
       - key: AUTH_APPLE_AUDIENCE
         sync: false
+      # App Store Server API (IAP verify). Required to credit packs; omit → fail closed.
+      - key: APP_STORE_ISSUER_ID
+        sync: false
+      - key: APP_STORE_KEY_ID
+        sync: false
+      - key: APP_STORE_PRIVATE_KEY
+        sync: false
+      - key: APP_STORE_BUNDLE_ID
+        sync: false
+      - key: APP_STORE_ENVIRONMENT
+        sync: false
       # Optional tuning — safe defaults; override in dashboard if needed.
       - key: CORS_ALLOW_ORIGIN
         value: ""
