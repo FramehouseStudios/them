@@ -69,6 +69,10 @@ services:
         value: "high"
       - key: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS
         value: "10000"
+      - key: CLEMENTINE_PAGE_MULTIPASS
+        value: "0"
+      - key: PAGE_MULTIPASS_REPAIR
+        value: "0"
 
 databases:
   - name: them-postgres

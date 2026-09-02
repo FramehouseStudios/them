@@ -143,3 +143,13 @@ Each entry follows the ADR pattern:
   5. Reuse F1 `scorePageHeuristic` as the acceptance seam.
 - **Consequences:** See `docs/product/page-multipass.md`. F3 owns per-stage model routing. Do not enable multipass by default in production until validated.
 
+## D013 — Page multipass per-stage model routing (F3)
+
+- **Date:** 2026-09-02
+- **Status:** proposed
+- **Context:** F2 shipped Plan→Draft→Critique→Revise behind `CLEMENTINE_PAGE_MULTIPASS` (default off) but used one turn model/effort for every LLM stage. Plan/critique are unmetered scaffolding; draft/revise need owner-bar craft quality. Muse cutover wraps the whole Page lane unless given an escape hatch.
+- **Decision:**
+  1. Add optional env overrides `PAGE_MULTIPASS_{PLAN,CRITIQUE,DRAFT,REVISE,REPAIR}_{MODEL,EFFORT}` with cheap defaults for plan/critique (`CHAT_MODEL_FAST` / `low`) and craft defaults for draft/revise/repair (`CHAT_MODEL_STRUCTURAL` or `MUSE_MODEL` / `medium`).
+  2. When Muse is enabled, plan/critique **prefer OpenAI cheap** via `preferProvider: "openai"`; draft/revise/repair stay on Muse Standard at elevated effort. Do **not** force Muse on globally or enable multipass by default.
+  3. Wire through DI in `page_multipass_routing.js` + `runTalkGeneratePageMultipass`; tests inject fakes and assert per-stage model/effort (no live API).
+- **Consequences:** See `docs/product/page-multipass.md`. F4 owns memory bible / calibration residuals. Production keeps `CLEMENTINE_PAGE_MULTIPASS=0` until validated.

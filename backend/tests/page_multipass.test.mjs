@@ -15,6 +15,11 @@ import {
   runPageMultipass,
   runTalkGeneratePageMultipass,
 } from "../lib/clementine/page_multipass.js";
+import {
+  resolvePageMultipassStageRoute,
+  resolveAllPageMultipassStageRoutes,
+  STAGE_ENV_KEYS,
+} from "../lib/clementine/page_multipass_routing.js";
 import { runTalkGenerate } from "../lib/talk_generate.js";
 import { createPageCancelledError, isPageCancelledError } from "../lib/clementine/page_abort.js";
 import { beginPageWork } from "../lib/clementine/page_lane_adapter.js";
@@ -400,4 +405,254 @@ test("[F2-multipass] talk_generate delegates when flag + Page lane", async () =>
 
 test("[F2-multipass] runTalkGeneratePageMultipass export works", async () => {
   assert.equal(typeof runTalkGeneratePageMultipass, "function");
+});
+
+test("[F3-routing] defaults: cheap plan/critique, structural craft when Muse off", () => {
+  withEnv(
+    {
+      CHAT_MODEL_FAST: "gpt-4o-mini",
+      CHAT_MODEL_STRUCTURAL: "gpt-5.6-sol",
+      CHAT_STRUCTURAL_REASONING_EFFORT: "low",
+      CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT: "medium",
+      CLEMENTINE_MUSE_ENABLED: "0",
+      MODEL_API_KEY: "",
+      MUSE_API_KEY: "",
+      PAGE_MULTIPASS_PLAN_MODEL: null,
+      PAGE_MULTIPASS_DRAFT_MODEL: null,
+      PAGE_MULTIPASS_PLAN_EFFORT: null,
+      PAGE_MULTIPASS_DRAFT_EFFORT: null,
+    },
+    () => {
+      delete process.env.MODEL_API_KEY;
+      delete process.env.MUSE_API_KEY;
+      const plan = resolvePageMultipassStageRoute("plan", { museEnabled: false });
+      const critique = resolvePageMultipassStageRoute("critique", { museEnabled: false });
+      const draft = resolvePageMultipassStageRoute("draft", { museEnabled: false });
+      const revise = resolvePageMultipassStageRoute("revise", { museEnabled: false });
+      const repair = resolvePageMultipassStageRoute("repair", { museEnabled: false });
+      assert.equal(plan.model, "gpt-4o-mini");
+      assert.equal(plan.effort, "low");
+      assert.equal(plan.family, "cheap");
+      assert.equal(plan.preferProvider, "");
+      assert.equal(critique.model, "gpt-4o-mini");
+      assert.equal(critique.family, "cheap");
+      assert.equal(draft.model, "gpt-5.6-sol");
+      assert.equal(draft.effort, "medium"); // bumped from structural "low" for multipass craft
+      assert.equal(draft.apiMode, "responses");
+      assert.equal(draft.family, "craft");
+      assert.equal(revise.model, "gpt-5.6-sol");
+      assert.equal(revise.effort, "medium");
+      assert.equal(repair.effort, "medium");
+      assert.ok(STAGE_ENV_KEYS.plan.model.includes("PLAN_MODEL"));
+    }
+  );
+});
+
+test("[F3-routing] Muse on: plan/critique prefer OpenAI cheap; draft/revise Muse medium", () => {
+  withEnv(
+    {
+      CHAT_MODEL_FAST: "gpt-4o-mini",
+      MUSE_MODEL: "muse-spark-1.2",
+      CLEMENTINE_MUSE_ENABLED: "1",
+      MODEL_API_KEY: "k",
+    },
+    () => {
+      const routes = resolveAllPageMultipassStageRoutes({ museEnabled: true });
+      assert.equal(routes.plan.preferProvider, "openai");
+      assert.equal(routes.plan.model, "gpt-4o-mini");
+      assert.equal(routes.plan.effort, "low");
+      assert.equal(routes.critique.preferProvider, "openai");
+      assert.equal(routes.draft.preferProvider, "");
+      assert.equal(routes.draft.model, "muse-spark-1.2");
+      assert.equal(routes.draft.effort, "medium");
+      assert.equal(routes.draft.apiMode, "responses");
+      assert.equal(routes.revise.model, "muse-spark-1.2");
+      assert.equal(routes.revise.effort, "medium");
+      assert.equal(routes.repair.effort, "medium");
+    }
+  );
+});
+
+test("[F3-routing] env overrides win for model + effort", () => {
+  withEnv(
+    {
+      PAGE_MULTIPASS_PLAN_MODEL: "plan-cheap-x",
+      PAGE_MULTIPASS_PLAN_EFFORT: "minimal",
+      PAGE_MULTIPASS_DRAFT_MODEL: "draft-best-x",
+      PAGE_MULTIPASS_DRAFT_EFFORT: "high",
+      PAGE_MULTIPASS_REVISE_MODEL: "revise-best-x",
+      PAGE_MULTIPASS_REVISE_EFFORT: "high",
+    },
+    () => {
+      const plan = resolvePageMultipassStageRoute("plan", { museEnabled: false });
+      const draft = resolvePageMultipassStageRoute("draft", { museEnabled: false });
+      const revise = resolvePageMultipassStageRoute("revise", { museEnabled: false });
+      assert.equal(plan.model, "plan-cheap-x");
+      assert.equal(plan.effort, "minimal");
+      assert.equal(draft.model, "draft-best-x");
+      assert.equal(draft.effort, "high");
+      assert.equal(revise.model, "revise-best-x");
+      assert.equal(revise.effort, "high");
+    }
+  );
+});
+
+test("[F3-routing] talk_generate multipass requests per-stage model/effort", async () => {
+  await withEnv(
+    {
+      [FLAG_MULTIPASS]: "1",
+      [FLAG_REPAIR]: null,
+      CHAT_MODEL_FAST: "gpt-4o-mini",
+      CHAT_MODEL_STRUCTURAL: "gpt-5.6-sol",
+      PAGE_MULTIPASS_PLAN_MODEL: "plan-test-model",
+      PAGE_MULTIPASS_PLAN_EFFORT: "low",
+      PAGE_MULTIPASS_DRAFT_MODEL: "draft-test-model",
+      PAGE_MULTIPASS_DRAFT_EFFORT: "medium",
+      PAGE_MULTIPASS_REVISE_MODEL: "revise-test-model",
+      PAGE_MULTIPASS_REVISE_EFFORT: "medium",
+      CLEMENTINE_MUSE_ENABLED: "0",
+    },
+    async () => {
+      const requests = [];
+      const chatSupplier = {
+        stream: async () => {
+          throw new Error("no stream");
+        },
+        chat: async (args) => {
+          requests.push({
+            stage: args.multipassStage,
+            model: args.model,
+            effort: args.reasoningEffort || args.effort,
+            preferProvider: args.preferProvider || "",
+            apiMode: args.apiMode,
+          });
+          const last = args.messages[args.messages.length - 1]?.content || "";
+          let content = STRONG_PAGE;
+          if (args.multipassStage === "plan" || /outline|beat\/intent/i.test(last)) {
+            content = "1. Want\n2. Obstacle\n3. Cost";
+          } else if (args.multipassStage === "revise" || /Revise the Fountain/i.test(last)) {
+            content = STRONG_PAGE + "\nMaya stands.\n";
+          }
+          return {
+            response: { ok: true, status: 200 },
+            rawText: JSON.stringify({
+              choices: [{ message: { content } }],
+            }),
+            model: args.model,
+            apiMode: args.apiMode || "chat_completions",
+            reasoningEffort: args.reasoningEffort,
+            fallbackUsed: false,
+            usage: { inputTokens: 2, outputTokens: 30, reasoningTokens: 0, totalTokens: 32 },
+          };
+        },
+      };
+
+      const result = await runTalkGeneratePageMultipass({
+        req: {
+          clementine: {
+            lane: LANE.PAGE,
+            effort: "low",
+            pageMultipass: true,
+            commitWallet: () => {},
+          },
+        },
+        rid: "f3-route",
+        logger: { log() {}, warn() {} },
+        chatSupplier,
+        system: "sys",
+        talkGenerationTranscript: "risk the tape",
+        chatMessages: [{ role: "user", content: "risk the tape" }],
+        chatModelPlan: {
+          model: "ignored-turn-model",
+          apiMode: "chat_completions",
+          reasoningEffort: "low",
+          tier: "fast",
+        },
+        chatMaxTokens: 400,
+        chatStart: Date.now(),
+        env: process.env,
+      });
+
+      assert.equal(result.multipass?.multipass, true);
+      assert.deepEqual(
+        requests.map((r) => r.stage),
+        ["plan", "draft", "revise"]
+      );
+      assert.equal(requests[0].model, "plan-test-model");
+      assert.equal(requests[0].effort, "low");
+      assert.equal(requests[1].model, "draft-test-model");
+      assert.equal(requests[1].effort, "medium");
+      assert.equal(requests[2].model, "revise-test-model");
+      assert.equal(requests[2].effort, "medium");
+      assert.equal(result.effectiveChatModel, "draft-test-model");
+      assert.ok(Array.isArray(result.multipass?.routing));
+      assert.deepEqual(
+        result.multipass.routing.map((r) => [r.stage, r.model, r.effort]),
+        [
+          ["plan", "plan-test-model", "low"],
+          ["draft", "draft-test-model", "medium"],
+          ["revise", "revise-test-model", "medium"],
+        ]
+      );
+    }
+  );
+});
+
+test("[F3-routing] Muse preferProvider openai on plan when Muse enabled", async () => {
+  await withEnv(
+    {
+      [FLAG_MULTIPASS]: "1",
+      CLEMENTINE_MUSE_ENABLED: "1",
+      MODEL_API_KEY: "test-key",
+      CHAT_MODEL_FAST: "gpt-4o-mini",
+      MUSE_MODEL: "muse-spark-1.2",
+    },
+    async () => {
+      const requests = [];
+      const chatSupplier = {
+        chat: async (args) => {
+          requests.push({
+            stage: args.multipassStage,
+            model: args.model,
+            effort: args.reasoningEffort,
+            preferProvider: args.preferProvider || "",
+          });
+          const content =
+            args.multipassStage === "plan"
+              ? "outline"
+              : args.multipassStage === "revise"
+                ? STRONG_PAGE + "\nRev.\n"
+                : STRONG_PAGE;
+          return {
+            response: { ok: true, status: 200 },
+            rawText: JSON.stringify({ choices: [{ message: { content } }] }),
+            model: args.model,
+            apiMode: "responses",
+            reasoningEffort: args.reasoningEffort,
+            usage: { inputTokens: 1, outputTokens: 20, reasoningTokens: 0, totalTokens: 21 },
+          };
+        },
+      };
+      await runTalkGeneratePageMultipass({
+        req: { clementine: { lane: LANE.PAGE, pageMultipass: true, commitWallet() {} } },
+        rid: "f3-muse",
+        logger: { log() {}, warn() {} },
+        chatSupplier,
+        system: "sys",
+        talkGenerationTranscript: "page",
+        chatMessages: [{ role: "user", content: "page" }],
+        chatModelPlan: { model: "x", apiMode: "responses", reasoningEffort: "low" },
+        chatMaxTokens: 200,
+        chatStart: Date.now(),
+        env: process.env,
+      });
+      const planReq = requests.find((r) => r.stage === "plan");
+      const draftReq = requests.find((r) => r.stage === "draft");
+      assert.equal(planReq.preferProvider, "openai");
+      assert.equal(planReq.model, "gpt-4o-mini");
+      assert.equal(draftReq.preferProvider, "");
+      assert.equal(draftReq.model, "muse-spark-1.2");
+      assert.equal(draftReq.effort, "medium");
+    }
+  );
 });
