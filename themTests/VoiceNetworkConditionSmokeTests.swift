@@ -103,19 +103,22 @@ final class VoiceNetworkConditionSmokeTests: XCTestCase {
     }
 
     func testLatencySLOPassesResponsiveStudioSpeech() {
-        let samples = (0..<5).map {
-            latencySample(
-                id: "healthy-\($0)",
+        let samples: [ClementineLatencySample] = (0..<5).map { index in
+            let firstTextMs = 650.0 + Double(index * 25)
+            let firstAudioMs = 1_250.0 + Double(index * 40)
+            let bargeInAckMs = 70.0 + Double(index * 4)
+            return latencySample(
+                id: "healthy-\(index)",
                 transport: .studioTypedSpeech,
-                firstTextMs: 650 + Double($0 * 25),
-                firstAudioMs: 1_250 + Double($0 * 40),
-                bargeInAckMs: 70 + Double($0 * 4)
+                firstTextMs: firstTextMs,
+                firstAudioMs: firstAudioMs,
+                bargeInAckMs: bargeInAckMs
             )
         }
 
         let health = ClementineLatencySLOEvaluator.evaluate(samples: samples)
 
-        XCTAssertEqual(health.level, .healthy)
+        XCTAssertEqual(health.level, ClementineLatencyHealthLevel.healthy)
         XCTAssertEqual(health.evaluatedMetricCount, 3)
         XCTAssertTrue(health.breaches.isEmpty)
     }

@@ -324,6 +324,190 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
     }
 
+    @MainActor
+    func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
+#if os(iOS)
+        let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let port = Int(portRaw), (1...65_535).contains(port) else {
+            throw XCTSkip("THEM_UITEST_WRITER_LOOP_BACKEND_PORT did not provide a temporary backend.")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("The temporary writer-loop backend is not running on \(baseURL.absoluteString).")
+        }
+
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).uppercased()
+        let projectTitle = "Writer Loop \(uniqueSuffix)"
+        let marker = "WRITER LOOP DRAFT \(uniqueSuffix)"
+        let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
+
+        var app = launchApp(
+            openStudio: true,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 15),
+            "Studio did not open against the temporary writer-loop backend.\n\(app.debugDescription)"
+        )
+
+        let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(waitForHittability(of: leftDrawerToggle, timeout: 5))
+        if !element(identifier: "studio.sidebar.left.drawer", in: app).exists {
+            leftDrawerToggle.tap()
+        }
+        let projectTitleField = app.textFields["New project title"]
+        XCTAssertTrue(
+            waitForHittability(of: projectTitleField, timeout: 8),
+            "The Projects drawer did not expose its project title field."
+        )
+        projectTitleField.tap()
+        projectTitleField.typeText(projectTitle)
+        let createProject = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: createProject, timeout: 5))
+        createProject.tap()
+        XCTAssertTrue(
+            staticText(containing: projectTitle, in: app).waitForExistence(timeout: 12),
+            "The project created through the iPhone UI did not appear in the Projects drawer."
+        )
+        let projectID = try await waitForWriterLoopProject(
+            titled: projectTitle,
+            fixture: fixture,
+            timeout: 20
+        )
+
+        guard dismissWriterLoopProjectKeyboard(in: app) else {
+            XCTFail("The project-title keyboard blocked the Studio inspector controls.")
+            app.terminate()
+            return
+        }
+        let rightDrawerToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
+        rightDrawerToggle.tap()
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForDisappearance(of: element(identifier: "studio.sidebar.left.drawer", in: app), timeout: 5),
+            "Opening the inspector did not dismiss the Projects drawer."
+        )
+        let draftInspector = app.buttons["studio.right-panel.draft"]
+        if draftInspector.waitForExistence(timeout: 3), !draftInspector.isSelected {
+            draftInspector.tap()
+        }
+        let autosave = app.switches["studio.draft.document.autosave"]
+        XCTAssertTrue(
+            revealInStudioDrawer(autosave, drawer: rightDrawer, scrollingUp: true, maxSwipes: 12),
+            "The writer-loop could not reach the Autosave switch."
+        )
+        XCTAssertTrue(writerLoopSwitchIsOn(autosave), "Autosave was unexpectedly off before the writer-loop began.")
+        autosave.tap()
+        XCTAssertTrue(
+            waitForWriterLoopSwitch(autosave, toBeOn: false, timeout: 4),
+            "Autosave did not turn off, so Save Now would not be the sole version-producing action."
+        )
+
+        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
+        rightDrawerToggle.tap()
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(
+            waitForHittability(of: editor, timeout: 8),
+            "The UI-created project did not expose its screenplay editor."
+        )
+        editor.tap()
+        editor.typeText(marker)
+        XCTAssertTrue(
+            waitForExactWriterLoopDraft(marker, in: app, timeout: 8),
+            "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
+        )
+        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
+        rightDrawerToggle.tap()
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
+        let saveNow = app.buttons["studio.draft.document.save"]
+        XCTAssertTrue(
+            revealInStudioDrawer(saveNow, drawer: rightDrawer, scrollingUp: false, maxSwipes: 12),
+            "The writer-loop could not reach Save Now."
+        )
+        saveNow.tap()
+        let initiallySavedProject = try await waitForWriterLoopSavedVersion(
+            projectID: projectID,
+            draft: marker,
+            fixture: fixture,
+            timeout: 45
+        )
+        let initiallySavedVersions = initiallySavedProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(
+            initiallySavedVersions.filter { stringValue($0["draft"]) == marker }.count,
+            1,
+            "Save Now must create exactly one server version before relaunch."
+        )
+        var savedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+                savedSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == projectID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && !boolValue(snapshot["has_unsaved_draft_changes"])
+                    && !boolValue(snapshot["is_saving"])
+                    && !stringValue(snapshot["latest_version_id"]).isEmpty
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Save Now did not commit the UI-entered draft. Snapshot: \(savedSnapshot)"
+        )
+
+        let exportMenu = app.buttons["studio.export.menu"]
+        XCTAssertTrue(
+            revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8),
+            "The writer-loop could not reach Export Copy."
+        )
+        exportMenu.tap()
+        let markdownExport = app.buttons["studio.export.md"]
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: 5), "Export Copy did not offer Markdown.")
+        markdownExport.tap()
+        XCTAssertTrue(
+            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: 10),
+            "Markdown export did not report its .md artifact."
+        )
+        app.terminate()
+
+        app = launchApp(
+            openStudio: true,
+            resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 15),
+            "Studio did not relaunch into the same automation-authenticated account."
+        )
+        XCTAssertTrue(
+            waitForExactWriterLoopDraft(marker, in: app, timeout: 30),
+            "The server-backed draft did not restore exactly once after authenticated relaunch. Draft: \(accessibleDraftText(in: app))"
+        )
+
+        let project = try await writerLoopProject(
+            id: projectID,
+            fixture: fixture
+        )
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        let matchingVersions = versions.filter { version in
+            occurrenceCount(of: marker, in: stringValue(version["draft"])) == 1
+        }
+        XCTAssertEqual(
+            matchingVersions.count,
+            1,
+            "The temporary backend must contain exactly one version with the unique marker: \(versions)"
+        )
+        XCTAssertEqual(
+            stringValue(matchingVersions.first?["draft"]),
+            marker,
+            "The sole matching server version did not preserve the exact UI-entered draft."
+        )
+#else
+        throw XCTSkip("The integrated writer-loop contract specifically covers iPhone.")
+#endif
+    }
+
     func test_draft_tools_tabs_route_to_each_presentation_pane() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
@@ -2831,6 +3015,64 @@ final class V1SmokeUITests: XCTestCase {
         return count
     }
 
+    private func waitForExactWriterLoopDraft(
+        _ marker: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if occurrenceCount(of: marker, in: accessibleDraftText(in: app)) == 1 {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return occurrenceCount(of: marker, in: accessibleDraftText(in: app)) == 1
+    }
+
+    private func writerLoopSwitchIsOn(_ element: XCUIElement) -> Bool {
+        let value = String(describing: element.value ?? "").lowercased()
+        return value == "1" || value == "true" || value == "on"
+    }
+
+    private func waitForWriterLoopSwitch(
+        _ element: XCUIElement,
+        toBeOn expected: Bool,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if writerLoopSwitchIsOn(element) == expected {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return writerLoopSwitchIsOn(element) == expected
+    }
+
+    private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return true }
+        let returnKey = keyboard.buttons
+            .matching(NSPredicate(
+                format: "label ==[c] %@ OR label ==[c] %@",
+                "return",
+                "done"
+            ))
+            .firstMatch
+        if returnKey.waitForExistence(timeout: 2), returnKey.isHittable {
+            returnKey.tap()
+            if waitForDisappearance(of: keyboard, timeout: 3) {
+                return true
+            }
+        }
+        return dismissKeyboardIfPresent(in: app)
+#else
+        return true
+#endif
+    }
+
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {
         app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
@@ -4023,6 +4265,174 @@ final class V1SmokeUITests: XCTestCase {
         } catch {
             return false
         }
+    }
+
+    private struct WriterLoopAuthenticationFixture {
+        let baseURL: URL
+        let authorizedHeaders: [String: String]
+        let appLaunchEnvironment: [String: String]
+    }
+
+    private func createWriterLoopAuthenticationFixture(
+        baseURL: URL
+    ) async throws -> WriterLoopAuthenticationFixture {
+        let appToken = "them-dev"
+        let stamp = "\(Int(Date().timeIntervalSince1970 * 1_000))-\(UUID().uuidString.prefix(6).lowercased())"
+        let signup = try await requestJSON(
+            baseURL: baseURL,
+            path: "/auth/signup",
+            method: "POST",
+            headers: ["X-APP-TOKEN": appToken],
+            body: [
+                "email": "studio-writer-loop-\(stamp)@example.test",
+                "password": "ThemWriterLoop-\(stamp)-aA1!",
+                "display_name": "Studio Writer Loop Contract",
+            ]
+        )
+        try assertHTTP(signup, context: "writer-loop signup")
+        let user = signup.payload["user"] as? [String: Any] ?? [:]
+        let accessToken = try firstNonEmptyString(
+            signup.payload["access_token"],
+            signup.payload["accessToken"],
+            message: "Writer-loop signup did not return an access token."
+        )
+        let refreshToken = try firstNonEmptyString(
+            signup.payload["refresh_token"],
+            signup.payload["refreshToken"],
+            message: "Writer-loop signup did not return a refresh token."
+        )
+        let userID = try firstNonEmptyString(
+            user["id"],
+            user["user_id"],
+            user["userId"],
+            signup.payload["user_id"],
+            signup.payload["userId"],
+            message: "Writer-loop signup did not return a user id."
+        )
+
+        let session = try await requestJSON(
+            baseURL: baseURL,
+            path: "/session",
+            method: "POST",
+            headers: [
+                "X-APP-TOKEN": appToken,
+                "Authorization": "Bearer \(accessToken)",
+            ],
+            body: [:]
+        )
+        try assertHTTP(session, context: "writer-loop session")
+        let clientToken = try firstNonEmptyString(
+            session.payload["client_token"],
+            session.payload["session_id"],
+            message: "Writer-loop session did not return a client token."
+        )
+        let expiresIn = max(60, intValue(session.payload["expires_in"]))
+        let expiry = ISO8601DateFormatter().string(
+            from: Date().addingTimeInterval(TimeInterval(expiresIn))
+        )
+        let authorizedHeaders = [
+            "X-APP-TOKEN": appToken,
+            "Authorization": "Bearer \(accessToken)",
+            "X-Client-Token": clientToken,
+        ]
+        return WriterLoopAuthenticationFixture(
+            baseURL: baseURL,
+            authorizedHeaders: authorizedHeaders,
+            appLaunchEnvironment: [
+                "THEM_UITEST_BACKEND_BASE_URL": baseURL.absoluteString,
+                "THEM_UITEST_APP_TOKEN": appToken,
+                "THEM_UITEST_USER_ID": userID,
+                "THEM_UITEST_CLIENT_TOKEN": clientToken,
+                "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "\(Int(Date().timeIntervalSince1970))",
+                "THEM_UITEST_CLIENT_TOKEN_BASE_URL": baseURL.absoluteString,
+                "THEM_UITEST_CLIENT_TOKEN_EXPIRY": expiry,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": accessToken,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "1",
+                "THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN": refreshToken,
+                "THEM_UITEST_AUTH_SIGNED_IN": "1",
+            ]
+        )
+    }
+
+    private func waitForWriterLoopProject(
+        titled title: String,
+        fixture: WriterLoopAuthenticationFixture,
+        timeout: TimeInterval
+    ) async throws -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastPayload: [String: Any] = [:]
+        while Date() < deadline {
+            let response = try await requestJSON(
+                baseURL: fixture.baseURL,
+                path: "/screenplay/projects",
+                method: "GET",
+                headers: fixture.authorizedHeaders,
+                body: nil,
+                queryItems: [URLQueryItem(name: "limit", value: "50")]
+            )
+            try assertHTTP(response, context: "writer-loop project list")
+            lastPayload = response.payload
+            let projects = response.payload["screenplay_projects"] as? [[String: Any]] ?? []
+            if let project = projects.first(where: { stringValue($0["title"]) == title }) {
+                return try firstNonEmptyString(
+                    project["id"],
+                    project["project_id"],
+                    message: "The UI-created writer-loop project did not return an id."
+                )
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
+        throw NSError(
+            domain: "themUITests.writerLoop",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Last payload: \(lastPayload)"
+            ]
+        )
+    }
+
+    private func writerLoopProject(
+        id projectID: String,
+        fixture: WriterLoopAuthenticationFixture
+    ) async throws -> [String: Any] {
+        let response = try await requestJSON(
+            baseURL: fixture.baseURL,
+            path: "/screenplay/projects/\(projectID)",
+            method: "GET",
+            headers: fixture.authorizedHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "20"),
+            ]
+        )
+        try assertHTTP(response, context: "writer-loop project detail")
+        return response.payload["project"] as? [String: Any] ?? [:]
+    }
+
+    private func waitForWriterLoopSavedVersion(
+        projectID: String,
+        draft: String,
+        fixture: WriterLoopAuthenticationFixture,
+        timeout: TimeInterval
+    ) async throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastProject: [String: Any] = [:]
+        while Date() < deadline {
+            lastProject = try await writerLoopProject(id: projectID, fixture: fixture)
+            let versions = lastProject["versions"] as? [[String: Any]] ?? []
+            if versions.contains(where: { stringValue($0["draft"]) == draft }) {
+                return lastProject
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
+        throw NSError(
+            domain: "themUITests.writerLoop",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for Save Now to persist the exact draft. Last project: \(lastProject)"
+            ]
+        )
     }
 
     private func seedBackendRestoreContractFixture(baseURL: URL) async throws -> RestoreContractFixture {

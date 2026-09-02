@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 /// Studio export *actions* (artifact build, save, Google Docs handoff).
 /// Menu format *policy* stays in `ScreenplayExportFormatMenu`.
 enum ScreenplayStudioExportSupport {
+    struct GoogleDocsShareError: Error, Equatable, LocalizedError {
+        let message: String
+
+        var errorDescription: String? { message }
+    }
+
     struct Dependencies {
         var draft: String
         var projectTitle: String?
@@ -39,13 +45,15 @@ enum ScreenplayStudioExportSupport {
         return "Saved \(filename) to \(folderName)."
     }
 
-    nonisolated static func googleDocsSharePayload(draft: String) -> Result<(clipboardText: String, url: URL), String> {
+    nonisolated static func googleDocsSharePayload(
+        draft: String
+    ) -> Result<(clipboardText: String, url: URL), GoogleDocsShareError> {
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else {
-            return .failure("Draft is empty.")
+            return .failure(GoogleDocsShareError(message: "Draft is empty."))
         }
         guard let url = URL(string: "https://docs.new") else {
-            return .failure("Could not open Google Docs.")
+            return .failure(GoogleDocsShareError(message: "Could not open Google Docs."))
         }
         return .success((clipboardText: clean, url: url))
     }
@@ -178,8 +186,8 @@ enum ScreenplayStudioExportSupport {
     @MainActor
     static func openInGoogleDocs(deps: Dependencies) {
         switch googleDocsSharePayload(draft: deps.draft) {
-        case .failure(let message):
-            deps.setError(message)
+        case .failure(let error):
+            deps.setError(error.localizedDescription)
         case .success(let payload):
 #if os(macOS)
             NSPasteboard.general.clearContents()
