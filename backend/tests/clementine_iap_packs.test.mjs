@@ -56,7 +56,7 @@ test("[iap] verifyTransaction fails closed without secrets even in non-prod", as
   assert.equal(result.code, "iap_verify_not_configured");
 });
 
-test("[iap] verifyTransaction fails closed when secrets exist but impl not wired", async () => {
+test("[iap] verifyTransaction fails closed when ASC env incomplete (no bundle id)", async () => {
   const verifier = createIapVerifier({
     isProduction: () => false,
     env: {
@@ -64,12 +64,14 @@ test("[iap] verifyTransaction fails closed when secrets exist but impl not wired
       APP_STORE_ISSUER_ID: "issuer",
       APP_STORE_KEY_ID: "key",
       APP_STORE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----",
+      // APP_STORE_BUNDLE_ID intentionally omitted
     },
   });
   const result = await verifier.verifyTransaction("signed");
   assert.equal(result.ok, false);
-  assert.equal(result.code, "iap_verify_not_wired");
+  assert.equal(result.code, "iap_verify_not_configured");
   assert.equal(result.failClosed, true);
+  assert.equal(verifier.isVerifyImplWired(), false);
 });
 
 test("[iap] mock verifier accepts JSON transaction payload", async () => {

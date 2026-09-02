@@ -53,7 +53,8 @@ Alias: `POST /talk/wallet/credit` mounts the same handler for talk-adjacent clie
 | Module | Role |
 | --- | --- |
 | `backend/lib/clementine/pack_catalog.js` | pack id / productId → turns |
-| `backend/lib/clementine/iap_verify.js` | verifyTransaction interface; fail-closed without secrets |
+| `backend/lib/clementine/iap_verify.js` | verifyTransaction seam; auto-wires ASC impl when env complete; else fail-closed |
+| `backend/lib/clementine/iap_app_store_verify.js` | App Store Server API Get Transaction Info verifyImpl |
 | `backend/lib/clementine/iap_credit_route.js` | auth + verify + creditPack |
 | `backend/lib/clementine/wallet.js` | `creditPack` + hydrate; DI `persistence` |
 | `backend/lib/clementine/wallet_persistence.js` | memory / postgres / adapter backends |
@@ -79,14 +80,29 @@ Wiring: `createPostgresWalletPersistence` (dedicated tables) or `createAdapterWa
 2. Add products whose Product IDs match `pack_catalog` `productId` values (start with the three examples above).
 3. Choose Consumable (recommended for re-buyable turn packs) or Non-Consumable per product strategy.
 4. Set pricing, localization (“Companion + Page turns” / weeks framing — never TPM).
-5. For server verify: create an App Store Connect API key (Issuer ID, Key ID, `.p8` private key) with access to App Store Server API; set on the API host:
-   - `APP_STORE_ISSUER_ID`
-   - `APP_STORE_KEY_ID`
-   - `APP_STORE_PRIVATE_KEY` (PEM contents)
-   - `APP_STORE_BUNDLE_ID` (e.g. `studio.framehouse.them` / shipping bundle id)
-6. Sandbox + StoreKit Configuration file for local; production verify must use real secrets (fail closed otherwise).
+5. For server verify: create an App Store Connect API key (Users and Access → Integrations → In-App Purchase) with access to App Store Server API. Download the `.p8` once; store Issuer ID, Key ID, and PEM on the API host only — **never commit credentials**.
+6. Sandbox + StoreKit Configuration file for local iOS; production verify must use real secrets (fail closed otherwise).
+
+## Render / API host env vars (IAP verify)
+
+Set these on the Render web service (Dashboard → Environment). They are listed as `sync: false` secrets in `backend/render.yaml` — values are **not** in the blueprint.
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `APP_STORE_ISSUER_ID` | yes (to wire verify) | App Store Connect → Users and Access → Issuer ID |
+| `APP_STORE_KEY_ID` | yes | Key ID for the In-App Purchase API key |
+| `APP_STORE_PRIVATE_KEY` | yes | Full `.p8` PEM. Literal `\n` newlines are OK (normalized at runtime) |
+| `APP_STORE_BUNDLE_ID` | yes | Must match the iOS app bundle id and transaction `bundleId` |
+| `APP_STORE_ENVIRONMENT` | optional | `Sandbox` or `Production`. Default: **Production** when `NODE_ENV=production`, else Sandbox |
+
+**Gating:** `createIapVerifier()` activates the real App Store Server API `verifyImpl` **only** when all four required vars are non-empty. Otherwise `verifyTransaction` fails closed with `iap_verify_not_configured` (no silent accept / no optimistic credit). Tests inject `verifyImpl` or `appStoreVerifyOptions.apiClient` — CI never calls Apple.
+
+**Sandbox / TestFlight:** For TestFlight and Sandbox purchases, set `APP_STORE_ENVIRONMENT=Sandbox` on the API host (or use a non-production `NODE_ENV` locally). Production App Store purchases need `Production` (the default on the prod host). Mismatched environment typically surfaces as Get Transaction Info errors (`iap_app_store_api_error`) — still fail closed.
+
+Implementation: `@apple/app-store-server-library` → Get Transaction Info, then validate `bundleId`, catalog `productId`, transaction identity, and reject payloads with `revocationDate` (`iap_transaction_revoked`).
 
 ## Change log
 
+- 2026-09-01 — App Store Server API `verifyImpl` auto-wires when ASC env secrets are complete; Sandbox/Render env documented.
 - 2026-09-01 — Wallet/IAP Postgres persistence (balances + unique txn ledger); reservations still process-local.
 - 2026-09-01 — D011 scaffold: catalog, fail-closed verify, credit route, iOS PackStore sketch.

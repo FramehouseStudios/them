@@ -1,8 +1,14 @@
 // D011 — App Store IAP transaction verification seam.
 //
 // Production must verify via App Store Server API / signed transaction JWS
-// before wallet.credit. This module exposes the interface + a fail-closed
-// default. Tests inject `verifyImpl`. Do not optimistic-credit on the client.
+// before wallet.credit. When APP_STORE_* secrets are complete, this module
+// auto-wires createAppStoreServerVerifyImpl. Otherwise fail closed.
+// Tests inject `verifyImpl` (or a mock apiClient inside the App Store impl).
+
+import {
+  hasCompleteAppStoreVerifyConfig,
+  createAppStoreServerVerifyImpl,
+} from "./iap_app_store_verify.js";
 
 /**
  * @typedef {object} IapVerifySuccess
@@ -20,11 +26,12 @@
  * @property {boolean} [failClosed]
  */
 
+/**
+ * @deprecated Prefer hasCompleteAppStoreVerifyConfig — bundle id is required.
+ * Kept for callers; now requires APP_STORE_BUNDLE_ID as well.
+ */
 function hasAppStoreVerifySecrets(env = process.env) {
-  const issuer = String(env.APP_STORE_ISSUER_ID || "").trim();
-  const keyId = String(env.APP_STORE_KEY_ID || "").trim();
-  const privateKey = String(env.APP_STORE_PRIVATE_KEY || "").trim();
-  return Boolean(issuer && keyId && privateKey);
+  return hasCompleteAppStoreVerifyConfig(env);
 }
 
 function defaultIsProduction(env = process.env) {
@@ -38,14 +45,18 @@ function defaultIsProduction(env = process.env) {
  * @param {() => boolean} [opts.isProduction]
  * @param {NodeJS.ProcessEnv} [opts.env]
  * @param {(jwsOrReceipt: string) => Promise<IapVerifySuccess|IapVerifyFailure>|IapVerifySuccess|IapVerifyFailure} [opts.verifyImpl]
- *   Injected implementation (tests / future App Store Server API client).
+ *   Injected implementation (tests). When omitted and ASC env is complete,
+ *   wires App Store Server API verifyImpl automatically.
  * @param {string} [opts.expectedBundleId]
+ * @param {object} [opts.appStoreVerifyOptions]
+ *   Extra options forwarded to createAppStoreServerVerifyImpl (apiClient, decodeSignedTransaction, …).
  */
 function createIapVerifier({
   isProduction = null,
   env = process.env,
   verifyImpl = null,
   expectedBundleId = "",
+  appStoreVerifyOptions = null,
 } = {}) {
   const prodCheck =
     typeof isProduction === "function"
@@ -54,6 +65,24 @@ function createIapVerifier({
   const bundleId = String(
     expectedBundleId || env.APP_STORE_BUNDLE_ID || ""
   ).trim();
+
+  let resolvedImpl = typeof verifyImpl === "function" ? verifyImpl : null;
+  let wireError = null;
+
+  if (!resolvedImpl && hasCompleteAppStoreVerifyConfig(env)) {
+    try {
+      resolvedImpl = createAppStoreServerVerifyImpl({
+        env,
+        expectedBundleId: bundleId,
+        ...(appStoreVerifyOptions && typeof appStoreVerifyOptions === "object"
+          ? appStoreVerifyOptions
+          : {}),
+      });
+    } catch (err) {
+      wireError = err;
+      resolvedImpl = null;
+    }
+  }
 
   /**
    * @param {string} jwsOrReceipt
@@ -70,8 +99,18 @@ function createIapVerifier({
       };
     }
 
-    if (typeof verifyImpl === "function") {
-      const result = await verifyImpl(raw);
+    if (typeof resolvedImpl === "function") {
+      let result;
+      try {
+        result = await resolvedImpl(raw);
+      } catch (err) {
+        return {
+          ok: false,
+          code: err?.code || "iap_verify_failed",
+          message: err?.message || "transaction verification failed",
+          failClosed: true,
+        };
+      }
       if (!result || result.ok !== true) {
         return {
           ok: false,
@@ -111,26 +150,29 @@ function createIapVerifier({
       };
     }
 
-    // No injected verifier: never pretend ASC verification succeeded.
-    if (prodCheck() || !hasAppStoreVerifySecrets(env)) {
-      // Production always fail-closed without a real verifyImpl wired.
-      // Without secrets, fail closed in every environment (no optimistic credit).
-      const code = prodCheck()
-        ? hasAppStoreVerifySecrets(env)
-          ? "iap_verify_not_wired"
-          : "iap_verify_not_configured"
-        : "iap_verify_not_configured";
+    // No verifier available — never pretend ASC verification succeeded.
+    if (wireError) {
       return {
         ok: false,
-        code,
+        code: "iap_verify_not_wired",
+        message:
+          wireError?.message ||
+          "APP_STORE_* secrets present but verifyTransaction implementation failed to initialize",
+        failClosed: true,
+      };
+    }
+
+    if (!hasCompleteAppStoreVerifyConfig(env)) {
+      return {
+        ok: false,
+        code: "iap_verify_not_configured",
         message:
           "App Store transaction verification is not configured; refusing to credit",
         failClosed: true,
       };
     }
 
-    // Secrets present but verifyImpl not wired yet — still fail closed.
-    // Real App Store Server API client lands in a follow-up; do not half-verify.
+    // Complete env but impl somehow missing — still fail closed.
     return {
       ok: false,
       code: "iap_verify_not_wired",
@@ -142,9 +184,11 @@ function createIapVerifier({
 
   return {
     verifyTransaction,
-    hasAppStoreVerifySecrets: () => hasAppStoreVerifySecrets(env),
+    hasAppStoreVerifySecrets: () => hasCompleteAppStoreVerifyConfig(env),
     isProduction: prodCheck,
     expectedBundleId: bundleId,
+    /** True when the real App Store Server API impl (or an injected verifyImpl) is active. */
+    isVerifyImplWired: () => typeof resolvedImpl === "function",
   };
 }
 
@@ -198,6 +242,7 @@ function createMockIapVerifier(overrides = {}) {
 
 export {
   hasAppStoreVerifySecrets,
+  hasCompleteAppStoreVerifyConfig,
   createIapVerifier,
   createMockIapVerifier,
 };
