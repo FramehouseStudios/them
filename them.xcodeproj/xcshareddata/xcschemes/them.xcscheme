@@ -126,6 +126,11 @@
             value = "$(THEM_UITEST_STUDIO_INSTINCT_FIXTURE_BASE64URL)"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "THEM_UITEST_WRITER_LOOP_BACKEND_PORT"
+            value = "$(THEM_UITEST_WRITER_LOOP_BACKEND_PORT)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

@@ -346,6 +346,7 @@ struct ScreenplayStudioScreen: View {
     @State private var trackedStudioDebugProjectLoadError = ""
     @State private var studioDebugProjectLoadInFlight = false
     @State private var activeStudioDebugProjectLoadOperationID: UUID?
+    @State private var uiTestManualSaveTriggerCount = 0
     #if os(macOS)
     @State private var studioDebugPreparePollTask: Task<Void, Never>?
     @State private var studioCommandReturnKeyMonitor: Any?
@@ -454,6 +455,7 @@ struct ScreenplayStudioScreen: View {
             "is_saving": vm.isSaving,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "manual_save_trigger_count": uiTestManualSaveTriggerCount,
             "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
             "debug_auth_session_authenticated": BackendAuthClient.currentAuthSessionState().isAuthenticated,
             "debug_auth_header_present": BackendAuthClient.authorizationHeaderValue() != nil,
@@ -8783,6 +8785,7 @@ Current draft version:
                         ) {
                             triggerStudioManualSave()
                         }
+                        .accessibilityIdentifier("studio.draft.page.save")
                     }
 
                     if !isDraftingPreviewActive,
@@ -12403,8 +12406,18 @@ Return revised screenplay lines only.
     }
 
     private func toggleDirectionOneRightRailVisibility() {
+        let nextIsVisible = !isDirectionOneRightRailExpanded
+        #if os(iOS)
+        if isDirectionOneCompactLayout, nextIsVisible {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+        }
+        #endif
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-            let nextIsVisible = !isDirectionOneRightRailExpanded
             isDirectionOneRightRailExpanded = nextIsVisible
             if isDirectionOneCompactLayout, nextIsVisible {
                 isDirectionOneSidebarVisible = false
@@ -12436,6 +12449,21 @@ Return revised screenplay lines only.
     }
 
     private func triggerStudioManualSave(revealSavedTab: Bool = true) {
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests {
+            uiTestManualSaveTriggerCount += 1
+        }
+        #endif
+        #if os(iOS)
+        if isDirectionOneCompactLayout {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+        }
+        #endif
         guard !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             vm.errorText = "Draft is empty."
             return

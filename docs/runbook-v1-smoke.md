@@ -17,6 +17,17 @@ to ship from a deterministic-tripwire perspective.
 For the iOS golden path:
 
 ```
+cd backend
+npm run eval:studio-ios-writer-loop-contract
+```
+
+→ The required integrated iPhone contract creates a real authenticated project,
+types and saves screenplay text, exports a copy, relaunches, and proves the
+same server-backed draft restores exactly once.
+
+For the broader iOS UI suite:
+
+```
 scripts/run_v1_ui_smoke.sh
 ```
 
@@ -234,6 +245,16 @@ Reads `docs/v1-definition.md` and emits per-pillar completion %
 and remaining items.
 
 ## iOS V1 UI smoke
+
+The single integrated writer-loop contract is a required CI gate. It runs
+against a temporary authenticated backend and fails if its XCUITest is skipped
+or executes zero tests. The broader UI suite remains a soft gate because
+several specialized stories intentionally depend on external fixtures.
+
+Promotion evidence: the pre-existing iOS V1 UI smoke step completed
+successfully on ten consecutive completed `main` runs before the integrated
+contract became required. Superseded runs cancelled by workflow concurrency do
+not count toward that total.
 
 The `themUITests` target is a growing sequential suite; do not copy a hard-coded
 test count into release claims. It includes onboarding, local demo/Apple

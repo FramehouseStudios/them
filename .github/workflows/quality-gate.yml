@@ -190,6 +190,10 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
+      - name: Run integrated iPhone writer loop (required)
+        working-directory: backend
+        run: npm run eval:studio-ios-writer-loop-contract
+
       - name: Run iOS V1 UI smoke tests (soft gate)
         continue-on-error: true
         run: scripts/run_v1_ui_smoke.sh
@@ -219,6 +223,7 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- Integrated iPhone writer loop: required"
             echo "- iOS V1 UI smoke: soft gate (themUITests)"
             echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"

@@ -30,8 +30,8 @@ final class ScreenplayStudioExportSupportTests: XCTestCase {
 
     func testGoogleDocsShareRejectsEmptyDraft() {
         switch ScreenplayStudioExportSupport.googleDocsSharePayload(draft: "   \n") {
-        case .failure(let message):
-            XCTAssertEqual(message, "Draft is empty.")
+        case .failure(let error):
+            XCTAssertEqual(error.message, "Draft is empty.")
         case .success:
             XCTFail("Expected empty draft to fail")
         }
