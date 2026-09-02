@@ -421,19 +421,30 @@ final class V1SmokeUITests: XCTestCase {
             waitForExactWriterLoopDraft(marker, in: app, timeout: 8),
             "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
         )
-        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
-        rightDrawerToggle.tap()
-        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
-        let saveNow = app.buttons["studio.draft.document.save"]
+        let screenplayKeyboard = app.keyboards.firstMatch
+        let saveNow = app.buttons["studio.draft.page.save"]
         XCTAssertTrue(
-            revealInStudioDrawer(saveNow, drawer: rightDrawer, scrollingUp: false, maxSwipes: 12),
-            "The writer-loop could not reach Save Now."
+            waitForHittability(of: saveNow, timeout: 5),
+            "The edited screenplay page did not expose Save now."
         )
         saveNow.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: screenplayKeyboard, timeout: 5),
+            "Saving from the compact screenplay page did not end screenplay editing."
+        )
+        var saveTriggerSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+                saveTriggerSnapshot = snapshot
+                return intValue(snapshot["manual_save_trigger_count"]) == 1
+            },
+            "Save now did not deliver exactly one UI action. Snapshot: \(saveTriggerSnapshot)"
+        )
         let initiallySavedProject = try await waitForWriterLoopSavedVersion(
             projectID: projectID,
             draft: marker,
             fixture: fixture,
+            app: app,
             timeout: 45
         )
         let initiallySavedVersions = initiallySavedProject["versions"] as? [[String: Any]] ?? []
@@ -456,6 +467,10 @@ final class V1SmokeUITests: XCTestCase {
             "Save Now did not commit the UI-entered draft. Snapshot: \(savedSnapshot)"
         )
 
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
+        if !draftInspector.isSelected {
+            draftInspector.tap()
+        }
         let exportMenu = app.buttons["studio.export.menu"]
         XCTAssertTrue(
             revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8),
@@ -4414,6 +4429,7 @@ final class V1SmokeUITests: XCTestCase {
         projectID: String,
         draft: String,
         fixture: WriterLoopAuthenticationFixture,
+        app: XCUIApplication,
         timeout: TimeInterval
     ) async throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(timeout)
@@ -4426,11 +4442,16 @@ final class V1SmokeUITests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 200_000_000)
         }
+        var finalSnapshot: [String: Any] = [:]
+        _ = waitForRestoreSnapshot(in: app, timeout: 2) { snapshot in
+            finalSnapshot = snapshot
+            return true
+        }
         throw NSError(
             domain: "themUITests.writerLoop",
             code: 2,
             userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for Save Now to persist the exact draft. Last project: \(lastProject)"
+                NSLocalizedDescriptionKey: "Timed out waiting for Save Now to persist the exact draft. Last project: \(lastProject). App snapshot: \(finalSnapshot)"
             ]
         )
     }
