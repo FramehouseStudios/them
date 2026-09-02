@@ -129,17 +129,19 @@ function mountIapCreditRoute(app, {
 
     let credited;
     try {
-      credited = walletStore.creditPack({
-        ownerId,
-        companionTurns: pack.companionTurns,
-        pageTurns: pack.pageTurns,
-        transactionId: verified.transactionId,
-        meta: {
-          productId: pack.productId,
-          packId: pack.id,
-          source: "storekit_iap",
-        },
-      });
+      credited = await Promise.resolve(
+        walletStore.creditPack({
+          ownerId,
+          companionTurns: pack.companionTurns,
+          pageTurns: pack.pageTurns,
+          transactionId: verified.transactionId,
+          meta: {
+            productId: pack.productId,
+            packId: pack.id,
+            source: "storekit_iap",
+          },
+        })
+      );
     } catch (err) {
       logger?.error?.("[iap] creditPack failed", err?.message || err);
       return res.status(500).json({

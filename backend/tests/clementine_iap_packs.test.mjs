@@ -88,9 +88,9 @@ test("[iap] mock verifier accepts JSON transaction payload", async () => {
   assert.equal(ok.productId, "io.them.clementine.pack.page_boost");
 });
 
-test("[iap] creditPack is idempotent by transactionId", () => {
+test("[iap] creditPack is idempotent by transactionId", async () => {
   const wallet = createWalletStore();
-  const first = wallet.creditPack({
+  const first = await wallet.creditPack({
     ownerId: "u1",
     companionTurns: 10,
     pageTurns: 4,
@@ -101,7 +101,7 @@ test("[iap] creditPack is idempotent by transactionId", () => {
   assert.equal(first.pageTurnsLeft, 4);
   assert.equal(wallet.hasCreditedTransaction("asc-txn-99"), true);
 
-  const second = wallet.creditPack({
+  const second = await wallet.creditPack({
     ownerId: "u1",
     companionTurns: 10,
     pageTurns: 4,
@@ -111,7 +111,7 @@ test("[iap] creditPack is idempotent by transactionId", () => {
   assert.equal(second.companionTurnsLeft, 10);
   assert.equal(second.pageTurnsLeft, 4);
 
-  const other = wallet.creditPack({
+  const other = await wallet.creditPack({
     ownerId: "u1",
     companionTurns: 5,
     pageTurns: 0,
@@ -121,9 +121,9 @@ test("[iap] creditPack is idempotent by transactionId", () => {
   assert.equal(other.companionTurnsLeft, 15);
 });
 
-test("[iap] creditPack requires transactionId", () => {
+test("[iap] creditPack requires transactionId", async () => {
   const wallet = createWalletStore();
-  assert.throws(
+  await assert.rejects(
     () => wallet.creditPack({ ownerId: "u", companionTurns: 1 }),
     (err) => err && err.code === "wallet_transaction_required"
   );

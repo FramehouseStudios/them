@@ -55,12 +55,23 @@ Alias: `POST /talk/wallet/credit` mounts the same handler for talk-adjacent clie
 | `backend/lib/clementine/pack_catalog.js` | pack id / productId → turns |
 | `backend/lib/clementine/iap_verify.js` | verifyTransaction interface; fail-closed without secrets |
 | `backend/lib/clementine/iap_credit_route.js` | auth + verify + creditPack |
-| `backend/lib/clementine/wallet.js` | `creditPack` + in-process `transactionId` ledger |
+| `backend/lib/clementine/wallet.js` | `creditPack` + hydrate; DI `persistence` |
+| `backend/lib/clementine/wallet_persistence.js` | memory / postgres / adapter backends |
+| `backend/migrations/012_wallet_iap_persistence.sql` | `wallet_balances` + `iap_transactions` |
 | `them/ClementinePackStore.swift` | StoreKit 2 purchase → backend credit |
 
-## Persistence note
+## Persistence
 
-Wallet balances and the IAP `transactionId` ledger are **process memory by default** (DI-ready `createWalletStore`). That is **not prod-ready** across multi-instance Render or restarts. Until a durable persistence domain is wired, run a **single** API instance for credit, or accept that a restart can lose balances (ledger still prevents double credit *within* a process lifetime). Prefer extending `persistence_adapter` domains in a follow-up before multi-instance prod.
+Wallet **balances** (per owner + Companion/Page milliturns) and the IAP **`transactionId` ledger** are durable when `DATABASE_URL` is set:
+
+| Store | Schema | Notes |
+| --- | --- | --- |
+| `wallet_balances` | `owner_id` PK, lane milliturns + granted | Survives restarts |
+| `iap_transactions` | `transaction_id` **UNIQUE/PK**, `pack_id`, `credited_at`, `raw_meta` | Fail-closed double credit |
+
+Wiring: `createPostgresWalletPersistence` (dedicated tables) or `createAdapterWalletPersistence` (JSON domains `wallet_balances` / `iap_transactions` without Postgres). `createWalletStore({ persistence })` hydrates at boot; `creditPack` is async and claims the txn id before/with the balance write.
+
+**Residual stubs:** in-flight **reservations** remain process-local (not in SQL). Multi-instance still needs sticky routing or durable reservations before horizontal scale. Without `DATABASE_URL`, the store stays in-memory (tests/dev).
 
 ## App Store Connect setup
 
@@ -77,4 +88,5 @@ Wallet balances and the IAP `transactionId` ledger are **process memory by defau
 
 ## Change log
 
+- 2026-09-01 — Wallet/IAP Postgres persistence (balances + unique txn ledger); reservations still process-local.
 - 2026-09-01 — D011 scaffold: catalog, fail-closed verify, credit route, iOS PackStore sketch.

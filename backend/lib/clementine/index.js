@@ -68,6 +68,14 @@ export {
   createWalletEmptyError,
   createWalletStore,
 } from "./wallet.js";
+export {
+  DOMAIN_BALANCES as WALLET_DOMAIN_BALANCES,
+  DOMAIN_IAP as WALLET_DOMAIN_IAP,
+  createMemoryWalletPersistence,
+  createPostgresWalletPersistence,
+  createAdapterWalletPersistence,
+  createWalletPersistence,
+} from "./wallet_persistence.js";
 
 export { classifyReflex } from "./reflex_classifier.js";
 export {

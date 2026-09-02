@@ -1,13 +1,15 @@
-// Clementine wallet in turns (D008 build order #5; D011 IAP creditPack).
+// Clementine wallet in turns (D008 build order #5; D011 IAP creditPack;
+// T-wallet-postgres-persistence durable balances + IAP ledger).
 //
-// In-memory, DI-ready store. Balances are per owner + lane so Page never
-// shares a bill with Companion chit-chat. Users see days/weeks framing —
-// never TPM / tokens-per-minute in API responses.
+// DI-ready store. Balances are per owner + lane so Page never shares a bill
+// with Companion chit-chat. Users see days/weeks framing — never TPM /
+// tokens-per-minute in API responses.
 //
-// Persistence: process memory by default — NOT prod-ready across multi-instance
-// Render or restarts. Inject a durable adapter later without changing
-// reserve / commit / release / getBalance / creditPack shapes. The
-// transactionId ledger prevents double credit within one process lifetime.
+// Persistence: process memory by default. Inject `persistence` from
+// wallet_persistence.js (postgres dedicated tables, adapter domains, or
+// memory) so balances + IAP transactionId ledger survive restarts.
+// creditPack is async and fail-closed on duplicate transactionId.
+// Reservations remain process-local (not durable).
 //
 // Units: milliturns internally (1000 = 1 turn). Public summaries expose
 // whole/fractional turns only.
@@ -117,32 +119,57 @@ function emptyOwnerBalances() {
 }
 
 /**
- * In-memory wallet store. Inject a durable adapter later without changing
- * reserve / commit / release / getBalance shapes.
+ * Wallet store. Inject a durable `persistence` backend (see
+ * wallet_persistence.js) without changing reserve / commit / release /
+ * getBalance shapes. creditPack is async when persistence is used and
+ * always safe to `await`.
  *
  * @param {object} [opts]
  * @param {() => number} [opts.now]
  * @param {number} [opts.tokensPerTurn] override published constant (tests)
  * @param {Map|object} [opts.initialBalances] ownerId → { companion?, page? } turns
+ * @param {object|null} [opts.persistence] durable balances + IAP ledger backend
  */
 function createWalletStore({
   now = () => Date.now(),
   tokensPerTurn = TOKENS_PER_TURN,
   initialBalances = null,
+  persistence = null,
 } = {}) {
   /** @type {Map<string, ReturnType<typeof emptyOwnerBalances>>} */
   const balances = new Map();
   /** @type {Map<string, object>} */
   const reservations = new Map();
   /**
-   * In-process IAP / grant ledger. Prevents double credit for the same
-   * App Store transactionId. Not durable across process restarts —
-   * not prod-ready for multi-instance without a persistence adapter.
+   * Process-local mirror of the IAP ledger. When `persistence` is set this
+   * is hydrated from durable storage and updated after successful credits.
    * @type {Set<string>}
    */
   const creditedTransactionIds = new Set();
   /** @type {Map<string, object>} transactionId → last creditPack result snapshot */
   const creditedTransactionMeta = new Map();
+  /** @type {Promise<void>} */
+  let writeChain = Promise.resolve();
+
+  function enqueuePersist(ownerId) {
+    if (!persistence || typeof persistence.putBalance !== "function") {
+      return Promise.resolve();
+    }
+    const id = String(ownerId || "").trim();
+    if (!id || !balances.has(id)) return Promise.resolve();
+    const row = balances.get(id);
+    const job = writeChain.then(() =>
+      persistence.putBalance({
+        ownerId: id,
+        companionMilliturns: row[WALLET_LANE.COMPANION],
+        pageMilliturns: row[WALLET_LANE.PAGE],
+        grantedCompanionMilliturns: row.grantedCompanion,
+        grantedPageMilliturns: row.grantedPage,
+      })
+    );
+    writeChain = job.catch(() => {});
+    return job;
+  }
 
   function ensureOwner(ownerId) {
     const id = String(ownerId || "").trim();
@@ -198,6 +225,7 @@ function createWalletStore({
     row[laneKey] += add;
     if (laneKey === WALLET_LANE.COMPANION) row.grantedCompanion += add;
     else row.grantedPage += add;
+    void enqueuePersist(id);
     return getBalance(id);
   }
 
@@ -210,6 +238,8 @@ function createWalletStore({
    * Credit a StoreKit / grant pack onto Companion + Page meters.
    * Idempotent by transactionId — second call returns the same calm
    * balance with alreadyCredited: true and does not add turns again.
+   * Fail-closed when durable persistence rejects a duplicate txn id.
+   * Always safe to `await` (returns a Promise).
    *
    * @param {object} opts
    * @param {string} opts.ownerId
@@ -218,7 +248,7 @@ function createWalletStore({
    * @param {string} opts.transactionId — required (App Store transaction id)
    * @param {object} [opts.meta]
    */
-  function creditPack({
+  async function creditPack({
     ownerId,
     companionTurns = 0,
     pageTurns = 0,
@@ -232,6 +262,136 @@ function createWalletStore({
       err.code = "wallet_transaction_required";
       throw err;
     }
+    const cTurns = Math.max(0, Number(companionTurns) || 0);
+    const pTurns = Math.max(0, Number(pageTurns) || 0);
+    const packId =
+      meta && typeof meta === "object"
+        ? meta.packId || meta.productId || null
+        : null;
+    const snapshotBase = {
+      ownerId: id,
+      transactionId: tid,
+      companionTurnsCredited: cTurns,
+      pageTurnsCredited: pTurns,
+      creditedAt: now(),
+      meta: meta && typeof meta === "object" ? { ...meta } : null,
+      packId,
+    };
+
+    if (persistence && typeof persistence.creditPackAtomic === "function") {
+      const cMilli = turnsToMilliturns(cTurns);
+      const pMilli = turnsToMilliturns(pTurns);
+      const atomic = await persistence.creditPackAtomic({
+        ownerId: id,
+        transactionId: tid,
+        packId,
+        companionMilliturns: cMilli,
+        pageMilliturns: pMilli,
+        companionTurnsCredited: cTurns,
+        pageTurnsCredited: pTurns,
+        creditedAt: snapshotBase.creditedAt,
+        meta: snapshotBase.meta,
+      });
+      const prev = atomic.transaction || creditedTransactionMeta.get(tid);
+      creditedTransactionIds.add(tid);
+      creditedTransactionMeta.set(tid, {
+        ownerId: prev?.ownerId || id,
+        transactionId: tid,
+        companionTurnsCredited: prev?.companionTurnsCredited ?? cTurns,
+        pageTurnsCredited: prev?.pageTurnsCredited ?? pTurns,
+        creditedAt: prev?.creditedAt || snapshotBase.creditedAt,
+        meta: prev?.meta ?? snapshotBase.meta,
+        packId: prev?.packId ?? packId,
+      });
+      if (atomic.balance) {
+        balances.set(id, {
+          [WALLET_LANE.COMPANION]: Math.max(
+            0,
+            Math.round(Number(atomic.balance.companionMilliturns) || 0)
+          ),
+          [WALLET_LANE.PAGE]: Math.max(
+            0,
+            Math.round(Number(atomic.balance.pageMilliturns) || 0)
+          ),
+          grantedCompanion: Math.max(
+            0,
+            Math.round(Number(atomic.balance.grantedCompanionMilliturns) || 0)
+          ),
+          grantedPage: Math.max(
+            0,
+            Math.round(Number(atomic.balance.grantedPageMilliturns) || 0)
+          ),
+        });
+      } else if (!atomic.alreadyCredited) {
+        if (cTurns > 0) {
+          credit({ ownerId: id, lane: WALLET_LANE.COMPANION, turns: cTurns });
+        }
+        if (pTurns > 0) {
+          credit({ ownerId: id, lane: WALLET_LANE.PAGE, turns: pTurns });
+        }
+      }
+      const balance = getBalance(id);
+      return {
+        ...balance,
+        alreadyCredited: atomic.alreadyCredited === true,
+        transactionId: tid,
+        companionTurnsCredited: prev?.companionTurnsCredited ?? cTurns,
+        pageTurnsCredited: prev?.pageTurnsCredited ?? pTurns,
+      };
+    }
+
+    if (persistence && typeof persistence.tryInsertIapTransaction === "function") {
+      const insert = await persistence.tryInsertIapTransaction({
+        transactionId: tid,
+        ownerId: id,
+        packId,
+        companionTurnsCredited: cTurns,
+        pageTurnsCredited: pTurns,
+        creditedAt: snapshotBase.creditedAt,
+        meta: snapshotBase.meta,
+      });
+      if (!insert.inserted) {
+        const prev = insert.row || creditedTransactionMeta.get(tid);
+        creditedTransactionIds.add(tid);
+        if (prev) {
+          creditedTransactionMeta.set(tid, {
+            ownerId: prev.ownerId || id,
+            transactionId: tid,
+            companionTurnsCredited: prev.companionTurnsCredited ?? 0,
+            pageTurnsCredited: prev.pageTurnsCredited ?? 0,
+            creditedAt: prev.creditedAt || snapshotBase.creditedAt,
+            meta: prev.meta ?? null,
+            packId: prev.packId ?? packId,
+          });
+        }
+        const balance = getBalance(id);
+        return {
+          ...balance,
+          alreadyCredited: true,
+          transactionId: tid,
+          companionTurnsCredited: prev?.companionTurnsCredited ?? 0,
+          pageTurnsCredited: prev?.pageTurnsCredited ?? 0,
+        };
+      }
+      if (cTurns > 0) {
+        credit({ ownerId: id, lane: WALLET_LANE.COMPANION, turns: cTurns });
+      }
+      if (pTurns > 0) {
+        credit({ ownerId: id, lane: WALLET_LANE.PAGE, turns: pTurns });
+      }
+      creditedTransactionIds.add(tid);
+      creditedTransactionMeta.set(tid, snapshotBase);
+      await enqueuePersist(id);
+      const balance = getBalance(id);
+      return {
+        ...balance,
+        alreadyCredited: false,
+        transactionId: tid,
+        companionTurnsCredited: cTurns,
+        pageTurnsCredited: pTurns,
+      };
+    }
+
     if (creditedTransactionIds.has(tid)) {
       const prev = creditedTransactionMeta.get(tid);
       const balance = getBalance(id);
@@ -243,8 +403,6 @@ function createWalletStore({
         pageTurnsCredited: prev?.pageTurnsCredited ?? 0,
       };
     }
-    const cTurns = Math.max(0, Number(companionTurns) || 0);
-    const pTurns = Math.max(0, Number(pageTurns) || 0);
     if (cTurns > 0) {
       credit({ ownerId: id, lane: WALLET_LANE.COMPANION, turns: cTurns });
     }
@@ -252,15 +410,7 @@ function createWalletStore({
       credit({ ownerId: id, lane: WALLET_LANE.PAGE, turns: pTurns });
     }
     creditedTransactionIds.add(tid);
-    const snapshot = {
-      ownerId: id,
-      transactionId: tid,
-      companionTurnsCredited: cTurns,
-      pageTurnsCredited: pTurns,
-      creditedAt: now(),
-      meta: meta && typeof meta === "object" ? { ...meta } : null,
-    };
-    creditedTransactionMeta.set(tid, snapshot);
+    creditedTransactionMeta.set(tid, snapshotBase);
     const balance = getBalance(id);
     return {
       ...balance,
@@ -318,6 +468,7 @@ function createWalletStore({
       meta: meta && typeof meta === "object" ? { ...meta } : null,
     };
     reservations.set(reservationId, entry);
+    void enqueuePersist(id);
     return {
       reservationId,
       ownerId: id,
@@ -392,6 +543,9 @@ function createWalletStore({
     if (refund > 0) {
       const row = balances.get(entry.ownerId) || getRaw(entry.ownerId);
       row[entry.lane] += refund;
+      void enqueuePersist(entry.ownerId);
+    } else {
+      void enqueuePersist(entry.ownerId);
     }
     entry.status = "committed";
     entry.committedAt = now();
@@ -437,6 +591,7 @@ function createWalletStore({
     row[entry.lane] += entry.reservedMilliturns;
     entry.status = "released";
     entry.releasedAt = now();
+    void enqueuePersist(entry.ownerId);
     return {
       ok: true,
       code: "released",
@@ -477,10 +632,72 @@ function createWalletStore({
     reservations.clear();
     creditedTransactionIds.clear();
     creditedTransactionMeta.clear();
+    if (persistence && typeof persistence.clear === "function") {
+      void persistence.clear();
+    }
   }
 
   function size() {
     return reservations.size;
+  }
+
+  /**
+   * Load durable balances + IAP ledger into process memory.
+   * Call once at boot when persistence is configured.
+   */
+  async function hydrate() {
+    if (!persistence) return { balances: 0, transactions: 0 };
+    let balanceCount = 0;
+    let txnCount = 0;
+    if (typeof persistence.listBalances === "function") {
+      const rows = await persistence.listBalances();
+      for (const row of rows || []) {
+        const id = String(row.ownerId || "").trim();
+        if (!id) continue;
+        balances.set(id, {
+          [WALLET_LANE.COMPANION]: Math.max(
+            0,
+            Math.round(Number(row.companionMilliturns) || 0)
+          ),
+          [WALLET_LANE.PAGE]: Math.max(
+            0,
+            Math.round(Number(row.pageMilliturns) || 0)
+          ),
+          grantedCompanion: Math.max(
+            0,
+            Math.round(Number(row.grantedCompanionMilliturns) || 0)
+          ),
+          grantedPage: Math.max(
+            0,
+            Math.round(Number(row.grantedPageMilliturns) || 0)
+          ),
+        });
+        balanceCount += 1;
+      }
+    }
+    if (typeof persistence.listIapTransactions === "function") {
+      const txns = await persistence.listIapTransactions();
+      for (const t of txns || []) {
+        const tid = String(t.transactionId || "").trim();
+        if (!tid) continue;
+        creditedTransactionIds.add(tid);
+        creditedTransactionMeta.set(tid, {
+          ownerId: String(t.ownerId || ""),
+          transactionId: tid,
+          companionTurnsCredited: t.companionTurnsCredited ?? 0,
+          pageTurnsCredited: t.pageTurnsCredited ?? 0,
+          creditedAt: t.creditedAt || now(),
+          meta: t.meta ?? null,
+          packId: t.packId ?? null,
+        });
+        txnCount += 1;
+      }
+    }
+    return { balances: balanceCount, transactions: txnCount };
+  }
+
+  async function flush() {
+    await writeChain;
   }
 
   return {
@@ -493,9 +710,12 @@ function createWalletStore({
     credit,
     creditPack,
     hasCreditedTransaction,
+    hydrate,
+    flush,
     clear,
     size,
     tokensPerTurn,
+    persistenceKind: persistence?.kind || "memory",
     /** @deprecated diagnostic — process-local ledger size (not durable). */
     creditedTransactionCount: () => creditedTransactionIds.size,
   };

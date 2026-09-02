@@ -46,6 +46,10 @@ const KNOWN_DOMAINS = Object.freeze([
   "telemetry_first_page_written",
   "account_lifecycle",
   "account_audit_log",
+  // T-wallet-postgres-persistence: JSON/adapter fallback for balances + IAP ledger.
+  // Postgres prod uses dedicated wallet_balances / iap_transactions tables (012).
+  "wallet_balances",
+  "iap_transactions",
 ]);
 
 function isKnownDomain(domain) {

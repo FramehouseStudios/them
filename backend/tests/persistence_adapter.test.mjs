@@ -390,11 +390,13 @@ test("KNOWN_DOMAINS includes the canonical domains", () => {
       "craft_overrides",
       "craft_reports",
       "creative_memory",
+      "iap_transactions",
       "knowledge_embeddings",
       "outbox",
       "screenplay",
       "telemetry_first_page_written",
       "user_memory",
+      "wallet_balances",
     ],
   );
 });
