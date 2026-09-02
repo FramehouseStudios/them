@@ -115,3 +115,18 @@ Each entry follows the ADR pattern:
   7. **Wallet:** ElevenLabs BYOK usage is billed to the user’s ElevenLabs account. Do not silently burn io.them wallet turns for third-party TTS BYOK. Platform TTS (default) may remain on our cost surface.
   8. **UI:** Voice settings expose provider + voice picker + connect/disconnect; disclose that audio is synthesized and which provider is active without trademark abuse.
 - **Consequences:** Implementation follows `docs/product/clementine-tts-providers.md`. New work adds `TtsRouter` / ElevenLabs adapter + iOS voice settings; does not fork HerVoice playback into a second interrupt path. Eval coverage should include TTFT-ish speak latency and barge-in cancel for ElevenLabs streams.
+
+## D011 — StoreKit IAP for Clementine turn packs (iPhone V1)
+
+- **Date:** 2026-09-01
+- **Status:** accepted
+- **Context:** Josh needs monetization within ~1 month. Writers buy days/weeks of Clementine (Companion + Page turns), not TPM. Embedding Stripe Checkout inside the iOS app for turn unlocks conflicts with App Store IAP rules for digital goods. them.io DNS may still be parked while a live API host (Render) already serves verify+credit.
+- **Decision:**
+  1. **iPhone V1 digital Clementine packs are sold in-app via StoreKit / IAP** as consumable or non-consumable packs of Companion + Page turns.
+  2. **Stripe is out of band for v1 in-app.** Stripe Checkout must not ship inside iOS for turn unlocks. Stripe remains allowed later for web/account surfaces only.
+  3. **Purchase verification is server-side** (App Store Server API / verified transaction JWS) **before** `wallet.credit`. The client never credits itself.
+  4. **Pack SKUs map to `companionTurns` + `pageTurns` only.** Never expose TPM, token rates, or supplier meters in product copy or API responses.
+  5. **Fail closed** if verification fails or App Store verify secrets are missing in production — no optimistic credit.
+  6. **Live API hosting is required** for verify+credit even if them.io DNS is still parked. Document and use the Render/API host (`api.them.io` or the current Render URL) as the credit endpoint base.
+- **Consequences:** Implementation follows `docs/product/clementine-monetization.md` and extends the D008 wallet. New seams: `pack_catalog`, `iap_verify`, `POST /billing/iap/credit` (auth required, idempotent by `transactionId`). Process-memory wallet + transaction ledger is not prod-durable until a persistence adapter lands; double-credit is still blocked in-process by `transactionId`.
+

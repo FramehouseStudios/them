@@ -1,8 +1,13 @@
-// Clementine wallet in turns (D008 build order #5).
+// Clementine wallet in turns (D008 build order #5; D011 IAP creditPack).
 //
 // In-memory, DI-ready store. Balances are per owner + lane so Page never
 // shares a bill with Companion chit-chat. Users see days/weeks framing —
 // never TPM / tokens-per-minute in API responses.
+//
+// Persistence: process memory by default — NOT prod-ready across multi-instance
+// Render or restarts. Inject a durable adapter later without changing
+// reserve / commit / release / getBalance / creditPack shapes. The
+// transactionId ledger prevents double credit within one process lifetime.
 //
 // Units: milliturns internally (1000 = 1 turn). Public summaries expose
 // whole/fractional turns only.
@@ -129,6 +134,15 @@ function createWalletStore({
   const balances = new Map();
   /** @type {Map<string, object>} */
   const reservations = new Map();
+  /**
+   * In-process IAP / grant ledger. Prevents double credit for the same
+   * App Store transactionId. Not durable across process restarts —
+   * not prod-ready for multi-instance without a persistence adapter.
+   * @type {Set<string>}
+   */
+  const creditedTransactionIds = new Set();
+  /** @type {Map<string, object>} transactionId → last creditPack result snapshot */
+  const creditedTransactionMeta = new Map();
 
   function ensureOwner(ownerId) {
     const id = String(ownerId || "").trim();
@@ -168,7 +182,8 @@ function createWalletStore({
   }
 
   /**
-   * Credit turns onto a lane (no Stripe — packs / grants / tests).
+   * Credit turns onto a lane (grants / tests). Prefer creditPack for IAP
+   * so a single App Store transactionId covers both meters idempotently.
    */
   function credit({ ownerId, lane, turns = 0 } = {}) {
     const id = ensureOwner(ownerId);
@@ -184,6 +199,76 @@ function createWalletStore({
     if (laneKey === WALLET_LANE.COMPANION) row.grantedCompanion += add;
     else row.grantedPage += add;
     return getBalance(id);
+  }
+
+  function hasCreditedTransaction(transactionId) {
+    const tid = String(transactionId || "").trim();
+    return Boolean(tid) && creditedTransactionIds.has(tid);
+  }
+
+  /**
+   * Credit a StoreKit / grant pack onto Companion + Page meters.
+   * Idempotent by transactionId — second call returns the same calm
+   * balance with alreadyCredited: true and does not add turns again.
+   *
+   * @param {object} opts
+   * @param {string} opts.ownerId
+   * @param {number} [opts.companionTurns]
+   * @param {number} [opts.pageTurns]
+   * @param {string} opts.transactionId — required (App Store transaction id)
+   * @param {object} [opts.meta]
+   */
+  function creditPack({
+    ownerId,
+    companionTurns = 0,
+    pageTurns = 0,
+    transactionId = "",
+    meta = null,
+  } = {}) {
+    const id = ensureOwner(ownerId);
+    const tid = String(transactionId || "").trim();
+    if (!tid) {
+      const err = new Error("wallet creditPack requires transactionId");
+      err.code = "wallet_transaction_required";
+      throw err;
+    }
+    if (creditedTransactionIds.has(tid)) {
+      const prev = creditedTransactionMeta.get(tid);
+      const balance = getBalance(id);
+      return {
+        ...balance,
+        alreadyCredited: true,
+        transactionId: tid,
+        companionTurnsCredited: prev?.companionTurnsCredited ?? 0,
+        pageTurnsCredited: prev?.pageTurnsCredited ?? 0,
+      };
+    }
+    const cTurns = Math.max(0, Number(companionTurns) || 0);
+    const pTurns = Math.max(0, Number(pageTurns) || 0);
+    if (cTurns > 0) {
+      credit({ ownerId: id, lane: WALLET_LANE.COMPANION, turns: cTurns });
+    }
+    if (pTurns > 0) {
+      credit({ ownerId: id, lane: WALLET_LANE.PAGE, turns: pTurns });
+    }
+    creditedTransactionIds.add(tid);
+    const snapshot = {
+      ownerId: id,
+      transactionId: tid,
+      companionTurnsCredited: cTurns,
+      pageTurnsCredited: pTurns,
+      creditedAt: now(),
+      meta: meta && typeof meta === "object" ? { ...meta } : null,
+    };
+    creditedTransactionMeta.set(tid, snapshot);
+    const balance = getBalance(id);
+    return {
+      ...balance,
+      alreadyCredited: false,
+      transactionId: tid,
+      companionTurnsCredited: cTurns,
+      pageTurnsCredited: pTurns,
+    };
   }
 
   function reserve({
@@ -390,6 +475,8 @@ function createWalletStore({
   function clear() {
     balances.clear();
     reservations.clear();
+    creditedTransactionIds.clear();
+    creditedTransactionMeta.clear();
   }
 
   function size() {
@@ -404,9 +491,13 @@ function createWalletStore({
     getReservation,
     linkPageReservation,
     credit,
+    creditPack,
+    hasCreditedTransaction,
     clear,
     size,
     tokensPerTurn,
+    /** @deprecated diagnostic — process-local ledger size (not durable). */
+    creditedTransactionCount: () => creditedTransactionIds.size,
   };
 }
 

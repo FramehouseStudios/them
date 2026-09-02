@@ -520,6 +520,10 @@ struct VoiceSettingsScreen: View {
                         CompanionTtsVoiceSettingsSection()
                     }
 
+                    settingsSection("Clementine packs") {
+                        ClementinePackStoreSettingsSection()
+                    }
+
                     settingsSection("Realtime") {
                         realtimeSupplierPicker
                     }

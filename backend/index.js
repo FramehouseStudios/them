@@ -170,6 +170,8 @@ import {
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createWalletStore } from "./lib/clementine/wallet.js";
+import { mountIapCreditRoute } from "./lib/clementine/iap_credit_route.js";
+import { createIapVerifier } from "./lib/clementine/iap_verify.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
 import {
   createTtsSpeechRuntime,
@@ -33213,7 +33215,8 @@ app.post(
   providerBudgetGuard.middleware("talk")
 );
 // D008 Page-lane cancel-on-barge-in + wallet-in-turns: process-local stores.
-// No Stripe — grants/credits are injected separately; API stays calm (turns).
+// D011 StoreKit IAP credits via mountIapCreditRoute (not Stripe Checkout on iOS).
+// Process memory — not prod-ready across multi-instance; transactionId ledger is in-process only.
 const clementineWalletStore = createWalletStore();
 const clementinePageReservationStore = createPageReservationStore({
   walletStore: clementineWalletStore,
@@ -33231,6 +33234,13 @@ mountTalkPipelineRoutes(app, {
   canReadTalkTurnMeta,
   pageReservationStore: clementinePageReservationStore,
   walletStore: clementineWalletStore,
+});
+// D011 — StoreKit IAP verify+credit (auth required; fail closed without ASC secrets).
+// Wallet + transactionId ledger are process-memory — not prod-durable / multi-instance.
+mountIapCreditRoute(app, {
+  walletStore: clementineWalletStore,
+  requireAuthenticatedUser: userAuth.requireAuthenticatedUser,
+  iapVerifier: createIapVerifier(),
 });
 
 // T22: wire craft analysis through the shared persistence adapter so

@@ -95,3 +95,17 @@ export {
   createMuseAwareChatSupplier,
 } from "./muse_provider.js";
 
+export {
+  PACKS,
+  listPacks,
+  getPackById,
+  getPackByProductId,
+  publicPackShape,
+} from "./pack_catalog.js";
+export {
+  hasAppStoreVerifySecrets,
+  createIapVerifier,
+  createMockIapVerifier,
+} from "./iap_verify.js";
+export { mountIapCreditRoute, calmBalancePayload } from "./iap_credit_route.js";
+
