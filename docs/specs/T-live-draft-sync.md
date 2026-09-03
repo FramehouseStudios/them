@@ -1,9 +1,8 @@
 # Spec: T-live-draft-sync
 
-**Status**: implemented on `claude/live-draft-sync`. Contract state:
-`ready-for-ios` (client shipped in the same branch).
-**Owner**: backend Claude (routes, hub, tests); iOS client written in the same
-branch at the human's explicit request (AGENTS.md scope exception).
+**Status**: implemented on `main` by merge #416; two-device smoke added by
+merge #418. Verified on the current Codex maintenance branch.
+**Owner**: io.them project; Codex implementation maintenance.
 **V1 pillar**: infra
 **V1 effect**: typing in the Studio editor on one device appears on the same
 account's other devices as it is typed. The concrete ask: type on the macOS
@@ -35,7 +34,9 @@ like the project routes, so a restarted instance answers correctly.
 
 - `op = { start, delete_count, insert }` in **UTF-16 code units**. JS strings
   and Swift `String.utf16` share that unit, so the same op applies identically
-  on both sides. Diffs never split a surrogate pair.
+  on both sides. Diffs never split a surrogate pair; the server also rejects
+  operations, snapshots, and seed text containing lone surrogates or edit
+  boundaries inside a surrogate pair.
 - `checksum` = FNV-1a 32-bit over UTF-16 code units, 8 lowercase hex chars.
   Vectors: `"" → 811c9dc5`, `"a" → e40c292c`.
 

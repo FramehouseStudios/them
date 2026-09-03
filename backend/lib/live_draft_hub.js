@@ -77,15 +77,18 @@ function normalizeLiveDraftOp(raw, { maxInsertChars = DEFAULT_MAX_TEXT_CHARS } =
   if (start == null || deleteCount == null) return null;
   if (typeof insert !== "string") return null;
   if (insert.length > maxInsertChars) return null;
+  if (!isWellFormedUtf16(insert)) return null;
   return { start, delete_count: deleteCount, insert };
 }
 
 function applyLiveDraftOp(text, op) {
   const source = String(text ?? "");
+  if (!isWellFormedUtf16(source)) return null;
   const normalized = normalizeLiveDraftOp(op);
   if (!normalized) return null;
   const end = normalized.start + normalized.delete_count;
   if (normalized.start > source.length || end > source.length) return null;
+  if (!isUtf16Boundary(source, normalized.start) || !isUtf16Boundary(source, end)) return null;
   return source.slice(0, normalized.start) + normalized.insert + source.slice(end);
 }
 
@@ -95,6 +98,35 @@ function isHighSurrogate(unit) {
 
 function isLowSurrogate(unit) {
   return unit >= 0xdc00 && unit <= 0xdfff;
+}
+
+function isWellFormedUtf16(value) {
+  const text = String(value ?? "");
+  for (let i = 0; i < text.length; i += 1) {
+    const unit = text.charCodeAt(i);
+    if (isHighSurrogate(unit)) {
+      if (i + 1 >= text.length || !isLowSurrogate(text.charCodeAt(i + 1))) return false;
+      i += 1;
+    } else if (isLowSurrogate(unit)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isUtf16Boundary(text, index) {
+  return !(
+    index > 0 &&
+    index < text.length &&
+    isHighSurrogate(text.charCodeAt(index - 1)) &&
+    isLowSurrogate(text.charCodeAt(index))
+  );
+}
+
+function truncateUtf16Safely(text, maxChars) {
+  let end = Math.min(text.length, maxChars);
+  if (!isUtf16Boundary(text, end)) end -= 1;
+  return text.slice(0, end);
 }
 
 // Minimal diff: common prefix / common suffix. Mirrors the Swift client so a
@@ -175,7 +207,9 @@ function createLiveDraftHub({
       touch(channel);
       return channel;
     }
-    const text = String(seedText ?? "").slice(0, maxTextChars);
+    const seed = String(seedText ?? "");
+    if (!isWellFormedUtf16(seed)) return null;
+    const text = truncateUtf16Safely(seed, maxTextChars);
     channel = {
       key,
       seq: 0,
@@ -305,6 +339,7 @@ function createLiveDraftHub({
     const device = normalizeLiveDraftDeviceId(deviceId);
     if (!device) return rejection(channel, "device_id_required");
     if (typeof text !== "string") return rejection(channel, "text_required");
+    if (!isWellFormedUtf16(text)) return rejection(channel, "bad_text");
     if (text.length > maxTextChars) return rejection(channel, "text_too_large");
     if (!allowOp(channel, device)) return rejection(channel, "rate_limited");
     const nextChecksum = liveDraftChecksum(text);
@@ -362,6 +397,7 @@ function createLiveDraftHub({
     if (typeof send !== "function") return null;
     if (channel.subscribers.size >= maxSubscribersPerChannel) return null;
     const device = normalizeLiveDraftDeviceId(deviceId);
+    if (!device) return null;
     const subscriberId = channel.nextSubscriberId;
     channel.nextSubscriberId += 1;
     channel.subscribers.set(subscriberId, { deviceId: device, send });

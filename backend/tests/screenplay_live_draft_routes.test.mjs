@@ -61,12 +61,16 @@ test("[live-draft] normalizeLiveDraftOp rejects malformed ops", () => {
   assert.equal(normalizeLiveDraftOp({ start: 1.5, insert: "" }), null);
   assert.equal(normalizeLiveDraftOp({ start: 0, insert: 12 }), null);
   assert.equal(normalizeLiveDraftOp({ start: 0, insert: "abc" }, { maxInsertChars: 2 }), null);
+  assert.equal(normalizeLiveDraftOp({ start: 0, insert: "\uD800" }), null, "lone surrogate insert is rejected");
   assert.deepEqual(normalizeLiveDraftOp({ start: 2, deleteCount: 1, insert: "x" }), {
     start: 2,
     delete_count: 1,
     insert: "x",
   });
   assert.equal(applyLiveDraftOp("abc", { start: 2, delete_count: 5, insert: "" }), null);
+  assert.equal(applyLiveDraftOp("🎬", { start: 1, delete_count: 0, insert: "x" }), null, "insert cannot split a surrogate pair");
+  assert.equal(applyLiveDraftOp("🎬", { start: 0, delete_count: 1, insert: "" }), null, "delete cannot split a surrogate pair");
+  assert.equal(applyLiveDraftOp("🎬", { start: 0, delete_count: 2, insert: "🎥" }), "🎥");
 });
 
 // ---------- hub: channel semantics ----------
@@ -137,6 +141,10 @@ test("[live-draft] replaceText + announceVersion follow the mirror", () => {
   const same = hub.replaceText(key, { deviceId: "mac", text: "new text" });
   assert.equal(same.unchanged, true);
   assert.equal(same.seq, 1, "identical snapshot does not bump seq");
+  const malformed = hub.replaceText(key, { deviceId: "mac", text: "\uD800" });
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.reason, "bad_text");
+  assert.equal(hub.snapshot(key).text, "new text", "malformed snapshot never mutates the channel");
 
   const staleVersion = hub.announceVersion(key, { deviceId: "mac", versionId: "v10", checksum: "deadbeef" });
   assert.equal(staleVersion.ok, false);
@@ -145,6 +153,16 @@ test("[live-draft] replaceText + announceVersion follow the mirror", () => {
   assert.equal(ok.ok, true);
   assert.equal(hub.snapshot(key).version_id, "v10");
   assert.equal(hub.announceVersion(key, { deviceId: "mac", versionId: "" }).reason, "version_id_required");
+});
+
+test("[live-draft] channel seeds preserve complete UTF-16 characters", () => {
+  const { hub } = makeHub({ maxTextChars: 2 });
+  const safeKey = hub.channelKey("user-1", "safe");
+  assert.ok(hub.ensure(safeKey, { seedText: "A🎬" }));
+  assert.equal(hub.snapshot(safeKey).text, "A", "size truncation backs off before a surrogate pair");
+  const malformedKey = hub.channelKey("user-1", "malformed");
+  assert.equal(hub.ensure(malformedKey, { seedText: "\uD800" }), null);
+  assert.equal(hub.has(malformedKey), false);
 });
 
 test("[live-draft] subscribers receive ops, presence, and bye; cap enforced", () => {
@@ -396,6 +414,14 @@ test("[live-draft] identity boundary: 401 without user, 404 for another user's p
     assert.equal(cross.body.error, "project_not_found");
     const anonPost = await postJson(baseURL, "/screenplay/projects/proj-1/live/ops", { device_id: "x" }, "");
     assert.equal(anonPost.status, 401);
+  });
+});
+
+test("[live-draft] stream requires a device id before opening SSE", async () => {
+  await withServer(defaultDeps(), async ({ baseURL }) => {
+    const missingDevice = await getJson(baseURL, "/screenplay/projects/proj-1/live/stream");
+    assert.equal(missingDevice.status, 400);
+    assert.equal(missingDevice.body.error, "device_id_required");
   });
 });
 
