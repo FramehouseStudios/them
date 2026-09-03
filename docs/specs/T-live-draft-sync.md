@@ -80,6 +80,9 @@ state and normal autosave resumes.
 
 - `backend/tests/screenplay_live_draft_routes.test.mjs` — hub semantics, auth
   boundary, two-device SSE fan-out, 409 resync, 429, version announce, shutdown.
+- `backend/tests/screenplay_live_draft_integration.test.mjs` — spawned real
+  backend: JWT signup → project → seeded stream → keystrokes fan out → version
+  adoption; another user's session gets 404, no bearer gets 401.
 - `themTests/ScreenplayLiveDraftSyncTests.swift` — checksum vectors shared with
   the backend, surrogate-safe diff/apply, SSE parser, hello policy, and the
   service loop with a scripted transport (remote typing → editor, local typing
