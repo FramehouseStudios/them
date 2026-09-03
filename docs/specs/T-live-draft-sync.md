@@ -104,6 +104,13 @@ on a follower clears the follow state immediately.
 - `backend/tests/screenplay_live_draft_integration.test.mjs` — spawned real
   backend: JWT signup → project → seeded stream → keystrokes fan out → version
   adoption; another user's session gets 404, no bearer gets 401.
+- `backend/evals/run_live_draft_two_device_smoke.mjs` (`npm run
+  eval:live-draft-two-device`, opt-in, needs Xcode + a simulator) — the real
+  apps: macOS scaffold and iPhone simulator on one backend with
+  `THEM_LIVE_DRAFT_SYNC=1`; the phone types and the Mac's editor shows it, the
+  Mac types and the phone's editor shows it (XCUITest
+  `test_live_draft_two_device_follows_the_other_device`), each marker saved
+  exactly once.
 - `themTests/ScreenplayLiveDraftSyncTests.swift` — checksum vectors shared with
   the backend, surrogate-safe diff/apply, SSE parser, hello policy, and the
   service loop with a scripted transport (remote typing → editor, local typing

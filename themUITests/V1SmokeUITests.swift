@@ -4172,6 +4172,109 @@ final class V1SmokeUITests: XCTestCase {
         let appLaunchEnvironment: [String: String]
     }
 
+    /// Live typing between devices: this simulator and the macOS scaffold
+    /// share one backend project with THEM_LIVE_DRAFT_SYNC=1. The phone types
+    /// its marker, then waits for the marker the Mac types (driven by
+    /// backend/evals/run_live_draft_two_device_smoke.mjs) to land on its page
+    /// without a reload. Skips unless that smoke provides the fixture.
+    @MainActor
+    func test_live_draft_two_device_follows_the_other_device() async throws {
+        guard let fixture = try restoreContractFixtureFromEnvironment(),
+              let payload = try restoreContractFixturePayloadFromEnvironment(),
+              let liveDraft = payload["liveDraft"] as? [String: Any] else {
+            throw XCTSkip("No live draft two-device fixture was provided.")
+        }
+        let phoneMarker = stringValue(liveDraft["phoneMarker"])
+        let macMarker = stringValue(liveDraft["macMarker"])
+        let waitSeconds = max(30, intValue(liveDraft["waitSeconds"]))
+        guard !phoneMarker.isEmpty, !macMarker.isEmpty else {
+            throw XCTSkip("The live draft fixture is missing its markers.")
+        }
+
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_LIVE_DRAFT_SYNC"] = "1"
+        let app = launchApp(
+            openStudio: true,
+            restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken,
+            launchEnvironment: environment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "INT. ROOM - NIGHT", timeout: 45),
+            "The seeded draft did not load on the iPhone."
+        )
+        var loadedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+                loadedSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["load_project_stage"]).lowercased() == "editor_ready"
+                    && stringValue(snapshot["load_project_error"]).isEmpty
+            },
+            "The iPhone did not finish loading the shared project. Snapshot: \(loadedSnapshot)"
+        )
+
+        // The phone types. Its keystrokes must reach the Mac (asserted by the
+        // orchestrating smoke through the Mac's debug state).
+        let draft = app.otherElements["studio.draft.surface"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 5), "Draft surface missing.")
+        draft.tap()
+        app.typeText("\n\n" + phoneMarker)
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: phoneMarker, timeout: 10),
+            "The phone's own keystrokes did not land on its page."
+        )
+
+        // The Mac types next; the words must arrive here live, on the same
+        // page, with the phone's own words still intact.
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: macMarker, timeout: TimeInterval(waitSeconds)),
+            "The Mac's typing did not reach the iPhone editor within \(waitSeconds)s. Draft: \(app.staticTexts["studio.draft.snapshot"].label)"
+        )
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: phoneMarker, timeout: 5),
+            "Receiving the Mac's typing dropped the phone's own words."
+        )
+        var finalSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 30) { snapshot in
+                finalSnapshot = snapshot
+                return stringValue(snapshot["error_text"]).isEmpty
+                    && stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+            },
+            "The iPhone surfaced an error after live sync. Snapshot: \(finalSnapshot)"
+        )
+    }
+
+    /// Raw restore-fixture payload, for tests that ride extra keys on it.
+    private func restoreContractFixturePayloadFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> [String: Any]? {
+        let directRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_JSON"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalizedBase64 = (environment["THEM_UITEST_RESTORE_FIXTURE_BASE64URL"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        normalizedBase64 += String(repeating: "=", count: (4 - (normalizedBase64.count % 4)) % 4)
+        let decodedRaw = Data(base64Encoded: normalizedBase64)
+            .flatMap { String(data: $0, encoding: .utf8) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fixturePath = (environment["THEM_UITEST_RESTORE_FIXTURE_PATH"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileRaw = fixturePath.isEmpty
+            ? ""
+            : ((try? String(contentsOfFile: fixturePath, encoding: .utf8)) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = !directRaw.isEmpty ? directRaw : (!decodedRaw.isEmpty ? decodedRaw : fileRaw)
+        guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
     private func restoreContractFixtureFromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> RestoreContractFixture? {

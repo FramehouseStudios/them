@@ -61,6 +61,7 @@
     "eval:studio-ios-relaunch-restore-contract": "node evals/run_studio_ios_relaunch_restore_contract_smoke.mjs",
     "eval:studio-ios-writer-loop-contract": "node evals/run_studio_ios_writer_loop_contract_smoke.mjs",
     "eval:studio-cross-platform-restore-contract": "node evals/run_studio_cross_platform_restore_contract_smoke.mjs",
+    "eval:live-draft-two-device": "node evals/run_live_draft_two_device_smoke.mjs",
     "eval:cross-platform-learned-memory-ui": "node evals/run_cross_platform_learned_memory_ui_smoke.mjs",
     "eval:cross-device-memory-conflict": "node evals/run_cross_device_memory_conflict_smoke.mjs",
     "eval:studio-instinct-writer-block-ui": "node evals/run_studio_instinct_writer_block_ui_smoke.mjs",
