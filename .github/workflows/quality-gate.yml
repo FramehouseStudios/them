@@ -113,6 +113,11 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: macos-latest
+    # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
+    # soft UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
+    # 35 min end to end. Without this cap a wedged simulator holds the
+    # required check for the 6-hour default.
+    timeout-minutes: 75
     env:
       RUN_SERVER: 1
       RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
