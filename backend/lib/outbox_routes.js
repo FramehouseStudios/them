@@ -69,9 +69,12 @@ function mountOutboxRoutes(app, deps = {}) {
   app.get("/outbox", requireOutboxOperator, async (req, res) => {
     const status = String(req.query?.status || "all").trim().toLowerCase();
     const limit = parseQueryLimit(req.query?.limit, 80, 500);
+    // Operator control plane: explicitly opt into the cross-user view. The
+    // store fails closed without a userId or this flag.
     const rows = await scaleBackplane.listOutbox({
       status: ["all", "pending", "completed", "failed"].includes(status) ? status : "all",
       limit,
+      allowAllUsers: true,
     });
     return res.status(200).json({
       ok: true,
@@ -86,7 +89,7 @@ function mountOutboxRoutes(app, deps = {}) {
     const rid = req.requestId || createRequestId();
     const id = String(req.body?.id || "").trim();
     if (id) {
-      const result = await processSingleOutboxItemById(id, rid);
+      const result = await processSingleOutboxItemById(id, rid, null, true);
       const code = result.ok ? 200 : (result.error === "not_found" ? 404 : 409);
       return res.status(code).json({
         ok: Boolean(result.ok),
@@ -99,6 +102,7 @@ function mountOutboxRoutes(app, deps = {}) {
     const batch = await processOutboxBatch({
       limit: parseQueryLimit(req.body?.limit, OUTBOX_WORKER_BATCH_SIZE, 200),
       reqId: rid,
+      allowAllUsers: true,
     });
     return res.status(200).json({
       ok: true,

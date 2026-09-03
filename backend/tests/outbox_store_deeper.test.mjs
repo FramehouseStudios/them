@@ -171,7 +171,7 @@ test("[outbox-store-deeper] processOutboxBatch honors limit (claims only up to l
     { id: "e", type: "note_capture", payload: { noteText: "5" }, attempts: 0 },
   ]);
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
-  const r = await processOutboxBatch({ limit: 3, reqId: "deeper" });
+  const r = await processOutboxBatch({ limit: 3, reqId: "deeper", allowAllUsers: true });
   assert.equal(r.claimed, 3);
   assert.equal(r.completed, 3);
 });
