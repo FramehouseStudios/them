@@ -1663,6 +1663,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var draftDebounceCancellable: AnyCancellable?
     private var bridgePreferredVersionCancellable: AnyCancellable?
     private var isHydratingDraft = false
+    /// True while the editor mirrors another device's live typing. Autosave
+    /// waits for that device's version announcement instead of racing it.
+    private(set) var isFollowingRemoteLiveDraft = false
+    private var remoteLiveDraftStatusText = "Live from another device"
+    private var remoteLiveDraftFollowFallbackTask: Task<Void, Never>?
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
     private var loadedDraftProjectID: String = ""
@@ -1709,6 +1714,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             await self.refreshDraftSaveOutboxStatus()
             await self.refreshOutlineMutationOutboxStatus()
         }
+        ScreenplayLiveDraftSyncService.shared.attach(to: self)
     }
 
     deinit {
@@ -1884,6 +1890,78 @@ final class ScreenplayStudioViewModel: ObservableObject {
         applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
     }
 
+    /// Live typing from another device of the same account. Replaces the
+    /// page text without touching the saved fingerprint: the text is not a
+    /// saved version yet, so "unsaved" stays honest until `adoptRemoteLiveVersion`.
+    @discardableResult
+    func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
+            return false
+        }
+        isFollowingRemoteLiveDraft = true
+        isManualDraftEditing = false
+        lastManualDraftEditAt = .distantPast
+        if !sourceDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            remoteLiveDraftStatusText = "Live from \(LiveDraftDeviceIdentity.displayLabel(for: sourceDeviceID))"
+        }
+        scheduleRemoteLiveDraftFollowFallback()
+        guard fountainDraft != text else { return true }
+        isHydratingDraft = true
+        fountainDraft = text
+        isHydratingDraft = false
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        conflictState = nil
+        autosaveStatusText = remoteLiveDraftStatusText
+        return true
+    }
+
+    /// The typing device normally announces its saved version within a couple
+    /// of seconds. If that never comes (it went offline, its save failed), this
+    /// device must not sit on unsaved words forever: resume the normal
+    /// autosave path, where a stale base is handled by the conflict flow.
+    private func scheduleRemoteLiveDraftFollowFallback() {
+        remoteLiveDraftFollowFallbackTask?.cancel()
+        remoteLiveDraftFollowFallbackTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(LiveDraftSyncPolicy.followFallbackInterval * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.isFollowingRemoteLiveDraft else { return }
+            self.isFollowingRemoteLiveDraft = false
+            self.remoteLiveDraftFollowFallbackTask = nil
+            await self.handleDraftDebouncedChange(self.fountainDraft)
+        }
+    }
+
+    private func stopFollowingRemoteLiveDraft() {
+        isFollowingRemoteLiveDraft = false
+        remoteLiveDraftFollowFallbackTask?.cancel()
+        remoteLiveDraftFollowFallbackTask = nil
+    }
+
+    /// The device that typed the current text saved it as `versionID`. Adopt
+    /// that id as our base so the next local edit does not conflict, and mark
+    /// the page saved without issuing a duplicate save.
+    func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
+        let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanVersionID.isEmpty,
+              ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID),
+              LiveDraftText.checksum(fountainDraft) == draftChecksum else {
+            return
+        }
+        latestVersionID = cleanVersionID
+        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastSavedDraftFingerprint = fingerprint(for: normalized)
+        lastRevisionBaseDraft = normalized
+        hasUnsavedDraftChanges = false
+        stopFollowingRemoteLiveDraft()
+        isManualDraftEditing = false
+        conflictState = nil
+        autosaveStatusText = "Saved"
+        if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            clearLocalDraftRecovery(projectId: selectedProjectID)
+        }
+        syncLiveDraftBridgeProjectContext()
+    }
+
     @discardableResult
     func adoptCommittedPageWriteIfNeeded(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
         guard committedWrite.isAuthoritativeWrite else { return false }
@@ -2000,6 +2078,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func noteManualDraftEdit() {
         guard !isHydratingDraft else { return }
         isManualDraftEditing = true
+        stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = Date()
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
@@ -5433,6 +5512,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = false
         loadedDraftProjectID = normalizedProjectID
         isManualDraftEditing = false
+        stopFollowingRemoteLiveDraft()
         lastManualDraftEditAt = .distantPast
         syncLiveDraftBridgeProjectContext()
         lastSavedDraftFingerprint = fingerprint(for: draft)
@@ -5517,6 +5597,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard hasUnsavedDraftChanges else {
             isManualDraftEditing = false
             autosaveStatusText = "Saved"
+            return
+        }
+        if isFollowingRemoteLiveDraft {
+            // The typing device owns this save; we adopt its version id when
+            // it announces one (adoptRemoteLiveVersion).
+            autosaveStatusText = remoteLiveDraftStatusText
             return
         }
         let saveIntent = resolvedDraftSaveIntent(for: draft)
@@ -5954,6 +6040,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 savedDraft: request.draft
             )
             if !hasUnsavedDraftChanges {
+                // The editor shows exactly what was saved, so the checksum the
+                // follower compares against its own editor text will match.
+                ScreenplayLiveDraftSyncService.shared.announceSavedVersion(
+                    projectID: request.projectId,
+                    versionID: nextVersionId,
+                    draft: fountainDraft
+                )
                 isManualDraftEditing = false
                 lastManualDraftEditAt = .distantPast
             }

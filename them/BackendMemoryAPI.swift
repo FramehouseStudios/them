@@ -6053,6 +6053,12 @@ nonisolated enum BackendAuthClient {
         }
     }
 
+    /// Resolved backend origin for callers outside this file that must hit
+    /// the same host as the auth session (live draft sync).
+    static func resolvedBackendBaseURL() -> URL {
+        baseURL()
+    }
+
     private static func baseURL() -> URL {
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
