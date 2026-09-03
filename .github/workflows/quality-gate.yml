@@ -194,11 +194,17 @@ jobs:
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
 
+      # Soft gates cannot fail a PR (continue-on-error) but cost ~15 macOS
+      # minutes per push at 10x billing — ~60% of the job. Run them where
+      # they inform (main, dispatch) or when a PR opts in with the
+      # `run-soft-gates` label; PRs still run the required writer loop.
       - name: Run iOS V1 UI smoke tests (soft gate)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-soft-gates')
         continue-on-error: true
         run: scripts/run_v1_ui_smoke.sh
 
       - name: Run iPhone and macOS voice network-fault smokes (soft gate)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-soft-gates')
         continue-on-error: true
         run: scripts/run_voice_network_fault_smokes.sh
 
