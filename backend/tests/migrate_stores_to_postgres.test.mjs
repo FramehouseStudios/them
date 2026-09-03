@@ -9,6 +9,7 @@ import {
   POST_IMPORT_MIGRATIONS,
   PRE_IMPORT_MIGRATIONS,
   importAuthRecordsAtomically,
+  loadPgModule,
   runCli,
   runMigration,
   validateAuthSnapshot,
@@ -91,6 +92,11 @@ const AUTH_TABLE_NAMES = [
   "persistence_auth_password_reset_tokens",
   "persistence_auth_email_verification_tokens",
 ];
+
+test("[postgres-import] operational runner resolves pg from backend dependencies", () => {
+  const pg = loadPgModule();
+  assert.equal(typeof pg.Pool, "function");
+});
 
 function createStatefulAuthPool(
   initialTables,

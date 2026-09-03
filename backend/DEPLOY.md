@@ -9,9 +9,13 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
 1. **Migrations are up to date.**
 
-   Inspect `backend/migrations/` and confirm every `*.sql` has been applied
-   to the production Postgres instance. New migrations need to land before
-   code that depends on them. In particular,
+   Render runs `node /app/ops/render_predeploy.mjs` from the newly built image
+   before it can receive traffic. The release phase applies every
+   `backend/migrations/*.sql` file through the same canonical runner exercised
+   in CI. A checksum mismatch or failed migration aborts the deploy before the
+   new application starts. New migrations must remain backward-compatible
+   with the previous image, which continues serving while pre-deploy runs.
+   In particular,
    `011_auth_store_metadata.sql` must run before this auth build starts. It
    creates the marker table and marks an existing nonempty auth store, but it
    deliberately does not authorize an empty database as canonical.
@@ -38,15 +42,29 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
    guesses whether an empty database is virgin or represents intentional
    deletion. Local JSON development retains the one-time virgin-adapter
    backfill. Before the first production boot, publish the marker through the
-   explicit migration tooling: import a validated nonempty legacy snapshot, or
-   use an intentionally empty four-array snapshot with `--allow-empty-auth`.
-   Run an import only while backend auth writes are stopped. The importer
+   explicit migration tooling. Import a validated nonempty legacy snapshot
+   only while backend auth writes are stopped. The importer
    validates first, then replaces all four canonical auth tables and publishes
    the marker in one transaction so omitted stale sessions cannot survive a
    rerun. `--schema-only` never clears auth rows and never makes an empty auth
-   database authoritative. For an intentional empty replacement, first run
+   database authoritative. `--allow-empty-auth` is destructive replacement
+   tooling and must never be placed in a deploy or restart command. For an
+   intentional empty replacement, first run
    with `--dry-run`, review its destructive warning, and keep auth writes
    stopped through the live transaction.
+
+   A brand-new production database with no legacy users uses the narrower
+   release initializer. After verifying that all four auth tables are empty,
+   set the Render environment value exactly once:
+
+   ```text
+   AUTH_STORE_EMPTY_INIT_CONFIRMATION=initialize-empty-canonical-auth-store-v1
+   ```
+
+   The release transaction locks the auth tables, refuses markerless nonempty
+   state, and only inserts the canonical marker. It never deletes auth data.
+   Remove the value from Render after the first healthy deploy. Later releases
+   see the valid marker and no-op without requiring the confirmation value.
 
 4. **Keep the V1 backend at one instance.**
 
@@ -68,6 +86,12 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 | `APP_TOKEN` | App-level shared secret sent as `X-APP-TOKEN`. Required. |
 | `AUTH_APPLE_AUDIENCE` | Sign in with Apple Services ID / bundle identifier used for mandatory `aud` validation. Required. |
 | `PORT` | Listen port. Defaults to 3000. |
+
+`AUTH_STORE_EMPTY_INIT_CONFIRMATION` is a first-deploy confirmation, not a
+standing runtime setting. Set it to
+`initialize-empty-canonical-auth-store-v1` only after verifying that the new
+production database contains no users, then remove it after the first healthy
+deploy.
 
 Optional but commonly set: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`,
 `CORS_ALLOW_ORIGIN`, `API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`,
@@ -94,9 +118,16 @@ git push origin main
 # check at /healthz responds 200.
 ```
 
-The blueprint provisions a managed Postgres alongside the web service. After
-the first launch, copy the generated `DATABASE_URL` into the service env
-vars (Render does not auto-link the two on the free plan).
+The blueprint provisions a managed Postgres alongside the web service and
+injects its private `connectionString` into `DATABASE_URL`. Never copy or
+commit the generated database URL. Render also generates the backend-only
+`JWT_SECRET`; provide the app-shared `APP_TOKEN` separately so it can match the
+signed client configuration. Before the first deploy, provide the one-time
+`AUTH_STORE_EMPTY_INIT_CONFIRMATION` described above. The paid web-service plan
+runs `/app/ops/render_predeploy.mjs` on separate release compute before the new
+container starts; any migration or auth-boundary failure leaves the prior
+healthy deployment in place. Keep `numInstances: 1` until auth snapshot writes
+are replaced by row-scoped transactions.
 
 ## Other targets
 

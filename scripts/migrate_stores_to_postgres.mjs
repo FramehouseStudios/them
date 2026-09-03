@@ -27,6 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
@@ -34,6 +35,13 @@ import { createPersistence } from "../backend/lib/persistence_adapter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Operational scripts live at the repository root, but npm dependencies are
+// intentionally owned by backend/package.json. Resolve pg from that package
+// so a clean checkout (and the documented deploy command) does not depend on
+// an accidental repository-root node_modules directory.
+const requireFromBackend = createRequire(
+  path.resolve(__dirname, "..", "backend", "package.json"),
+);
 
 const args = new Set(process.argv.slice(2));
 const backendArgIdx = process.argv.indexOf("--backend");
@@ -601,9 +609,13 @@ function withoutOuterTransaction(sql, name) {
 }
 
 async function createPgPool(databaseUrl) {
-  const pg = await import("pg");
-  const { Pool } = pg.default ?? pg;
+  const { Pool } = loadPgModule();
   return new Pool({ connectionString: databaseUrl });
+}
+
+function loadPgModule() {
+  const pg = requireFromBackend("pg");
+  return pg.default ?? pg;
 }
 
 function collectSourceRecords({
@@ -759,8 +771,7 @@ async function applySchema({
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required to apply schema");
   }
-  const pg = await import("pg");
-  const { Pool } = pg.default ?? pg;
+  const { Pool } = loadPgModule();
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     for (const name of migrationNames) {
@@ -876,6 +887,7 @@ export {
   applySchema,
   collectSourceRecords,
   importAuthRecordsAtomically,
+  loadPgModule,
   readJsonFileIfExists,
   runCli,
   runMigration,

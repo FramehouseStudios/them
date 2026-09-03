@@ -9,22 +9,37 @@ services:
   - type: web
     name: them-backend
     runtime: docker
-    plan: starter
+    plan: 0.5c-512mb
     region: oregon
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    # Blueprint paths resolve from the repository root, even though this file
+    # lives under backend/.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Render runs this from the built image on separate compute before the new
+    # version can receive traffic. It applies every SQL migration, then fails
+    # closed unless the canonical auth store is already initialized or this is
+    # the explicitly confirmed first empty production database.
+    preDeployCommand: node /app/ops/render_predeploy.mjs
     healthCheckPath: /healthz
     autoDeploy: false  # require explicit promotion; CI runs the quality gate
+    # V1 auth writes serialize in-process; horizontal scale is not safe yet.
+    numInstances: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: "3000"
-      # Secrets — set these in the Render dashboard, NOT in this file.
+      # Link Postgres through Render's private network. Do not paste or commit a
+      # generated connection string.
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: them-postgres
+          property: connectionString
+      # Render owns this backend-only signing secret. APP_TOKEN remains a
+      # dashboard prompt because the signed app must use the same value.
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
+      # Secrets — set these in the Render dashboard, NOT in this file.
       - key: OPENAI_API_KEY
         sync: false
       - key: APP_TOKEN
@@ -34,6 +49,11 @@ services:
       - key: ELEVENLABS_VOICE_ID
         sync: false
       - key: AUTH_APPLE_AUDIENCE
+        sync: false
+      # First deploy only: enter `initialize-empty-canonical-auth-store-v1` after
+      # verifying this database contains no real users, then remove the value
+      # after the first healthy deploy. Existing valid markers need no value.
+      - key: AUTH_STORE_EMPTY_INIT_CONFIRMATION
         sync: false
       # App Store Server API (IAP verify). Required to credit packs; omit → fail closed.
       - key: APP_STORE_ISSUER_ID
@@ -78,6 +98,6 @@ databases:
   - name: them-postgres
     databaseName: them
     user: them
-    plan: starter
+    plan: 0.1c-256mb
     region: oregon
     postgresMajorVersion: "16"
