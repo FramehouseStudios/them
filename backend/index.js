@@ -163,6 +163,8 @@ import {
   screenplayStoreByOwner,
   tombstoneScreenplayOwnerRecord,
 } from "./lib/screenplay_store.js";
+import { createLiveDraftHub } from "./lib/live_draft_hub.js";
+import { mountScreenplayLiveDraftRoutes } from "./lib/screenplay_live_draft_routes.js";
 import {
   normalizeOutlineMutationReceipts,
   normalizeOutlineRevision,
@@ -31973,6 +31975,23 @@ mountScreenplayProjectsRoutes(app, {
   normalizeStoredScreenplayBindings,
 });
 
+// T-live-draft-sync: live typing channel per (user, project). The hub is an
+// in-process mirror; the authoritative draft stays the /version save above.
+// See docs/specs/T-live-draft-sync.md.
+const liveDraftHub = createLiveDraftHub({ logger: console });
+const liveDraftSweepTimer = setInterval(() => {
+  liveDraftHub.sweep();
+}, 5 * 60_000);
+liveDraftSweepTimer.unref?.();
+mountScreenplayLiveDraftRoutes(app, {
+  hub: liveDraftHub,
+  getOrCreateScreenplayOwnerRecord,
+  getScreenplayProjectRecord,
+  getLatestScreenplayVersion,
+  normalizeSnippet,
+  createRequestId,
+});
+
 // T-decompose-phase3-screenplay-companion: /screenplay/companion/state
 // (GET + POST), /screenplay/paginate, /screenplay/revision-colors
 // moved to lib/screenplay_companion_routes.js. Behavior is byte-
@@ -33458,6 +33477,8 @@ function gracefulShutdown(signal = "shutdown") {
       server: backendHttpServer,
       inFlightCount: () => readTalkInFlight(),
       stopBackgroundJobs: async () => {
+        clearInterval(liveDraftSweepTimer);
+        liveDraftHub.closeAll();
         if (outboxWorkerTimer) {
           clearInterval(outboxWorkerTimer);
           outboxWorkerTimer = null;
