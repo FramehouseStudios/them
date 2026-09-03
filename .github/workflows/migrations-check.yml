@@ -9,6 +9,10 @@ on:
   pull_request:
     paths:
       - "backend/migrations/**"
+      - "backend/ops/**"
+      - "backend/tests/apply_migrations.test.mjs"
+      - "backend/tests/initialize_empty_auth_store.test.mjs"
+      - "backend/render.yaml"
       - "scripts/apply_migrations.mjs"
       - "backend/lib/persistence_postgres.js"
       - "backend/lib/persistence_adapter.js"
@@ -20,6 +24,10 @@ on:
       - main
     paths:
       - "backend/migrations/**"
+      - "backend/ops/**"
+      - "backend/tests/apply_migrations.test.mjs"
+      - "backend/tests/initialize_empty_auth_store.test.mjs"
+      - "backend/render.yaml"
       - "scripts/apply_migrations.mjs"
       - "backend/lib/persistence_postgres.js"
       - "backend/lib/persistence_adapter.js"
@@ -74,6 +82,13 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Test migration and empty-auth release boundaries
+        run: >-
+          node --test
+          backend/tests/apply_migrations.test.mjs
+          backend/tests/initialize_empty_auth_store.test.mjs
+          backend/tests/render_blueprint_contract.test.mjs
+
       - name: Status (should list every migration as PENDING)
         run: |
           set -e
@@ -84,8 +99,8 @@ jobs:
             exit 1
           fi
 
-      - name: Apply migrations
-        run: node scripts/apply_migrations.mjs
+      - name: Apply migrations with the in-image runner
+        run: node backend/ops/apply_migrations.mjs
 
       - name: Status (should report 0 pending)
         run: |
@@ -97,10 +112,10 @@ jobs:
             exit 1
           fi
 
-      - name: Re-apply is a no-op
+      - name: Re-apply in-image runner is a no-op
         run: |
           set -e
-          out=$(node scripts/apply_migrations.mjs)
+          out=$(node backend/ops/apply_migrations.mjs)
           echo "$out"
           if grep -Eq "applied this run:[[:space:]]*0" <<<"$out"; then
             echo "ok — idempotent"
@@ -108,6 +123,14 @@ jobs:
             echo "::error::re-applying migrations was not a no-op"
             exit 1
           fi
+
+      - name: Confirm and initialize a provably empty auth store
+        env:
+          AUTH_STORE_EMPTY_INIT_CONFIRMATION: initialize-empty-canonical-auth-store-v1
+        run: node backend/ops/render_predeploy.mjs
+
+      - name: Initialized auth store no-ops without confirmation
+        run: node backend/ops/render_predeploy.mjs
 
       - name: Verify literal prefix queries against Postgres
         run: node --test backend/tests/persistence_postgres_live.test.mjs

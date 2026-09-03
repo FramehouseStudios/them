@@ -27,7 +27,9 @@ FROM node:20-alpine AS runtime
 # already has SIGINT/SIGTERM handlers in index.js for the scale backplane).
 RUN apk add --no-cache tini && \
     addgroup -S them && \
-    adduser -S them -G them
+    adduser -S them -G them && \
+    mkdir -p /app && \
+    chown them:them /app
 WORKDIR /app
 
 ENV NODE_ENV=production \

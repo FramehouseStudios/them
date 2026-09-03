@@ -15,8 +15,15 @@ services:
     # lives under backend/.
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
+    # Render runs this from the built image on separate compute before the new
+    # version can receive traffic. It applies every SQL migration, then fails
+    # closed unless the canonical auth store is already initialized or this is
+    # the explicitly confirmed first empty production database.
+    preDeployCommand: node /app/ops/render_predeploy.mjs
     healthCheckPath: /healthz
     autoDeploy: false  # require explicit promotion; CI runs the quality gate
+    # V1 auth writes serialize in-process; horizontal scale is not safe yet.
+    numInstances: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -42,6 +49,11 @@ services:
       - key: ELEVENLABS_VOICE_ID
         sync: false
       - key: AUTH_APPLE_AUDIENCE
+        sync: false
+      # First deploy only: enter `initialize-empty-canonical-auth-store-v1` after
+      # verifying this database contains no real users, then remove the value
+      # after the first healthy deploy. Existing valid markers need no value.
+      - key: AUTH_STORE_EMPTY_INIT_CONFIRMATION
         sync: false
       # App Store Server API (IAP verify). Required to credit packs; omit → fail closed.
       - key: APP_STORE_ISSUER_ID

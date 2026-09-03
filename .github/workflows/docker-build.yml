@@ -17,6 +17,7 @@ on:
       - "backend/lib/**"
       - "backend/middleware/**"
       - "backend/migrations/**"
+      - "backend/ops/**"
       - "backend/services/**"
       - "backend/render.yaml"
       - ".github/workflows/docker-build.yml"
