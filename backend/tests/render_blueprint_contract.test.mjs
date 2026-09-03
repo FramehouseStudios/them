@@ -20,7 +20,7 @@ test("[render-blueprint] production resources remain single-region and manually 
   assert.match(blueprint, /^\s+dockerContext: \.\/backend$/m);
   assert.match(blueprint, /^\s+preDeployCommand: node \/app\/ops\/render_predeploy\.mjs$/m);
   assert.match(blueprint, /^\s+numInstances: 1$/m);
-  assert.equal((blueprint.match(/^\s+- type: web$/gm) ?? []).length, 1);
+  assert.equal((blueprint.match(/^\s+- type: web$/gm) ?? []).length, 2);
   assert.equal((blueprint.match(/^\s+- name: them-postgres$/gm) ?? []).length, 1);
   assert.equal((blueprint.match(/^\s+region: oregon$/gm) ?? []).length, 2);
 });
@@ -45,4 +45,15 @@ test("[render-blueprint] non-root runtime can create crash-safe local recovery m
   assert.match(dockerfile, /mkdir -p \/app/);
   assert.match(dockerfile, /chown them:them \/app/);
   assert.match(dockerfile, /^USER them$/m);
+});
+
+test("[render-blueprint] public policy is a manually promoted static service", () => {
+  assert.match(blueprint, /name: them-public\n\s+runtime: static/);
+  assert.match(
+    blueprint,
+    /buildCommand: test -f site\/index\.html && test -f site\/privacy\/index\.html/,
+  );
+  assert.match(blueprint, /staticPublishPath: \.\/site/);
+  assert.match(blueprint, /domains:\n\s+- them\.io/);
+  assert.equal((blueprint.match(/^\s+autoDeploy: false\b/gm) ?? []).length, 2);
 });

@@ -94,6 +94,31 @@ services:
       - key: PAGE_MULTIPASS_REPAIR
         value: "0"
 
+  - type: web
+    name: them-public
+    runtime: static
+    buildCommand: test -f site/index.html && test -f site/privacy/index.html
+    staticPublishPath: ./site
+    autoDeploy: false  # publish only after the release gate is green
+    domains:
+      - them.io
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'"
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), geolocation=(), microphone=()"
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+
 databases:
   - name: them-postgres
     databaseName: them
