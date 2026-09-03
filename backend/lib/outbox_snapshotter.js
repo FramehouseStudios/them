@@ -103,7 +103,7 @@ function createOutboxSnapshotter({
     if (stopped) return null;
     let items;
     try {
-      items = await scaleBackplane.listOutbox({ status: "all", limit: listLimit });
+      items = await scaleBackplane.listOutbox({ status: "all", limit: listLimit, allowAllUsers: true });
     } catch (err) {
       logger.error?.(`listOutbox failed: ${err?.message || err}`);
       return null;

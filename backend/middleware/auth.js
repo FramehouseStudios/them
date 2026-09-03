@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import {
   APP_TOKEN,
   CORS_ALLOW_ORIGIN,
@@ -64,12 +66,22 @@ function isAppTokenBypassPath(pathname) {
   return appTokenBypassPaths.has(String(pathname || "").trim());
 }
 
+// Constant-time shared-secret compare. A plain `!==` short-circuits on the
+// first mismatching byte, which leaks how much of the token an attacker has
+// guessed. Length mismatch is rejected without calling timingSafeEqual (it
+// throws on unequal lengths); an empty presented token never matches.
+function appTokenMatches(presented, expected) {
+  const presentedBuf = Buffer.from(String(presented || ""), "utf8");
+  const expectedBuf = Buffer.from(String(expected || ""), "utf8");
+  if (presentedBuf.length === 0 || presentedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(presentedBuf, expectedBuf);
+}
+
 function appTokenMiddleware(req, res, next) {
   if (isAppTokenBypassPath(req.path)) return next();
   if (!REQUIRE_APP_TOKEN || !APP_TOKEN) return next();
 
-  const token = req.header("X-APP-TOKEN");
-  if (!token || token !== APP_TOKEN) {
+  if (!appTokenMatches(req.header("X-APP-TOKEN"), APP_TOKEN)) {
     return res.status(401).json({ stage: "auth", error: "Unauthorized" });
   }
   next();
@@ -87,6 +99,7 @@ function applyAppMiddleware(app) {
 }
 
 export {
+  appTokenMatches,
   appTokenMiddleware,
   applyAppMiddleware,
   corsMiddleware,

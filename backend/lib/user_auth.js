@@ -1083,4 +1083,6 @@ export {
   buildPublicUser,
   buildManagedSession,
   createUserAuthSubsystem,
+  USER_PROTECTED_PATTERNS,
+  PAID_PROVIDER_PATTERNS,
 };

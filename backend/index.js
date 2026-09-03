@@ -184,7 +184,7 @@ import {
   normalizeTtsProviderKind,
   TTS_KIND_ELEVENLABS_BYOK,
 } from "./lib/tts_speech.js";
-import { mountCraftRoutes } from "./lib/craft_routes.js";
+import { craftStorageProjectId, mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
@@ -4766,12 +4766,20 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
   // projectId, also pull accepted twists for that project so the
   // model sees the writer's chosen reversals. Best-effort — never
   // fails the request on a storage error.
+  // Accepted twists are stored under the same per-user namespaced key the
+  // /craft/twist/accepted routes write to (craftStorageProjectId). Reading by
+  // the raw body projectId would let a caller name another user's storage key
+  // and pull that writer's twists into their own prompt, so the read is
+  // scoped to the authenticated user and skipped entirely when there is none.
   let acceptedTwists = null;
-  if (projectId) {
+  if (projectId && userId) {
     try {
       const { persistence } = acceptedTwistLogDeps();
       if (persistence) {
-        acceptedTwists = await getAcceptedTwistsForProject({ persistence, projectId });
+        acceptedTwists = await getAcceptedTwistsForProject({
+          persistence,
+          projectId: craftStorageProjectId(userId, projectId),
+        });
       }
     } catch (_e) { /* never block the prompt on a twist-log read */ }
   }

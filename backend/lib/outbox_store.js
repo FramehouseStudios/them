@@ -28,6 +28,7 @@ async function enqueueActionOutbox({
   retryAt = 0,
   actionKey = "",
   reqId = "outbox",
+  userId = null,
 } = {}) {
   const {
     OUTBOX_ENABLED,
@@ -53,6 +54,7 @@ async function enqueueActionOutbox({
     payload: payload && typeof payload === "object" ? payload : {},
     result: result && typeof result === "object" ? result : {},
     lastError: nextStatus === "failed" ? normalizeSnippet(result?.error, 640) : "",
+    userId: userId ? String(userId).trim() : "",
   });
   if (row?.duplicate) {
     console.warn(`[${reqId}] outbox duplicate type=${normalizedType} key=${row.actionKey || "none"}`);
@@ -100,7 +102,7 @@ async function retryOutboxAction(item) {
   return { ok: false, done: true, error: `unsupported_type:${type}`, result: {} };
 }
 
-async function processOutboxBatch({ limit = null, reqId = "outbox_worker" } = {}) {
+async function processOutboxBatch({ limit = null, reqId = "outbox_worker", userId = null, allowAllUsers = false } = {}) {
   const {
     OUTBOX_ENABLED,
     OUTBOX_RETRY_MAX_ATTEMPTS,
@@ -109,7 +111,12 @@ async function processOutboxBatch({ limit = null, reqId = "outbox_worker" } = {}
     scaleBackplane,
   } = outboxStoreDeps();
   if (!OUTBOX_ENABLED) return { claimed: 0, completed: 0, failed: 0, retried: 0 };
-  const due = await scaleBackplane.claimDueOutbox(Math.max(1, Number(limit || OUTBOX_WORKER_BATCH_SIZE)));
+  if (!userId && !allowAllUsers) {
+    throw new Error("processOutboxBatch requires userId or allowAllUsers:true");
+  }
+  const due = userId
+    ? await scaleBackplane.claimDueOutbox(Math.max(1, Number(limit || OUTBOX_WORKER_BATCH_SIZE)), { userId: String(userId).trim() })
+    : await scaleBackplane.claimDueOutbox(Math.max(1, Number(limit || OUTBOX_WORKER_BATCH_SIZE)), { allowAllUsers: true });
   let completed = 0;
   let failed = 0;
   let retried = 0;
@@ -149,7 +156,7 @@ async function processOutboxBatch({ limit = null, reqId = "outbox_worker" } = {}
   return { claimed: due.length, completed, failed, retried };
 }
 
-async function processSingleOutboxItemById(id, reqId = "outbox_manual_retry") {
+async function processSingleOutboxItemById(id, reqId = "outbox_manual_retry", userId = null, allowAllUsers = false) {
   const {
     OUTBOX_RETRY_MAX_ATTEMPTS,
     normalizeSnippet,
@@ -159,8 +166,21 @@ async function processSingleOutboxItemById(id, reqId = "outbox_manual_retry") {
   if (!targetId) {
     return { ok: false, error: "missing_id" };
   }
-  const candidates = await scaleBackplane.listOutbox({ status: "all", limit: 2000 });
+  const owner = userId ? String(userId).trim() : null;
+  if (!owner && !allowAllUsers) {
+    throw new Error("processSingleOutboxItemById requires userId or allowAllUsers:true");
+  }
+  // Scoped callers list only their own rows; the operator control plane
+  // opts into the cross-user view explicitly.
+  const candidates = owner
+    ? await scaleBackplane.listOutbox({ status: "all", limit: 2000, userId: owner })
+    : await scaleBackplane.listOutbox({ status: "all", limit: 2000, allowAllUsers: true });
   const item = candidates.find((x) => String(x?.id || "") === targetId);
+  // Belt and braces: even if a backplane returns a foreign row, a scoped
+  // caller sees not_found (never 403, so existence is not confirmed).
+  if (owner && item && String(item.userId || "") !== owner) {
+    return { ok: false, error: "not_found" };
+  }
   if (!item) {
     return { ok: false, error: "not_found" };
   }
@@ -206,6 +226,7 @@ async function runOutboxWorkerTick() {
       return await processOutboxBatch({
         limit: OUTBOX_WORKER_BATCH_SIZE,
         reqId: "outbox_worker",
+        allowAllUsers: true,
       });
     } catch (err) {
       console.error(`[outbox_worker] error=${String(err?.message || err)}`);

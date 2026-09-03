@@ -224,7 +224,7 @@ test("[outbox-store] processOutboxBatch counts completed + failed + retried", as
     { id: "fail_retry", type: "note_capture", payload: {}, attempts: 0 }, // missing_note_text, terminal too
   ]);
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
-  const r = await processOutboxBatch({ limit: 10, reqId: "test" });
+  const r = await processOutboxBatch({ limit: 10, reqId: "test", allowAllUsers: true });
   assert.equal(r.claimed, 3);
   assert.equal(r.completed, 1);
   // Both terminal failures (weird_type + missing_note_text) count as failed.
@@ -238,7 +238,7 @@ test("[outbox-store] processSingleOutboxItemById returns not_found for missing i
   const backplane = buildScaleBackplaneStub();
   backplane.setList([]);
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
-  const r = await processSingleOutboxItemById("missing");
+  const r = await processSingleOutboxItemById("missing", "test", null, true);
   assert.equal(r.ok, false);
   assert.equal(r.error, "not_found");
 });
@@ -256,7 +256,7 @@ test("[outbox-store] processSingleOutboxItemById returns completed on successful
     { id: "target", type: "note_capture", payload: { noteText: "ok" }, attempts: 0 },
   ]);
   configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
-  const r = await processSingleOutboxItemById("target");
+  const r = await processSingleOutboxItemById("target", "test", null, true);
   assert.equal(r.ok, true);
   assert.equal(r.status, "completed");
 });
@@ -299,4 +299,62 @@ test("[outbox-store] concurrent worker ticks and shutdown waiter share the activ
   await Promise.all([first, second, shutdownWait]);
   assert.equal(backplane.calls.claimDueOutbox.length, 1);
   assert.equal(await waitForOutboxWorkerIdle(), undefined);
+});
+
+// ---------- per-user scoping (Day 1–3 sprint rescue) ----------
+
+test("[outbox-store] enqueueActionOutbox tags the row with the trusted userId", async () => {
+  const backplane = buildScaleBackplaneStub();
+  configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
+  await enqueueActionOutbox({ type: "note_capture", payload: { noteText: "x" }, userId: " user-42 " });
+  assert.equal(backplane.calls.enqueueOutbox.at(-1).userId, "user-42");
+  await enqueueActionOutbox({ type: "note_capture", payload: { noteText: "y" } });
+  assert.equal(backplane.calls.enqueueOutbox.at(-1).userId, "");
+});
+
+test("[outbox-store] batch + single retry fail closed without a userId or allowAllUsers", async () => {
+  const backplane = buildScaleBackplaneStub();
+  backplane.setClaim([]);
+  backplane.setList([]);
+  configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
+  await assert.rejects(
+    () => processOutboxBatch({ limit: 5, reqId: "scoped" }),
+    /requires userId or allowAllUsers/,
+  );
+  await assert.rejects(
+    () => processSingleOutboxItemById("anything", "scoped"),
+    /requires userId or allowAllUsers/,
+  );
+  assert.equal(backplane.calls.claimDueOutbox.length, 0, "must not claim before the scope check");
+  assert.equal(backplane.calls.listOutbox.length, 0, "must not list before the scope check");
+});
+
+test("[outbox-store] processOutboxBatch scoped to a user claims only that user's items", async () => {
+  const backplane = buildScaleBackplaneStub();
+  backplane.setClaim([]);
+  const seen = [];
+  backplane.claimDueOutbox = async (limit, opts) => { seen.push({ limit, opts }); return []; };
+  configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
+  await processOutboxBatch({ limit: 3, reqId: "scoped", userId: " alice " });
+  assert.deepEqual(seen, [{ limit: 3, opts: { userId: "alice" } }]);
+  await processOutboxBatch({ limit: 3, reqId: "scoped", allowAllUsers: true });
+  assert.deepEqual(seen.at(-1), { limit: 3, opts: { allowAllUsers: true } });
+});
+
+test("[outbox-store] processSingleOutboxItemById scoped to a user cannot touch another user's item", async () => {
+  const backplane = buildScaleBackplaneStub();
+  // The stub ignores the userId filter on purpose: this proves the store's
+  // own ownership check holds even if a backplane returns foreign rows.
+  backplane.setList([
+    { id: "alice-item", type: "note_capture", payload: { noteText: "ok" }, attempts: 0, userId: "alice" },
+  ]);
+  configureOutboxStore(defaultDeps({ scaleBackplane: backplane }));
+  const foreign = await processSingleOutboxItemById("alice-item", "scoped", "bob");
+  assert.equal(foreign.ok, false);
+  assert.equal(foreign.error, "not_found", "cross-user retry must look like a missing item, not a 403");
+  assert.equal(backplane.calls.updateOutbox.length, 0, "cross-user retry must not mutate the row");
+  assert.deepEqual(backplane.calls.listOutbox.at(-1), { status: "all", limit: 2000, userId: "bob" });
+  const own = await processSingleOutboxItemById("alice-item", "scoped", "alice");
+  assert.equal(own.ok, true);
+  assert.equal(own.status, "completed");
 });

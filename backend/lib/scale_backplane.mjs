@@ -63,6 +63,7 @@ class FileOutboxStore {
           payload: normalizeJson(item.payload, {}),
           result: normalizeJson(item.result, {}),
           lastError: safeString(item.lastError, 640),
+          userId: safeString(item.userId, 80),
         }));
     } catch (_) {
       this.items = [];
@@ -81,12 +82,26 @@ class FileOutboxStore {
     fs.renameSync(tmp, this.filePath);
   }
 
-  list({ status = "all", limit = 80 } = {}) {
+  list({ status = "all", limit = 80, userId = null, allowAllUsers = false } = {}) {
     this.load();
     const normalizedStatus = String(status || "all").trim().toLowerCase();
+    const owner = safeString(userId, 80);
+    if (!owner && !allowAllUsers) {
+      throw new Error("listOutbox requires userId or allowAllUsers:true");
+    }
     const max = Math.max(1, Math.min(500, Number(limit || 80)));
     const rows = this.items
-      .filter((item) => normalizedStatus === "all" || item.status === normalizedStatus)
+      .filter((item) => {
+        if (normalizedStatus !== "all" && item.status !== normalizedStatus) return false;
+        if (owner) {
+          if (!item.userId) return false;
+          if (String(item.userId) !== owner) return false;
+        } else if (!allowAllUsers) {
+          return false;
+        }
+        // allowAllUsers:true — no owner filter, return all (including legacy)
+        return true;
+      })
       .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
     return rows.slice(0, max).map((x) => ({ ...x }));
   }
@@ -111,6 +126,7 @@ class FileOutboxStore {
       payload: normalizeJson(input.payload, {}),
       result: normalizeJson(input.result, {}),
       lastError: safeString(input.lastError, 640),
+      userId: safeString(input.userId, 80),
     };
     this.items.push(row);
     if (this.items.length > 5000) {
@@ -145,11 +161,25 @@ class FileOutboxStore {
     return { ...updated };
   }
 
-  claimDue(limit = 20, now = nowMs()) {
+  claimDue(limit = 20, now = nowMs(), userId = null, allowAllUsers = false) {
     this.load();
     const max = Math.max(1, Math.min(200, Number(limit || 20)));
+    const owner = safeString(userId, 80);
+    if (!owner && !allowAllUsers) {
+      throw new Error("claimDue requires userId or allowAllUsers:true");
+    }
     const due = this.items
-      .filter((x) => x.status === "pending" && Number(x.nextAttemptAt || 0) <= now)
+      .filter((x) => {
+        if (x.status !== "pending") return false;
+        if (Number(x.nextAttemptAt || 0) > now) return false;
+        if (owner) {
+          if (!x.userId) return false;
+          if (String(x.userId) !== owner) return false;
+        } else if (!allowAllUsers) {
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => Number(a.nextAttemptAt || 0) - Number(b.nextAttemptAt || 0))
       .slice(0, max)
       .map((x) => ({ ...x }));
@@ -320,6 +350,7 @@ export async function createScaleBackplane({
       payload: normalizeJson(input.payload, {}),
       result: normalizeJson(input.result, {}),
       lastError: safeString(input.lastError, 640),
+      userId: safeString(input.userId, 80),
     });
     if (state.postgresEnabled && state.pg) {
       try {
@@ -390,12 +421,29 @@ export async function createScaleBackplane({
     return updated;
   }
 
-  async function listOutbox({ status = "all", limit = 80 } = {}) {
-    return state.outbox.list({ status, limit });
+  async function listOutbox({ status = "all", limit = 80, userId = null, allowAllUsers = false } = {}) {
+    return state.outbox.list({ status, limit, userId, allowAllUsers });
   }
 
-  async function claimDueOutbox(limit = 20) {
-    return state.outbox.claimDue(limit, nowMs());
+  // claimDueOutbox(limit, { userId | allowAllUsers }) or
+  // claimDueOutbox({ limit, userId | allowAllUsers }). The store fails closed
+  // when neither a userId nor allowAllUsers:true is given.
+  async function claimDueOutbox(limit = 20, opts = {}) {
+    let actualLimit = 20;
+    let userId = null;
+    let allowAllUsers = false;
+    if (typeof limit === "number") {
+      actualLimit = limit;
+      if (typeof opts === "object" && opts !== null) {
+        userId = opts.userId ?? null;
+        allowAllUsers = Boolean(opts.allowAllUsers);
+      }
+    } else if (typeof limit === "object" && limit !== null) {
+      userId = limit.userId ?? null;
+      allowAllUsers = Boolean(limit.allowAllUsers);
+      actualLimit = Number(limit.limit ?? 20);
+    }
+    return state.outbox.claimDue(actualLimit, nowMs(), userId, allowAllUsers);
   }
 
   async function emitTalkCommit(event = {}) {
@@ -531,7 +579,7 @@ export async function createScaleBackplane({
       return {
         redisEnabled: state.redisEnabled,
         postgresEnabled: state.postgresEnabled,
-        outboxItems: state.outbox.list({ status: "all", limit: 1_000_000 }).length,
+        outboxItems: state.outbox.list({ status: "all", limit: 1_000_000, allowAllUsers: true }).length,
       };
     },
   };

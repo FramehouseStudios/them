@@ -2916,6 +2916,7 @@ function createTalkHandler(deps) {
         const isNoteSuccess = noteStatus === "saved";
         await enqueueActionOutbox({
           type: "note_capture",
+          userId: trustedUserId || null,
           actionKey: noteActionKey,
           payload: notePayload,
           result: noteCaptureResult,
