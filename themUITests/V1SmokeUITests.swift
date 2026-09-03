@@ -349,33 +349,33 @@ final class V1SmokeUITests: XCTestCase {
         )
         defer { app.terminate() }
         XCTAssertTrue(
-            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 15),
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: writerLoopWait(15)),
             "Studio did not open against the temporary writer-loop backend.\n\(app.debugDescription)"
         )
 
         let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
-        XCTAssertTrue(waitForHittability(of: leftDrawerToggle, timeout: 5))
+        XCTAssertTrue(waitForHittability(of: leftDrawerToggle, timeout: writerLoopWait(5)))
         if !element(identifier: "studio.sidebar.left.drawer", in: app).exists {
             leftDrawerToggle.tap()
         }
         let projectTitleField = app.textFields["New project title"]
         XCTAssertTrue(
-            waitForHittability(of: projectTitleField, timeout: 8),
+            waitForHittability(of: projectTitleField, timeout: writerLoopWait(8)),
             "The Projects drawer did not expose its project title field."
         )
         projectTitleField.tap()
         projectTitleField.typeText(projectTitle)
         let createProject = app.buttons["Create"]
-        XCTAssertTrue(waitForHittability(of: createProject, timeout: 5))
+        XCTAssertTrue(waitForHittability(of: createProject, timeout: writerLoopWait(5)))
         createProject.tap()
         XCTAssertTrue(
-            staticText(containing: projectTitle, in: app).waitForExistence(timeout: 12),
+            staticText(containing: projectTitle, in: app).waitForExistence(timeout: writerLoopWait(12)),
             "The project created through the iPhone UI did not appear in the Projects drawer."
         )
         let projectID = try await waitForWriterLoopProject(
             titled: projectTitle,
             fixture: fixture,
-            timeout: 20
+            timeout: writerLoopWait(20)
         )
 
         guard dismissWriterLoopProjectKeyboard(in: app) else {
@@ -384,16 +384,16 @@ final class V1SmokeUITests: XCTestCase {
             return
         }
         let rightDrawerToggle = app.buttons["studio.sidebar.right.toggle"]
-        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
+        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: writerLoopWait(5)))
         rightDrawerToggle.tap()
         let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
-        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
         XCTAssertTrue(
-            waitForDisappearance(of: element(identifier: "studio.sidebar.left.drawer", in: app), timeout: 5),
+            waitForDisappearance(of: element(identifier: "studio.sidebar.left.drawer", in: app), timeout: writerLoopWait(5)),
             "Opening the inspector did not dismiss the Projects drawer."
         )
         let draftInspector = app.buttons["studio.right-panel.draft"]
-        if draftInspector.waitForExistence(timeout: 3), !draftInspector.isSelected {
+        if draftInspector.waitForExistence(timeout: writerLoopWait(3)), !draftInspector.isSelected {
             draftInspector.tap()
         }
         let autosave = app.switches["studio.draft.document.autosave"]
@@ -402,39 +402,38 @@ final class V1SmokeUITests: XCTestCase {
             "The writer-loop could not reach the Autosave switch."
         )
         XCTAssertTrue(writerLoopSwitchIsOn(autosave), "Autosave was unexpectedly off before the writer-loop began.")
-        autosave.tap()
         XCTAssertTrue(
-            waitForWriterLoopSwitch(autosave, toBeOn: false, timeout: 4),
+            toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4)),
             "Autosave did not turn off, so Save Now would not be the sole version-producing action."
         )
 
-        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: 5))
+        XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: writerLoopWait(5)))
         rightDrawerToggle.tap()
         let editor = app.textViews["studio.draft.editor"]
         XCTAssertTrue(
-            waitForHittability(of: editor, timeout: 8),
+            waitForHittability(of: editor, timeout: writerLoopWait(8)),
             "The UI-created project did not expose its screenplay editor."
         )
         editor.tap()
         editor.typeText(marker)
         XCTAssertTrue(
-            waitForExactWriterLoopDraft(marker, in: app, timeout: 8),
+            waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(8)),
             "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
         )
         let screenplayKeyboard = app.keyboards.firstMatch
         let saveNow = app.buttons["studio.draft.page.save"]
         XCTAssertTrue(
-            waitForHittability(of: saveNow, timeout: 5),
+            waitForHittability(of: saveNow, timeout: writerLoopWait(5)),
             "The edited screenplay page did not expose Save now."
         )
         saveNow.tap()
         XCTAssertTrue(
-            waitForDisappearance(of: screenplayKeyboard, timeout: 5),
+            waitForDisappearance(of: screenplayKeyboard, timeout: writerLoopWait(5)),
             "Saving from the compact screenplay page did not end screenplay editing."
         )
         var saveTriggerSnapshot: [String: Any] = [:]
         XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            waitForRestoreSnapshot(in: app, timeout: writerLoopWait(5)) { snapshot in
                 saveTriggerSnapshot = snapshot
                 return intValue(snapshot["manual_save_trigger_count"]) == 1
             },
@@ -445,7 +444,7 @@ final class V1SmokeUITests: XCTestCase {
             draft: marker,
             fixture: fixture,
             app: app,
-            timeout: 45
+            timeout: writerLoopWait(45)
         )
         let initiallySavedVersions = initiallySavedProject["versions"] as? [[String: Any]] ?? []
         XCTAssertEqual(
@@ -455,7 +454,7 @@ final class V1SmokeUITests: XCTestCase {
         )
         var savedSnapshot: [String: Any] = [:]
         XCTAssertTrue(
-            waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            waitForRestoreSnapshot(in: app, timeout: writerLoopWait(15)) { snapshot in
                 savedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == projectID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
@@ -467,7 +466,7 @@ final class V1SmokeUITests: XCTestCase {
             "Save Now did not commit the UI-entered draft. Snapshot: \(savedSnapshot)"
         )
 
-        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
         if !draftInspector.isSelected {
             draftInspector.tap()
         }
@@ -478,10 +477,10 @@ final class V1SmokeUITests: XCTestCase {
         )
         exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
-        XCTAssertTrue(markdownExport.waitForExistence(timeout: 5), "Export Copy did not offer Markdown.")
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: 10),
+            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
             "Markdown export did not report its .md artifact."
         )
         app.terminate()
@@ -492,11 +491,11 @@ final class V1SmokeUITests: XCTestCase {
             launchEnvironment: fixture.appLaunchEnvironment
         )
         XCTAssertTrue(
-            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 15),
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: writerLoopWait(15)),
             "Studio did not relaunch into the same automation-authenticated account."
         )
         XCTAssertTrue(
-            waitForExactWriterLoopDraft(marker, in: app, timeout: 30),
+            waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(30)),
             "The server-backed draft did not restore exactly once after authenticated relaunch. Draft: \(accessibleDraftText(in: app))"
         )
 
@@ -3063,6 +3062,47 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return writerLoopSwitchIsOn(element) == expected
+    }
+
+    // The required writer-loop gate runs alone on a GitHub macos runner where
+    // test execution measured ~324 s for the single test that takes ~45 s on a
+    // developer Mac (quality-gate runs 33694814706…33711129799, 2026-09-02/03).
+    // Every wait in that test is a polling wait that returns as soon as the
+    // condition holds, so scaling only lengthens the failure path. The 4 s
+    // autosave-switch wait at the old line 406 was the one hard failure
+    // (run 33708055863). THEM_UITEST_WAIT_SCALE overrides the multiplier.
+    private static let writerLoopWaitScale: TimeInterval = {
+        let raw = (ProcessInfo.processInfo.environment["THEM_UITEST_WAIT_SCALE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let parsed = TimeInterval(raw), parsed >= 1, parsed <= 30 {
+            return parsed
+        }
+        return 8
+    }()
+
+    private func writerLoopWait(_ base: TimeInterval) -> TimeInterval {
+        base * Self.writerLoopWaitScale
+    }
+
+    /// Taps a switch and waits for its value to change. A tap issued right
+    /// after the inspector drawer settles from a swipe can be swallowed by the
+    /// scroll view, so if the value has not moved after the first quarter of
+    /// the budget the tap is repeated once — only while the value is still the
+    /// pre-tap value, so a late-arriving first tap is never undone.
+    private func toggleWriterLoopSwitch(
+        _ element: XCUIElement,
+        toBeOn expected: Bool,
+        timeout: TimeInterval
+    ) -> Bool {
+        _ = waitForHittability(of: element, timeout: max(1, timeout / 4))
+        element.tap()
+        if waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout / 4)) {
+            return true
+        }
+        if writerLoopSwitchIsOn(element) != expected, element.exists, element.isHittable {
+            element.tap()
+        }
+        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
     }
 
     private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
