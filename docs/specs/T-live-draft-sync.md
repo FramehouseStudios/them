@@ -62,6 +62,13 @@ shutdown and sends `bye`.
 `ScreenplayLiveDraftSyncService.shared` attaches to `ScreenplayStudioViewModel`
 in its `init`, observes `selectedProjectID` and `fountainDraft`, and:
 
+The service is inert in unit tests and under UI automation (`--ui-testing`,
+`--studio-eval`) unless the process sets `THEM_LIVE_DRAFT_SYNC=1`, so the
+required writer-loop gate measures the writer loop, not this channel's
+network timing. A dedicated two-device UI smoke opts in with that variable.
+
+When enabled it:
+
 - opens the SSE stream for the selected project (reconnect with backoff
   1→30 s, auth refresh on 401, 60 s re-check on 404, resume on foreground,
   start on sign-in, and a 45 s idle watchdog — three missed server pings —

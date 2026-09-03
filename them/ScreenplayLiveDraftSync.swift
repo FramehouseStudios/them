@@ -382,6 +382,26 @@ nonisolated enum LiveDraftSyncPolicy {
         isEnabled && isAuthenticated && !projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    static let automationOptInEnvironmentKey = "THEM_LIVE_DRAFT_SYNC"
+
+    /// Whether the service runs at all in this process. Off in unit tests and
+    /// under UI automation (`--ui-testing`, `--studio-eval`) unless a smoke
+    /// opts in with `THEM_LIVE_DRAFT_SYNC=1`, so the required writer-loop gate
+    /// measures the writer loop, not this channel's network timing.
+    static func isEnabledForProcess(
+        arguments: [String],
+        environment: [String: String],
+        isRunningTests: Bool
+    ) -> Bool {
+        if isRunningTests { return false }
+        let optIn = (environment[automationOptInEnvironmentKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if optIn == "1" || optIn.lowercased() == "true" { return true }
+        if IOThemRuntime.isStudioAutomationArguments(arguments) || IOThemRuntime.isStudioEvalArguments(arguments) {
+            return false
+        }
+        return true
+    }
+
     enum HelloResolution: Equatable {
         /// Channel and editor already agree.
         case inSync
@@ -494,11 +514,16 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private var reconnectAttempt = 0
     private var pendingVersionAnnouncement: (versionID: String, checksum: String)?
     private var lastRemoteLineRevealAt: Date = .distantPast
+    private var lastObservedSignedInFlag: Bool?
 
     init(
         transport: any LiveDraftTransport = LiveDraftBackendTransport(),
         deviceID: String = LiveDraftDeviceIdentity.current(),
-        isEnabled: Bool = !IOThemRuntime.isRunningTests,
+        isEnabled: Bool = LiveDraftSyncPolicy.isEnabledForProcess(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            isRunningTests: IOThemRuntime.isRunningTests
+        ),
         isAuthenticated: @escaping () -> Bool = { BackendAuthClient.currentAuthSessionState().isAuthenticated }
     ) {
         self.transport = transport
@@ -1015,14 +1040,27 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             }
             .store(in: &cancellables)
         // Sign-in lands in UserDefaults (auth_signed_in); a stream that never
-        // started because the user was signed out can start now.
+        // started because the user was signed out can start now. The Studio
+        // writes defaults constantly, so coalesce and act only when the
+        // signed-in flag actually flips.
+        guard isEnabled else { return }
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.reevaluateIfIdle()
+                    self?.signedInFlagMayHaveChanged()
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func signedInFlagMayHaveChanged() {
+        let signedIn = UserDefaults.standard.bool(forKey: "auth_signed_in")
+        guard signedIn != lastObservedSignedInFlag else { return }
+        lastObservedSignedInFlag = signedIn
+        if signedIn {
+            reevaluateIfIdle()
+        }
     }
 }
 

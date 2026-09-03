@@ -153,6 +153,16 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
         XCTAssertEqual(P.resolveHello(localText: "stale", remoteText: "phone text", remoteSeq: 9, remoteSeeded: false, lastAgreedSeq: nil), .adoptRemote)
     }
 
+    func testProcessEnablementStaysOutOfAutomationGates() {
+        typealias P = LiveDraftSyncPolicy
+        XCTAssertTrue(P.isEnabledForProcess(arguments: ["them"], environment: [:], isRunningTests: false))
+        XCTAssertFalse(P.isEnabledForProcess(arguments: ["them"], environment: [:], isRunningTests: true))
+        XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: [:], isRunningTests: false))
+        XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--studio-eval"], environment: [:], isRunningTests: false))
+        XCTAssertTrue(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: false))
+        XCTAssertFalse(P.isEnabledForProcess(arguments: ["them", "--ui-testing"], environment: ["THEM_LIVE_DRAFT_SYNC": "1"], isRunningTests: true))
+    }
+
     func testDeviceDisplayLabels() {
         XCTAssertEqual(LiveDraftDeviceIdentity.displayLabel(for: "mac-1234"), "your Mac")
         XCTAssertEqual(LiveDraftDeviceIdentity.displayLabel(for: "ios-1234"), "your iPhone")
