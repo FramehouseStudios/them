@@ -31988,6 +31988,7 @@ mountScreenplayLiveDraftRoutes(app, {
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,
   getLatestScreenplayVersion,
+  refreshScreenplayOwnerRecord,
   normalizeSnippet,
   createRequestId,
 });

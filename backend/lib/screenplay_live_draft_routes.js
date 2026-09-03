@@ -19,10 +19,11 @@
 // Access-control posture: PER-USER. `/screenplay/*` sits under
 // USER_PROTECTED_PATTERNS in lib/user_auth.js, so `protectUserRoutes`
 // attaches trusted identity before these handlers run. Every handler still
-// resolves the owner record from that identity and 404s when the project is
-// not the caller's — caller-supplied X-User-Id is never trusted. Channel keys
-// are derived from (user, project); a user can never subscribe to or publish
-// into another user's channel.
+// resolves the owner record from that identity (refreshed from persistence,
+// same as the project routes, so a restarted instance answers correctly) and
+// 404s when the project is not the caller's — caller-supplied X-User-Id is
+// never trusted. Channel keys are derived from (user, project); a user can
+// never subscribe to or publish into another user's channel.
 //
 // Nothing here writes to the screenplay store. The authoritative save stays
 // `POST /screenplay/projects/:projectId/version`.
@@ -63,6 +64,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     normalizeSnippet,
     createRequestId,
     resolveUserId = defaultResolveScreenplayUserId,
+    // Optional: authoritative owner refresh (screenplay_store). Without it the
+    // in-memory record is used, which is what unit tests exercise.
+    refreshScreenplayOwnerRecord = null,
     heartbeatMs = DEFAULT_HEARTBEAT_MS,
   } = deps;
   for (const key of [
@@ -76,11 +80,46 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     if (deps[key] === undefined) throw new Error("mountScreenplayLiveDraftRoutes requires dep: " + key);
   }
 
-  function resolveChannel(req, res) {
+  async function resolveOwner(req, res) {
     const userId = requireScreenplayUserId(req, res, { resolveUserId, stage: STAGE });
     if (!userId) return null;
+    if (!req.userId) req.userId = userId;
+    const cached = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    if (!cached) return { userId, owner: null };
+    if (typeof refreshScreenplayOwnerRecord !== "function") return { userId, owner: cached };
+    let refreshed;
+    try {
+      refreshed = await refreshScreenplayOwnerRecord(cached.ownerKey);
+    } catch (error) {
+      refreshed = { ok: false, error };
+    }
+    if (!refreshed?.ok) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(503).json({
+        stage: STAGE,
+        error: "screenplay_persistence_failed",
+        persistence: refreshed?.persistenceKind || "unknown",
+      });
+      return null;
+    }
+    return { userId, owner: refreshed.owner || null };
+  }
+
+  // The channel mirrors what the writer sees: the active version when one is
+  // set (a restored older version is "current"), else the newest by time.
+  function seedVersionFor(project) {
+    const activeId = String(project?.activeVersionId || "").trim();
+    const active = activeId
+      ? (project.versions || []).find((item) => item?.id === activeId) || null
+      : null;
+    return active || getLatestScreenplayVersion(project);
+  }
+
+  async function resolveChannel(req, res) {
+    const resolved = await resolveOwner(req, res);
+    if (!resolved) return null;
+    const { userId, owner } = resolved;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: false });
     const project = owner ? getScreenplayProjectRecord(owner, projectId) : null;
     if (!project) {
       res.setHeader("Cache-Control", "no-store");
@@ -88,10 +127,10 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
       return null;
     }
     const key = hub.channelKey(userId, project.id);
-    const latest = getLatestScreenplayVersion(project);
+    const seed = seedVersionFor(project);
     const channel = hub.ensure(key, {
-      seedText: String(latest?.draft || ""),
-      seedVersionId: project.activeVersionId || latest?.id || "",
+      seedText: String(seed?.draft || ""),
+      seedVersionId: seed?.id || "",
     });
     if (!channel) {
       res.setHeader("Cache-Control", "no-store");
@@ -144,9 +183,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     });
   }
 
-  app.get("/screenplay/projects/:projectId/live/stream", (req, res) => {
+  app.get("/screenplay/projects/:projectId/live/stream", async (req, res) => {
     const rid = req.requestId || createRequestId();
-    const resolved = resolveChannel(req, res);
+    const resolved = await resolveChannel(req, res);
     if (!resolved) return;
     const { key, projectId } = resolved;
     const deviceId = normalizeLiveDraftDeviceId(req.query?.device_id ?? req.query?.deviceId ?? "");
@@ -208,9 +247,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     res.on("error", teardown);
   });
 
-  app.get("/screenplay/projects/:projectId/live/snapshot", (req, res) => {
+  app.get("/screenplay/projects/:projectId/live/snapshot", async (req, res) => {
     const rid = req.requestId || createRequestId();
-    const resolved = resolveChannel(req, res);
+    const resolved = await resolveChannel(req, res);
     if (!resolved) return;
     const snapshot = hub.snapshot(resolved.key);
     res.setHeader("Cache-Control", "no-store");
@@ -225,9 +264,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
   app.post(
     "/screenplay/projects/:projectId/live/ops",
     express.json({ limit: LIVE_DRAFT_OPS_BODY_LIMIT }),
-    (req, res) => {
+    async (req, res) => {
       const rid = req.requestId || createRequestId();
-      const resolved = resolveChannel(req, res);
+      const resolved = await resolveChannel(req, res);
       if (!resolved) return;
       const deviceId = deviceIdFrom(req, res, req.body);
       if (!deviceId) return;
@@ -255,9 +294,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
   app.post(
     "/screenplay/projects/:projectId/live/snapshot",
     express.json({ limit: LIVE_DRAFT_SNAPSHOT_BODY_LIMIT }),
-    (req, res) => {
+    async (req, res) => {
       const rid = req.requestId || createRequestId();
-      const resolved = resolveChannel(req, res);
+      const resolved = await resolveChannel(req, res);
       if (!resolved) return;
       const deviceId = deviceIdFrom(req, res, req.body);
       if (!deviceId) return;
@@ -287,9 +326,9 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
   app.post(
     "/screenplay/projects/:projectId/live/version",
     express.json({ limit: LIVE_DRAFT_VERSION_BODY_LIMIT }),
-    (req, res) => {
+    async (req, res) => {
       const rid = req.requestId || createRequestId();
-      const resolved = resolveChannel(req, res);
+      const resolved = await resolveChannel(req, res);
       if (!resolved) return;
       const deviceId = deviceIdFrom(req, res, req.body);
       if (!deviceId) return;

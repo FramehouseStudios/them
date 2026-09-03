@@ -9,6 +9,7 @@ import { test } from "node:test";
 import express from "express";
 
 import {
+  MAX_RATE_ENTRIES_PER_CHANNEL,
   applyLiveDraftOp,
   createLiveDraftHub,
   diffLiveDraft,
@@ -206,6 +207,17 @@ test("[live-draft] per-device op rate limit", () => {
   assert.equal(op(2).ok, true);
 });
 
+test("[live-draft] rate-limit entries per channel are capped across device ids", () => {
+  const { hub } = makeHub();
+  const key = hub.channelKey("user-1", "proj-1");
+  hub.ensure(key, { seedText: "" });
+  for (let i = 0; i < MAX_RATE_ENTRIES_PER_CHANNEL * 3; i += 1) {
+    const result = hub.applyOp(key, { deviceId: `dev-${i}`, baseSeq: i, op: { start: 0, delete_count: 0, insert: "x" } });
+    assert.equal(result.ok, true);
+  }
+  assert.equal(hub.snapshot(key).seq, MAX_RATE_ENTRIES_PER_CHANNEL * 3);
+});
+
 test("[live-draft] channel keys never collide across users", () => {
   const { hub } = makeHub();
   assert.notEqual(hub.channelKey("u1", "p1"), hub.channelKey("u2", "p1"));
@@ -218,13 +230,23 @@ test("[live-draft] channel keys never collide across users", () => {
 function makeStore() {
   const owners = new Map([
     ["user-1", {
+      ownerKey: "user-1",
       projects: [{
         id: "proj-1",
         activeVersionId: "v1",
         versions: [{ id: "v1", draft: "INT. ROOM - DAY\n\nMara waits.", updatedAt: 10 }],
+      }, {
+        // The writer restored v1 as active after v2 was written: the channel
+        // must mirror what they see, not the newest by timestamp.
+        id: "proj-restored",
+        activeVersionId: "v1",
+        versions: [
+          { id: "v2", draft: "NEWER BUT NOT ACTIVE", updatedAt: 20 },
+          { id: "v1", draft: "ACTIVE OLDER", updatedAt: 10 },
+        ],
       }],
     }],
-    ["user-2", { projects: [{ id: "proj-2", activeVersionId: "", versions: [] }] }],
+    ["user-2", { ownerKey: "user-2", projects: [{ id: "proj-2", activeVersionId: "", versions: [] }] }],
   ]);
   return owners;
 }
@@ -377,7 +399,7 @@ test("[live-draft] identity boundary: 401 without user, 404 for another user's p
   });
 });
 
-test("[live-draft] snapshot seeds from the latest saved version", async () => {
+test("[live-draft] snapshot seeds from the active version, else the latest", async () => {
   await withServer(defaultDeps(), async ({ baseURL }) => {
     const r = await getJson(baseURL, "/screenplay/projects/proj-1/live/snapshot");
     assert.equal(r.status, 200);
@@ -386,6 +408,31 @@ test("[live-draft] snapshot seeds from the latest saved version", async () => {
     assert.equal(r.body.version_id, "v1");
     assert.equal(r.body.seeded, true);
     assert.equal(r.body.checksum, liveDraftChecksum("INT. ROOM - DAY\n\nMara waits."));
+    const restored = await getJson(baseURL, "/screenplay/projects/proj-restored/live/snapshot");
+    assert.equal(restored.body.text, "ACTIVE OLDER");
+    assert.equal(restored.body.version_id, "v1");
+  });
+});
+
+test("[live-draft] owner record is refreshed from persistence; refresh failure is 503", async () => {
+  const owners = makeStore();
+  const refreshes = [];
+  const deps = defaultDeps({
+    getOrCreateScreenplayOwnerRecord: (req) => owners.get(String(req.authUser?.id || "")) || null,
+    refreshScreenplayOwnerRecord: async (ownerKey) => {
+      refreshes.push(ownerKey);
+      if (ownerKey === "user-2") return { ok: false, persistenceKind: "postgres" };
+      return { ok: true, owner: owners.get(ownerKey) };
+    },
+  });
+  await withServer(deps, async ({ baseURL }) => {
+    const ok = await getJson(baseURL, "/screenplay/projects/proj-1/live/snapshot");
+    assert.equal(ok.status, 200);
+    assert.deepEqual(refreshes, ["user-1"]);
+    const failed = await getJson(baseURL, "/screenplay/projects/proj-2/live/snapshot", "user-2");
+    assert.equal(failed.status, 503);
+    assert.equal(failed.body.error, "screenplay_persistence_failed");
+    assert.equal(failed.body.persistence, "postgres");
   });
 });
 

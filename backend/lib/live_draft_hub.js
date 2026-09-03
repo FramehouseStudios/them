@@ -32,6 +32,9 @@ const DEFAULT_MAX_TEXT_CHARS = 2_000_000;
 const DEFAULT_MAX_SUBSCRIBERS_PER_CHANNEL = 8;
 const DEFAULT_MAX_OPS_PER_SECOND_PER_DEVICE = 40;
 const DEVICE_ID_MAX_CHARS = 96;
+// Rate-limit entries are keyed by device id; a caller cycling ids must not
+// grow a channel without bound.
+const MAX_RATE_ENTRIES_PER_CHANNEL = 64;
 const VERSION_ID_MAX_CHARS = 64;
 
 function liveDraftChecksum(text) {
@@ -235,6 +238,11 @@ function createLiveDraftHub({
     if (!entry) {
       entry = { tokens: maxOpsPerSecondPerDevice, lastMs: t };
       channel.opRate.set(deviceId, entry);
+      while (channel.opRate.size > MAX_RATE_ENTRIES_PER_CHANNEL) {
+        const oldest = channel.opRate.keys().next().value;
+        if (oldest == null) break;
+        channel.opRate.delete(oldest);
+      }
     }
     const elapsed = Math.max(0, t - entry.lastMs);
     entry.tokens = Math.min(maxOpsPerSecondPerDevice, entry.tokens + (elapsed * maxOpsPerSecondPerDevice) / 1000);
@@ -426,6 +434,7 @@ function createLiveDraftHub({
 }
 
 export {
+  MAX_RATE_ENTRIES_PER_CHANNEL,
   DEFAULT_IDLE_TTL_MS,
   DEFAULT_MAX_CHANNELS,
   DEFAULT_MAX_SUBSCRIBERS_PER_CHANNEL,

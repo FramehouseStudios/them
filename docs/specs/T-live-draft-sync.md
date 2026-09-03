@@ -26,8 +26,10 @@ seq they last agreed on; the hub applies, bumps `seq`, and fans the op out over
 SSE to every subscriber (the sender drops its own echo by `device_id`).
 
 The mirror is not persistence. The saved version stays the source of truth;
-a channel is seeded from the latest saved draft and dies with the process or
-after 30 idle minutes.
+a channel is seeded from the **active** version (what the writer sees — a
+restored older version counts), else the newest, and dies with the process or
+after 30 idle minutes. Owner records are refreshed from persistence exactly
+like the project routes, so a restarted instance answers correctly.
 
 ### Wire format
 
@@ -51,8 +53,9 @@ Identity: `req.authUser` only. A project that is not the caller's is `404`.
 Channel keys are `(userId, projectId)` so channels can never cross accounts.
 
 Bounds: 2 000 channels (LRU, live channels never evicted), 8 subscribers per
-channel, 2 MB text, body limits 512 kB (ops) / 2 MB (snapshot) / 16 kB
-(version). `closeAll()` runs in graceful shutdown and sends `bye`.
+channel, 64 rate-limit entries per channel, 2 MB text, body limits 512 kB
+(ops) / 2 MB (snapshot) / 16 kB (version). `closeAll()` runs in graceful
+shutdown and sends `bye`.
 
 ### Client (`them/ScreenplayLiveDraftSync.swift`)
 
@@ -60,7 +63,9 @@ channel, 2 MB text, body limits 512 kB (ops) / 2 MB (snapshot) / 16 kB
 in its `init`, observes `selectedProjectID` and `fountainDraft`, and:
 
 - opens the SSE stream for the selected project (reconnect with backoff
-  1→30 s, auth refresh on 401, resume on foreground);
+  1→30 s, auth refresh on 401, 60 s re-check on 404, resume on foreground,
+  start on sign-in, and a 45 s idle watchdog — three missed server pings —
+  so a dead socket never looks "live");
 - coalesces local keystrokes for 50 ms, diffs against the mirror, posts one op;
 - applies remote ops through `ScreenplayStudioViewModel.applyRemoteLiveDraft`,
   which sets `isFollowingRemoteLiveDraft` so the follower does **not** autosave
@@ -69,12 +74,21 @@ in its `init`, observes `selectedProjectID` and `fountainDraft`, and:
   `adoptRemoteLiveVersion` (no duplicate version, no stale base on their next
   edit).
 
-Who wins on connect (`LiveDraftSyncPolicy.resolveHello`): a freshly seeded
-channel or one that has not moved since we last agreed → the local editor is
-pushed; otherwise the channel (another device's typing) is adopted. On a `409`
-the channel wins so every device converges; dropped local keystrokes remain in
-the on-device recovery store. Manual typing on a follower clears the follow
-state and normal autosave resumes.
+**Never lose a writer's words.** Whenever the channel moves under unsent local
+keystrokes (a `409`, a remote op during the coalesce window, a reconnect), the
+local edit is rebased onto the remote text (`LiveDraftText.rebase`) when the
+two edits do not overlap — both devices' words survive and the rebased op is
+published. Only a genuine overlap (both rewrote the same span) falls back to
+the channel text, and the on-device recovery store still holds the local
+version. Who wins on connect (`LiveDraftSyncPolicy.resolveHello`): a freshly
+seeded channel or one that has not moved since we last agreed → the local
+editor is pushed; otherwise the channel is adopted (with the rebase above).
+
+Follower experience: the status line names the device ("Live from your Mac"),
+the page scrolls to the line being typed (throttled to 400 ms), and if the
+typing device never announces a saved version within 30 s the follower
+resumes its own autosave so the words are persisted regardless. Manual typing
+on a follower clears the follow state immediately.
 
 ## Verification
 
@@ -93,8 +107,9 @@ state and normal autosave resumes.
 - Multi-instance fan-out (Redis pub/sub). The hub is single-process like the
   rate limiter; `T-rate-limit-redis-followup` covers the same deployment step.
 - Cursor/selection presence in the UI (`cursor` is already on the wire).
-- True concurrent editing (OT/CRDT). Same-account devices are expected to type
-  on one device at a time; simultaneous typing resolves server-wins.
+- Full OT/CRDT. Non-overlapping concurrent edits merge; overlapping ones
+  resolve to the channel text (with local recovery). Same-account devices are
+  expected to type on one device at a time.
 - `D-desktop-posture-v1` says no *marketed* desktop app for V1. The macOS
   scaffold build keeps working and now syncs; the posture decision is
   unchanged by this spec.

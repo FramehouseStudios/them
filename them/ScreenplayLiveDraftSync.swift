@@ -15,6 +15,10 @@ import AppKit
 // The authoritative save is untouched: the leader device still autosaves
 // through `/version`, then announces the version id so followers adopt it
 // without saving a duplicate.
+//
+// Guiding rule: never lose a writer's words. Concurrent edits that do not
+// overlap are merged on both sides; only a genuine overlap falls back to the
+// channel's text, and the local recovery store still holds what was typed.
 
 // MARK: - Wire model
 
@@ -41,6 +45,12 @@ nonisolated struct LiveDraftOp: Codable, Equatable, Sendable {
         deleteCount = try container.decodeIfPresent(Int.self, forKey: .deleteCount) ?? 0
         insert = try container.decodeIfPresent(String.self, forKey: .insert) ?? ""
     }
+
+    /// Exclusive end of the replaced range in the base text.
+    var end: Int { start + deleteCount }
+    /// Where the caret sits after this op is applied.
+    var caret: Int { start + insert.utf16.count }
+    var lengthDelta: Int { insert.utf16.count - deleteCount }
 }
 
 /// Text helpers shared with `backend/lib/live_draft_hub.js`. Both sides work
@@ -86,10 +96,50 @@ nonisolated enum LiveDraftText {
     static func apply(_ op: LiveDraftOp, to text: String) -> String? {
         guard op.start >= 0, op.deleteCount >= 0 else { return nil }
         var units = Array(text.utf16)
-        let end = op.start + op.deleteCount
-        guard op.start <= units.count, end <= units.count else { return nil }
-        units.replaceSubrange(op.start..<end, with: Array(op.insert.utf16))
+        guard op.start <= units.count, op.end <= units.count else { return nil }
+        units.replaceSubrange(op.start..<op.end, with: Array(op.insert.utf16))
         return String(decoding: units, as: UTF16.self)
+    }
+
+    /// Re-applies a local edit on top of text another device produced from
+    /// the same base. Returns nil when the two edits overlap — then there is
+    /// no honest automatic merge and the caller must pick a side.
+    static func rebase(localOp: LiveDraftOp, base: String, remoteText: String) -> String? {
+        guard let remoteOp = diff(from: base, to: remoteText) else {
+            return apply(localOp, to: remoteText)
+        }
+        let bothInsertAtSameSpot = localOp.start == remoteOp.start
+            && localOp.deleteCount == 0
+            && remoteOp.deleteCount == 0
+        if localOp.end <= remoteOp.start, !bothInsertAtSameSpot {
+            // Local edit sits entirely before the remote one: positions hold.
+            return apply(localOp, to: remoteText)
+        }
+        if localOp.start >= remoteOp.end {
+            // Local edit sits after the remote one: shift by the remote delta.
+            // Two inserts at the same spot land remote-first, local-second, so
+            // both devices see the same order.
+            let shifted = LiveDraftOp(
+                start: localOp.start + remoteOp.lengthDelta,
+                deleteCount: localOp.deleteCount,
+                insert: localOp.insert
+            )
+            return apply(shifted, to: remoteText)
+        }
+        return nil
+    }
+
+    /// 1-based line number containing the given UTF-16 offset.
+    static func lineNumber(atUTF16Offset offset: Int, in text: String) -> Int {
+        guard offset > 0 else { return 1 }
+        var line = 1
+        var index = 0
+        for unit in text.utf16 {
+            if index >= offset { break }
+            if unit == 0x0A { line += 1 }
+            index += 1
+        }
+        return line
     }
 }
 
@@ -248,6 +298,8 @@ nonisolated enum LiveDraftTransportError: Error, Equatable, Sendable {
     case invalidResponse
     case http(Int)
     case notConfigured
+    /// No bytes (events or `: ping` comments) for `streamIdleTimeout`.
+    case idleTimeout
 }
 
 nonisolated protocol LiveDraftTransport: Sendable {
@@ -296,6 +348,14 @@ nonisolated enum LiveDraftDeviceIdentity {
         guard !value.isEmpty, value.count <= 96 else { return false }
         return value.allSatisfy { $0.isLetter || $0.isNumber || "._:-".contains($0) }
     }
+
+    /// Writer-facing name for the device an edit came from.
+    static func displayLabel(for deviceID: String) -> String {
+        let clean = deviceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if clean.hasPrefix("mac-") { return "your Mac" }
+        if clean.hasPrefix("ios-") { return "your iPhone" }
+        return "another device"
+    }
 }
 
 nonisolated enum LiveDraftSyncPolicy {
@@ -303,6 +363,15 @@ nonisolated enum LiveDraftSyncPolicy {
     static let publishCoalesceInterval: TimeInterval = 0.05
     static let publishRetryInterval: TimeInterval = 0.4
     static let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
+    /// The server pings every 15 s; three missed pings means the socket is dead.
+    static let streamIdleTimeout: TimeInterval = 45
+    /// A project the backend does not know yet (never saved) is re-checked slowly.
+    static let projectMissingRetryDelay: TimeInterval = 60
+    /// Scroll the follower to the writer's line at most this often.
+    static let remoteLineRevealInterval: TimeInterval = 0.4
+    /// If the typing device never announces a saved version, the follower
+    /// resumes its own autosave after this long so the words are persisted.
+    static let followFallbackInterval: TimeInterval = 30
 
     static func reconnectDelay(attempt: Int) -> TimeInterval {
         guard attempt >= 0 else { return reconnectDelays[0] }
@@ -316,7 +385,7 @@ nonisolated enum LiveDraftSyncPolicy {
     enum HelloResolution: Equatable {
         /// Channel and editor already agree.
         case inSync
-        /// Channel text is newer; replace the editor.
+        /// Channel text is newer; reconcile the editor onto it.
         case adoptRemote
         /// Editor text is at least as fresh; publish it as the channel mirror.
         case pushLocal
@@ -330,8 +399,8 @@ nonisolated enum LiveDraftSyncPolicy {
     ///   non-empty editor is at least that fresh, so it becomes the mirror.
     /// - A channel that has not moved since we last agreed (`lastAgreedSeq`)
     ///   cannot be newer than local edits made while offline.
-    /// - Otherwise another device typed; the channel wins so every device
-    ///   converges. Local edits stay in the on-device recovery store.
+    /// - Otherwise another device typed; the channel is adopted, and
+    ///   non-overlapping local edits are rebased onto it.
     static func resolveHello(
         localText: String,
         remoteText: String?,
@@ -371,8 +440,10 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftProjectIDPublisher: AnyPublisher<String, Never> { get }
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
-    func applyRemoteLiveDraft(_ text: String, projectID: String) -> Bool
+    func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
+    /// Bring the line another device is typing on into view.
+    func revealRemoteEditLine(_ line: Int)
 }
 
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
@@ -384,6 +455,10 @@ extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
     }
     var liveDraftTextPublisher: AnyPublisher<String, Never> {
         $fountainDraft.eraseToAnyPublisher()
+    }
+
+    func revealRemoteEditLine(_ line: Int) {
+        ScreenplayLiveDraftBridge.shared.jumpToLine(line)
     }
 }
 
@@ -418,6 +493,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private var isConnected = false
     private var reconnectAttempt = 0
     private var pendingVersionAnnouncement: (versionID: String, checksum: String)?
+    private var lastRemoteLineRevealAt: Date = .distantPast
 
     init(
         transport: any LiveDraftTransport = LiveDraftBackendTransport(),
@@ -429,7 +505,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         self.deviceID = deviceID
         self.isEnabled = isEnabled
         self.isAuthenticated = isAuthenticated
-        observeForeground()
+        observeAppState()
     }
 
     // MARK: Lifecycle
@@ -465,11 +541,21 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         resetMirror()
         status = .idle
         peerDeviceIDs = []
+        observeAppState()
     }
 
     /// Reconnect immediately (app returned to foreground, auth changed).
     func retryNow() {
         guard isEnabled, !activeProjectID.isEmpty else { return }
+        reconnectAttempt = 0
+        startStream()
+    }
+
+    /// Start a stream that never started (signed out at selection time) once
+    /// the preconditions hold. Cheap enough to call on any auth-state change.
+    func reevaluateIfIdle() {
+        guard streamTask == nil, editor != nil else { return }
+        guard LiveDraftSyncPolicy.shouldRun(isEnabled: isEnabled, isAuthenticated: isAuthenticated(), projectID: activeProjectID) else { return }
         reconnectAttempt = 0
         startStream()
     }
@@ -540,6 +626,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             status = .connecting
             let checksum = LiveDraftText.checksum(editor?.liveDraftText ?? "")
             let stream = transport.openStream(projectID: projectID, deviceID: deviceID, checksum: checksum)
+            var delay = LiveDraftSyncPolicy.reconnectDelay(attempt: reconnectAttempt)
             do {
                 for try await event in stream {
                     guard !Task.isCancelled, projectID == activeProjectID else { return }
@@ -547,15 +634,19 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 }
                 logger.info("live draft stream ended; reconnecting")
             } catch let error as LiveDraftTransportError {
-                if case .http(401) = error, await refreshAuthIfPossible() {
-                    logger.info("live draft stream refreshed auth; reconnecting")
-                } else if case .http(404) = error {
-                    // Project not on this backend (deleted, or created locally
-                    // and not yet persisted). Stay quiet until it changes.
-                    isConnected = false
-                    status = .offline(reason: "project_not_found")
-                    return
-                } else {
+                switch error {
+                case .http(401):
+                    if await refreshAuthIfPossible() {
+                        logger.info("live draft stream refreshed auth; reconnecting")
+                    }
+                case .http(404):
+                    // Project not on this backend yet (created locally, not
+                    // saved). Check back slowly instead of hammering.
+                    delay = LiveDraftSyncPolicy.projectMissingRetryDelay
+                case .idleTimeout:
+                    logger.info("live draft stream went quiet; reconnecting")
+                    delay = 0
+                default:
                     logger.warning("live draft stream failed: \(String(describing: error), privacy: .public)")
                 }
             } catch {
@@ -565,9 +656,10 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             isConnected = false
             guard !Task.isCancelled, projectID == activeProjectID else { return }
             status = .offline(reason: "reconnecting")
-            let delay = LiveDraftSyncPolicy.reconnectDelay(attempt: reconnectAttempt)
             reconnectAttempt += 1
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
         }
     }
 
@@ -628,9 +720,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             mirrorSeq = payload.seq
             mirrorChecksum = LiveDraftText.checksum(localText)
         case .adoptRemote:
-            let remoteText = payload.text ?? ""
-            setMirror(text: remoteText, seq: payload.seq, checksum: payload.checksum)
-            applyToEditor(remoteText, projectID: projectID)
+            reconcileRemote(
+                text: payload.text ?? "",
+                seq: payload.seq,
+                checksum: payload.checksum,
+                projectID: projectID,
+                sourceDeviceID: "",
+                revealLine: nil
+            )
         case .pushLocal:
             // Take the channel's seq as our base so the snapshot push is not
             // rejected as stale, then replace its text with the editor's.
@@ -655,8 +752,15 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             scheduleResync()
             return
         }
-        setMirror(text: next, seq: payload.seq, checksum: payload.checksum)
-        applyToEditor(next, projectID: projectID)
+        let caret = payload.cursor ?? payload.op.caret
+        reconcileRemote(
+            text: next,
+            seq: payload.seq,
+            checksum: payload.checksum,
+            projectID: projectID,
+            sourceDeviceID: payload.deviceId,
+            revealLine: LiveDraftText.lineNumber(atUTF16Offset: caret, in: next)
+        )
     }
 
     private func handleSnapshot(_ payload: LiveDraftSnapshotPayload, projectID: String) {
@@ -664,8 +768,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             if let seq = mirrorSeq, payload.seq > seq { mirrorSeq = payload.seq }
             return
         }
-        setMirror(text: payload.text, seq: payload.seq, checksum: payload.checksum)
-        applyToEditor(payload.text, projectID: projectID)
+        reconcileRemote(
+            text: payload.text,
+            seq: payload.seq,
+            checksum: payload.checksum,
+            projectID: projectID,
+            sourceDeviceID: payload.deviceId ?? "",
+            revealLine: nil
+        )
     }
 
     private func setMirror(text: String, seq: Int, checksum: String) {
@@ -674,11 +784,50 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         mirrorChecksum = checksum.isEmpty ? LiveDraftText.checksum(text) : checksum
     }
 
-    private func applyToEditor(_ text: String, projectID: String) {
+    /// Move the mirror to what the channel now holds and bring the editor
+    /// along. Keystrokes typed here but not yet published are rebased onto
+    /// the remote text when they do not overlap it; otherwise the channel
+    /// wins and the local recovery store keeps the dropped words.
+    private func reconcileRemote(
+        text remoteText: String,
+        seq: Int,
+        checksum: String,
+        projectID: String,
+        sourceDeviceID: String,
+        revealLine: Int?
+    ) {
+        let previousMirror = mirrorText
+        let localText = editor?.liveDraftText ?? previousMirror
+        setMirror(text: remoteText, seq: seq, checksum: checksum)
+        var merged: String?
+        if localText != previousMirror,
+           let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
+            merged = LiveDraftText.rebase(localOp: localOp, base: previousMirror, remoteText: remoteText)
+            if merged == nil {
+                logger.notice("live draft: overlapping edits, channel text kept")
+            }
+        }
+        applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
+        if let revealLine, merged == nil {
+            revealRemoteLineIfDue(revealLine)
+        }
+        if merged != nil {
+            schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
+        }
+    }
+
+    private func applyToEditor(_ text: String, projectID: String, sourceDeviceID: String) {
         guard let editor else { return }
         isApplyingRemote = true
         defer { isApplyingRemote = false }
-        _ = editor.applyRemoteLiveDraft(text, projectID: projectID)
+        _ = editor.applyRemoteLiveDraft(text, projectID: projectID, sourceDeviceID: sourceDeviceID)
+    }
+
+    private func revealRemoteLineIfDue(_ line: Int) {
+        let now = Date()
+        guard now.timeIntervalSince(lastRemoteLineRevealAt) >= LiveDraftSyncPolicy.remoteLineRevealInterval else { return }
+        lastRemoteLineRevealAt = now
+        editor?.revealRemoteEditLine(line)
     }
 
     // MARK: Publish
@@ -699,8 +848,9 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
             return
         }
+        let baseText = mirrorText
         let localText = editor.liveDraftText
-        guard localText != mirrorText, let op = LiveDraftText.diff(from: mirrorText, to: localText) else { return }
+        guard localText != baseText, let op = LiveDraftText.diff(from: baseText, to: localText) else { return }
         let projectID = activeProjectID
         let checksum = LiveDraftText.checksum(localText)
         isPublishInFlight = true
@@ -713,7 +863,7 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 baseChecksum: mirrorChecksum,
                 op: op,
                 checksum: checksum,
-                cursor: localText.utf16.count
+                cursor: op.caret
             )
             guard projectID == activeProjectID else { return }
             switch result {
@@ -721,11 +871,16 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 setMirror(text: localText, seq: seq, checksum: appliedChecksum)
                 flushVersionAnnouncementIfPossible()
             case let .conflict(seq, remoteChecksum, remoteText):
-                // Another device moved the channel first. The channel wins so
-                // both screens converge; the dropped keystrokes are still in
-                // the local recovery store.
-                setMirror(text: remoteText, seq: seq, checksum: remoteChecksum)
-                applyToEditor(remoteText, projectID: projectID)
+                // Another device moved the channel first. Rebase what was
+                // typed here onto it when the edits do not overlap.
+                reconcileRemote(
+                    text: remoteText,
+                    seq: seq,
+                    checksum: remoteChecksum,
+                    projectID: projectID,
+                    sourceDeviceID: "",
+                    revealLine: nil
+                )
             case .rateLimited:
                 schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
                 return
@@ -774,8 +929,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 setMirror(text: localText, seq: seq, checksum: checksum)
                 flushVersionAnnouncementIfPossible()
             case let .conflict(seq, remoteChecksum, remoteText):
-                setMirror(text: remoteText, seq: seq, checksum: remoteChecksum)
-                applyToEditor(remoteText, projectID: projectID)
+                reconcileRemote(
+                    text: remoteText,
+                    seq: seq,
+                    checksum: remoteChecksum,
+                    projectID: projectID,
+                    sourceDeviceID: "",
+                    revealLine: nil
+                )
             case .rateLimited:
                 schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
             case let .rejected(status, reason):
@@ -820,11 +981,14 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
             do {
                 let snapshot = try await self.transport.fetchSnapshot(projectID: projectID)
                 guard projectID == self.activeProjectID else { return }
-                self.setMirror(text: snapshot.text, seq: snapshot.seq, checksum: snapshot.checksum)
-                self.applyToEditor(snapshot.text, projectID: projectID)
-                if let editor = self.editor, editor.liveDraftText != self.mirrorText {
-                    self.schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
-                }
+                self.reconcileRemote(
+                    text: snapshot.text,
+                    seq: snapshot.seq,
+                    checksum: snapshot.checksum,
+                    projectID: projectID,
+                    sourceDeviceID: snapshot.deviceId ?? "",
+                    revealLine: nil
+                )
             } catch {
                 self.logger.warning("live draft resync failed: \(error.localizedDescription, privacy: .public)")
                 self.schedulePublish(after: LiveDraftSyncPolicy.publishRetryInterval)
@@ -832,17 +996,17 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         }
     }
 
-    // MARK: Foreground
+    // MARK: App state
 
-    private func observeForeground() {
+    private func observeAppState() {
         #if os(iOS)
-        let name = UIApplication.willEnterForegroundNotification
+        let foregroundName = UIApplication.willEnterForegroundNotification
         #elseif os(macOS)
-        let name = NSApplication.didBecomeActiveNotification
+        let foregroundName = NSApplication.didBecomeActiveNotification
         #else
-        let name: Notification.Name? = nil
+        let foregroundName = Notification.Name("io.them.them.liveDraftForeground")
         #endif
-        NotificationCenter.default.publisher(for: name)
+        NotificationCenter.default.publisher(for: foregroundName)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, !self.isConnected else { return }
@@ -850,10 +1014,50 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        // Sign-in lands in UserDefaults (auth_signed_in); a stream that never
+        // started because the user was signed out can start now.
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reevaluateIfIdle()
+                }
+            }
+            .store(in: &cancellables)
     }
 }
 
 // MARK: - URLSession transport
+
+/// Tracks the last byte seen on a stream so a silent socket can be detected.
+nonisolated final class LiveDraftStreamActivity: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastActivity = Date()
+    private var timedOut = false
+
+    func touch() {
+        lock.lock()
+        lastActivity = Date()
+        lock.unlock()
+    }
+
+    func idleInterval() -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return Date().timeIntervalSince(lastActivity)
+    }
+
+    func markTimedOut() {
+        lock.lock()
+        timedOut = true
+        lock.unlock()
+    }
+
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timedOut
+    }
+}
 
 nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
     private let session: URLSession
@@ -870,7 +1074,8 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
 
     func openStream(projectID: String, deviceID: String, checksum: String) -> AsyncThrowingStream<LiveDraftServerEvent, Error> {
         AsyncThrowingStream { continuation in
-            let task = Task {
+            let activity = LiveDraftStreamActivity()
+            let reader = Task {
                 do {
                     var request = try Self.makeRequest(
                         projectID: projectID,
@@ -890,19 +1095,38 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
                     guard http.statusCode == 200 else {
                         throw LiveDraftTransportError.http(http.statusCode)
                     }
+                    activity.touch()
                     var parser = LiveDraftSSEParser()
                     for try await byte in bytes {
                         if Task.isCancelled { break }
+                        activity.touch()
                         if let event = parser.feed(byte) {
                             continuation.yield(event)
                         }
                     }
-                    continuation.finish()
+                    continuation.finish(throwing: activity.didTimeOut ? LiveDraftTransportError.idleTimeout : nil)
                 } catch {
-                    continuation.finish(throwing: error)
+                    continuation.finish(throwing: activity.didTimeOut ? LiveDraftTransportError.idleTimeout : error)
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // Server pings every 15 s; if nothing arrives for the idle window
+            // the socket is dead (network switch, sleep) and the service must
+            // reconnect rather than sit "live" while receiving nothing.
+            let watchdog = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    if Task.isCancelled { break }
+                    if activity.idleInterval() > LiveDraftSyncPolicy.streamIdleTimeout {
+                        activity.markTimedOut()
+                        reader.cancel()
+                        break
+                    }
+                }
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                watchdog.cancel()
+            }
         }
     }
 

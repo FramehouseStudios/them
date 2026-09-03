@@ -49,6 +49,45 @@ final class ScreenplayLiveDraftTextTests: XCTestCase {
         XCTAssertEqual(LiveDraftText.apply(LiveDraftOp(start: 3, deleteCount: 0, insert: "d"), to: "abc"), "abcd")
     }
 
+    func testRebaseMergesNonOverlappingEditsAndRefusesOverlaps() {
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        // Phone appended a line; Mac fixed the slugline. Both survive.
+        let remote = base + "\n\nShe leaves."
+        let local = "INT. ROOM - NIGHT\n\nMara waits."
+        let localOp = LiveDraftText.diff(from: base, to: local)!
+        XCTAssertEqual(
+            LiveDraftText.rebase(localOp: localOp, base: base, remoteText: remote),
+            "INT. ROOM - NIGHT\n\nMara waits.\n\nShe leaves."
+        )
+        // Mac appended after the phone's earlier insert: shift by the delta.
+        let remoteEarly = "INT. ROOM - DAY\n\nMara waits and waits."
+        let localLate = base + " She leaves."
+        let lateOp = LiveDraftText.diff(from: base, to: localLate)!
+        XCTAssertEqual(
+            LiveDraftText.rebase(localOp: lateOp, base: base, remoteText: remoteEarly),
+            "INT. ROOM - DAY\n\nMara waits and waits. She leaves."
+        )
+        // Two inserts at the same spot: remote first, local second, on every device.
+        let sameSpotRemote = base + "A"
+        let sameSpotLocal = base + "B"
+        let sameOp = LiveDraftText.diff(from: base, to: sameSpotLocal)!
+        XCTAssertEqual(LiveDraftText.rebase(localOp: sameOp, base: base, remoteText: sameSpotRemote), base + "AB")
+        // Both rewrote the same word: no honest merge.
+        let overlapRemote = "INT. ROOM - DUSK\n\nMara waits."
+        XCTAssertNil(LiveDraftText.rebase(localOp: localOp, base: base, remoteText: overlapRemote))
+        // Remote unchanged from base: local applies as-is.
+        XCTAssertEqual(LiveDraftText.rebase(localOp: localOp, base: base, remoteText: base), local)
+    }
+
+    func testLineNumberAtOffset() {
+        let text = "INT. ROOM - DAY\n\nMara waits.\nShe leaves."
+        XCTAssertEqual(LiveDraftText.lineNumber(atUTF16Offset: 0, in: text), 1)
+        XCTAssertEqual(LiveDraftText.lineNumber(atUTF16Offset: 15, in: text), 1)
+        XCTAssertEqual(LiveDraftText.lineNumber(atUTF16Offset: 17, in: text), 3)
+        XCTAssertEqual(LiveDraftText.lineNumber(atUTF16Offset: text.utf16.count, in: text), 4)
+        XCTAssertEqual(LiveDraftText.lineNumber(atUTF16Offset: 999, in: text), 4)
+    }
+
     func testOpDecodesWireShape() throws {
         let json = Data(#"{"start":2,"delete_count":1,"insert":"x"}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(LiveDraftOp.self, from: json), LiveDraftOp(start: 2, deleteCount: 1, insert: "x"))
@@ -114,6 +153,14 @@ final class ScreenplayLiveDraftPolicyTests: XCTestCase {
         XCTAssertEqual(P.resolveHello(localText: "stale", remoteText: "phone text", remoteSeq: 9, remoteSeeded: false, lastAgreedSeq: nil), .adoptRemote)
     }
 
+    func testDeviceDisplayLabels() {
+        XCTAssertEqual(LiveDraftDeviceIdentity.displayLabel(for: "mac-1234"), "your Mac")
+        XCTAssertEqual(LiveDraftDeviceIdentity.displayLabel(for: "ios-1234"), "your iPhone")
+        XCTAssertEqual(LiveDraftDeviceIdentity.displayLabel(for: "web-1"), "another device")
+        XCTAssertGreaterThan(LiveDraftSyncPolicy.streamIdleTimeout, 15 * 2, "must outlast two server pings")
+        XCTAssertGreaterThan(LiveDraftSyncPolicy.followFallbackInterval, 2, "must outlast the leader's autosave debounce")
+    }
+
     func testDeviceIdentityIsStablePerInstall() {
         let suiteName = "live-draft-device-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -136,7 +183,9 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     @Published var text: String
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
+    var appliedSourceDevices: [String] = []
     var adoptedVersions: [(versionID: String, checksum: String)] = []
+    var revealedLines: [Int] = []
 
     init(projectID: String, text: String) {
         self.projectID = projectID
@@ -149,11 +198,16 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var liveDraftProjectIDPublisher: AnyPublisher<String, Never> { $projectID.eraseToAnyPublisher() }
     var liveDraftTextPublisher: AnyPublisher<String, Never> { $text.eraseToAnyPublisher() }
 
-    func applyRemoteLiveDraft(_ text: String, projectID: String) -> Bool {
+    func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
         guard projectID == self.projectID else { return false }
         appliedRemoteTexts.append(text)
+        appliedSourceDevices.append(sourceDeviceID)
         self.text = text
         return true
+    }
+
+    func revealRemoteEditLine(_ line: Int) {
+        revealedLines.append(line)
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -264,6 +318,8 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         }
         XCTAssertEqual(editor.text, "INT. ROOM - DAY She")
         XCTAssertTrue(transport.postedOps.isEmpty, "remote text must not be echoed back as local typing")
+        XCTAssertEqual(editor.appliedSourceDevices.last, "ios-phone")
+        XCTAssertEqual(editor.revealedLines.first, 1, "follower is scrolled to the writer's line")
 
         // Our own echo (a reconnect race) must not be re-applied.
         transport.emit("op", #"{"seq":\#(seq + 1),"device_id":"mac-test","op":{"start":0,"delete_count":0,"insert":"ZZZ"},"checksum":"deadbeef"}"#)
@@ -315,6 +371,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
     func testConflictAdoptsServerTextAndVersionEventReachesEditor() async {
         let transport = FakeLiveDraftTransport()
         let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "base")
+        // Overlapping rewrite of the same word: the channel wins.
         transport.opResponder = { _ in
             .conflict(seq: 5, checksum: LiveDraftText.checksum("phone wins"), text: "phone wins")
         }
@@ -324,13 +381,68 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum("base"))","seeded":false}"#)
         await waitUntil { service.status.isLive }
 
-        editor.text = "base + mac"
+        editor.text = "bAse"
         await waitUntil { editor.text == "phone wins" }
         XCTAssertEqual(editor.appliedRemoteTexts.last, "phone wins")
 
         transport.emit("version", #"{"seq":5,"device_id":"ios-phone","version_id":"v9","checksum":"\#(LiveDraftText.checksum("phone wins"))"}"#)
         await waitUntil { !editor.adoptedVersions.isEmpty }
         XCTAssertEqual(editor.adoptedVersions.first?.versionID, "v9")
+        service.detach()
+    }
+
+    func testConflictWithNonOverlappingEditsKeepsBothDevicesWords() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let phoneText = base + "\n\nShe leaves."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        var responses: [LiveDraftPublishResult] = [
+            .conflict(seq: 3, checksum: LiveDraftText.checksum(phoneText), text: phoneText),
+        ]
+        transport.opResponder = { posted in
+            responses.isEmpty ? .applied(seq: 4, checksum: posted.checksum) : responses.removeFirst()
+        }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        // Mac fixes the slugline while the phone appended a line.
+        editor.text = "INT. ROOM - NIGHT\n\nMara waits."
+        let merged = "INT. ROOM - NIGHT\n\nMara waits.\n\nShe leaves."
+        await waitUntil { editor.text == merged }
+        XCTAssertEqual(editor.text, merged, "neither device's words are lost")
+        // The rebased local edit is then published against the new mirror.
+        await waitUntil { transport.postedOps.count == 2 }
+        XCTAssertEqual(transport.postedOps.last?.baseSeq, 3)
+        XCTAssertEqual(transport.postedOps.last?.checksum, LiveDraftText.checksum(merged))
+        service.detach()
+    }
+
+    func testRemoteOpWhileTypingLocallyMergesInsteadOfClobbering() async {
+        let transport = FakeLiveDraftTransport()
+        let base = "INT. ROOM - DAY\n\nMara waits."
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: base)
+        // Hold the Mac's publish so a phone op lands while local typing is unsent.
+        transport.opResponder = { posted in .applied(seq: 2, checksum: posted.checksum) }
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":0,"checksum":"\#(LiveDraftText.checksum(base))","seeded":false}"#)
+        await waitUntil { service.status.isLive }
+
+        // Phone prepends FADE IN before the Mac's coalesce window closes.
+        let phoneText = "FADE IN:\n\n" + base
+        let phoneOp = LiveDraftText.diff(from: base, to: phoneText)!
+        editor.text = base + " She leaves."
+        transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(phoneOp.start),"delete_count":0,"insert":"FADE IN:\n\n"},"checksum":"\#(LiveDraftText.checksum(phoneText))"}"#)
+        let merged = "FADE IN:\n\n" + base + " She leaves."
+        await waitUntil { editor.text == merged }
+        XCTAssertEqual(editor.text, merged)
+        await waitUntil { !transport.postedOps.isEmpty }
+        XCTAssertEqual(transport.postedOps.first?.baseSeq, 1, "local words are published on top of the phone's op")
+        XCTAssertEqual(transport.postedOps.first?.op, LiveDraftOp(start: merged.utf16.count - " She leaves.".utf16.count, deleteCount: 0, insert: " She leaves."))
         service.detach()
     }
 
