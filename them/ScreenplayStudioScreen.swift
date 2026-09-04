@@ -4535,6 +4535,41 @@ private var directionOneThemPanel: some View {
         directionOneCompactComposerSection
             .id("studio.composer.anchor")
 
+        if !studioAskNoteHistory.isEmpty {
+            Button {
+                showingFullStudioThread = true
+            } label: {
+                HStack(spacing: 10) {
+                    Label("Working Thread", systemImage: "text.bubble")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                    Spacer(minLength: 8)
+                    Text("\(studioAskNoteHistory.count) \(studioAskNoteHistory.count == 1 ? "entry" : "entries")")
+                        .font(.system(size: 11, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.58))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.48))
+                }
+                .foregroundStyle(Color.herText.opacity(0.78))
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.herShellPanelSoft.opacity(0.84))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("studio.thread.open-full")
+            .accessibilityLabel("Open Working Thread")
+            .accessibilityValue("\(studioAskNoteHistory.count) \(studioAskNoteHistory.count == 1 ? "entry" : "entries")")
+            .accessibilityHint("Opens the searchable history of Studio asks and page writes.")
+        }
+
         // Keep the current creative exchange and its Reuse/To Page actions
         // adjacent to the composer on compact iPhone rails. Passive memory and
         // craft collections can grow much taller and must not bury this live
@@ -7959,18 +7994,35 @@ Current draft version:
         return items
     }
 
-    private func fullThreadSectionSummaryRow(_ section: FullThreadSection) -> some View {
-        HStack(spacing: 8) {
-            ForEach(fullThreadSectionSummaryItems(section), id: \.self) { item in
-                Text(item)
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.66))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.herShellPanelSoft.opacity(0.78))
-                    .clipShape(Capsule())
+    @ViewBuilder
+    private func fullThreadSectionSummaryRow(
+        _ section: FullThreadSection,
+        isCompact: Bool
+    ) -> some View {
+        let items = fullThreadSectionSummaryItems(section)
+        if isCompact {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(items, id: \.self) { item in
+                    fullThreadSectionSummaryItem(item)
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { item in
+                    fullThreadSectionSummaryItem(item)
+                }
             }
         }
+    }
+
+    private func fullThreadSectionSummaryItem(_ item: String) -> some View {
+        Text(item)
+            .font(.system(size: 10, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.66))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.herShellPanelSoft.opacity(0.78))
+            .clipShape(Capsule())
     }
 
     private func fullThreadRevisionTimelineItems(_ section: FullThreadSection) -> [FullThreadRevisionTimelineItem] {
@@ -8034,22 +8086,27 @@ Current draft version:
     }
 
     private func revisionTimelineActionButton(
-        _ systemImage: String,
+        _ title: String,
         label: String,
+        identifier: String,
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            Text(title)
                 .font(.system(size: 10, weight: .semibold, design: .default))
-                .frame(width: 22, height: 22)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(minWidth: 52, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(Color.herText.opacity(isEnabled ? 0.72 : 0.34))
         .disabled(!isEnabled)
         .help(label)
+        .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
+        .accessibilityHint(isEnabled ? "Performs this action for the selected page write." : "This action is not available for the current draft state.")
     }
 
     @ViewBuilder
@@ -8073,27 +8130,33 @@ Current draft version:
                                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                                             .foregroundStyle(Color.herText.opacity(0.56))
                                     }
-                                    .frame(minWidth: 76, alignment: .leading)
+                                    .frame(minWidth: 76, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("Select \(item.title) revision at \(item.subtitle)")
+                                .accessibilityHint("Selects this page write in the Working Thread.")
 
                                 HStack(spacing: 4) {
                                     revisionTimelineActionButton(
-                                        "arrow.turn.down.right",
-                                        label: "Jump to page"
+                                        "Jump",
+                                        label: "Jump to page",
+                                        identifier: "studio.thread.timeline.jump.\(item.id)"
                                     ) {
                                         jumpToRevisionTimelineItem(item)
                                     }
                                     revisionTimelineActionButton(
-                                        "rectangle.and.text.magnifyingglass",
+                                        "Diff",
                                         label: "Open diff on page",
+                                        identifier: "studio.thread.timeline.diff.\(item.id)",
                                         isEnabled: item.canOpenDiff
                                     ) {
                                         openRevisionTimelineItemDiff(item)
                                     }
                                     revisionTimelineActionButton(
-                                        "arrow.clockwise",
-                                        label: "Reload ask"
+                                        "Reload",
+                                        label: "Reload ask",
+                                        identifier: "studio.thread.timeline.reload.\(item.id)"
                                     ) {
                                         reloadRevisionTimelineItem(item)
                                     }
@@ -8150,6 +8213,14 @@ Current draft version:
         return highlightedStudioExchangeID ?? filteredFullStudioThreadEntries.first?.id
     }
 
+    private func fullThreadAccessibilityKey(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+    }
+
     private var fullThreadFilterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -8162,7 +8233,8 @@ Current draft version:
                     .font(.system(size: 12, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.68))
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .frame(minHeight: 44)
+                    .contentShape(Capsule())
                     .background(
                         Capsule()
                             .fill(isActive ? Color.herStudioActiveFill : Color.herShellPanelSoft.opacity(0.84))
@@ -8174,6 +8246,10 @@ Current draft version:
                                 lineWidth: isActive ? 1.2 : 1
                             )
                     )
+                    .accessibilityIdentifier("studio.thread.filter.\(filter.rawValue)")
+                    .accessibilityLabel("Show \(filter.title) thread entries")
+                    .accessibilityValue(isActive ? "Selected" : "Not selected")
+                    .accessibilityHint("Filters the Working Thread without changing the draft.")
                 }
             }
             .padding(.vertical, 2)
@@ -8193,7 +8269,8 @@ Current draft version:
                 .font(.system(size: 12, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(allActive ? 0.92 : 0.68))
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .frame(minHeight: 44)
+                .contentShape(Capsule())
                 .background(
                     Capsule()
                         .fill(allActive ? Color.herStudioActiveFill : Color.herShellPanelSoft.opacity(0.84))
@@ -8205,6 +8282,10 @@ Current draft version:
                             lineWidth: allActive ? 1.2 : 1
                         )
                 )
+                .accessibilityIdentifier("studio.thread.scene.all")
+                .accessibilityLabel("Browse all scenes")
+                .accessibilityValue(allActive ? "Selected" : "Not selected")
+                .accessibilityHint("Shows thread entries from every scene.")
 
                 ForEach(scenes) { scene in
                     let isActive = normalizedSceneNavigatorKey(selectedFullThreadSceneKey) == scene.key
@@ -8233,7 +8314,8 @@ Current draft version:
                         .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(isActive ? 0.92 : 0.72))
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
+                        .contentShape(Capsule())
                         .background(
                             Capsule()
                                 .fill(isActive ? Color.herStudioActiveFill : Color.herShellPanelSoft.opacity(0.84))
@@ -8247,6 +8329,10 @@ Current draft version:
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("studio.thread.scene.\(fullThreadAccessibilityKey(scene.key))")
+                    .accessibilityLabel(scene.isCurrent ? "\(scene.label), current scene" : scene.label)
+                    .accessibilityValue("\(scene.count) \(scene.count == 1 ? "entry" : "entries"), \(isActive ? "selected" : "not selected")")
+                    .accessibilityHint("Filters the Working Thread to this scene.")
                 }
             }
             .padding(.vertical, 2)
@@ -8255,103 +8341,402 @@ Current draft version:
 
     private var fullStudioThreadSheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    TextField("Search thread", text: $fullStudioThreadSearchText)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityIdentifier("studio.thread.search")
-                    Text("\(filteredFullStudioThreadEntries.count) shown")
-                        .font(.system(size: 12, weight: .medium, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
+            GeometryReader { geometry in
+                let isCompact = geometry.size.width < 600
+                VStack(alignment: .leading, spacing: isCompact ? 10 : 14) {
+                    fullStudioThreadSheetHeader
+                    fullStudioThreadSheetContent(isCompact: isCompact)
                 }
+                    .padding(isCompact ? 14 : 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+#if os(macOS)
+        .frame(minWidth: 580, minHeight: 420)
+#else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+#endif
+    }
 
-                fullThreadFilterBar
+    private var fullStudioThreadSheetHeader: some View {
+        HStack(spacing: 12) {
+            Text("Working Thread")
+                .font(.system(size: 22, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.88))
+                .accessibilityIdentifier("studio.thread.sheet")
 
-                if !availableFullThreadScenes.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Browse by Scene")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                        fullThreadSceneBar
-                    }
+            Spacer(minLength: 0)
+
+            Button {
+                showingFullStudioThread = false
+            } label: {
+                Text("Done")
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.herStudioAccent)
+            .accessibilityIdentifier("studio.thread.done")
+            .accessibilityHint("Closes the Working Thread and returns to Studio.")
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+
+    private func fullStudioThreadSheetContent(isCompact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: isCompact ? 10 : 14) {
+            fullThreadSearchSummary(isCompact: isCompact)
+
+            fullThreadFilterBar
+
+            if !availableFullThreadScenes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Browse by Scene")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.58))
+                        .accessibilityIdentifier("studio.thread.scene.heading")
+                    fullThreadSceneBar
                 }
+            }
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(groupedFullStudioThreadSections) { section in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button {
-                                        toggleFullThreadSection(section)
-                                    } label: {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: collapsedFullThreadSectionKeys.contains(section.key) ? "chevron.right" : "chevron.down")
-                                                .font(.system(size: 10, weight: .bold, design: .default))
-                                            Text(section.title)
-                                                .font(.system(size: 11, weight: .semibold, design: .default))
-                                                .foregroundStyle(Color.herText.opacity(0.56))
-                                                .textCase(.uppercase)
-                                            Spacer(minLength: 0)
-                                        }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if groupedFullStudioThreadSections.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("No matching thread entries")
+                                    .font(.system(size: 13, weight: .semibold, design: .default))
+                                Text("Try another search, filter, or scene. Your draft and thread history are unchanged.")
+                                    .font(.system(size: 12, weight: .regular, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.62))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.vertical, 12)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("studio.thread.empty")
+                        }
+
+                        ForEach(groupedFullStudioThreadSections) { section in
+                            let isCollapsed = collapsedFullThreadSectionKeys.contains(section.key)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    toggleFullThreadSection(section)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                            .font(.system(size: 10, weight: .bold, design: .default))
+                                        Text(section.title)
+                                            .font(.system(size: 11, weight: .semibold, design: .default))
+                                            .foregroundStyle(Color.herText.opacity(0.56))
+                                            .textCase(.uppercase)
+                                            .lineLimit(2)
+                                        Spacer(minLength: 0)
+                                        Text("\(section.entries.count)")
+                                            .font(.system(size: 10, weight: .semibold, design: .default))
+                                            .foregroundStyle(Color.herText.opacity(0.52))
                                     }
-                                    .buttonStyle(.plain)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("studio.thread.section.\(fullThreadAccessibilityKey(section.key))")
+                                .accessibilityLabel("\(section.title), \(section.entries.count) \(section.entries.count == 1 ? "entry" : "entries")")
+                                .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
+                                .accessibilityHint(isCollapsed ? "Expands this thread section." : "Collapses this thread section.")
 
-                                    fullThreadSectionSummaryRow(section)
-                                    fullThreadSectionRevisionTimeline(section)
-                                    if !collapsedFullThreadSectionKeys.contains(section.key) {
-                                        ForEach(section.entries) { exchange in
-                                            fullStudioThreadExchangeRow(exchange)
-                                                .id(exchange.id)
-                                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                                .onTapGesture {
-                                                    expandFullThreadSectionIfNeeded(for: exchange)
-                                                    highlightedStudioExchangeID = exchange.id
-                                                    fullThreadScrollTargetKey = persistentStudioThreadSelectionKey(for: exchange)
-                                                }
-                                        }
+                                fullThreadSectionSummaryRow(section, isCompact: isCompact)
+                                fullThreadSectionRevisionTimeline(section)
+                                if !isCollapsed {
+                                    ForEach(section.entries) { exchange in
+                                        fullStudioThreadExchangeRow(exchange, isCompact: isCompact)
+                                            .id(exchange.id)
+                                            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                            .onTapGesture {
+                                                expandFullThreadSectionIfNeeded(for: exchange)
+                                                highlightedStudioExchangeID = exchange.id
+                                                fullThreadScrollTargetKey = persistentStudioThreadSelectionKey(for: exchange)
+                                            }
                                     }
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
                     }
-                    .onAppear {
-                        guard let targetID = resolvedFullThreadScrollTargetID() else { return }
-                        DispatchQueue.main.async {
-                            withAnimation(.easeInOut(duration: 0.24)) {
-                                proxy.scrollTo(targetID, anchor: .center)
-                            }
-                        }
-                    }
-                    .onChange(of: highlightedStudioExchangeID) { _, newValue in
-                        guard let newValue else { return }
-                        withAnimation(.easeInOut(duration: 0.24)) {
-                            proxy.scrollTo(newValue, anchor: .center)
-                        }
-                    }
-                    .onChange(of: fullThreadScrollTargetKey) { _, _ in
-                        guard let targetID = resolvedFullThreadScrollTargetID() else { return }
+                    .padding(.vertical, 4)
+                }
+                .accessibilityIdentifier("studio.thread.entries")
+                .onAppear {
+                    guard let targetID = resolvedFullThreadScrollTargetID() else { return }
+                    DispatchQueue.main.async {
                         withAnimation(.easeInOut(duration: 0.24)) {
                             proxy.scrollTo(targetID, anchor: .center)
                         }
                     }
                 }
-            }
-            .padding(18)
-            .frame(minWidth: 580, minHeight: 420)
-            .navigationTitle("Working Thread")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        showingFullStudioThread = false
+                .onChange(of: highlightedStudioExchangeID) { _, newValue in
+                    guard let newValue else { return }
+                    withAnimation(.easeInOut(duration: 0.24)) {
+                        proxy.scrollTo(newValue, anchor: .center)
                     }
-                    .accessibilityIdentifier("studio.thread.done")
+                }
+                .onChange(of: fullThreadScrollTargetKey) { _, _ in
+                    guard let targetID = resolvedFullThreadScrollTargetID() else { return }
+                    withAnimation(.easeInOut(duration: 0.24)) {
+                        proxy.scrollTo(targetID, anchor: .center)
+                    }
                 }
             }
         }
     }
 
-    private func fullStudioThreadExchangeRow(_ exchange: StudioAskNoteExchange) -> some View {
+    @ViewBuilder
+    private func fullThreadSearchSummary(isCompact: Bool) -> some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 6) {
+                fullThreadSearchField
+                fullThreadResultCount
+            }
+        } else {
+            HStack(spacing: 12) {
+                fullThreadSearchField
+                fullThreadResultCount
+            }
+        }
+    }
+
+    private var fullThreadSearchField: some View {
+        TextField("Search asks, scenes, and page text", text: $fullStudioThreadSearchText)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.herShellPanelSoft.opacity(0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
+            )
+            .accessibilityIdentifier("studio.thread.search")
+            .accessibilityLabel("Search Working Thread")
+            .accessibilityHint("Filters asks, scene names, notes, and inserted page text without changing the draft.")
+    }
+
+    private var fullThreadResultCount: some View {
+        Text("\(filteredFullStudioThreadEntries.count) shown")
+            .font(.system(size: 12, weight: .medium, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.62))
+            .accessibilityIdentifier("studio.thread.result-count")
+            .accessibilityLabel("Thread results")
+            .accessibilityValue("\(filteredFullStudioThreadEntries.count) shown")
+    }
+
+    @ViewBuilder
+    private func fullThreadExchangeHeader(
+        _ exchange: StudioAskNoteExchange,
+        isHighlighted: Bool,
+        isCompact: Bool
+    ) -> some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    fullThreadExchangeIdentity(exchange)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    fullThreadExchangeRecency(exchange, isHighlighted: isHighlighted)
+                    Spacer(minLength: 0)
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                fullThreadExchangeIdentity(exchange)
+                Spacer(minLength: 0)
+                fullThreadExchangeRecency(exchange, isHighlighted: isHighlighted)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fullThreadExchangeIdentity(_ exchange: StudioAskNoteExchange) -> some View {
+        Text("You")
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.60))
+        studioPromptSourceBadge(exchange.source, compact: true)
+        if let sceneLabel = sceneLabelForThreadExchange(exchange) {
+            Text(sceneLabel)
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.72))
+                .lineLimit(2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.herShellPanelSoft.opacity(0.78))
+                .clipShape(Capsule())
+        }
+    }
+
+    @ViewBuilder
+    private func fullThreadExchangeRecency(
+        _ exchange: StudioAskNoteExchange,
+        isHighlighted: Bool
+    ) -> some View {
+        if isHighlighted {
+            Text("Current")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.62))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.herStudioActiveFill.opacity(0.92))
+                .clipShape(Capsule())
+                .accessibilityIdentifier("studio.thread.current-entry")
+        }
+        Text(relativeTimestamp(exchange.timestamp))
+            .font(.system(size: 11, weight: .regular, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.54))
+    }
+
+    @ViewBuilder
+    private func fullThreadDiffComparison(
+        original: String,
+        current: String,
+        isCompact: Bool
+    ) -> some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 8) {
+                fullThreadDiffColumn(
+                    title: "Original write",
+                    text: original,
+                    usesPaperTone: true
+                )
+                fullThreadDiffColumn(
+                    title: "Current draft version",
+                    text: current,
+                    usesPaperTone: false
+                )
+            }
+        } else {
+            HStack(alignment: .top, spacing: 10) {
+                fullThreadDiffColumn(
+                    title: "Original write",
+                    text: original,
+                    usesPaperTone: true
+                )
+                fullThreadDiffColumn(
+                    title: "Current draft version",
+                    text: current,
+                    usesPaperTone: false
+                )
+            }
+        }
+    }
+
+    private func fullThreadApplyOutlineButton(_ exchange: StudioAskNoteExchange) -> some View {
+        Button {
+            applyExchangeToOutline(exchange)
+        } label: {
+            Label("Apply to Outline", systemImage: "square.and.arrow.down.on.square")
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.herText.opacity(0.72))
+        .accessibilityIdentifier("studio.thread.apply-outline")
+        .accessibilityHint("Adds io.them's development beats to Outline and Beats.")
+    }
+
+    private var fullThreadApplyOutlineExplanation: some View {
+        Text("Adds io.them's development beats to Outline/Beats.")
+            .font(.system(size: 10, weight: .regular, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.50))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func fullThreadDraftComparisonSummary(
+        _ comparison: FullThreadDraftComparison,
+        isDiffAccepted: Bool,
+        hasReopenedDiff: Bool,
+        isCompact: Bool
+    ) -> some View {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    fullThreadDraftComparisonPrimaryStatus(comparison)
+                }
+                HStack(spacing: 8) {
+                    fullThreadDraftComparisonSecondaryStatus(
+                        comparison,
+                        isDiffAccepted: isDiffAccepted,
+                        hasReopenedDiff: hasReopenedDiff
+                    )
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                fullThreadDraftComparisonPrimaryStatus(comparison)
+                fullThreadDraftComparisonSecondaryStatus(
+                    comparison,
+                    isDiffAccepted: isDiffAccepted,
+                    hasReopenedDiff: hasReopenedDiff
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fullThreadDraftComparisonPrimaryStatus(
+        _ comparison: FullThreadDraftComparison
+    ) -> some View {
+        Text("Current Draft")
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.60))
+        Text(fullThreadDraftComparisonTitle(comparison))
+            .font(.system(size: 10, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.74))
+            .lineLimit(2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(fullThreadDraftComparisonFill(comparison))
+            .clipShape(Capsule())
+    }
+
+    @ViewBuilder
+    private func fullThreadDraftComparisonSecondaryStatus(
+        _ comparison: FullThreadDraftComparison,
+        isDiffAccepted: Bool,
+        hasReopenedDiff: Bool
+    ) -> some View {
+        if let sceneLabel = comparison.sceneLabel,
+           !sceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(sceneLabel)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.62))
+                .lineLimit(2)
+        }
+        if isDiffAccepted {
+            Text("Current kept")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.72))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.herShellPanelSoft.opacity(0.86))
+                .clipShape(Capsule())
+        } else if hasReopenedDiff {
+            Text("Reopened")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.76))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.18))
+                .clipShape(Capsule())
+                .accessibilityIdentifier("studio.thread.reopened")
+        }
+    }
+
+    private func fullStudioThreadExchangeRow(
+        _ exchange: StudioAskNoteExchange,
+        isCompact: Bool
+    ) -> some View {
         let isHighlighted = exchange.id == highlightedStudioExchangeID
         let comparison = fullThreadDraftComparison(for: exchange)
         let insertedText = exactInsertedText(for: exchange)
@@ -8359,39 +8744,17 @@ Current draft version:
         let isDiffAccepted = isRevisedComparison && isDiffAcknowledged(for: exchange)
         let hasReopenedDiff = isRevisedComparison && isDiffReopened(for: exchange)
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("You")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.60))
-                studioPromptSourceBadge(exchange.source, compact: true)
-                if let sceneLabel = sceneLabelForThreadExchange(exchange) {
-                    Text(sceneLabel)
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.72))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.herShellPanelSoft.opacity(0.78))
-                        .clipShape(Capsule())
-                }
-                Spacer(minLength: 0)
-                if isHighlighted {
-                    Text("Current")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.herStudioActiveFill.opacity(0.92))
-                        .clipShape(Capsule())
-                }
-                Text(relativeTimestamp(exchange.timestamp))
-                    .font(.system(size: 11, weight: .regular, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.54))
-            }
+            fullThreadExchangeHeader(
+                exchange,
+                isHighlighted: isHighlighted,
+                isCompact: isCompact
+            )
 
             Text(exchange.prompt)
                 .font(.system(size: 13, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.84))
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("studio.thread.entry.prompt")
 
             studioRouteMetaStrip(for: exchange)
 
@@ -8416,39 +8779,29 @@ Current draft version:
             }
 
             if canApplyExchangeToOutline(exchange) {
-                HStack(spacing: 8) {
-                    Button {
-                        applyExchangeToOutline(exchange)
-                    } label: {
-                        Label("Apply to Outline", systemImage: "square.and.arrow.down.on.square")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
+                if isCompact {
+                    VStack(alignment: .leading, spacing: 4) {
+                        fullThreadApplyOutlineButton(exchange)
+                        fullThreadApplyOutlineExplanation
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.herText.opacity(0.72))
-
-                    Text("Adds io.them's development beats to Outline/Beats.")
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.50))
-
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(spacing: 8) {
+                        fullThreadApplyOutlineButton(exchange)
+                        fullThreadApplyOutlineExplanation
+                        Spacer(minLength: 0)
+                    }
                 }
             }
 
             if exchange.target == .page, !insertedText.isEmpty {
                 if let comparison, comparison.state == .revisedInDraft, !isDiffAccepted,
                    !comparison.currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    HStack(alignment: .top, spacing: 10) {
-                        fullThreadDiffColumn(
-                            title: "Original write",
-                            text: insertedText,
-                            usesPaperTone: true
-                        )
-                        fullThreadDiffColumn(
-                            title: "Current draft version",
-                            text: comparison.currentText,
-                            usesPaperTone: false
-                        )
-                    }
+                    fullThreadDiffComparison(
+                        original: insertedText,
+                        current: comparison.currentText,
+                        isCompact: isCompact
+                    )
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Inserted on page")
@@ -8477,96 +8830,37 @@ Current draft version:
             }
 
             if let comparison {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text("Current Draft")
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.60))
-                        Text(fullThreadDraftComparisonTitle(comparison))
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.74))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(fullThreadDraftComparisonFill(comparison))
-                        .clipShape(Capsule())
-                        if let sceneLabel = comparison.sceneLabel,
-                           !sceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(sceneLabel)
-                                .font(.system(size: 10, weight: .medium, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.62))
-                        }
-                        if isDiffAccepted {
-                            Text("Current kept")
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.72))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.herShellPanelSoft.opacity(0.86))
-                                .clipShape(Capsule())
-                        } else if hasReopenedDiff {
-                            Text("Reopened")
-                                .font(.system(size: 10, weight: .semibold, design: .default))
-                                .foregroundStyle(Color.herText.opacity(0.76))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.orange.opacity(0.18))
-                                .clipShape(Capsule())
-                                .accessibilityIdentifier("studio.thread.reopened")
-                        }
-                    }
-                }
+                fullThreadDraftComparisonSummary(
+                    comparison,
+                    isDiffAccepted: isDiffAccepted,
+                    hasReopenedDiff: hasReopenedDiff,
+                    isCompact: isCompact
+                )
             }
 
-            HStack(spacing: 10) {
-                if isRevisedComparison, !isDiffAccepted {
-                    Button("Restore Original") {
-                        restoreOriginalWrite(from: exchange)
-                        showingFullStudioThread = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("studio.thread.restore-original")
-
-                    Button("Keep Current") {
-                        acknowledgeCurrentDraftVersion(for: exchange)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("studio.thread.keep-current")
-
-                    Button("Open Diff on Page") {
-                        openStudioDiffOnPage(exchange)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("studio.thread.open-diff")
-
-                    Button("Rewrite From Diff") {
-                        rewriteFromDiff(for: exchange)
-                        showingFullStudioThread = false
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("studio.thread.rewrite-from-diff")
+            if isCompact {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 124), spacing: 8)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
+                    fullThreadExchangeActionButtons(
+                        exchange,
+                        isRevisedComparison: isRevisedComparison,
+                        isDiffAccepted: isDiffAccepted,
+                        fillAvailableWidth: true
+                    )
                 }
-
-                Button("Reload") {
-                    reloadStudioAskNoteExchange(exchange)
-                    showingFullStudioThread = false
+            } else {
+                HStack(spacing: 10) {
+                    fullThreadExchangeActionButtons(
+                        exchange,
+                        isRevisedComparison: isRevisedComparison,
+                        isDiffAccepted: isDiffAccepted,
+                        fillAvailableWidth: false
+                    )
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.bordered)
-
-                Button("Pin") {
-                    pinStudioAskNoteExchange(exchange)
-                    showingFullStudioThread = false
-                }
-                .buttonStyle(.bordered)
-
-                if exchange.target == .page, exchange.anchorLine != nil {
-                    Button("Jump to Page") {
-                        jumpToStudioExchangeAnchor(exchange)
-                        showingFullStudioThread = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                Spacer(minLength: 0)
             }
         }
         .padding(12)
@@ -8581,6 +8875,101 @@ Current draft version:
                     lineWidth: isHighlighted ? 1.2 : 1
                 )
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.thread.entry.\(fullThreadAccessibilityKey(studioExchangePersistentActionKey(exchange)))")
+    }
+
+    private func fullThreadActionLabel(
+        _ title: String,
+        fillAvailableWidth: Bool
+    ) -> some View {
+        Text(title)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .frame(
+                maxWidth: fillAvailableWidth ? .infinity : nil,
+                minHeight: 44
+            )
+    }
+
+    @ViewBuilder
+    private func fullThreadExchangeActionButtons(
+        _ exchange: StudioAskNoteExchange,
+        isRevisedComparison: Bool,
+        isDiffAccepted: Bool,
+        fillAvailableWidth: Bool
+    ) -> some View {
+        if isRevisedComparison, !isDiffAccepted {
+            Button {
+                restoreOriginalWrite(from: exchange)
+                showingFullStudioThread = false
+            } label: {
+                fullThreadActionLabel("Restore Original", fillAvailableWidth: fillAvailableWidth)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("studio.thread.restore-original")
+            .accessibilityHint("Asks io.them to restore the original page write, then returns to the page.")
+
+            Button {
+                acknowledgeCurrentDraftVersion(for: exchange)
+            } label: {
+                fullThreadActionLabel("Keep Current", fillAvailableWidth: fillAvailableWidth)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("studio.thread.keep-current")
+            .accessibilityHint("Marks the current draft version as the version to keep.")
+
+            Button {
+                openStudioDiffOnPage(exchange)
+            } label: {
+                fullThreadActionLabel("Open Diff on Page", fillAvailableWidth: fillAvailableWidth)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("studio.thread.open-diff")
+            .accessibilityHint("Returns to the screenplay and opens this write's diff.")
+
+            Button {
+                rewriteFromDiff(for: exchange)
+                showingFullStudioThread = false
+            } label: {
+                fullThreadActionLabel("Rewrite From Diff", fillAvailableWidth: fillAvailableWidth)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("studio.thread.rewrite-from-diff")
+            .accessibilityHint("Loads a rewrite request from this diff and returns to Studio.")
+        }
+
+        Button {
+            reloadStudioAskNoteExchange(exchange)
+            showingFullStudioThread = false
+        } label: {
+            fullThreadActionLabel("Reload", fillAvailableWidth: fillAvailableWidth)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("studio.thread.reload")
+        .accessibilityHint("Loads this ask into the Studio composer.")
+
+        Button {
+            pinStudioAskNoteExchange(exchange)
+            showingFullStudioThread = false
+        } label: {
+            fullThreadActionLabel("Pin", fillAvailableWidth: fillAvailableWidth)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("studio.thread.pin")
+        .accessibilityHint("Pins this ask in the Studio composer.")
+
+        if exchange.target == .page, exchange.anchorLine != nil {
+            Button {
+                jumpToStudioExchangeAnchor(exchange)
+                showingFullStudioThread = false
+            } label: {
+                fullThreadActionLabel("Jump to Page", fillAvailableWidth: fillAvailableWidth)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("studio.thread.jump-page")
+            .accessibilityHint("Returns to the screenplay at this write's page location.")
+        }
     }
 
 

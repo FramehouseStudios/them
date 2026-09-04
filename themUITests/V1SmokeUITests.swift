@@ -520,6 +520,136 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_studio_working_thread_is_readable_filterable_and_dismissible_on_phone() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: app).waitForExistence(timeout: 10),
+            "Studio did not open for the Working Thread workflow.\n\(app.debugDescription)"
+        )
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if !drawer.exists {
+            let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+            XCTAssertTrue(inspectorToggle.waitForExistence(timeout: 5), "Studio inspector toggle was not exposed.")
+            XCTAssertTrue(inspectorToggle.isHittable, "Studio inspector toggle was not hittable.")
+            inspectorToggle.tap()
+        }
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8), "The Studio inspector drawer was not available.")
+        let themTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(themTab.waitForExistence(timeout: 4), "The io.them inspector tab was missing.")
+        if !themTab.isSelected {
+            themTab.tap()
+        }
+
+        let openThread = app.buttons["studio.thread.open-full"]
+        XCTAssertTrue(
+            revealInStudioDrawer(openThread, drawer: drawer, scrollingUp: true, maxSwipes: 12),
+            "The real Working Thread entry point was not reachable in the io.them rail."
+        )
+        XCTAssertGreaterThanOrEqual(openThread.frame.height, 44, "Working Thread entry point missed its touch target.")
+        XCTAssertTrue(waitForAccessibilityValue(of: openThread, equalTo: "1 entry", timeout: 3))
+        openThread.tap()
+
+        let sheet = element(identifier: "studio.thread.sheet", in: app)
+        XCTAssertTrue(
+            sheet.waitForExistence(timeout: 6),
+            "Working Thread did not open from its real Studio action.\n\(app.debugDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            sheet.frame.maxX,
+            app.frame.maxX + 1,
+            "Working Thread exceeded the iPhone viewport: sheet=\(sheet.frame), app=\(app.frame)"
+        )
+
+        let search = element(identifier: "studio.thread.search", in: app)
+        let resultCount = element(identifier: "studio.thread.result-count", in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 4), "Working Thread search was missing.")
+        XCTAssertTrue(resultCount.waitForExistence(timeout: 4), "Working Thread result count was missing.")
+        XCTAssertGreaterThanOrEqual(search.frame.height, 44, "Working Thread search missed its touch target.")
+        XCTAssertGreaterThan(search.frame.width, 240, "Working Thread search collapsed at phone width: \(search.frame)")
+        XCTAssertGreaterThanOrEqual(
+            resultCount.frame.minY,
+            search.frame.maxY - 2,
+            "Search and count remained crowded into one phone-width row: search=\(search.frame), count=\(resultCount.frame)"
+        )
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 4))
+
+        let allFilter = app.buttons["studio.thread.filter.all"]
+        let pageWritesFilter = app.buttons["studio.thread.filter.pageWrites"]
+        let voicePinFilter = app.buttons["studio.thread.filter.voicePin"]
+        let allScenes = app.buttons["studio.thread.scene.all"]
+        for control in [allFilter, pageWritesFilter, voicePinFilter, allScenes] {
+            XCTAssertTrue(control.waitForExistence(timeout: 4), "Missing Working Thread control: \(control.identifier)")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "Working Thread control missed its touch target: \(control.frame)")
+        }
+
+        pageWritesFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: pageWritesFilter, equalTo: "Selected", timeout: 3))
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 3))
+
+        voicePinFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: voicePinFilter, equalTo: "Selected", timeout: 3))
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "0 shown", timeout: 3))
+        XCTAssertTrue(
+            element(identifier: "studio.thread.empty", in: app).waitForExistence(timeout: 3),
+            "An empty filter result did not explain that the thread and draft were unchanged."
+        )
+
+        allFilter.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: resultCount, equalTo: "1 shown", timeout: 3))
+
+        let threadEntries = element(identifier: "studio.thread.entries", in: app)
+        XCTAssertTrue(threadEntries.waitForExistence(timeout: 3), "Working Thread entries did not expose their scroll container.")
+        let section = app.buttons["studio.thread.section.diner-night"]
+        XCTAssertTrue(section.waitForExistence(timeout: 4), "The seeded Diner thread section was missing.")
+        XCTAssertTrue(
+            revealInStudioDrawer(section, drawer: threadEntries, scrollingUp: false, maxSwipes: 8),
+            "The seeded Diner thread section was not reachable after filtering."
+        )
+        XCTAssertGreaterThanOrEqual(section.frame.height, 44, "Thread section toggle missed its touch target.")
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Expanded", timeout: 3))
+        let timelineActions = [
+            (prefix: "studio.thread.timeline.jump.", label: "Jump to page"),
+            (prefix: "studio.thread.timeline.diff.", label: "Open diff on page"),
+            (prefix: "studio.thread.timeline.reload.", label: "Reload ask"),
+        ]
+        for action in timelineActions {
+            let button = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", action.prefix)
+            ).firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 3), "Missing visible \(action.label) timeline action.")
+            XCTAssertEqual(button.label, action.label, "Timeline action lost its visible meaning.")
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(action.label) missed its touch target.")
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44, "\(action.label) missed its touch target.")
+        }
+        let prompt = element(identifier: "studio.thread.entry.prompt", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3), "The seeded thread entry was not visible.")
+
+        section.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Collapsed", timeout: 3))
+        XCTAssertTrue(waitForDisappearance(of: prompt, timeout: 3), "Collapsing a thread section did not hide its entry.")
+        section.tap()
+        XCTAssertTrue(waitForAccessibilityValue(of: section, equalTo: "Expanded", timeout: 3))
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3), "Expanding a thread section did not restore its entry.")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "working-thread-readable-phone-width.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let done = app.buttons["studio.thread.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3), "Working Thread did not expose Done.")
+        XCTAssertGreaterThanOrEqual(done.frame.height, 44, "Working Thread Done missed its touch target.")
+        done.tap()
+        XCTAssertTrue(waitForDisappearance(of: sheet, timeout: 5), "Done did not dismiss Working Thread.")
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).exists, "Dismissal did not return to Studio.")
+#else
+        throw XCTSkip("The narrow Working Thread regression specifically covers iPhone Studio.")
+#endif
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
