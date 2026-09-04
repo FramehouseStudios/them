@@ -40,12 +40,30 @@ function createPgMock() {
       if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(trimmed)) {
         return { rows: [], rowCount: 0 };
       }
+      if (/^SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, 7468656d\)\)$/i.test(trimmed)) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
       // SELECT one
       let m = trimmed.match(/^SELECT value FROM (\w+) WHERE key = \$1$/i);
       if (m) {
         const tbl = ensure(m[1]);
         const row = tbl.get(params[0]);
         return { rows: row ? [{ value: row.value }] : [] };
+      }
+      m = trimmed.match(/^SELECT value FROM (\w+) WHERE key = \$1 FOR UPDATE$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const row = tbl.get(params[0]);
+        return { rows: row ? [{ value: row.value }] : [], rowCount: row ? 1 : 0 };
+      }
+      m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE value->>'userId' = \$1 ORDER BY key ASC FOR UPDATE$/i);
+      if (m) {
+        const tbl = ensure(m[1]);
+        const rows = [...tbl.entries()]
+          .filter(([, row]) => row.value?.userId === params[0])
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, row]) => ({ key, value: row.value }));
+        return { rows, rowCount: rows.length };
       }
       // UPSERT
       m = trimmed.match(/^INSERT INTO (\w+) \(key, value, updated_at\)/i);
@@ -62,7 +80,7 @@ function createPgMock() {
         return { rowCount: 1 };
       }
       // Compare-and-swap update
-      m = trimmed.match(/^UPDATE (\w+) SET value = \$3::jsonb, updated_at = NOW\(\) WHERE key = \$1 AND value = \$2::jsonb RETURNING key$/i);
+      m = trimmed.match(/^UPDATE (\w+) SET value = \$3::jsonb, updated_at = NOW\(\) WHERE key = \$1 AND value = \$2::jsonb RETURNING (key|value)$/i);
       if (m) {
         const tbl = ensure(m[1]);
         const row = tbl.get(params[0]);
@@ -72,7 +90,10 @@ function createPgMock() {
         }
         row.value = JSON.parse(params[2]);
         row.updated_at = new Date();
-        return { rows: [{ key: params[0] }], rowCount: 1 };
+        return {
+          rows: [m[2].toLowerCase() === "value" ? { value: row.value } : { key: params[0] }],
+          rowCount: 1,
+        };
       }
       // DELETE one
       m = trimmed.match(/^DELETE FROM (\w+) WHERE key = \$1$/i);
@@ -317,6 +338,9 @@ test("[postgres] auth rotation rolls back when replacement insertion fails", asy
         checkpoint = structuredClone([...rows.entries()]);
         return { rows: [], rowCount: 0 };
       }
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
       if (trimmed.startsWith("UPDATE persistence_auth_sessions")) {
         const existing = rows.get(params[0]);
         if (JSON.stringify(existing) !== JSON.stringify(JSON.parse(params[1]))) {
@@ -351,6 +375,303 @@ test("[postgres] auth rotation rolls back when replacement insertion fails", asy
   );
   assert.deepEqual(rows.get(current.sessionId), current);
   assert.equal(rows.has(next.sessionId), false);
+  assert.equal(transactionCalls.at(-1), "ROLLBACK");
+});
+
+test("[postgres] single-session revocation is idempotent and leaves unrelated users untouched", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const current = authSession({ sessionId: "session-revoke" });
+  const unrelated = authSession({
+    sessionId: "session-revoke-unrelated",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  const revoked = {
+    ...current,
+    updatedAt: 2_000,
+    revokedAt: 2_000,
+  };
+  await p.put({ domain: "auth_sessions", key: current.sessionId, value: current });
+  await p.put({ domain: "auth_sessions", key: unrelated.sessionId, value: unrelated });
+
+  const first = await p.revokeAuthSessions({
+    userId: current.userId,
+    expectedSessions: [current],
+    revokedSessions: [revoked],
+  });
+  assert.equal(first.status, "committed");
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: current.sessionId }), revoked);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+
+  const repeated = await p.revokeAuthSessions({
+    userId: current.userId,
+    expectedSessions: [revoked],
+    revokedSessions: [revoked],
+  });
+  assert.equal(repeated.status, "committed");
+  assert.deepEqual(repeated.sessions, [revoked]);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+});
+
+test("[postgres] session revocation rejects mixed users and duplicate rows before I/O", async () => {
+  const calls = [];
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql) {
+        calls.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+  const first = authSession({ sessionId: "session-first" });
+  const second = authSession({
+    sessionId: "session-second",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  const revokedFirst = { ...first, revokedAt: 2_000, updatedAt: 2_000 };
+  const revokedSecond = { ...second, revokedAt: 2_000, updatedAt: 2_000 };
+
+  await assert.rejects(
+    p.revokeAuthSessions({
+      userId: first.userId,
+      expectedSessions: [first, second],
+      revokedSessions: [revokedFirst, revokedSecond],
+    }),
+    /cannot cross users/,
+  );
+  await assert.rejects(
+    p.revokeAuthSessions({
+      userId: first.userId,
+      expectedSessions: [first, first],
+      revokedSessions: [revokedFirst, revokedFirst],
+    }),
+    /unique matching session rows/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("[postgres] stale active revocation returns the canonical rotated predecessor", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const active = authSession({ sessionId: "session-stale-active" });
+  const replacement = authSession({ sessionId: "session-stale-replacement" });
+  const canonicalPredecessor = {
+    ...active,
+    revokedAt: 2_000,
+    updatedAt: 2_000,
+    replacedBySessionId: replacement.sessionId,
+  };
+  const requestedRevocation = { ...active, revokedAt: 3_000, updatedAt: 3_000 };
+  await p.put({
+    domain: "auth_sessions",
+    key: canonicalPredecessor.sessionId,
+    value: canonicalPredecessor,
+  });
+  await p.put({ domain: "auth_sessions", key: replacement.sessionId, value: replacement });
+
+  const stale = await p.revokeAuthSessions({
+    userId: active.userId,
+    expectedSessions: [active],
+    revokedSessions: [requestedRevocation],
+  });
+  assert.equal(stale.status, "conflict");
+  assert.deepEqual(stale.sessions, [canonicalPredecessor]);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: replacement.sessionId }), replacement);
+
+  const alreadyKnown = await p.revokeAuthSessions({
+    userId: active.userId,
+    expectedSessions: [canonicalPredecessor],
+    revokedSessions: [canonicalPredecessor],
+  });
+  assert.equal(alreadyKnown.status, "committed");
+  assert.deepEqual(alreadyKnown.sessions, [canonicalPredecessor]);
+});
+
+test("[postgres] unknown revocation COMMIT outcome is marked unsafe to retry and discards the connection", async () => {
+  const active = authSession({ sessionId: "session-unknown-commit" });
+  const revoked = { ...active, revokedAt: 2_000, updatedAt: 2_000 };
+  const commitError = new Error("simulated commit connection loss");
+  const calls = [];
+  let releasedWith = null;
+  const transactionClient = {
+    async query(sql) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      calls.push(trimmed);
+      if (trimmed === "BEGIN" || trimmed === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("UPDATE persistence_auth_sessions")) {
+        return { rows: [{ value: revoked }], rowCount: 1 };
+      }
+      if (trimmed === "COMMIT") throw commitError;
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+    release(error) {
+      releasedWith = error || null;
+    },
+  };
+  const p = createPostgresPersistence({
+    pgClient: {
+      async connect() { return transactionClient; },
+      async query() { throw new Error("pool query should not be used inside the transaction"); },
+    },
+  });
+
+  await assert.rejects(
+    p.revokeAuthSessions({
+      userId: active.userId,
+      expectedSessions: [active],
+      revokedSessions: [revoked],
+    }),
+    (error) => error === commitError && error.commitOutcomeUnknown === true,
+  );
+  assert.deepEqual(calls.slice(-2), ["COMMIT", "ROLLBACK"]);
+  assert.equal(releasedWith, commitError);
+});
+
+test("[postgres] user-wide revocation preserves its exception and unrelated users", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const oldSession = authSession({ sessionId: "session-old" });
+  const currentSession = authSession({ sessionId: "session-current" });
+  const unrelated = authSession({
+    sessionId: "session-other-user",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  for (const session of [oldSession, currentSession, unrelated]) {
+    await p.put({ domain: "auth_sessions", key: session.sessionId, value: session });
+  }
+
+  const result = await p.revokeAuthSessionsForUser({
+    userId: oldSession.userId,
+    exceptSessionId: currentSession.sessionId,
+    revokedAt: 3_000,
+  });
+
+  assert.equal(result.status, "committed");
+  assert.deepEqual(result.sessions.map((session) => session.sessionId), [oldSession.sessionId]);
+  assert.deepEqual(result.revokedSessionIds, [oldSession.sessionId]);
+  assert.deepEqual(result.preservedSession, currentSession);
+  assert.equal(Number((await p.get({
+    domain: "auth_sessions",
+    key: oldSession.sessionId,
+  })).revokedAt), 3_000);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: currentSession.sessionId }), currentSession);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+});
+
+test("[postgres] refresh and revoke share one user lock and preserve both serial orderings", async () => {
+  async function scenario(order) {
+    const calls = [];
+    const baseClient = createPgMock();
+    const p = createPostgresPersistence({
+      pgClient: {
+        async query(sql, params = []) {
+          calls.push({ sql: sql.replace(/\s+/g, " ").trim(), params });
+          return baseClient.query(sql, params);
+        },
+      },
+    });
+    const current = authSession({ sessionId: `session-${order}-current` });
+    const replacement = authSession({ sessionId: `session-${order}-replacement` });
+    const previous = {
+      ...current,
+      updatedAt: 2_000,
+      revokedAt: 2_000,
+      replacedBySessionId: replacement.sessionId,
+    };
+    await p.put({ domain: "auth_sessions", key: current.sessionId, value: current });
+    let rotated;
+    if (order === "refresh-first") {
+      rotated = await p.rotateAuthSession({
+        expectedSession: current,
+        previousSession: previous,
+        nextSession: replacement,
+      });
+      await p.revokeAuthSessionsForUser({ userId: current.userId, revokedAt: 3_000 });
+    } else {
+      await p.revokeAuthSessionsForUser({ userId: current.userId, revokedAt: 3_000 });
+      rotated = await p.rotateAuthSession({
+        expectedSession: current,
+        previousSession: previous,
+        nextSession: replacement,
+      });
+    }
+    return { p, calls, current, replacement, rotated };
+  }
+
+  const refreshFirst = await scenario("refresh-first");
+  assert.equal(refreshFirst.rotated, true);
+  assert.equal(Number((await refreshFirst.p.get({
+    domain: "auth_sessions",
+    key: refreshFirst.replacement.sessionId,
+  }))?.revokedAt || 0) > 0, true);
+  const revokeFirst = await scenario("revoke-first");
+  assert.equal(revokeFirst.rotated, false);
+  assert.equal(await revokeFirst.p.get({
+    domain: "auth_sessions",
+    key: revokeFirst.replacement.sessionId,
+  }), null);
+  for (const result of [refreshFirst, revokeFirst]) {
+    const locks = result.calls.filter((call) => call.sql.startsWith("SELECT pg_advisory_xact_lock"));
+    assert.equal(locks.length, 2);
+    assert.deepEqual(locks.map((call) => call.params), [[result.current.userId], [result.current.userId]]);
+  }
+});
+
+test("[postgres] user-wide revocation rolls back every row after an adapter failure", async () => {
+  const first = authSession({ sessionId: "session-first" });
+  const second = authSession({ sessionId: "session-second" });
+  const rows = new Map([
+    [first.sessionId, structuredClone(first)],
+    [second.sessionId, structuredClone(second)],
+  ]);
+  let checkpoint = null;
+  let updateCount = 0;
+  const transactionCalls = [];
+  const pgClient = {
+    async query(sql, params = []) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      transactionCalls.push(trimmed);
+      if (trimmed === "BEGIN") {
+        checkpoint = structuredClone([...rows.entries()]);
+        return { rows: [], rowCount: 0 };
+      }
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("SELECT key, value FROM persistence_auth_sessions")) {
+        return {
+          rows: [...rows.entries()].map(([key, value]) => ({ key, value: structuredClone(value) })),
+          rowCount: rows.size,
+        };
+      }
+      if (trimmed.startsWith("UPDATE persistence_auth_sessions")) {
+        updateCount += 1;
+        if (updateCount === 2) throw new Error("simulated second-row update failure");
+        const current = rows.get(params[0]);
+        assert.deepEqual(current, JSON.parse(params[1]));
+        const updated = JSON.parse(params[2]);
+        rows.set(params[0], updated);
+        return { rows: [{ value: updated }], rowCount: 1 };
+      }
+      if (trimmed === "ROLLBACK") {
+        rows.clear();
+        for (const [key, value] of checkpoint || []) rows.set(key, value);
+        return { rows: [], rowCount: 0 };
+      }
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+  };
+  const p = createPostgresPersistence({ pgClient });
+
+  await assert.rejects(
+    p.revokeAuthSessionsForUser({ userId: first.userId, revokedAt: 4_000 }),
+    /simulated second-row update failure/,
+  );
+  assert.deepEqual(rows.get(first.sessionId), first);
+  assert.deepEqual(rows.get(second.sessionId), second);
   assert.equal(transactionCalls.at(-1), "ROLLBACK");
 });
 

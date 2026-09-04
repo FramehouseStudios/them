@@ -10,6 +10,7 @@ import {
   createUserStoreCheckpoint,
   flushUserStorePersistenceWrites,
   getAuthSessionById,
+  getAuthSessionByToken,
   getUserByAppleSubject,
   getUserByEmail,
   getUserById,
@@ -19,8 +20,9 @@ import {
   listAuthSessionsForUser,
   markUserEmailVerified,
   revokeAllAuthSessionsForUser,
+  revokeAllAuthSessionsForUserDurablyInMutation,
   revokeAuthSessionById,
-  revokeAuthSessionByToken,
+  revokeAuthSessionsDurably,
   restoreUserStoreCheckpoint,
   rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
@@ -807,12 +809,14 @@ function createUserAuthSubsystem(options = {}) {
     if (!authConfigured) return authMisconfigured(res, "auth_logout");
     const now = Date.now();
     const refreshToken = String(req.body?.refresh_token || req.body?.refreshToken || req.get("X-Refresh-Token") || "").trim();
-    let revokedRefresh = null;
-    let revokedAccess = null;
+    let refreshSession = null;
 
     if (refreshToken) {
-      revokedRefresh = revokeAuthSessionByToken(refreshToken, now);
-      if (!revokedRefresh && !req.authSession) {
+      refreshSession = getAuthSessionByToken(refreshToken, now, {
+        includeRevoked: true,
+        includeExpired: true,
+      });
+      if (!refreshSession && !req.authSession) {
         return res.status(401).json({
           stage: "auth_logout",
           error: "invalid_refresh_token",
@@ -820,11 +824,45 @@ function createUserAuthSubsystem(options = {}) {
       }
     }
 
-    if (req.authSession && (!revokedRefresh || req.authSession.sessionId !== revokedRefresh.sessionId)) {
-      revokedAccess = revokeAuthSessionById(req.authSession.sessionId, now);
+    if (
+      refreshSession
+      && req.authSession
+      && String(refreshSession.userId || "").trim() !== String(req.authSession.userId || "").trim()
+    ) {
+      return res.status(401).json({
+        stage: "auth_logout",
+        error: "invalid_refresh_token",
+      });
     }
 
-    if ((revokedRefresh || revokedAccess) && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
+    const sessionIds = [refreshSession?.sessionId, req.authSession?.sessionId].filter(Boolean);
+    let revocationResult = { status: "no_sessions", revoked: [] };
+    if (sessionIds.length > 0) {
+      revocationResult = await revokeAuthSessionsDurably(sessionIds, now);
+      if (revocationResult.status === "auth_persistence_failed") {
+        return res.status(503).json({
+          stage: "auth_logout",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status === "conflict" || revocationResult.status === "not_found") {
+        return res.status(401).json({
+          stage: "auth_logout",
+          error: "invalid_refresh_token",
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && !(await ensureAuthMutationPersisted(res, "auth_logout", checkpoint))) return;
+    }
+    const revokedRefresh = revocationResult.revoked.find(
+      (session) => session.sessionId === refreshSession?.sessionId,
+    ) || null;
+    const revokedAccess = req.authSession?.sessionId !== refreshSession?.sessionId
+      ? revocationResult.revoked.find(
+        (session) => session.sessionId === req.authSession?.sessionId,
+      ) || null
+      : null;
 
     return res.status(200).json(buildAuthEnvelope({
       extra: {
@@ -867,8 +905,23 @@ function createUserAuthSubsystem(options = {}) {
           error: "session_not_found",
         });
       }
-      const revoked = revokeAuthSessionById(sessionId, now);
-      if (revoked && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      const revocationResult = await revokeAuthSessionsDurably([sessionId], now);
+      if (revocationResult.status === "auth_persistence_failed") {
+        return res.status(503).json({
+          stage: "auth_sessions_revoke",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status === "conflict" || revocationResult.status === "not_found") {
+        return res.status(404).json({
+          stage: "auth_sessions_revoke",
+          error: "session_not_found",
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      const revoked = revocationResult.revoked.find((session) => session.sessionId === sessionId) || null;
       return res.status(200).json({
         ok: true,
         revoked: Boolean(revoked),
@@ -882,14 +935,23 @@ function createUserAuthSubsystem(options = {}) {
     }
 
     if (revokeOthers) {
-      const revoked = revokeAllAuthSessionsForUser(user.id, now, {
+      const revocationResult = await revokeAllAuthSessionsForUserDurablyInMutation(user.id, now, {
         exceptSessionId: String(req.authSession?.sessionId || "").trim(),
       });
-      if (revoked.length > 0 && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
+      if (!revocationResult.ok) {
+        return res.status(503).json({
+          stage: "auth_sessions_revoke",
+          error: "auth_persistence_failed",
+          retryable: revocationResult.retryable === true,
+        });
+      }
+      if (revocationResult.status !== "committed"
+        && revocationResult.revokedCount > 0
+        && !(await ensureAuthMutationPersisted(res, "auth_sessions_revoke", checkpoint))) return;
       return res.status(200).json({
         ok: true,
-        revoked: revoked.length > 0,
-        count: revoked.length,
+        revoked: revocationResult.revokedCount > 0,
+        count: revocationResult.revokedCount,
         family_id: String(req.authSession?.familyId || "").trim() || null,
         user_id: String(user.id || "").trim() || null,
       });

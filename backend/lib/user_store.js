@@ -1355,6 +1355,135 @@ function revokeAuthSessionByToken(refreshToken, now = Date.now(), options = {}) 
   return revokeAuthSessionById(session.sessionId, now, options);
 }
 
+function writeLocalUserStoreMirror(now = Date.now()) {
+  const { USER_STORE_PATH, writeJsonFileAtomic } = userStoreDeps();
+  const payload = buildUserStorePayload(now, { cleanupExpired: false });
+  let fileOk = true;
+  try {
+    fileOk = typeof writeJsonFileAtomic === "function"
+      ? writeJsonFileAtomic(USER_STORE_PATH, payload, "user_store")
+      : true;
+  } catch {
+    fileOk = false;
+  }
+  if (!fileOk) {
+    console.error("[user_store] local auth mirror write failed after canonical auth mutation");
+  }
+  return Boolean(fileOk);
+}
+
+async function revokeAuthSessionsDurably(sessionIds, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  const normalizedSessionIds = [...new Set(
+    (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
+      .map((sessionId) => String(sessionId || "").trim())
+      .filter(Boolean),
+  )];
+  if (persistence?.kind !== "postgres") {
+    const revoked = normalizedSessionIds
+      .map((sessionId) => revokeAuthSessionById(sessionId, now))
+      .filter(Boolean);
+    return {
+      status: "snapshot_pending",
+      revoked,
+      retryable: true,
+    };
+  }
+  if (typeof persistence.revokeAuthSessions !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: false,
+    };
+  }
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // A prior canonical write must be settled before this mutation can use
+    // the in-memory row as its compare-and-swap expectation.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: false,
+    };
+  }
+  const expectedSessions = normalizedSessionIds
+    .map((sessionId) => sanitizeAuthSessionRecord(authSessionsById.get(sessionId)))
+    .filter(Boolean);
+  if (expectedSessions.length !== normalizedSessionIds.length || expectedSessions.length === 0) {
+    return { status: "not_found", revoked: [], retryable: false };
+  }
+  const userId = expectedSessions[0].userId;
+  if (expectedSessions.some((session) => session.userId !== userId)) {
+    return { status: "conflict", revoked: [], retryable: false };
+  }
+  const revokedSessions = expectedSessions.map((session) => (
+    Number(session.revokedAt || 0) > 0
+      ? session
+      : sanitizeAuthSessionRecord({
+        ...session,
+        revokedAt: Math.max(1, Number(now)),
+        updatedAt: now,
+      })
+  ));
+  try {
+    const result = await persistence.revokeAuthSessions({
+      userId,
+      expectedSessions,
+      revokedSessions,
+    });
+    if (result?.status !== "committed") {
+      const expectedById = new Map(expectedSessions.map((session) => [session.sessionId, session]));
+      const reconciledSessions = (Array.isArray(result?.sessions) ? result.sessions : [])
+        .map((session) => sanitizeAuthSessionRecord(session))
+        .filter((session) => {
+          const expected = expectedById.get(session?.sessionId);
+          return expected
+            && session.userId === userId
+            && session.tokenHash === expected.tokenHash
+            && Number(session.revokedAt || 0) > 0;
+        });
+      for (const session of reconciledSessions) replaceAuthSessionRecord(session);
+      if (reconciledSessions.length > 0) writeLocalUserStoreMirror(now);
+      return { status: "conflict", revoked: [], retryable: false };
+    }
+    const canonicalSessions = (Array.isArray(result.sessions) ? result.sessions : [])
+      .map((session) => sanitizeAuthSessionRecord(session))
+      .filter(Boolean);
+    const canonicalById = new Map(canonicalSessions.map((session) => [session.sessionId, session]));
+    const completeCanonicalResult = expectedSessions.every((expectedSession) => {
+      const canonical = canonicalById.get(expectedSession.sessionId);
+      return canonical
+        && canonical.userId === userId
+        && canonical.tokenHash === expectedSession.tokenHash
+        && Number(canonical.revokedAt || 0) > 0;
+    });
+    if (!completeCanonicalResult || canonicalSessions.length !== expectedSessions.length) {
+      return {
+        status: "auth_persistence_failed",
+        revoked: [],
+        retryable: false,
+      };
+    }
+    for (const session of canonicalSessions) replaceAuthSessionRecord(session);
+    writeLocalUserStoreMirror(now);
+    return {
+      status: "committed",
+      revoked: canonicalSessions,
+      retryable: true,
+    };
+  } catch (error) {
+    return {
+      status: "auth_persistence_failed",
+      revoked: [],
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+}
+
 function revokeAllAuthSessionsForUser(userId, now = Date.now(), options = {}) {
   const normalizedUserId = normalizeUserId(userId);
   const exceptSessionId = String(options.exceptSessionId || "").trim();
@@ -1375,6 +1504,11 @@ function revokeAllAuthSessionsForUser(userId, now = Date.now(), options = {}) {
 }
 
 async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), options = {}) {
+  if (userStoreDeps().persistence?.kind === "postgres") {
+    return runUserStoreMutationExclusive(
+      () => revokeAllAuthSessionsForUserDurablyInMutation(userId, now, options),
+    );
+  }
   return runUserStoreMutationExclusive(async () => {
     const checkpoint = createUserStoreCheckpoint(now);
     const revoked = revokeAllAuthSessionsForUser(userId, now, options);
@@ -1412,6 +1546,141 @@ async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), opt
   });
 }
 
+async function revokeAllAuthSessionsForUserDurablyInMutation(userId, now = Date.now(), options = {}) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    const revoked = revokeAllAuthSessionsForUser(userId, now, options);
+    return {
+      ok: true,
+      status: "snapshot_pending",
+      revoked,
+      revokedCount: revoked.length,
+      retryable: true,
+    };
+  }
+  if (typeof persistence.revokeAuthSessionsForUser !== "function") {
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: false,
+    };
+  }
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // Do not derive a canonical mutation from a row that may not have reached
+    // the adapter yet.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: false,
+    };
+  }
+  const normalizedUserId = normalizeUserId(userId);
+  const exceptSessionId = String(options.exceptSessionId || "").trim();
+  try {
+    const result = await persistence.revokeAuthSessionsForUser({
+      userId: normalizedUserId,
+      exceptSessionId,
+      revokedAt: now,
+    });
+    if (result?.status !== "committed") {
+      return {
+        ok: false,
+        status: "auth_persistence_failed",
+        revoked: [],
+        revokedCount: 0,
+        retryable: false,
+      };
+    }
+    const canonicalSessions = (Array.isArray(result.sessions) ? result.sessions : [])
+      .map((session) => sanitizeAuthSessionRecord(session))
+      .filter(Boolean);
+    const revokedSessionIds = new Set(
+      (Array.isArray(result.revokedSessionIds) ? result.revokedSessionIds : [])
+        .map((sessionId) => String(sessionId || "").trim())
+        .filter(Boolean),
+    );
+    const preservedSession = result.preservedSession
+      ? sanitizeAuthSessionRecord(result.preservedSession)
+      : null;
+    const canonicalById = new Map(canonicalSessions.map((session) => [session.sessionId, session]));
+    const completeCanonicalResult = canonicalSessions.length === canonicalById.size
+      && canonicalSessions.every((session) => (
+        session.userId === normalizedUserId
+        && session.sessionId !== exceptSessionId
+        && Number(session.revokedAt || 0) > 0
+      ))
+      && [...revokedSessionIds].every((sessionId) => canonicalById.has(sessionId))
+      && (!preservedSession || (
+        exceptSessionId
+        && preservedSession.sessionId === exceptSessionId
+        && preservedSession.userId === normalizedUserId
+      ));
+    if (!completeCanonicalResult) {
+      return {
+        ok: false,
+        status: "auth_persistence_failed",
+        revoked: [],
+        revokedCount: 0,
+        retryable: false,
+      };
+    }
+    for (const canonicalSession of canonicalSessions) {
+      replaceAuthSessionRecord(canonicalSession);
+    }
+    if (exceptSessionId) {
+      const localException = authSessionsById.get(exceptSessionId) || null;
+      if (preservedSession) {
+        replaceAuthSessionRecord(preservedSession);
+      } else if (localException && Number(localException.revokedAt || 0) <= 0) {
+        replaceAuthSessionRecord({
+          ...localException,
+          revokedAt: Math.max(1, Number(now)),
+          updatedAt: now,
+        });
+      }
+    }
+    for (const localSession of [...authSessionsById.values()]) {
+      if (localSession.userId !== normalizedUserId) continue;
+      if (exceptSessionId && localSession.sessionId === exceptSessionId) continue;
+      const canonical = canonicalById.get(localSession.sessionId);
+      if (canonical) {
+        replaceAuthSessionRecord(canonical);
+      } else if (Number(localSession.revokedAt || 0) <= 0) {
+        replaceAuthSessionRecord({
+          ...localSession,
+          revokedAt: Math.max(1, Number(now)),
+          updatedAt: now,
+        });
+      }
+    }
+    writeLocalUserStoreMirror(now);
+    return {
+      ok: true,
+      status: "committed",
+      revoked: canonicalSessions.filter((session) => revokedSessionIds.has(session.sessionId)),
+      revokedCount: revokedSessionIds.size,
+      retryable: true,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: "auth_persistence_failed",
+      revoked: [],
+      revokedCount: 0,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+}
+
 function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
   const current = getAuthSessionByToken(refreshToken, now);
   if (!current) return null;
@@ -1441,7 +1710,7 @@ function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
 }
 
 async function rotateAuthSessionDurably(refreshToken, input = {}, now = Date.now()) {
-  const { USER_STORE_PATH, writeJsonFileAtomic, persistence } = userStoreDeps();
+  const { persistence } = userStoreDeps();
   if (persistence?.kind !== "postgres") {
     return {
       status: "snapshot_pending",
@@ -1507,18 +1776,7 @@ async function rotateAuthSessionDurably(refreshToken, input = {}, now = Date.now
 
   const committedPreviousSession = replaceAuthSessionRecord(previousSession);
   const committedSession = replaceAuthSessionRecord(issued.session);
-  const localPayload = buildUserStorePayload(now, { cleanupExpired: false });
-  let localFileOk = true;
-  try {
-    localFileOk = typeof writeJsonFileAtomic === "function"
-      ? writeJsonFileAtomic(USER_STORE_PATH, localPayload, "user_store")
-      : true;
-  } catch {
-    localFileOk = false;
-  }
-  if (!localFileOk) {
-    console.error("[user_store] local auth mirror write failed after canonical refresh rotation");
-  }
+  writeLocalUserStoreMirror(now);
   return {
     status: "committed",
     rotation: {
@@ -1620,8 +1878,10 @@ export {
   passwordResetTokensByHash,
   revokeAllAuthSessionsForUser,
   revokeAllAuthSessionsForUserDurably,
+  revokeAllAuthSessionsForUserDurablyInMutation,
   revokeAuthSessionById,
   revokeAuthSessionByToken,
+  revokeAuthSessionsDurably,
   restoreUserStoreCheckpoint,
   rotateAuthSession,
   rotateAuthSessionDurably,

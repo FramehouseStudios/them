@@ -91,7 +91,11 @@ function createPostgresAuthPersistence() {
   const domains = new Map();
   const putCalls = [];
   const rotationCalls = [];
+  const revocationCalls = [];
+  const userRevocationCalls = [];
   let rotationFailure = null;
+  let revocationFailure = null;
+  let beforeRevocation = null;
   const domainRows = (domain) => {
     if (!domains.has(domain)) domains.set(domain, new Map());
     return domains.get(domain);
@@ -100,8 +104,16 @@ function createPostgresAuthPersistence() {
     kind: "postgres",
     putCalls,
     rotationCalls,
+    revocationCalls,
+    userRevocationCalls,
     failNextRotation(error = new Error("simulated auth rotation failure")) {
       rotationFailure = error;
+    },
+    failNextRevocation(error = new Error("simulated auth revocation failure")) {
+      revocationFailure = error;
+    },
+    observeBeforeRevocation(observer) {
+      beforeRevocation = observer;
     },
     async put({ domain, key, value }) {
       putCalls.push({ domain, key });
@@ -137,6 +149,82 @@ function createPostgresAuthPersistence() {
       }
       sessions.set(input.nextSession.sessionId, structuredClone(input.nextSession));
       return true;
+    },
+    async revokeAuthSessions(input) {
+      revocationCalls.push(structuredClone(input));
+      if (beforeRevocation) beforeRevocation();
+      if (revocationFailure) {
+        const error = revocationFailure;
+        revocationFailure = null;
+        throw error;
+      }
+      const sessions = domainRows("auth_sessions");
+      const canonical = [];
+      for (let index = 0; index < input.expectedSessions.length; index += 1) {
+        const expected = input.expectedSessions[index];
+        const revoked = input.revokedSessions[index];
+        const current = sessions.get(expected.sessionId);
+        if (JSON.stringify(current) === JSON.stringify(expected)) {
+          canonical.push(structuredClone(revoked));
+          continue;
+        }
+        if (
+          current
+          && current.userId === input.userId
+          && current.tokenHash === expected.tokenHash
+          && Number(current.revokedAt || 0) > 0
+          && !String(current.replacedBySessionId || "").trim()
+        ) {
+          canonical.push(structuredClone(current));
+          continue;
+        }
+        return {
+          status: "conflict",
+          sessions: current && Number(current.revokedAt || 0) > 0
+            ? [structuredClone(current)]
+            : [],
+        };
+      }
+      for (const session of canonical) sessions.set(session.sessionId, structuredClone(session));
+      return { status: "committed", sessions: canonical };
+    },
+    async revokeAuthSessionsForUser(input) {
+      userRevocationCalls.push(structuredClone(input));
+      if (beforeRevocation) beforeRevocation();
+      if (revocationFailure) {
+        const error = revocationFailure;
+        revocationFailure = null;
+        throw error;
+      }
+      const sessions = domainRows("auth_sessions");
+      const canonical = [];
+      const revokedSessionIds = [];
+      let preservedSession = null;
+      for (const [sessionId, session] of sessions.entries()) {
+        if (session.userId !== input.userId) continue;
+        if (sessionId === input.exceptSessionId) {
+          preservedSession = structuredClone(session);
+          continue;
+        }
+        if (Number(session.revokedAt || 0) > 0) {
+          canonical.push(structuredClone(session));
+          continue;
+        }
+        const updated = {
+          ...session,
+          revokedAt: input.revokedAt,
+          updatedAt: input.revokedAt,
+        };
+        sessions.set(sessionId, structuredClone(updated));
+        canonical.push(updated);
+        revokedSessionIds.push(sessionId);
+      }
+      return {
+        status: "committed",
+        sessions: canonical,
+        revokedSessionIds,
+        preservedSession,
+      };
     },
   };
 }
@@ -428,6 +516,281 @@ test("[user-auth-roundtrip] Postgres rotation failure keeps the original token r
   assert.notEqual(retry._body.refresh_token, originalRefreshToken);
 });
 
+test("[user-auth-roundtrip] Postgres logout is canonical before memory, idempotent, and row-scoped", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout@example.com", password: "validpass123" }),
+    signup,
+  );
+  const unrelatedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-other@example.com", password: "validpass123" }),
+    unrelatedSignup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const sessionId = signup._body.current_session_id;
+  const unrelatedSessionId = unrelatedSignup._body.current_session_id;
+  const unrelatedBefore = await persistence.get({
+    domain: "auth_sessions",
+    key: unrelatedSessionId,
+  });
+  const sessionPutsBeforeLogout = persistence.putCalls
+    .filter((call) => call.domain === "auth_sessions").length;
+  let observedActiveMemoryBeforeCanonicalWrite = false;
+  persistence.observeBeforeRevocation(() => {
+    observedActiveMemoryBeforeCanonicalWrite = Number(
+      authSessionsById.get(sessionId)?.revokedAt || 0,
+    ) === 0;
+  });
+
+  const logoutRequest = makeReq({ refresh_token: refreshToken });
+  logoutRequest.authSession = authSessionsById.get(sessionId);
+  const logout = makeRes();
+  await auth.handleAuthLogout(logoutRequest, logout);
+  assert.equal(logout._status, 200);
+  assert.equal(logout._body.logged_out, true);
+  assert.equal(logout._body.revoked_refresh_token, true);
+  assert.equal(logout._body.revoked_access_token, false);
+  assert.equal(observedActiveMemoryBeforeCanonicalWrite, true);
+  assert.equal(persistence.revocationCalls.length, 1);
+  assert.equal(persistence.revocationCalls[0].expectedSessions.length, 1);
+  assert.equal(
+    persistence.putCalls.filter((call) => call.domain === "auth_sessions").length,
+    sessionPutsBeforeLogout,
+    "logout must not rewrite the full auth-session snapshot",
+  );
+  assert.equal(Number((await persistence.get({
+    domain: "auth_sessions",
+    key: sessionId,
+  }))?.revokedAt || 0) > 0, true);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: unrelatedSessionId }),
+    unrelatedBefore,
+  );
+
+  const repeated = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), repeated);
+  assert.equal(repeated._status, 200);
+  assert.equal(repeated._body.revoked_refresh_token, true);
+  assert.equal(persistence.revocationCalls.length, 2);
+});
+
+test("[user-auth-roundtrip] Postgres logout adapter failure leaves canonical and memory active", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-failure@example.com", password: "validpass123" }),
+    signup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const sessionId = signup._body.current_session_id;
+  const canonicalBefore = await persistence.get({ domain: "auth_sessions", key: sessionId });
+  persistence.failNextRevocation();
+
+  const failed = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), failed);
+  assert.equal(failed._status, 503);
+  assert.equal(failed._body.error, "auth_persistence_failed");
+  assert.equal(failed._body.retryable, true);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: sessionId }),
+    canonicalBefore,
+  );
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0), 0);
+
+  const retry = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), retry);
+  assert.equal(retry._status, 200);
+});
+
+test("[user-auth-roundtrip] uncertain Postgres logout commit never promises a retry or leaks tokens", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-uncertain@example.com", password: "validpass123" }),
+    signup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const sessionId = signup._body.current_session_id;
+  const error = new Error("simulated unknown commit outcome");
+  error.commitOutcomeUnknown = true;
+  persistence.failNextRevocation(error);
+
+  const response = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), response);
+  assert.equal(response._status, 503);
+  assert.equal(response._body.error, "auth_persistence_failed");
+  assert.equal(response._body.retryable, false);
+  assert.equal(response._body.access_token, undefined);
+  assert.equal(response._body.refresh_token, undefined);
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0), 0);
+});
+
+test("[user-auth-roundtrip] logout rejects mixed-user sessions without revoking either account", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const first = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-first@example.com", password: "validpass123" }),
+    first,
+  );
+  const second = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-second@example.com", password: "validpass123" }),
+    second,
+  );
+  const firstSession = authSessionsById.get(first._body.current_session_id);
+  const request = makeReq({ refresh_token: second._body.refresh_token });
+  request.authSession = firstSession;
+
+  const response = makeRes();
+  await auth.handleAuthLogout(request, response);
+  assert.equal(response._status, 401);
+  assert.equal(response._body.error, "invalid_refresh_token");
+  assert.equal(persistence.revocationCalls.length, 0);
+  assert.equal(Number(authSessionsById.get(first._body.current_session_id)?.revokedAt || 0), 0);
+  assert.equal(Number(authSessionsById.get(second._body.current_session_id)?.revokedAt || 0), 0);
+});
+
+test("[user-auth-roundtrip] stale logout reconciles a rotated predecessor without revoking its replacement", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-stale@example.com", password: "validpass123" }),
+    signup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const sessionId = signup._body.current_session_id;
+  const active = await persistence.get({ domain: "auth_sessions", key: sessionId });
+  const replacement = {
+    ...active,
+    sessionId: `${sessionId}-replacement`,
+    tokenHash: `${active.tokenHash}-replacement`,
+    createdAt: active.createdAt + 1,
+    updatedAt: active.updatedAt + 1,
+  };
+  const predecessor = {
+    ...active,
+    revokedAt: active.updatedAt + 1,
+    updatedAt: active.updatedAt + 1,
+    replacedBySessionId: replacement.sessionId,
+  };
+  await persistence.put({ domain: "auth_sessions", key: sessionId, value: predecessor });
+  await persistence.put({ domain: "auth_sessions", key: replacement.sessionId, value: replacement });
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0), 0, "memory begins stale");
+
+  const response = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), response);
+  assert.equal(response._status, 401);
+  assert.equal(response._body.error, "invalid_refresh_token");
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0) > 0, true);
+  assert.equal(authSessionsById.get(sessionId)?.replacedBySessionId, replacement.sessionId);
+  assert.equal(Number((await persistence.get({
+    domain: "auth_sessions",
+    key: replacement.sessionId,
+  }))?.revokedAt || 0), 0);
+});
+
+test("[user-auth-roundtrip] Postgres revoke-others preserves current and unrelated-user sessions", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-revoke-others@example.com", password: "validpass123" }),
+    signup,
+  );
+  const login = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-revoke-others@example.com", password: "validpass123" }),
+    login,
+  );
+  const unrelatedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-revoke-unrelated@example.com", password: "validpass123" }),
+    unrelatedSignup,
+  );
+  const oldSessionId = signup._body.current_session_id;
+  const currentSessionId = login._body.current_session_id;
+  const unrelatedSessionId = unrelatedSignup._body.current_session_id;
+  const unrelatedBefore = await persistence.get({
+    domain: "auth_sessions",
+    key: unrelatedSessionId,
+  });
+  let observedOldSessionActiveBeforeCanonicalWrite = false;
+  persistence.observeBeforeRevocation(() => {
+    observedOldSessionActiveBeforeCanonicalWrite = Number(
+      authSessionsById.get(oldSessionId)?.revokedAt || 0,
+    ) === 0;
+  });
+  const request = makeReq({ all_other_sessions: true });
+  request.authUser = usersByEmail.get("postgres-revoke-others@example.com");
+  request.authSession = authSessionsById.get(currentSessionId);
+
+  const response = makeRes();
+  await auth.handleAuthSessionsRevoke(request, response);
+  assert.equal(response._status, 200);
+  assert.equal(response._body.count, 1);
+  assert.equal(observedOldSessionActiveBeforeCanonicalWrite, true);
+  assert.equal(persistence.userRevocationCalls.length, 1);
+  assert.equal(Number((await persistence.get({
+    domain: "auth_sessions",
+    key: oldSessionId,
+  }))?.revokedAt || 0) > 0, true);
+  assert.equal(Number((await persistence.get({
+    domain: "auth_sessions",
+    key: currentSessionId,
+  }))?.revokedAt || 0), 0);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: unrelatedSessionId }),
+    unrelatedBefore,
+  );
+});
+
+test("[user-auth-roundtrip] revoke-others reconciles a stale exception from canonical state", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-revoke-stale-current@example.com", password: "validpass123" }),
+    signup,
+  );
+  const login = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-revoke-stale-current@example.com", password: "validpass123" }),
+    login,
+  );
+  const currentSessionId = login._body.current_session_id;
+  const canonicalCurrent = await persistence.get({
+    domain: "auth_sessions",
+    key: currentSessionId,
+  });
+  const canonicalRevokedCurrent = {
+    ...canonicalCurrent,
+    revokedAt: canonicalCurrent.updatedAt + 1,
+    updatedAt: canonicalCurrent.updatedAt + 1,
+  };
+  await persistence.put({
+    domain: "auth_sessions",
+    key: currentSessionId,
+    value: canonicalRevokedCurrent,
+  });
+  assert.equal(Number(authSessionsById.get(currentSessionId)?.revokedAt || 0), 0);
+  const request = makeReq({ all_other_sessions: true });
+  request.authUser = usersByEmail.get("postgres-revoke-stale-current@example.com");
+  request.authSession = authSessionsById.get(currentSessionId);
+
+  const response = makeRes();
+  await auth.handleAuthSessionsRevoke(request, response);
+  assert.equal(response._status, 200);
+  assert.equal(response._body.count, 1);
+  assert.equal(Number(authSessionsById.get(currentSessionId)?.revokedAt || 0) > 0, true);
+});
+
 test("[user-auth-roundtrip] failed refresh restores live state without promising an undurable retry", async () => {
   const basePersistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
   let persistenceAvailable = true;
@@ -691,6 +1054,11 @@ test("[user-auth-roundtrip] logout invalidates the refresh token", async () => {
   const logoutRes = makeRes();
   await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), logoutRes);
   assert.ok(logoutRes._status >= 200 && logoutRes._status < 300);
+
+  const repeatedLogout = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), repeatedLogout);
+  assert.equal(repeatedLogout._status, 200, "legacy snapshot fallback remains idempotent");
+  assert.equal(repeatedLogout._body.revoked_refresh_token, true);
 
   // Subsequent refresh with the same token must fail.
   const refreshAfterLogout = makeRes();

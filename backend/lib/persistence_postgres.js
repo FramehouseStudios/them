@@ -115,6 +115,70 @@ function assertAuthSessionRotation(expectedSession, previousSession, nextSession
   }
 }
 
+function assertAuthSessionRevocations(userId, expectedSessions, revokedSessions) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    throw new Error("auth session revocation requires a user");
+  }
+  if (
+    !Array.isArray(expectedSessions)
+    || !Array.isArray(revokedSessions)
+    || expectedSessions.length === 0
+    || expectedSessions.length !== revokedSessions.length
+  ) {
+    throw new Error("auth session revocation requires matching session arrays");
+  }
+  const observedSessionIds = new Set();
+  for (let index = 0; index < expectedSessions.length; index += 1) {
+    const expectedSession = expectedSessions[index];
+    const revokedSession = revokedSessions[index];
+    for (const value of [expectedSession, revokedSession]) {
+      assertValue(value);
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("auth session revocation records must be objects");
+      }
+    }
+    const sessionId = String(expectedSession.sessionId || "").trim();
+    if (
+      !sessionId
+      || observedSessionIds.has(sessionId)
+      || String(revokedSession.sessionId || "").trim() !== sessionId
+    ) {
+      throw new Error("auth session revocation requires unique matching session rows");
+    }
+    observedSessionIds.add(sessionId);
+    if (
+      String(expectedSession.userId || "").trim() !== normalizedUserId
+      || String(revokedSession.userId || "").trim() !== normalizedUserId
+    ) {
+      throw new Error("auth session revocation cannot cross users");
+    }
+    if (
+      String(expectedSession.familyId || "").trim() !== String(revokedSession.familyId || "").trim()
+      || String(expectedSession.tokenHash || "").trim() !== String(revokedSession.tokenHash || "").trim()
+      || Number(expectedSession.createdAt || 0) !== Number(revokedSession.createdAt || 0)
+      || Number(expectedSession.expiresAt || 0) !== Number(revokedSession.expiresAt || 0)
+      || String(expectedSession.replacedBySessionId || "").trim()
+        !== String(revokedSession.replacedBySessionId || "").trim()
+      || JSON.stringify(expectedSession.metadata || {}) !== JSON.stringify(revokedSession.metadata || {})
+      || Number(revokedSession.revokedAt || 0) <= 0
+    ) {
+      throw new Error("auth session revocation must preserve identity and revoke the session");
+    }
+  }
+  return normalizedUserId;
+}
+
+async function lockAuthUserMutation(transactionClient, userId) {
+  // Rotation and user-wide revocation take the same transaction-scoped lock.
+  // This closes the insertion race where a refresh could otherwise add a
+  // replacement session after a revoke-all query took its statement snapshot.
+  await transactionClient.query(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1, 7468656d))",
+    [userId],
+  );
+}
+
 function createPostgresPersistence({
   databaseUrl,
   pgClient,
@@ -223,9 +287,11 @@ function createPostgresPersistence({
       }
       let transactionOpen = false;
       let commitAttempted = false;
+      let releaseError = null;
       try {
         await transactionClient.query("BEGIN");
         transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, expectedSession.userId);
         const replaced = await transactionClient.query(
           `UPDATE ${tableName("auth_sessions")}
            SET value = $3::jsonb, updated_at = NOW()
@@ -261,6 +327,7 @@ function createPostgresPersistence({
       } catch (error) {
         if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
           error.commitOutcomeUnknown = true;
+          releaseError = error;
         }
         if (transactionOpen) {
           try {
@@ -269,12 +336,220 @@ function createPostgresPersistence({
             if (error && (typeof error === "object" || typeof error === "function")) {
               error.rollbackError = rollbackError;
             }
+            releaseError = rollbackError;
           }
         }
         throw error;
       } finally {
         if (transactionClient !== c && typeof transactionClient.release === "function") {
-          transactionClient.release();
+          transactionClient.release(releaseError || undefined);
+        }
+      }
+    },
+
+    async revokeAuthSessions({ userId, expectedSessions, revokedSessions }) {
+      const normalizedUserId = assertAuthSessionRevocations(
+        userId,
+        expectedSessions,
+        revokedSessions,
+      );
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres auth session revocation requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      let releaseError = null;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, normalizedUserId);
+        const canonicalSessions = [];
+        for (let index = 0; index < expectedSessions.length; index += 1) {
+          const expectedSession = expectedSessions[index];
+          const revokedSession = revokedSessions[index];
+          if (Number(expectedSession.revokedAt || 0) > 0) {
+            const existing = await transactionClient.query(
+              `SELECT value FROM ${tableName("auth_sessions")}
+               WHERE key = $1
+               FOR UPDATE`,
+              [expectedSession.sessionId],
+            );
+            const canonical = existing?.rows?.[0]?.value || null;
+            if (
+              !canonical
+              || String(canonical.userId || "").trim() !== normalizedUserId
+              || String(canonical.tokenHash || "").trim() !== String(expectedSession.tokenHash || "").trim()
+              || Number(canonical.revokedAt || 0) <= 0
+            ) {
+              await transactionClient.query("ROLLBACK");
+              transactionOpen = false;
+              return { status: "conflict", sessions: [] };
+            }
+            canonicalSessions.push(canonical);
+            continue;
+          }
+          const updated = await transactionClient.query(
+            `UPDATE ${tableName("auth_sessions")}
+             SET value = $3::jsonb, updated_at = NOW()
+             WHERE key = $1 AND value = $2::jsonb
+             RETURNING value`,
+            [
+              expectedSession.sessionId,
+              JSON.stringify(expectedSession),
+              JSON.stringify(revokedSession),
+            ],
+          );
+          if (Number(updated?.rowCount || updated?.rows?.length || 0) !== 1) {
+            const existing = await transactionClient.query(
+              `SELECT value FROM ${tableName("auth_sessions")}
+               WHERE key = $1
+               FOR UPDATE`,
+              [expectedSession.sessionId],
+            );
+            const canonical = existing?.rows?.[0]?.value || null;
+            const matchingRevokedCanonical = canonical
+              && String(canonical.userId || "").trim() === normalizedUserId
+              && String(canonical.tokenHash || "").trim() === String(expectedSession.tokenHash || "").trim()
+              && Number(canonical.revokedAt || 0) > 0;
+            const idempotentlyRevoked = matchingRevokedCanonical
+              && !String(canonical.replacedBySessionId || "").trim();
+            if (!idempotentlyRevoked) {
+              await transactionClient.query("ROLLBACK");
+              transactionOpen = false;
+              return {
+                status: "conflict",
+                sessions: matchingRevokedCanonical ? [canonical] : [],
+              };
+            }
+            canonicalSessions.push(canonical);
+            continue;
+          }
+          canonicalSessions.push(updated?.rows?.[0]?.value || revokedSession);
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        return { status: "committed", sessions: canonicalSessions };
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+          releaseError = error;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release(releaseError || undefined);
+        }
+      }
+    },
+
+    async revokeAuthSessionsForUser({ userId, exceptSessionId = "", revokedAt }) {
+      const normalizedUserId = String(userId || "").trim();
+      const normalizedExceptSessionId = String(exceptSessionId || "").trim();
+      const requestedRevokedAt = Number(revokedAt);
+      const normalizedRevokedAt = Number.isFinite(requestedRevokedAt) && requestedRevokedAt > 0
+        ? requestedRevokedAt
+        : Date.now();
+      if (!normalizedUserId) {
+        throw new Error("auth session revocation requires a user");
+      }
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres auth session revocation requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      let releaseError = null;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, normalizedUserId);
+        const selected = await transactionClient.query(
+          `SELECT key, value FROM ${tableName("auth_sessions")}
+           WHERE value->>'userId' = $1
+           ORDER BY key ASC
+           FOR UPDATE`,
+          [normalizedUserId],
+        );
+        const canonicalSessions = [];
+        const revokedSessionIds = [];
+        let preservedSession = null;
+        for (const row of selected?.rows || []) {
+          const current = row?.value;
+          if (!current || typeof current !== "object") continue;
+          if (normalizedExceptSessionId && row.key === normalizedExceptSessionId) {
+            preservedSession = current;
+            continue;
+          }
+          if (Number(current.revokedAt || 0) > 0) {
+            canonicalSessions.push(current);
+            continue;
+          }
+          const revoked = {
+            ...current,
+            revokedAt: normalizedRevokedAt,
+            updatedAt: normalizedRevokedAt,
+          };
+          const updated = await transactionClient.query(
+            `UPDATE ${tableName("auth_sessions")}
+             SET value = $3::jsonb, updated_at = NOW()
+             WHERE key = $1 AND value = $2::jsonb
+             RETURNING value`,
+            [row.key, JSON.stringify(current), JSON.stringify(revoked)],
+          );
+          if (Number(updated?.rowCount || updated?.rows?.length || 0) !== 1) {
+            const conflict = new Error("auth session changed during user-wide revocation");
+            conflict.code = "AUTH_SESSION_REVOCATION_CONFLICT";
+            throw conflict;
+          }
+          canonicalSessions.push(updated?.rows?.[0]?.value || revoked);
+          revokedSessionIds.push(row.key);
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        return {
+          status: "committed",
+          sessions: canonicalSessions,
+          revokedSessionIds,
+          preservedSession,
+        };
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+          releaseError = error;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release(releaseError || undefined);
         }
       }
     },

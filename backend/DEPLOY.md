@@ -50,12 +50,13 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
 4. **Keep the V1 backend at one instance.**
 
-   Refresh-token rotation now uses a row-scoped Postgres transaction and
-   compare-and-swap, so concurrent refresh requests have one winner. Other
-   auth mutations are still serialized by an in-process lock and persisted as
-   a complete auth-store snapshot. Keep the V1 backend at one instance until
-   those remaining writes and prunes are row-scoped too; otherwise two writers
-   can still overwrite unrelated auth records.
+   Refresh-token rotation, logout, and session revocation now use row-scoped
+   Postgres transactions; refresh and user-wide revocation share a user-scoped
+   transaction lock so their ordering cannot leave an active replacement.
+   Signup, login, password reset, verification, and other auth mutations still
+   persist complete auth-store snapshots. Keep the V1 backend at one instance
+   until those remaining writes and prunes are row-scoped too; otherwise two
+   writers can still overwrite unrelated auth records.
 
 ## Required production environment
 
