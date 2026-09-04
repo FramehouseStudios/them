@@ -13,6 +13,7 @@ final class ConversationHistoryResponsiveUITests: XCTestCase {
             "--ui-reset-state",
             "--ui-skip-onboarding",
             "--ui-history-fixture",
+            "--ui-history-refresh-failure",
             "-studio_debug_submit_transport_mode",
             "stub",
         ]
@@ -36,6 +37,17 @@ final class ConversationHistoryResponsiveUITests: XCTestCase {
         let thread = app.buttons["history.thread.history-fixture-lighthouse"]
         XCTAssertTrue(thread.waitForExistence(timeout: 3))
         assertMinimumTarget(thread)
+
+        let refresh = app.buttons["history.refresh"]
+        assertMinimumTarget(refresh)
+        refresh.tap()
+        XCTAssertTrue(element("history.refresh-error", in: app).waitForExistence(timeout: 4))
+        XCTAssertEqual(refresh.label, "Retry refresh")
+        XCTAssertTrue(thread.isHittable, "A failed refresh must keep the saved transcript readable.")
+        let recoveryAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        recoveryAttachment.name = "Conversation History - Refresh recovery"
+        recoveryAttachment.lifetime = .keepAlways
+        add(recoveryAttachment)
         thread.tap()
 
         XCTAssertTrue(element("history.detail.screen", in: app).waitForExistence(timeout: 5))
@@ -57,6 +69,16 @@ final class ConversationHistoryResponsiveUITests: XCTestCase {
         back.tap()
 
         XCTAssertTrue(element("history.screen", in: app).waitForExistence(timeout: 4))
+        XCTAssertTrue(element("history.refresh-error", in: app).exists)
+        assertMinimumTarget(refresh)
+        refresh.tap()
+        let refreshed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element("history.refresh-error", in: app)
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [refreshed], timeout: 4), .completed)
+        XCTAssertEqual(refresh.label, "Refresh history")
+        XCTAssertTrue(thread.isHittable)
         app.buttons["history.done"].tap()
         XCTAssertTrue(element("home.surface", in: app).waitForExistence(timeout: 6))
         XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 3))

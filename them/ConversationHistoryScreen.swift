@@ -54,17 +54,41 @@ final class ConversationHistoryViewModel: ObservableObject {
     @Published var state: ScreenState = .loading
     @Published var selection: ConversationThread?
     @Published var subtitle: String = "A quiet trail of what mattered."
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var refreshError: String?
 
-    private var isLoading = false
+    typealias HistoryLoader = @MainActor (Bool, String?) async throws -> BackendReadResult<BackendHistoryResponse>
+    typealias DeltaLoader = @MainActor (String, String?) async throws -> BackendReadResult<BackendStateDeltaResponse>
+
+    private var historyLoader: HistoryLoader
+    private let deltaLoader: DeltaLoader
+    private let notificationCenter: NotificationCenter
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
     private var turnObserver: NSObjectProtocol?
     private var latestSeenStateVersion = ""
-    private var inFlightVersions: Set<String> = []
+    private var pendingEvents: [String: BackendTurnCommittedEvent] = [:]
+    private var optimisticUpdatesDuringRead: [String: ConversationThread] = [:]
+    #if DEBUG
+    private var isUITestFixture = false
+    #endif
 
-    init() {
-        turnObserver = NotificationCenter.default.addObserver(
+    init(
+        notificationCenter: NotificationCenter = .default,
+        historyLoader: @escaping HistoryLoader = { force, sinceTurnId in
+            try await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: force, sinceTurnId: sinceTurnId)
+        },
+        deltaLoader: @escaping DeltaLoader = { version, turnId in
+            try await BackendMemoryAPI.shared.fetchStateDelta(
+                sinceVersion: version, sinceTurnId: turnId, historyLimit: 140, memoriesLimit: 1
+            )
+        }
+    ) {
+        self.notificationCenter = notificationCenter
+        self.historyLoader = historyLoader
+        self.deltaLoader = deltaLoader
+        turnObserver = notificationCenter.addObserver(
             forName: .themTurnCommitted,
             object: nil,
             queue: .main
@@ -78,92 +102,146 @@ final class ConversationHistoryViewModel: ObservableObject {
 
     deinit {
         if let turnObserver {
-            NotificationCenter.default.removeObserver(turnObserver)
+            notificationCenter.removeObserver(turnObserver)
         }
     }
 
     func load(force: Bool = false, sinceTurnId: String? = nil) async {
         let isDeltaFetch = !(sinceTurnId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        if isLoading { return }
+        if isRefreshing { return }
         if !force, !isDeltaFetch, let lastLoadedAt,
            Date().timeIntervalSince(lastLoadedAt) < reloadCooldownSeconds {
             return
         }
 
-        isLoading = true
-        let shouldShowLoading: Bool
-        switch state {
-        case .loaded:
-            shouldShowLoading = force && !isDeltaFetch
-        case .empty, .error, .loading:
-            shouldShowLoading = true
-        }
-        if shouldShowLoading {
-            state = .loading
-        }
-        defer {
-            isLoading = false
-            lastLoadedAt = Date()
-        }
+        beginRead()
+        defer { finishRead() }
 
         do {
-            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-            let result = try await BackendMemoryAPI.shared.fetchHistory(
-                limit: 140,
-                force: force,
-                sinceTurnId: sinceTurnId
+            try await readHistory(force: force, sinceTurnId: sinceTurnId)
+        } catch {
+            presentReadFailure(error)
+        }
+    }
+
+    private func readHistory(force: Bool, sinceTurnId: String?) async throws {
+        let result = try await historyLoader(force, sinceTurnId)
+        try Task.checkCancellation()
+        let payload = result.payload
+        let requestedDelta = !(sinceTurnId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if requestedDelta, payload.isDelta ?? true,
+           payload.threads.isEmpty,
+           historyCursorChanged(updatedAt: payload.historyUpdatedAt, turnId: payload.lastTurnId) {
+            try await readHistory(force: true, sinceTurnId: nil)
+            return
+        }
+        let incoming = payload.threads.map { item in
+            ConversationThread(
+                id: item.id,
+                turn: item.turn,
+                title: item.title,
+                lastUpdated: themDateFromEpoch(item.updatedAt),
+                preview: item.preview,
+                userMessage: item.user,
+                assistantMessage: item.assistant
             )
-            let payload = result.payload
-            let incoming = payload.threads.map { item in
-                ConversationThread(
-                    id: item.id,
-                    turn: item.turn,
-                    title: item.title,
-                    lastUpdated: themDateFromEpoch(item.updatedAt),
-                    preview: item.preview,
-                    userMessage: item.user,
-                    assistantMessage: item.assistant
-                )
-            }
+        }
 
-            if let recap = payload.lastConversationRecap, !recap.isEmpty {
-                subtitle = recap
-            } else if let userName = payload.userName, !userName.isEmpty {
-                subtitle = "Recent moments with \(userName)."
-            } else {
-                subtitle = "A quiet trail of what mattered."
-            }
+        if let recap = payload.lastConversationRecap, !recap.isEmpty {
+            subtitle = recap
+        } else if let userName = payload.userName, !userName.isEmpty {
+            subtitle = "Recent moments with \(userName)."
+        } else {
+            subtitle = "A quiet trail of what mattered."
+        }
 
-            let items: [ConversationThread]
-            if isDeltaFetch {
-                switch state {
-                case .loaded(let current):
-                    var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
-                    for thread in incoming {
-                        merged[thread.id] = thread
-                    }
-                    items = merged.values.sorted { $0.lastUpdated > $1.lastUpdated }
-                case .empty, .error, .loading:
-                    items = incoming
+        let items: [ConversationThread]
+        if payload.isDelta ?? requestedDelta {
+            switch state {
+            case .loaded(let current):
+                var merged = current.reduce(into: [String: ConversationThread]()) { $0[$1.id] = $1 }
+                for thread in incoming {
+                    merged[thread.id] = thread
                 }
-            } else {
+                items = Array(merged.values)
+            case .empty, .error, .loading:
                 items = incoming
             }
+        } else {
+            items = incoming
+        }
 
-            lastSync = result.sync
-            if !result.sync.stateVersion.isEmpty {
-                latestSeenStateVersion = result.sync.stateVersion
-            }
-            state = items.isEmpty ? .empty : .loaded(items)
-        } catch {
-            if isDeltaFetch {
-                if case .loading = state {
-                    state = .error(message: error.localizedDescription)
-                }
-                return
-            }
+        adoptReadCursor(
+            version: payload.stateVersion, turnId: payload.lastTurnId,
+            historyUpdatedAt: payload.historyUpdatedAt, lastUpdatedAt: payload.lastUpdatedAt
+        )
+        publishThreads(items)
+        lastLoadedAt = Date()
+    }
+
+    private func beginRead() {
+        isRefreshing = true
+        refreshError = nil
+        optimisticUpdatesDuringRead = [:]
+        if case .error = state { state = .loading }
+    }
+
+    private func finishRead() {
+        isRefreshing = false
+        optimisticUpdatesDuringRead = [:]
+        let events = pendingEvents
+        pendingEvents = [:]
+        if let next = events.first(where: { $0.key != latestSeenStateVersion })?.value {
+            handleTurnCommitted(next)
+        }
+    }
+
+    private func presentReadFailure(_ error: Error) {
+        guard !(error is CancellationError), (error as? URLError)?.code != .cancelled else { return }
+        switch state {
+        case .loaded:
+            refreshError = "Couldn’t refresh history. You can still read these conversations."
+        case .empty:
+            refreshError = "Couldn’t refresh history. Try again to check for new conversations."
+        case .loading, .error:
             state = .error(message: error.localizedDescription)
         }
+    }
+
+    private func adoptReadCursor(
+        version: String?, turnId: String?, historyUpdatedAt: TimeInterval?, lastUpdatedAt: TimeInterval?
+    ) {
+        // The shared API sync state may describe a different read. Only advance
+        // past data this screen actually received, including a cleared cursor.
+        lastSync.stateVersion = version ?? ""
+        lastSync.lastTurnId = turnId ?? ""
+        lastSync.historyUpdatedAt = historyUpdatedAt ?? 0
+        lastSync.lastUpdatedAt = lastUpdatedAt ?? 0
+        latestSeenStateVersion = lastSync.stateVersion
+    }
+
+    private func historyCursorChanged(updatedAt: TimeInterval?, turnId: String?) -> Bool {
+        (updatedAt ?? 0) != lastSync.historyUpdatedAt || (turnId ?? "") != lastSync.lastTurnId
+    }
+
+    func thread(forID id: String) -> ConversationThread? {
+        guard case .loaded(let items) = state else { return nil }
+        return items.first { $0.id == id }
+    }
+
+    private func publishThreads(_ items: [ConversationThread]) {
+        var merged = items.reduce(into: [String: ConversationThread]()) { $0[$1.id] = $1 }
+        for (id, optimistic) in optimisticUpdatesDuringRead {
+            if let saved = merged[id], saved.lastUpdated >= optimistic.lastUpdated { continue }
+            merged[id] = optimistic
+        }
+        let sorted = merged.values.sorted {
+            if $0.lastUpdated != $1.lastUpdated { return $0.lastUpdated > $1.lastUpdated }
+            if $0.turn != $1.turn { return $0.turn > $1.turn }
+            return $0.id < $1.id
+        }
+        state = sorted.isEmpty ? .empty : .loaded(sorted)
+        if let selection, merged[selection.id] == nil { self.selection = nil }
     }
 
     func retry() async {
@@ -179,6 +257,7 @@ final class ConversationHistoryViewModel: ObservableObject {
               arguments.contains("--ui-history-fixture") else {
             return false
         }
+        isUITestFixture = true
         subtitle = "A clear record of the pages you shaped with Clementine."
         state = .loaded([
             ConversationThread(
@@ -200,6 +279,29 @@ final class ConversationHistoryViewModel: ObservableObject {
                 assistantMessage: ""
             ),
         ])
+        if case .loaded(let threads) = state {
+            var shouldFail = arguments.contains("--ui-history-refresh-failure")
+            let recap = subtitle
+            historyLoader = { _, _ in
+                if shouldFail {
+                    shouldFail = false
+                    throw URLError(.notConnectedToInternet)
+                }
+                let rows: [[String: Any]] = threads.map { thread in
+                    ["id": thread.id, "turn": thread.turn, "title": thread.title,
+                     "preview": thread.preview, "user": thread.userMessage,
+                     "assistant": thread.assistantMessage, "updatedAt": thread.lastUpdated.timeIntervalSince1970]
+                }
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "source": "ui-fixture", "sourceIp": "", "rememberedNames": [],
+                    "conversationCount": threads.count, "lastConversationRecap": recap,
+                    "stateVersion": "history-fixture-refreshed", "lastTurnId": "turn-18",
+                    "isDelta": false, "threads": rows,
+                ])
+                let payload = try JSONDecoder().decode(BackendHistoryResponse.self, from: data)
+                return BackendReadResult(payload: payload, sync: .empty, notModified: false)
+            }
+        }
         return true
         #else
         return false
@@ -207,6 +309,9 @@ final class ConversationHistoryViewModel: ObservableObject {
     }
 
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
+        #if DEBUG
+        guard !isUITestFixture else { return }
+        #endif
         if event.source == "optimistic" {
             applyOptimisticTurn(event)
             return
@@ -214,51 +319,54 @@ final class ConversationHistoryViewModel: ObservableObject {
         let versionKey = event.stateVersion.isEmpty ? event.turnId : event.stateVersion
         guard !versionKey.isEmpty else { return }
         if latestSeenStateVersion == versionKey { return }
-        if inFlightVersions.contains(versionKey) { return }
-        if event.historyUpdatedAt > 0,
-           lastSync.historyUpdatedAt > 0,
-           event.historyUpdatedAt <= lastSync.historyUpdatedAt {
-            latestSeenStateVersion = versionKey
+        if isRefreshing {
+            pendingEvents[versionKey] = event
             return
         }
-        inFlightVersions.insert(versionKey)
+        beginRead()
         let sinceVersion = lastSync.stateVersion
         let sinceTurnId = lastSync.lastTurnId
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.inFlightVersions.remove(versionKey) }
+            defer { self.finishRead() }
 
             if !sinceVersion.isEmpty {
                 do {
-                    let result = try await BackendMemoryAPI.shared.fetchStateDelta(
-                        sinceVersion: sinceVersion,
-                        sinceTurnId: sinceTurnId.isEmpty ? nil : sinceTurnId,
-                        historyLimit: 140,
-                        memoriesLimit: 1
-                    )
-                    self.lastSync = result.sync
-                    if !result.sync.stateVersion.isEmpty {
-                        self.latestSeenStateVersion = result.sync.stateVersion
-                    } else {
-                        self.latestSeenStateVersion = versionKey
+                    let result = try await self.deltaLoader(sinceVersion, sinceTurnId.isEmpty ? nil : sinceTurnId)
+                    try Task.checkCancellation()
+                    // Turn-number deltas cannot represent a cleared history or
+                    // edits to an existing turn. Re-read the complete snapshot.
+                    if result.payload.deltaNoChange != true,
+                       result.payload.historyDelta.isEmpty,
+                       self.historyCursorChanged(
+                        updatedAt: result.payload.historyUpdatedAt, turnId: result.payload.lastTurnId
+                       ) {
+                        do {
+                            try await self.readHistory(force: true, sinceTurnId: nil)
+                        } catch {
+                            self.presentReadFailure(error)
+                        }
+                        return
                     }
+                    self.adoptReadCursor(
+                        version: result.payload.stateVersion, turnId: result.payload.lastTurnId,
+                        historyUpdatedAt: result.payload.historyUpdatedAt, lastUpdatedAt: result.payload.lastUpdatedAt
+                    )
                     if result.payload.deltaNoChange == true {
                         return
                     }
                     self.applyHistoryDelta(result.payload.historyDelta)
                     return
                 } catch {
+                    if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
                     // Fallback to endpoint-specific delta to avoid losing refreshes.
                 }
             }
 
-            let previousSync = self.lastSync
-            await self.load(force: false, sinceTurnId: sinceTurnId.isEmpty ? nil : sinceTurnId)
-            if !self.lastSync.stateVersion.isEmpty {
-                self.latestSeenStateVersion = self.lastSync.stateVersion
-            } else if self.lastSync.lastTurnId == event.turnId ||
-                        self.lastSync.lastUpdatedAt > previousSync.lastUpdatedAt {
-                self.latestSeenStateVersion = versionKey
+            do {
+                try await self.readHistory(force: false, sinceTurnId: sinceTurnId.isEmpty ? nil : sinceTurnId)
+            } catch {
+                self.presentReadFailure(error)
             }
         }
     }
@@ -286,6 +394,7 @@ final class ConversationHistoryViewModel: ObservableObject {
         }
         current.removeAll { $0.id == optimisticTurn.id }
         current.insert(optimisticTurn, at: 0)
+        if isRefreshing { optimisticUpdatesDuringRead[optimisticTurn.id] = optimisticTurn }
         state = .loaded(current)
     }
 
@@ -305,13 +414,12 @@ final class ConversationHistoryViewModel: ObservableObject {
 
         var merged = [String: ConversationThread]()
         if case .loaded(let current) = state {
-            merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            merged = current.reduce(into: [String: ConversationThread]()) { $0[$1.id] = $1 }
         }
         for thread in incoming {
             merged[thread.id] = thread
         }
-        let items = merged.values.sorted { $0.lastUpdated > $1.lastUpdated }
-        state = items.isEmpty ? .empty : .loaded(items)
+        publishThreads(Array(merged.values))
     }
 
     private func parseTurnNumber(_ turnId: String) -> Int {
@@ -369,6 +477,9 @@ struct ConversationHistoryScreen: View {
                         .padding(.top, isCompact ? 12 : 28)
                         .padding(.bottom, isCompact ? 12 : 18)
 
+                    refreshControls
+                        .padding(.bottom, 12)
+
                     Divider()
                         .overlay(Color.white.opacity(0.22))
 
@@ -381,6 +492,9 @@ struct ConversationHistoryScreen: View {
             }
             .navigationTitle("")
             .toolbarTitleDisplayMode(.inline)
+            .navigationDestination(item: $vm.selection) { thread in
+                ConversationThreadDetailView(thread: vm.thread(forID: thread.id) ?? thread)
+            }
         }
         .task {
             guard !vm.installUITestFixtureIfNeeded() else { return }
@@ -404,6 +518,7 @@ struct ConversationHistoryScreen: View {
                 Text(vm.subtitle)
                     .font(.system(size: 15, weight: .regular, design: .default))
                     .foregroundStyle(ConversationHistoryTheme.textSecondary)
+                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("history.summary")
             }
@@ -429,6 +544,41 @@ struct ConversationHistoryScreen: View {
         .accessibilityIdentifier("history.navigation")
     }
 
+    private var refreshControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                Task { await vm.retry() }
+            } label: {
+                HStack(spacing: 8) {
+                    if vm.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Text(vm.isRefreshing ? "Refreshing…" : (vm.refreshError == nil ? "Refresh history" : "Retry refresh"))
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(ConversationHistoryTheme.textPrimary)
+            .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+            .disabled(vm.isRefreshing)
+            .accessibilityIdentifier("history.refresh")
+            .accessibilityHint("Checks for the latest saved conversations with Clementine.")
+
+            if let message = vm.refreshError {
+                Text(message)
+                    .font(.system(size: 14))
+                    .foregroundStyle(ConversationHistoryTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("history.refresh-error")
+            }
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         switch vm.state {
@@ -443,11 +593,9 @@ struct ConversationHistoryScreen: View {
         case .loaded(let items):
             HistoryList(
                 items: items,
-                selection: $vm.selection
+                selection: $vm.selection,
+                refresh: { await vm.retry() }
             )
-            .navigationDestination(item: $vm.selection) { thread in
-                ConversationThreadDetailView(thread: thread)
-            }
         }
     }
 }
@@ -485,6 +633,7 @@ private func sectionTitle(_ key: HistorySectionKey) -> String {
 struct HistoryList: View {
     let items: [ConversationThread]
     @Binding var selection: ConversationThread?
+    var refresh: () async -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -519,6 +668,7 @@ struct HistoryList: View {
             .padding(.vertical, 6)
         }
         .scrollIndicators(.automatic)
+        .refreshable { await refresh() }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selection?.id)
     }
 }
