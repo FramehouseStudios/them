@@ -68,3 +68,11 @@ Each entry follows the ADR pattern:
 - **Context:** The human asked to remove assistant-branded workflow surfaces from GitHub and the project while preserving useful shipped work and preparing a cleaner public repository face.
 - **Decision:** New work is project-owned and Codex-led unless the human explicitly assigns otherwise. Old helper-lane branches, docs, and task metadata may be mined for useful implementation ideas, but they should not be merged wholesale or preserved as active workflow requirements. Public GitHub presentation starts with a current, professional README.
 - **Consequences:** Assistant-specific config and redirect files are removed. New branches should use the `codex/` namespace. Stale remote branch deletion and any public-history rewrite require exact target lists and human clearance before execution. Useful security/backend work already merged into `main` stays intact; unmerged hardening ideas must be ported into fresh project-owned PRs and reverified before merge.
+
+## D008 — The orb and Clementine are permanent product anchors
+
+- **Date:** 2026-09-04
+- **Status:** accepted
+- **Context:** The human explicitly directed that the orb remain part of the app no matter how the surrounding experience evolves, and that Clementine remain the named creative companion.
+- **Decision:** The orb remains the visual heart of io.them, and Clementine remains its named, emotionally intelligent screenwriting companion. Navigation, accessibility, responsive layout, state communication, and interaction affordances around them may be redesigned, but neither may be removed, renamed, hidden behind generic assistant language, or reduced to decorative branding.
+- **Consequences:** Home and Studio improvements must clarify what Clementine is doing and what the writer can do next while preserving the orb as the primary presence. Product-copy and presentation tests should guard both anchors against accidental regression.
