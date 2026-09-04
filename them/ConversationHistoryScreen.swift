@@ -13,6 +13,33 @@ struct ConversationThread: Identifiable, Hashable {
     var assistantMessage: String
 }
 
+struct ConversationThreadPresentation: Equatable {
+    let title: String
+    let writerMessage: String
+    let clementineMessage: String
+    let turnLabel: String
+    let updatedLabel: String
+
+    init(thread: ConversationThread) {
+        title = Self.nonEmpty(thread.title, fallback: "Untitled conversation")
+        writerMessage = Self.nonEmpty(
+            thread.userMessage,
+            fallback: "The writer's message was not saved for this turn."
+        )
+        clementineMessage = Self.nonEmpty(
+            thread.assistantMessage,
+            fallback: "Clementine's reply was not saved for this turn."
+        )
+        turnLabel = thread.turn > 0 ? "Turn \(thread.turn)" : "Saved conversation"
+        updatedLabel = thread.lastUpdated.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private static func nonEmpty(_ value: String, fallback: String) -> String {
+        let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? fallback : cleaned
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -143,36 +170,40 @@ final class ConversationHistoryViewModel: ObservableObject {
         await load(force: true, sinceTurnId: nil)
     }
 
-    func delete(_ thread: ConversationThread) {
-        guard case .loaded(let items) = state else { return }
-        let updated = items.filter { $0.id != thread.id }
-        state = updated.isEmpty ? .empty : .loaded(updated)
-        if selection?.id == thread.id {
-            selection = nil
+    func installUITestFixtureIfNeeded(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        now: Date = Date()
+    ) -> Bool {
+        #if DEBUG
+        guard arguments.contains("--ui-testing"),
+              arguments.contains("--ui-history-fixture") else {
+            return false
         }
-    }
-
-    func rename(_ thread: ConversationThread, to newTitle: String) {
-        let clean = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        guard case .loaded(let items) = state else { return }
-
-        let updated = items.map { item -> ConversationThread in
-            guard item.id == thread.id else { return item }
-            var copy = item
-            copy.title = clean
-            return copy
-        }
-        .sorted { $0.lastUpdated > $1.lastUpdated }
-
-        state = updated.isEmpty ? .empty : .loaded(updated)
-        if selection?.id == thread.id {
-            selection = updated.first(where: { $0.id == thread.id })
-        }
-    }
-
-    func export(_ thread: ConversationThread) {
-        print("Export thread: \(thread.id)")
+        subtitle = "A clear record of the pages you shaped with Clementine."
+        state = .loaded([
+            ConversationThread(
+                id: "history-fixture-lighthouse",
+                turn: 18,
+                title: "The lighthouse door",
+                lastUpdated: now.addingTimeInterval(-900),
+                preview: "Mara chooses the storm over another safe answer.",
+                userMessage: "Make the choice feel physical before Mara admits why she came back.",
+                assistantMessage: "Mara braces both hands against the salt-swollen door. It gives only after she stops trying to look unafraid."
+            ),
+            ConversationThread(
+                id: "history-fixture-causeway",
+                turn: 17,
+                title: "Crossing the causeway",
+                lastUpdated: now.addingTimeInterval(-3_600),
+                preview: "The tide cuts off the last easy retreat.",
+                userMessage: "Let the causeway disappear behind them.",
+                assistantMessage: ""
+            ),
+        ])
+        return true
+        #else
+        return false
+        #endif
     }
 
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
@@ -307,10 +338,17 @@ enum ConversationHistoryTheme {
 struct ConversationHistoryScreen: View {
     @StateObject private var vm = ConversationHistoryViewModel()
     var openConversation: () -> Void = {}
+    var dismissAction: (() -> Void)?
 
-    @State private var showRenameAlert = false
-    @State private var renamingThread: ConversationThread?
-    @State private var renameDraft = ""
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    init(
+        openConversation: @escaping () -> Void = {},
+        dismissAction: (() -> Void)? = nil
+    ) {
+        self.openConversation = openConversation
+        self.dismissAction = dismissAction
+    }
 
     var body: some View {
         NavigationStack {
@@ -327,55 +365,68 @@ struct ConversationHistoryScreen: View {
                 .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    header
-                        .padding(.top, 28)
-                        .padding(.bottom, 18)
+                    topBar
+                        .padding(.top, isCompact ? 12 : 28)
+                        .padding(.bottom, isCompact ? 12 : 18)
 
                     Divider()
                         .overlay(Color.white.opacity(0.22))
 
                     content
-                        .padding(.top, 20)
-                        .padding(.bottom, 28)
+                        .padding(.top, isCompact ? 14 : 20)
+                        .padding(.bottom, isCompact ? 16 : 28)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, isCompact ? 16 : 24)
                 .frame(maxWidth: 1240, maxHeight: .infinity, alignment: .top)
             }
             .navigationTitle("")
             .toolbarTitleDisplayMode(.inline)
         }
-        .task { await vm.load() }
-        .alert("Rename Conversation", isPresented: $showRenameAlert) {
-            TextField("Title", text: $renameDraft)
-            Button("Cancel", role: .cancel) {
-                renamingThread = nil
-                renameDraft = ""
-            }
-            Button("Save") {
-                if let thread = renamingThread {
-                    vm.rename(thread, to: renameDraft)
-                }
-                renamingThread = nil
-                renameDraft = ""
-            }
-        } message: {
-            Text("Set a short title for this thread.")
+        .task {
+            guard !vm.installUITestFixtureIfNeeded() else { return }
+            await vm.load()
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("history.screen")
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Conversation")
-                .font(.system(size: 34, weight: .semibold, design: .default))
-                .foregroundStyle(ConversationHistoryTheme.textPrimary)
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
 
-            Text(vm.subtitle)
-                .font(.system(size: 15, weight: .regular, design: .default))
-                .foregroundStyle(ConversationHistoryTheme.textSecondary)
+    private var topBar: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("History")
+                    .font(.system(size: isCompact ? 28 : 34, weight: .semibold, design: .default))
+                    .foregroundStyle(ConversationHistoryTheme.textPrimary)
+
+                Text(vm.subtitle)
+                    .font(.system(size: 15, weight: .regular, design: .default))
+                    .foregroundStyle(ConversationHistoryTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("history.summary")
+            }
+
+            Spacer(minLength: 8)
+
+            if let dismissAction {
+                Button(action: dismissAction) {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold, design: .default))
+                        .frame(minWidth: 64, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.white.opacity(0.22))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("history.done")
+                .accessibilityHint("Returns to Clementine and the orb.")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Conversation history. A quiet trail of what mattered.")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("history.navigation")
     }
 
     @ViewBuilder
@@ -392,17 +443,10 @@ struct ConversationHistoryScreen: View {
         case .loaded(let items):
             HistoryList(
                 items: items,
-                selection: $vm.selection,
-                onDelete: { vm.delete($0) },
-                onExport: { vm.export($0) },
-                onRename: { thread in
-                    renamingThread = thread
-                    renameDraft = thread.title
-                    showRenameAlert = true
-                }
+                selection: $vm.selection
             )
             .navigationDestination(item: $vm.selection) { thread in
-                ConversationThreadDetailPlaceholder(thread: thread)
+                ConversationThreadDetailView(thread: thread)
             }
         }
     }
@@ -441,9 +485,6 @@ private func sectionTitle(_ key: HistorySectionKey) -> String {
 struct HistoryList: View {
     let items: [ConversationThread]
     @Binding var selection: ConversationThread?
-    var onDelete: (ConversationThread) -> Void
-    var onExport: (ConversationThread) -> Void
-    var onRename: (ConversationThread) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -466,10 +507,7 @@ struct HistoryList: View {
                                     HistoryRow(
                                         thread: thread,
                                         isSelected: selection?.id == thread.id,
-                                        onOpen: { selection = thread },
-                                        onDelete: { onDelete(thread) },
-                                        onExport: { onExport(thread) },
-                                        onRename: { onRename(thread) }
+                                        onOpen: { selection = thread }
                                     )
                                 }
                             }
@@ -491,9 +529,6 @@ struct HistoryRow: View {
     let thread: ConversationThread
     let isSelected: Bool
     var onOpen: () -> Void
-    var onDelete: () -> Void
-    var onExport: () -> Void
-    var onRename: () -> Void
 
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
@@ -511,19 +546,21 @@ struct HistoryRow: View {
                     Text(thread.title)
                         .font(.system(size: 15, weight: .regular, design: .default))
                         .foregroundStyle(ConversationHistoryTheme.textPrimary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(thread.preview)
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .foregroundStyle(ConversationHistoryTheme.textSecondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 0)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(Color.white.opacity((isHovering || isSelected) ? 0.36 : 0))
+                    .foregroundStyle(Color.white.opacity((isHovering || isSelected) ? 0.68 : 0.42))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isHovering)
             }
             .padding(.horizontal, 16)
@@ -531,6 +568,10 @@ struct HistoryRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("history.thread.\(thread.id)")
+        .accessibilityLabel("Conversation. \(thread.title)")
+        .accessibilityValue(thread.preview)
+        .accessibilityHint("Opens the writer and Clementine transcript.")
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(
@@ -561,25 +602,7 @@ struct HistoryRow: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(ConversationHistoryTheme.accent, lineWidth: isFocused ? 2 : 0)
         )
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
-            }
-            Button(action: onExport) {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-        }
-        .contextMenu {
-            Button("Export", action: onExport)
-            Button("Rename", action: onRename)
-            Divider()
-            Button(role: .destructive, action: onDelete) {
-                Text("Delete")
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Conversation. \(thread.title)")
-        .accessibilityHint("Opens conversation details.")
+        .frame(minHeight: 44)
     }
 }
 
@@ -649,10 +672,16 @@ struct HistoryErrorView: View {
     }
 }
 
-// MARK: - Placeholder Detail
+// MARK: - Thread Detail
 
-struct ConversationThreadDetailPlaceholder: View {
+struct ConversationThreadDetailView: View {
     let thread: ConversationThread
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var presentation: ConversationThreadPresentation {
+        ConversationThreadPresentation(thread: thread)
+    }
 
     var body: some View {
         ZStack {
@@ -667,23 +696,94 @@ struct ConversationThreadDetailPlaceholder: View {
             )
             .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Conversation")
-                    .font(.system(size: 34, weight: .semibold, design: .default))
-                    .foregroundStyle(ConversationHistoryTheme.textPrimary)
-
-                Text(thread.title)
-                    .font(.system(size: 16, weight: .regular, design: .default))
-                    .foregroundStyle(ConversationHistoryTheme.textSecondary)
-
-                Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: isCompact ? 16 : 20) {
+                    detailHeader
+                    transcriptCard(
+                        role: "Writer",
+                        text: presentation.writerMessage,
+                        identifier: "history.detail.writer"
+                    )
+                    transcriptCard(
+                        role: "Clementine",
+                        text: presentation.clementineMessage,
+                        identifier: "history.detail.clementine"
+                    )
+                }
+                .padding(.horizontal, isCompact ? 16 : 24)
+                .padding(.top, isCompact ? 18 : 28)
+                .padding(.bottom, 32)
+                .frame(maxWidth: 880, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 28)
-            .frame(maxWidth: 1240, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("history.detail.screen")
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var detailHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Conversation")
+                .font(.system(size: isCompact ? 28 : 34, weight: .semibold, design: .default))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary)
+
+            Text(presentation.title)
+                .font(.system(size: isCompact ? 20 : 22, weight: .semibold, design: .default))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("history.detail.title")
+
+            HStack(spacing: 8) {
+                Label(presentation.turnLabel, systemImage: "text.bubble")
+                Text("•")
+                    .accessibilityHidden(true)
+                Text(presentation.updatedLabel)
+            }
+            .font(.system(size: 13, weight: .medium, design: .default))
+            .foregroundStyle(ConversationHistoryTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("history.detail.metadata")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func transcriptCard(
+        role: String,
+        text: String,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(role)
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary)
+
+            Text(text)
+                .font(.system(size: 16, weight: .regular, design: .default))
+                .foregroundStyle(ConversationHistoryTheme.textPrimary.opacity(0.88))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(isCompact ? 16 : 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(role == "Clementine" ? 0.22 : 0.14))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel("\(role) message")
+        .accessibilityValue(text)
     }
 }
 

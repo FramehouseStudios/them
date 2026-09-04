@@ -3065,6 +3065,8 @@ struct RootExperienceView: View {
                                 guard !evolution.needsOnboardingName else { return }
                                 startConversationLoopIfNeeded()
                             }
+                        }, dismissAction: {
+                            showingConversationHistory = false
                         })
                         .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
