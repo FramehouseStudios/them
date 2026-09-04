@@ -14565,7 +14565,21 @@ The door closes softly. That is worse than a slam.
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
         lastAppliedStudioDebugSeedStructuralToken = studioDebugSeedStructuralToken
 
-        let sampleDraft = """
+        let sampleDraft: String
+        if ProcessInfo.processInfo.arguments.contains("--ui-pages-workflow-fixture") {
+            sampleDraft = (1...20).flatMap { sceneNumber in
+                [
+                    "INT. STORY ROOM \(sceneNumber) - DAY",
+                    "MARA",
+                    "Page navigator beat \(sceneNumber) begins.",
+                    "Mara marks the next turn on the wall.",
+                    "JUNE",
+                    "Then we follow it before the light changes.",
+                ]
+            }
+            .joined(separator: "\n")
+        } else {
+            sampleDraft = """
 INT. DINER - NIGHT
 LUCY
 I can do this.
@@ -14579,6 +14593,7 @@ INT. ROOF - SUNSET
 JESS
 Look at the city.
 """
+        }
 
         let now = Date().timeIntervalSince1970 * 1000
         let project = BackendScreenplayProjectSummary(

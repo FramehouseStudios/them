@@ -67,6 +67,12 @@ struct ScreenplayStudioPaginationPagePresentation: Identifiable {
     let page: BackendScreenplayPaginationPage
     let thumbnailLines: [String]
     let isActive: Bool
+
+    var visiblePreviewLines: [String] {
+        thumbnailLines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
 }
 
 struct ScreenplayStudioDraftPagesPresentation {
@@ -77,6 +83,38 @@ struct ScreenplayStudioDraftPagesPresentation {
 
     var refreshDisabled: Bool {
         isRefreshing || isDraftEmpty
+    }
+
+    var activePageIndex: Int? {
+        pages.firstIndex(where: \.isActive)
+    }
+
+    var activePage: ScreenplayStudioPaginationPagePresentation? {
+        guard let activePageIndex else { return nil }
+        return pages[activePageIndex]
+    }
+
+    var previousPage: BackendScreenplayPaginationPage? {
+        guard let activePageIndex, activePageIndex > pages.startIndex else { return nil }
+        return pages[pages.index(before: activePageIndex)].page
+    }
+
+    var nextPage: BackendScreenplayPaginationPage? {
+        guard let activePageIndex else { return nil }
+        let nextIndex = pages.index(after: activePageIndex)
+        guard pages.indices.contains(nextIndex) else { return nil }
+        return pages[nextIndex].page
+    }
+
+    var estimatedMinutes: Double? {
+        guard !pages.isEmpty else { return nil }
+        let total = pages.reduce(0.0) { partialResult, row in
+            if let estimate = row.page.estMinutes, estimate > 0 {
+                return partialResult + estimate
+            }
+            return partialResult + (Double(max(0, row.page.lineCount)) / 55.0)
+        }
+        return total > 0 ? total : nil
     }
 }
 
@@ -732,148 +770,419 @@ private struct ScreenplayStudioDraftToolsTabs: View {
 }
 
 private struct ScreenplayStudioDraftPageTools: View {
+    private static let standardLinesPerPage = 55
+    private static let linesPerPageRange = 24...90
+
     @Binding var linesPerPage: Int
     let presentation: ScreenplayStudioDraftPagesPresentation
     let onRefresh: () -> Void
     let onJumpToPage: (BackendScreenplayPaginationPage) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                inspectorSubsectionLabel("Pages")
-                Text("Use the page browser to jump the cursor without losing the visual rhythm of the draft.")
-                    .font(IOThemTypography.UI.labelRegular)
-                    .foregroundStyle(Color.herText.opacity(0.54))
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Page Navigator")
+                    .font(IOThemTypography.UI.sectionTitle)
+                    .foregroundStyle(Color.herText.opacity(0.92))
+                    .accessibilityIdentifier("studio.draft.pages.title")
+                Text("See where you are, move between pages, and adjust how the draft is divided without changing its words.")
+                    .font(IOThemTypography.UI.callout)
+                    .foregroundStyle(Color.herText.opacity(0.70))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 10) {
-                Stepper("Lines/Page \(linesPerPage)", value: $linesPerPage, in: 24...90)
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(Color.herText.opacity(0.76))
-                Spacer()
-                if presentation.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(presentation.refreshDisabled)
-                .accessibilityLabel("Refresh pagination")
-                .help("Refresh pagination")
-            }
+            pageOverview
+            pageDivisionControls
 
             paginationStrip
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.draft.page-tools")
     }
 
+    private var pageOverview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 8) {
+                pageMetric(
+                    title: "Current page",
+                    value: presentation.activePage.map { "\($0.page.page)" } ?? "—",
+                    systemImage: "location.fill",
+                    identifier: "studio.draft.pages.summary.current"
+                )
+                pageMetric(
+                    title: "Draft pages",
+                    value: "\(presentation.pages.count)",
+                    systemImage: "doc.on.doc",
+                    identifier: "studio.draft.pages.summary.total"
+                )
+            }
+
+            if let estimatedMinutes = presentation.estimatedMinutes {
+                Label(
+                    String(format: "Approximately %.1f minutes on the page", estimatedMinutes),
+                    systemImage: "clock"
+                )
+                .font(IOThemTypography.UI.caption)
+                .foregroundStyle(Color.herText.opacity(0.68))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("studio.draft.pages.summary.runtime")
+            } else if presentation.pages.isEmpty {
+                Label("Add draft text to calculate pages", systemImage: "text.badge.plus")
+                    .font(IOThemTypography.UI.caption)
+                    .foregroundStyle(Color.herText.opacity(0.66))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color.herShellPanelSoft.opacity(0.76))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.draft.pages.summary")
+    }
+
+    private func pageMetric(
+        title: String,
+        value: String,
+        systemImage: String,
+        identifier: String
+    ) -> some View {
+        HStack(alignment: .center, spacing: 9) {
+            Image(systemName: systemImage)
+                .font(IOThemTypography.UI.calloutStrong)
+                .foregroundStyle(Color.herStudioActiveStroke.opacity(0.84))
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(IOThemTypography.UI.labelRegular)
+                    .foregroundStyle(Color.herText.opacity(0.62))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Text(value)
+                    .font(IOThemTypography.UI.sectionTitle)
+                    .foregroundStyle(Color.herText.opacity(0.92))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color.white.opacity(0.62))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(value)")
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var pageDivisionControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Page density")
+                    .font(IOThemTypography.UI.calloutStrong)
+                    .foregroundStyle(Color.herText.opacity(0.88))
+                Text("Lines per page changes page breaks and navigation only. It never rewrites the screenplay.")
+                    .font(IOThemTypography.UI.labelRegular)
+                    .foregroundStyle(Color.herText.opacity(0.66))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                linesPerPageButton(
+                    title: "Decrease",
+                    systemImage: "minus",
+                    identifier: "studio.draft.pages.lines.decrease",
+                    disabled: linesPerPage <= Self.linesPerPageRange.lowerBound
+                ) {
+                    linesPerPage = max(Self.linesPerPageRange.lowerBound, linesPerPage - 1)
+                }
+
+                VStack(spacing: 1) {
+                    Text("\(linesPerPage)")
+                        .font(IOThemTypography.UI.sectionTitle)
+                        .foregroundStyle(Color.herText.opacity(0.94))
+                    Text("lines / page")
+                        .font(IOThemTypography.UI.labelRegular)
+                        .foregroundStyle(Color.herText.opacity(0.60))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(linesPerPage) lines per page")
+                .accessibilityIdentifier("studio.draft.pages.lines.value")
+
+                linesPerPageButton(
+                    title: "Increase",
+                    systemImage: "plus",
+                    identifier: "studio.draft.pages.lines.increase",
+                    disabled: linesPerPage >= Self.linesPerPageRange.upperBound
+                ) {
+                    linesPerPage = min(Self.linesPerPageRange.upperBound, linesPerPage + 1)
+                }
+            }
+
+            VStack(spacing: 8) {
+                Button {
+                    linesPerPage = Self.standardLinesPerPage
+                } label: {
+                    Label("Use standard 55", systemImage: "gauge.with.dots.needle.67percent")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(linesPerPage == Self.standardLinesPerPage)
+                .accessibilityIdentifier("studio.draft.pages.lines.standard")
+                .accessibilityHint("Sets page navigation to 55 lines per page")
+
+                Button(action: onRefresh) {
+                    Label(
+                        presentation.isRefreshing ? "Recalculating…" : "Recalculate Pages",
+                        systemImage: presentation.isRefreshing ? "arrow.triangle.2.circlepath" : "arrow.clockwise"
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(presentation.refreshDisabled)
+                .accessibilityIdentifier("studio.draft.pages.refresh")
+                .accessibilityHint("Rebuilds the page map using the current draft and page density")
+                .help("Recalculate pages")
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color.white.opacity(0.58))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.draft.pages.density")
+    }
+
+    private func linesPerPageButton(
+        title: String,
+        systemImage: String,
+        identifier: String,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(IOThemTypography.UI.calloutStrong)
+                Text(title)
+                    .font(IOThemTypography.UI.microMedium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(disabled)
+        .accessibilityLabel("\(title) lines per page")
+        .accessibilityIdentifier(identifier)
+    }
+
     private var paginationStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             if !presentation.errorText.isEmpty {
-                Text(presentation.errorText)
-                    .font(IOThemTypography.UI.labelMedium)
+                Label(presentation.errorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(IOThemTypography.UI.caption)
                     .foregroundStyle(Color.red.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Color.red.opacity(0.08))
+                    )
             }
             if presentation.pages.isEmpty {
-                Text("Pagination updates after draft text is present.")
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(Color.herText.opacity(0.62))
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("No pages calculated yet", systemImage: "doc.text.magnifyingglass")
+                        .font(IOThemTypography.UI.calloutStrong)
+                        .foregroundStyle(Color.herText.opacity(0.82))
+                    Text("Start writing, then choose Recalculate Pages to build a navigable page map.")
+                        .font(IOThemTypography.UI.caption)
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(Color.herShellPanelSoft.opacity(0.70))
+                )
+                .accessibilityIdentifier("studio.draft.pages.empty")
             } else {
+                quickPageNavigation
+
+                Text("All Pages")
+                    .font(IOThemTypography.UI.calloutStrong)
+                    .foregroundStyle(Color.herText.opacity(0.86))
+
                 LazyVStack(spacing: 12) {
                     ForEach(presentation.pages) { row in
                         pageRow(row)
                     }
                 }
+                .accessibilityIdentifier("studio.draft.pages.list")
             }
+        }
+    }
+
+    private var quickPageNavigation: some View {
+        HStack(spacing: 8) {
+            Button {
+                guard let page = presentation.previousPage else { return }
+                onJumpToPage(page)
+            } label: {
+                Label("Previous", systemImage: "chevron.left")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(presentation.previousPage == nil)
+            .accessibilityIdentifier("studio.draft.pages.previous")
+            .accessibilityHint("Moves the cursor to the previous screenplay page")
+
+            Button {
+                guard let page = presentation.nextPage else { return }
+                onJumpToPage(page)
+            } label: {
+                Label("Next", systemImage: "chevron.right")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(presentation.nextPage == nil)
+            .accessibilityIdentifier("studio.draft.pages.next")
+            .accessibilityHint("Moves the cursor to the next screenplay page")
         }
     }
 
     private func pageRow(_ row: ScreenplayStudioPaginationPagePresentation) -> some View {
         let page = row.page
-        return Button {
+        let previewLines = Array(row.visiblePreviewLines.prefix(4))
+        let rowButton = Button {
             onJumpToPage(page)
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.98))
-                        .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Page \(page.page)")
+                        .font(IOThemTypography.UI.sectionTitle)
+                        .foregroundStyle(Color.herText.opacity(0.92))
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(Array(row.thumbnailLines.enumerated()), id: \.offset) { _, line in
-                            Text(line.isEmpty ? " " : line)
+                    if row.isActive {
+                        Text("CURRENT")
+                            .font(IOThemTypography.UI.microMedium)
+                            .foregroundStyle(Color.herStudioActiveStroke.opacity(0.92))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Color.herStudioActiveFill.opacity(0.70))
+                            )
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let estMinutes = page.estMinutes, estMinutes > 0 {
+                        Label(String(format: "%.1f min", estMinutes), systemImage: "clock")
+                            .font(IOThemTypography.UI.labelRegular)
+                            .foregroundStyle(Color.herText.opacity(0.62))
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Label("Lines \(page.startLine)–\(page.endLine)", systemImage: "text.alignleft")
+                    Text("\(page.lineCount) lines")
+                }
+                .font(IOThemTypography.UI.labelRegular)
+                .foregroundStyle(Color.herText.opacity(0.64))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    if previewLines.isEmpty {
+                        Text("No preview text is available for this page yet.")
+                            .font(IOThemTypography.UI.caption)
+                            .foregroundStyle(Color.herText.opacity(0.52))
+                            .italic()
+                    } else {
+                        ForEach(Array(previewLines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
                                 .font(IOThemTypography.UI.monoThumbnail)
-                                .foregroundStyle(Color.black.opacity(line.isEmpty ? 0.08 : 0.72))
+                                .foregroundStyle(Color.black.opacity(0.74))
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 10)
                 }
-                .frame(width: 112, height: 148)
+                .padding(11)
+                .frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.96))
+                        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+                )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(
-                            row.isActive
-                                ? Color.herStudioActiveStroke.opacity(0.82)
-                                : Color.herShellStroke.opacity(0.20),
-                            lineWidth: row.isActive ? 1.4 : 1
-                        )
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text("Page \(page.page)")
-                            .font(IOThemTypography.UI.captionStrong)
-                            .foregroundStyle(Color.herText.opacity(0.90))
-                        Spacer(minLength: 0)
-                        if let estMinutes = page.estMinutes, estMinutes > 0 {
-                            Text(String(format: "%.1fm", estMinutes))
-                                .font(IOThemTypography.UI.monoMicroRegular)
-                                .foregroundStyle(Color.herText.opacity(0.48))
-                        }
-                    }
-
-                    Text("Lines \(page.startLine)-\(page.endLine)")
-                        .font(IOThemTypography.UI.monoMicroRegular)
-                        .foregroundStyle(Color.herText.opacity(0.56))
-
-                    Text(row.isActive ? "Current cursor page" : "Jump to this page")
-                        .font(IOThemTypography.UI.labelMedium)
-                        .foregroundStyle(
-                            row.isActive
-                                ? Color.herStudioActiveStroke.opacity(0.90)
-                                : Color.herText.opacity(0.62)
-                        )
-
-                    Text("Thumbnail browser")
-                        .font(IOThemTypography.UI.microMedium)
-                        .foregroundStyle(Color.herText.opacity(0.44))
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+                HStack(spacing: 6) {
+                    Image(systemName: row.isActive ? "location.fill" : "arrow.right.circle")
+                    Text(row.isActive ? "Highlight current page" : "Jump to this page")
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(IOThemTypography.UI.captionStrong)
+                .foregroundStyle(
+                    row.isActive
+                        ? Color.herStudioActiveStroke.opacity(0.92)
+                        : Color.herText.opacity(0.68)
+                )
             }
-            .padding(11)
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(row.isActive ? Color.herStudioActiveFill.opacity(0.14) : Color.black.opacity(0.18))
+                    .fill(row.isActive ? Color.herStudioActiveFill.opacity(0.36) : Color.white.opacity(0.54))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(
                         row.isActive
-                            ? Color.herStudioActiveStroke.opacity(0.34)
-                            : Color.herShellStroke.opacity(0.14),
-                        lineWidth: 1
-                    )
+                            ? Color.herStudioActiveStroke.opacity(0.62)
+                            : Color.herShellStroke.opacity(0.20),
+                        lineWidth: row.isActive ? 1.3 : 1
+                )
             )
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("studio.draft.page.\(page.page)")
+        return rowButton
+            .buttonStyle(.plain)
+            .accessibilityLabel(pageAccessibilityLabel(row))
+            .accessibilityHint(row.isActive ? "Highlights this page in the screenplay editor" : "Moves the cursor to this page")
+            .accessibilityIdentifier("studio.draft.page.\(page.page)")
+            .accessibilityAddTraits(row.isActive ? .isSelected : [])
+    }
+
+    private func pageAccessibilityLabel(_ row: ScreenplayStudioPaginationPagePresentation) -> String {
+        let page = row.page
+        var components = [
+            "Page \(page.page)",
+            "lines \(page.startLine) through \(page.endLine)",
+            "\(page.lineCount) lines",
+        ]
+        if row.isActive {
+            components.append("current page")
+        }
+        if let estMinutes = page.estMinutes, estMinutes > 0 {
+            components.append(String(format: "approximately %.1f minutes", estMinutes))
+        }
+        return components.joined(separator: ", ")
     }
 }
 
