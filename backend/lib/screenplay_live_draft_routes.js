@@ -188,7 +188,8 @@ function mountScreenplayLiveDraftRoutes(app, deps = {}) {
     const resolved = await resolveChannel(req, res);
     if (!resolved) return;
     const { key, projectId } = resolved;
-    const deviceId = normalizeLiveDraftDeviceId(req.query?.device_id ?? req.query?.deviceId ?? "");
+    const deviceId = deviceIdFrom(req, res, req.query);
+    if (!deviceId) return;
     const clientChecksum = String(req.query?.checksum || "").trim();
 
     res.status(200);
