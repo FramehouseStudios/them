@@ -262,6 +262,7 @@ struct AppShell: View {
             )
         case .memories:
             MemoriesScreen(
+                dismissAction: { selection = .conversation },
                 startTalkingAction: { selection = .conversation }
             )
         case .recap:

@@ -3034,18 +3034,24 @@ struct RootExperienceView: View {
         AnyView(
             view
                 .sheet(isPresented: $showingMemories) {
-                    MemoriesScreen(startTalkingAction: {
-                            showingMemories = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                                guard !evolution.needsOnboardingName else { return }
-                                startConversationLoopIfNeeded()
+                    MemoriesScreen(
+                        dismissAction: {
+                            handleUtilitySheetExit(.dismiss(.memories)) {
+                                showingMemories = false
                             }
-                        }, openStudioAction: {
+                        },
+                        startTalkingAction: {
+                            handleUtilitySheetExit(.startTalking) {
+                                showingMemories = false
+                            }
+                        },
+                        openStudioAction: {
                             showingMemories = false
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
                                 openStudio()
                             }
-                        })
+                        }
+                    )
                         .themDesktopSheetFrame(minWidth: 1100, minHeight: 760)
                 }
                 .sheet(isPresented: $showingConversationHistory) {
@@ -3060,40 +3066,32 @@ struct RootExperienceView: View {
                 }
                 .sheet(isPresented: $showingNotes) {
                     NotesPanel(onDone: {
-                        showingNotes = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
+                        handleUtilitySheetExit(.dismiss(.notes)) {
+                            showingNotes = false
                         }
                     })
                     .themDesktopSheetFrame(minWidth: 920, minHeight: 700)
                 }
                 .sheet(isPresented: $showingTasks) {
                     TasksPanel(onDone: {
-                        showingTasks = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
+                        handleUtilitySheetExit(.dismiss(.tasks)) {
+                            showingTasks = false
                         }
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
                 .sheet(isPresented: $showingRecap) {
                     RecapPanel(onDone: {
-                        showingRecap = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
+                        handleUtilitySheetExit(.dismiss(.recap)) {
+                            showingRecap = false
                         }
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 700)
                 }
                 .sheet(isPresented: $showingVoiceSettings) {
                     VoiceSettingsScreen(onDone: {
-                        showingVoiceSettings = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
+                        handleUtilitySheetExit(.dismiss(.voiceSettings)) {
+                            showingVoiceSettings = false
                         }
                     })
                     .themDesktopSheetFrame(minWidth: 960, minHeight: 760)
@@ -3102,10 +3100,8 @@ struct RootExperienceView: View {
                     CompanionControlsPanel(
                         bridge: screenplayDraftBridge,
                         onDone: {
-                            showingCompanionControls = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                                guard !evolution.needsOnboardingName else { return }
-                                startConversationLoopIfNeeded()
+                            handleUtilitySheetExit(.dismiss(.companionControls)) {
+                                showingCompanionControls = false
                             }
                         }
                     )
@@ -3113,10 +3109,8 @@ struct RootExperienceView: View {
                 }
                 .sheet(isPresented: $showingDataControls) {
                     DataControlsScreen(onDone: {
-                        showingDataControls = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                            guard !evolution.needsOnboardingName else { return }
-                            startConversationLoopIfNeeded()
+                        handleUtilitySheetExit(.dismiss(.dataControls)) {
+                            showingDataControls = false
                         }
                     })
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
@@ -3142,6 +3136,18 @@ struct RootExperienceView: View {
                     ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
                 }
         )
+    }
+
+    private func handleUtilitySheetExit(
+        _ intent: RootExperienceSheetExitIntent,
+        dismiss: () -> Void
+    ) {
+        dismiss()
+        guard intent.shouldStartConversation else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            guard !evolution.needsOnboardingName else { return }
+            startConversationLoopIfNeeded()
+        }
     }
 
     private func applyAlertModifiers(to view: AnyView) -> AnyView {
@@ -3840,7 +3846,12 @@ struct RootExperienceView: View {
     }
 
     private var onboardingOverlay: some View {
-        ZStack {
+        let presentation = FirstPageOnboardingPresentation(
+            isSubmitting: isMagicMomentSubmitting,
+            errorMessage: magicMomentOnboardingError
+        )
+
+        return ZStack {
             Color.black.opacity(0.12)
                 .ignoresSafeArea()
 
@@ -3869,6 +3880,7 @@ struct RootExperienceView: View {
                                 onboardingSceneFocused = true
                             }
                         }
+                        .disabled(presentation.inputsAreDisabled)
                         .accessibilityIdentifier("onboarding.name.field")
 
                     TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
@@ -3880,6 +3892,7 @@ struct RootExperienceView: View {
                         .onSubmit {
                             startMagicMomentOnboarding()
                         }
+                        .disabled(presentation.inputsAreDisabled)
                         .accessibilityIdentifier("onboarding.scene.field")
                 }
 
@@ -3908,7 +3921,7 @@ struct RootExperienceView: View {
                     Button {
                         startMagicMomentOnboarding()
                     } label: {
-                        Text(isMagicMomentSubmitting ? "Writing..." : "Start Page")
+                        Text(presentation.primaryActionTitle)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
@@ -3927,12 +3940,28 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("onboarding.start-page")
                 }
 
-                if !magicMomentOnboardingError.isEmpty {
-                    Text(magicMomentOnboardingError)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.red.opacity(0.86))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
+                if let statusMessage = presentation.statusMessage {
+                    HStack(spacing: 8) {
+                        if presentation.showsProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(statusMessage)
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(4)
+                    }
+                    .foregroundColor(
+                        presentation.isFailure
+                            ? .red.opacity(0.86)
+                            : .herText.opacity(0.78)
+                    )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(
+                        presentation.isFailure
+                            ? "onboarding.first-page.error"
+                            : "onboarding.first-page.progress"
+                    )
                 }
             }
             .padding(24)
@@ -3960,17 +3989,24 @@ struct RootExperienceView: View {
     @MainActor
     private func startMagicMomentOnboarding() {
         guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
+        guard let attempt = FirstPageOnboardingAttempt.make(
+            writerName: onboardingName,
+            sceneSeed: onboardingSceneSeed,
+            fallbackSceneSeed: normalizedMagicMomentSceneSeed()
+        ) else { return }
 
-        let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sceneSeed = normalizedMagicMomentSceneSeed()
-        let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
+        onboardingName = attempt.writerName
+        let prompt = magicMomentFirstPagePrompt(
+            name: attempt.writerName,
+            sceneSeed: attempt.sceneSeed
+        )
         let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
         let startedAt = Date()
 
         isMagicMomentSubmitting = true
         magicMomentOnboardingError = ""
-        openStudio()
+        onboardingNameFocused = false
+        onboardingSceneFocused = false
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
         magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
 
@@ -3980,15 +4016,25 @@ struct RootExperienceView: View {
             magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
             isMagicMomentSubmitting = false
 
-            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
-                magicMomentOnboardingError = error
-                lastIssueSummary = error
-                screenplayDraftBridge.autoInsertStatusText = error
+            let outcome = FirstPageOnboardingOutcome.resolve(errorMessage: error)
+            guard outcome.shouldCompleteOnboarding else {
+                guard case .failure(let message) = outcome else { return }
+                magicMomentOnboardingError = message
+                lastIssueSummary = message
+                screenplayDraftBridge.autoInsertStatusText = message
                 return
             }
 
+            onboardingName = attempt.writerName
+            guard completeOnboarding(askForPersonality: false) else {
+                let message = "Enter your name to finish your first page."
+                magicMomentOnboardingError = message
+                lastIssueSummary = message
+                return
+            }
             onboardingSceneSeed = ""
             magicMomentOnboardingError = ""
+            openStudio()
         }
     }
 

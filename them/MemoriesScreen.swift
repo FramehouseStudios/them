@@ -859,6 +859,7 @@ struct MemoriesScreen: View {
         .autoconnect()
 
     @StateObject private var vm = MemoriesViewModel()
+    var dismissAction: () -> Void = {}
     var startTalkingAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
 
@@ -896,7 +897,7 @@ struct MemoriesScreen: View {
             .toolbar {
                 ToolbarItem(placement: .automatic) {
                     Button("Return") {
-                        startTalkingAction()
+                        dismissAction()
                     }
                     .font(.system(size: 14, weight: .regular, design: .default))
                 }
@@ -937,7 +938,7 @@ struct MemoriesScreen: View {
                 }
                 Spacer()
                 Button {
-                    startTalkingAction()
+                    dismissAction()
                 } label: {
                     Text("Return Home")
                         .font(.system(size: 14, weight: .regular, design: .default))
@@ -1032,7 +1033,7 @@ struct MemoriesScreen: View {
                     .navigationDestination(item: $vm.selection) { item in
                         MemoryDetailView(
                             item: item,
-                            onReturnHome: startTalkingAction,
+                            onReturnHome: dismissAction,
                             onSave: { updated in
                                 try await vm.updateMemory(
                                     itemID: updated.id,
