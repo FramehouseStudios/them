@@ -838,6 +838,12 @@ nonisolated enum ProfileAppleSignInErrorPolicy {
 
 struct ProfileAccountScreen: View {
     let onSessionChanged: () -> Void
+    let onDone: (() -> Void)?
+
+    init(onSessionChanged: @escaping () -> Void, onDone: (() -> Void)? = nil) {
+        self.onSessionChanged = onSessionChanged
+        self.onDone = onDone
+    }
 
     private static let rememberedLoginUnavailableMessage =
         "Remembered login is waiting for Apple Keychain to become available."
@@ -896,48 +902,62 @@ struct ProfileAccountScreen: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(sessionState.isAuthenticated ? "Account" : "Profile")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(.white)
-                        Text(
-                            sessionState.isAuthenticated
-                                ? (sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
-                                : "Sign in to keep your projects, preferences, and writing sessions connected."
-                        )
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.62))
+                    HStack(alignment: .top, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(sessionState.isAuthenticated ? "Account" : "Sign in to io.them")
+                                .font(.system(size: 34, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text(
+                                sessionState.isAuthenticated
+                                    ? (sessionState.emailVerified ? "Your private workspace is connected." : "You’re signed in. Verify your email to finish account setup.")
+                                    : "Keep projects, preferences, and writing sessions private and connected across your devices."
+                            )
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.72))
 
-                        if !statusMessage.isEmpty {
-                            feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
+                            if !statusMessage.isEmpty {
+                                feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
+                            }
+                            if !errorMessage.isEmpty {
+                                feedbackPill(text: errorMessage, tint: Color.red.opacity(0.18))
+                            }
                         }
-                        if !errorMessage.isEmpty {
-                            feedbackPill(text: errorMessage, tint: Color.red.opacity(0.18))
+
+                        Spacer(minLength: 12)
+
+                        if let onDone {
+                            Button("Done", action: onDone)
+                                .buttonStyle(.bordered)
+                                .tint(.white.opacity(0.28))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .accessibilityIdentifier("profile-account-done")
                         }
                     }
                     .padding(.horizontal, 48)
                     .padding(.top, 32)
 
-                    accountCard(
-                        title: "Account Status",
-                        subtitle: sessionState.isAuthenticated ? "Your account is connected." : "You can explore in guest mode, then sign in when you’re ready to protect and sync your work."
-                    ) {
-                        HStack(spacing: 10) {
-                            statusChip(sessionState.isAuthenticated ? "Signed In" : "Signed Out")
-                            statusChip(sessionState.emailVerified ? "Verified" : (sessionState.pendingEmailVerification ? "Verify Email" : "Unverified"))
-                            if let authProviderStatusLabel {
-                                statusChip(authProviderStatusLabel)
+                    if sessionState.isAuthenticated {
+                        accountCard(
+                            title: "Account Status",
+                            subtitle: "Your private workspace is connected."
+                        ) {
+                            HStack(spacing: 10) {
+                                statusChip("Signed In")
+                                statusChip(sessionState.emailVerified ? "Verified" : (sessionState.pendingEmailVerification ? "Verify Email" : "Unverified"))
+                                if let authProviderStatusLabel {
+                                    statusChip(authProviderStatusLabel)
+                                }
+                                if sessionState.refreshTokenPresent {
+                                    statusChip("Refresh Ready")
+                                }
                             }
-                            if sessionState.refreshTokenPresent {
-                                statusChip("Refresh Ready")
-                            }
-                        }
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            metricRow(label: "Email", value: sessionState.email.isEmpty ? "Not signed in" : sessionState.email)
-                            metricRow(label: "Profile", value: sessionState.isAuthenticated ? "Connected" : "Guest")
-                            metricRow(label: "Session", value: sessionState.isAuthenticated ? "Active" : "Starts after sign-in")
-                            metricRow(label: "Workspace", value: "Personal")
+                            VStack(alignment: .leading, spacing: 12) {
+                                metricRow(label: "Email", value: sessionState.email)
+                                metricRow(label: "Profile", value: "Connected")
+                                metricRow(label: "Session", value: "Active")
+                                metricRow(label: "Workspace", value: "Personal")
+                            }
                         }
                     }
 
@@ -1035,7 +1055,7 @@ struct ProfileAccountScreen: View {
 
                                 Text("Signed-in sessions already restore securely on this device. Saving the password is optional and keeps it in Apple Keychain, never app preferences.")
                                     .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.44))
+                                    .foregroundStyle(.white.opacity(0.66))
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .font(.system(size: 13, weight: .medium))
@@ -1051,6 +1071,24 @@ struct ProfileAccountScreen: View {
                                     }
                                 }
                             }
+
+#if DEBUG
+                            if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+                                secondaryActionButton(
+                                    title: "Complete Test Sign-In",
+                                    disabled: authInteractionDisabled
+                                ) {
+                                    guard BackendAuthClient.activateUITestAuthenticationResumeFixture() else {
+                                        errorMessage = "The automation-only sign-in fixture could not activate."
+                                        return
+                                    }
+                                    sessionState = BackendAuthClient.currentAuthSessionState()
+                                    statusMessage = "Automation sign-in completed."
+                                    onSessionChanged()
+                                }
+                                .accessibilityIdentifier("profile-auth-complete-resume-fixture")
+                            }
+#endif
 
 #if DEBUG
                             if let demoAccount = BackendAuthClient.localDemoAccount() {
@@ -1089,7 +1127,7 @@ struct ProfileAccountScreen: View {
                                     .foregroundStyle(.white.opacity(0.90))
                                 Text("Uses an Apple-issued identity token and creates the backend account automatically on first sign in. Apple never gives this app your Apple ID password.")
                                     .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.54))
+                                    .foregroundStyle(.white.opacity(0.68))
 
                                 SignInWithAppleButton(.signIn, onRequest: configureAppleIDRequest, onCompletion: handleAppleAuthorizationResult)
                                     .signInWithAppleButtonStyle(.white)
@@ -1111,31 +1149,43 @@ struct ProfileAccountScreen: View {
 
                                 Text("The local demo email/password cannot be used in the Apple button. A new Apple identity needs a verified email from Apple; if Apple does not share one, use email sign-in for that account.")
                                     .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.42))
+                                    .foregroundStyle(.white.opacity(0.64))
                             }
                         }
                     }
 
                     accountCard(
-                        title: "Password Reset",
-                        subtitle: "Request a reset email and finish the token flow here. In local debug mode, the reset token appears inline."
+                        title: "Password & Security",
+                        subtitle: "Recovery tools stay out of the way until you need them."
                     ) {
-                        accountField(title: "Reset Email", prompt: "you@example.com", text: $resetEmail)
+                        DisclosureGroup("Forgot password?") {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Request a reset email, then paste its token and choose a new password.")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(.white.opacity(0.68))
 
-                        secondaryActionButton(title: isWorking ? "Working…" : "Request Reset", disabled: isWorking) {
-                            Task { await requestPasswordReset() }
+                                accountField(title: "Reset Email", prompt: "you@example.com", text: $resetEmail)
+
+                                secondaryActionButton(title: isWorking ? "Working…" : "Request Reset", disabled: isWorking) {
+                                    Task { await requestPasswordReset() }
+                                }
+
+                                if !debugPasswordResetToken.isEmpty {
+                                    tokenBlock(title: "Debug reset token", token: debugPasswordResetToken)
+                                }
+
+                                accountField(title: "Reset Token", prompt: "Paste emailed or debug token", text: $resetToken)
+                                accountField(title: "New Password", prompt: "Choose a new password", text: $newPassword, secure: true)
+
+                                primaryActionButton(title: isWorking ? "Working…" : "Update Password", disabled: isWorking) {
+                                    Task { await resetPassword() }
+                                }
+                            }
+                            .padding(.top, 14)
                         }
-
-                        if !debugPasswordResetToken.isEmpty {
-                            tokenBlock(title: "Debug reset token", token: debugPasswordResetToken)
-                        }
-
-                        accountField(title: "Reset Token", prompt: "Paste emailed or debug token", text: $resetToken)
-                        accountField(title: "New Password", prompt: "Choose a new password", text: $newPassword, secure: true)
-
-                        primaryActionButton(title: isWorking ? "Working…" : "Update Password", disabled: isWorking) {
-                            Task { await resetPassword() }
-                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .tint(.white.opacity(0.84))
                     }
 
                     if sessionState.isAuthenticated {
@@ -1878,7 +1928,7 @@ struct ProfileAccountScreen: View {
                     .foregroundStyle(.white.opacity(0.94))
                 Text(subtitle)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.54))
+                    .foregroundStyle(.white.opacity(0.68))
             }
             content()
         }
@@ -1932,7 +1982,7 @@ struct ProfileAccountScreen: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.42))
+                .foregroundStyle(.white.opacity(0.62))
             Text(value)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.white.opacity(0.86))
@@ -1951,7 +2001,7 @@ struct ProfileAccountScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(.white.opacity(0.74))
             Group {
                 if secure {
                     SecureField(prompt, text: text)

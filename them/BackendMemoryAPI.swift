@@ -1852,6 +1852,31 @@ nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let updatedAt: TimeInterval?
 }
 
+#if DEBUG
+nonisolated final class BackendAuthResumeFixtureActivationStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var activated = false
+
+    var isActivated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activated
+    }
+
+    func activate() {
+        lock.lock()
+        activated = true
+        lock.unlock()
+    }
+
+    func deactivate() {
+        lock.lock()
+        activated = false
+        lock.unlock()
+    }
+}
+#endif
+
 nonisolated enum BackendAuthDebugSessionPolicy {
     struct AutomationSessionOverride: Equatable, Sendable {
         let userID: String
@@ -1908,11 +1933,56 @@ nonisolated enum BackendAuthDebugSessionPolicy {
         )
     }
 
+    static func uiTestAuthenticationResumeFixtureOverride(
+        arguments: [String],
+        isActivated: Bool
+    ) -> AutomationSessionOverride? {
+        guard isActivated,
+              IOThemRuntime.allowsUITestAuthenticationResumeFixture(arguments: arguments) else {
+            return nil
+        }
+        return AutomationSessionOverride(
+            userID: "ui-auth-resume-user",
+            clientToken: "ui-auth-resume-client-token",
+            accessToken: "ui-auth-resume-access-token"
+        )
+    }
+
+    static func resolvedAutomationSessionOverride(
+        arguments: [String],
+        environment: [String: String],
+        isResumeFixtureActivated: Bool
+    ) -> AutomationSessionOverride? {
+        automationSessionOverride(arguments: arguments, environment: environment)
+            ?? uiTestAuthenticationResumeFixtureOverride(
+                arguments: arguments,
+                isActivated: isResumeFixtureActivated
+            )
+    }
+
     static func shouldPersistSessionBootstrapIdentity(
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        isResumeFixtureActivated: Bool = false
     ) -> Bool {
-        automationSessionOverride(arguments: arguments, environment: environment) == nil
+        resolvedAutomationSessionOverride(
+            arguments: arguments,
+            environment: environment,
+            isResumeFixtureActivated: isResumeFixtureActivated
+        ) == nil
+    }
+
+    static func commitSessionBootstrapIdentity(
+        automationOverride: AutomationSessionOverride?,
+        responseUserID: String?,
+        persistIdentity: () -> Bool
+    ) -> Bool {
+        guard let automationOverride else { return persistIdentity() }
+        let normalizedUserID = normalizedEnvironmentValue(responseUserID)
+        guard normalizedUserID.isEmpty || normalizedUserID == automationOverride.userID else {
+            return false
+        }
+        return true
     }
 
     static func syntheticUser(
@@ -3745,6 +3815,10 @@ nonisolated enum BackendAuthClient {
     private static let authSessionStateQueue = DispatchQueue(
         label: "io.them.auth.session-state"
     )
+    #if DEBUG
+    private static let uiTestAuthenticationResumeFixtureActivation =
+        BackendAuthResumeFixtureActivationStore()
+    #endif
     private static let authRefreshCoordinator = BackendAuthRefreshCoordinator()
     private static let appTokenAccount = "app_token"
     private static let clientTokenAccount = "session_client_token"
@@ -4007,16 +4081,7 @@ nonisolated enum BackendAuthClient {
         persistClientToken: Bool
     ) -> Bool {
         #if DEBUG
-        let processArguments = ProcessInfo.processInfo.arguments
-        let processEnvironment = ProcessInfo.processInfo.environment
-        let automationOverride = BackendAuthDebugSessionPolicy.automationSessionOverride(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
-        let shouldPersistIdentity = BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
+        let automationOverride = currentAutomationSessionOverride()
         #endif
         return authSessionStateQueue.sync {
             guard sessionBootstrapIdentityCommitIsAllowed(
@@ -4026,35 +4091,36 @@ nonisolated enum BackendAuthClient {
                 return false
             }
 
-            #if DEBUG
-            if !shouldPersistIdentity {
-                guard let automationOverride else { return false }
+            let persistIdentity = {
                 let normalizedUserID = normalizedStoredUserID(userID)
-                guard normalizedUserID.isEmpty || normalizedUserID == automationOverride.userID else {
+                if !normalizedUserID.isEmpty,
+                   !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
                     return false
                 }
-                return true
-            }
-            #endif
-
-            let normalizedUserID = normalizedStoredUserID(userID)
-            if !normalizedUserID.isEmpty,
-               !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
-                return false
-            }
-            if persistClientToken,
-               !persistSharedClientTokenLocked(
-                    clientToken,
-                    expiryRaw: expiryRaw,
-                    baseURLRaw: baseURLRaw,
+                if persistClientToken,
+                   !persistSharedClientTokenLocked(
+                        clientToken,
+                        expiryRaw: expiryRaw,
+                        baseURLRaw: baseURLRaw,
+                        defaults: .standard
+                   ) {
+                    return false
+                }
+                return sessionBootstrapIdentityCommitIsAllowed(
+                    expectedSessionEpoch: expectedSessionEpoch,
                     defaults: .standard
-               ) {
-                return false
+                )
             }
-            return sessionBootstrapIdentityCommitIsAllowed(
-                expectedSessionEpoch: expectedSessionEpoch,
-                defaults: .standard
+
+            #if DEBUG
+            return BackendAuthDebugSessionPolicy.commitSessionBootstrapIdentity(
+                automationOverride: automationOverride,
+                responseUserID: userID,
+                persistIdentity: persistIdentity
             )
+            #else
+            return persistIdentity()
+            #endif
         }
     }
 
@@ -5815,14 +5881,30 @@ nonisolated enum BackendAuthClient {
         return "Bearer \(token)"
     }
 
-#if DEBUG
+    #if DEBUG
+    @discardableResult
+    static func activateUITestAuthenticationResumeFixture() -> Bool {
+        guard IOThemRuntime.allowsUITestAuthenticationResumeFixture else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        uiTestAuthenticationResumeFixtureActivation.activate()
+        let session = currentAuthSessionState()
+        guard session.isAuthenticated, !session.accessExpired else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        return true
+    }
+
     private static func currentAutomationSessionOverride() -> BackendAuthDebugSessionPolicy.AutomationSessionOverride? {
-        BackendAuthDebugSessionPolicy.automationSessionOverride(
+        BackendAuthDebugSessionPolicy.resolvedAutomationSessionOverride(
             arguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            isResumeFixtureActivated: uiTestAuthenticationResumeFixtureActivation.isActivated
         )
     }
-#endif
+    #endif
 
     private static func refreshToken() -> String? {
         authSessionStateQueue.sync {
