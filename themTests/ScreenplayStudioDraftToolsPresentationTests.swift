@@ -34,6 +34,13 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
         XCTAssertFalse(
             ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(page, cursorLine: 15)
         )
+
+        let presentation = ScreenplayStudioPaginationPagePresentation(
+            page: page,
+            thumbnailLines: ["", "  First beat  ", "   ", "Second beat"],
+            isActive: true
+        )
+        XCTAssertEqual(presentation.visiblePreviewLines, ["First beat", "Second beat"])
     }
 
     func testPaginationProjectionFallsBackToDraftAndClampsLineBounds() {
@@ -72,6 +79,80 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
                 maxLines: 3
             ),
             ["", "", ""]
+        )
+    }
+
+    func testPaginationPresentationProvidesCurrentPreviousNextAndRuntimeContext() throws {
+        var rows: [ScreenplayStudioPaginationPagePresentation] = []
+        for pageNumber in 1...3 {
+            let startLine = ((pageNumber - 1) * 10) + 1
+            let page = BackendScreenplayPaginationPage(
+                page: pageNumber,
+                startLine: startLine,
+                endLine: pageNumber * 10,
+                lineCount: 10,
+                preview: "Page \(pageNumber)",
+                estMinutes: Double(pageNumber) * 0.5
+            )
+            rows.append(ScreenplayStudioPaginationPagePresentation(
+                page: page,
+                thumbnailLines: ["Page \(pageNumber)"],
+                isActive: pageNumber == 2
+            ))
+        }
+        let presentation = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rows
+        )
+
+        XCTAssertEqual(presentation.activePageIndex, 1)
+        XCTAssertEqual(presentation.activePage?.page.page, 2)
+        XCTAssertEqual(presentation.previousPage?.page, 1)
+        XCTAssertEqual(presentation.nextPage?.page, 3)
+        XCTAssertEqual(try XCTUnwrap(presentation.estimatedMinutes), 3.0, accuracy: 0.001)
+
+        let noActivePage = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rows.map {
+                ScreenplayStudioPaginationPagePresentation(
+                    page: $0.page,
+                    thumbnailLines: $0.thumbnailLines,
+                    isActive: false
+                )
+            }
+        )
+        XCTAssertNil(noActivePage.activePage)
+        XCTAssertNil(noActivePage.previousPage)
+        XCTAssertNil(noActivePage.nextPage)
+
+        let rowsWithMissingRuntime = rows.enumerated().map { index, row in
+            ScreenplayStudioPaginationPagePresentation(
+                page: BackendScreenplayPaginationPage(
+                    page: row.page.page,
+                    startLine: row.page.startLine,
+                    endLine: row.page.endLine,
+                    lineCount: row.page.lineCount,
+                    preview: row.page.preview,
+                    estMinutes: index == 1 ? nil : row.page.estMinutes
+                ),
+                thumbnailLines: row.thumbnailLines,
+                isActive: row.isActive
+            )
+        }
+        let missingRuntimePresentation = ScreenplayStudioDraftPagesPresentation(
+            isRefreshing: false,
+            isDraftEmpty: false,
+            errorText: "",
+            pages: rowsWithMissingRuntime
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(missingRuntimePresentation.estimatedMinutes),
+            2.0 + (10.0 / 55.0),
+            accuracy: 0.001
         )
     }
 
