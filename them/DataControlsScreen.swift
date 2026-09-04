@@ -99,6 +99,7 @@ private enum DataControlAction: Identifiable, Equatable {
 struct DataControlsScreen: View {
     var onDone: () -> Void = {}
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
     @AppStorage(ClementineRealtimeSupplierMode.storageKey)
@@ -165,27 +166,30 @@ struct DataControlsScreen: View {
                         actionButtons
                         statusRow
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 28)
-                    .padding(.bottom, 18)
-                    .frame(maxWidth: 980, alignment: .topLeading)
+                    .padding(.horizontal, pageHorizontalPadding)
+                    .padding(.top, isCompactWidth ? 16 : 28)
+                    .padding(.bottom, isCompactWidth ? 28 : 18)
+                    .frame(maxWidth: 820, alignment: .topLeading)
+                    .frame(maxWidth: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .navigationTitle("")
+            #if os(iOS)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                dataControlsTopBar
+            }
+            #else
             .toolbar {
-                #if os(macOS)
                 ToolbarItem(placement: .automatic) {
                     Button("Done", action: onDone)
                         .font(.system(size: 14, weight: .regular, design: .default))
+                        .frame(minWidth: 64, minHeight: 44)
+                        .accessibilityIdentifier("data.controls.done")
+                        .accessibilityHint("Closes Data Controls without starting a conversation.")
                 }
-                #else
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", action: onDone)
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                }
-                #endif
             }
+            #endif
         }
         .alert(item: $pendingAction) { action in
             Alert(
@@ -235,7 +239,9 @@ struct DataControlsScreen: View {
             V1LaunchDoctorView {
                 showingV1LaunchDoctor = false
             }
+            #if os(macOS)
             .frame(minWidth: 760, minHeight: 680)
+            #endif
         }
         .sheet(isPresented: $showingAccountDeletionReauth) {
             accountDeletionReauthenticationSheet
@@ -272,6 +278,39 @@ struct DataControlsScreen: View {
         }
     }
 
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var pageHorizontalPadding: CGFloat {
+        isCompactWidth ? 16 : 24
+    }
+
+    #if os(iOS)
+    private var dataControlsTopBar: some View {
+        HStack(spacing: 12) {
+            Label("Data Controls", systemImage: "lock.shield")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.herText.opacity(0.82))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Done", action: onDone)
+                .font(.system(size: 14, weight: .semibold))
+                .buttonStyle(.bordered)
+                .frame(minWidth: 64, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("data.controls.done")
+                .accessibilityHint("Closes Data Controls without starting a conversation.")
+        }
+        .padding(.horizontal, pageHorizontalPadding)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.24)
+        }
+    }
+    #endif
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Data Controls")
@@ -280,7 +319,10 @@ struct DataControlsScreen: View {
             Text("Control what is stored and reset it when you want.")
                 .font(.system(size: 15, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("data.controls.header")
     }
 
     private var storageExplanation: some View {
@@ -361,6 +403,7 @@ struct DataControlsScreen: View {
                     }
                 }
                 .padding(14)
+                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.white.opacity(0.20))
@@ -372,6 +415,9 @@ struct DataControlsScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
+            .accessibilityIdentifier("data.export-account")
+            .accessibilityLabel(isExporting ? "Downloading my data" : "Download my data")
+            .accessibilityHint("Saves your backend account archive as a JSON file.")
 
             actionButton(
                 title: "Clear History",
@@ -394,6 +440,23 @@ struct DataControlsScreen: View {
     private var accountDeletionReauthenticationSheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 18) {
+                #if os(iOS)
+                HStack(spacing: 12) {
+                    Label("Account deletion", systemImage: "person.crop.circle.badge.xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.herText.opacity(0.82))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Button("Cancel") {
+                        clearAccountDeletionReauthentication()
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(minWidth: 64, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("data.delete.account.cancel")
+                }
+                #endif
+
                 Text("Confirm it’s you")
                     .font(.system(size: 28, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.95))
@@ -433,6 +496,7 @@ struct DataControlsScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
                     .disabled(accountDeletionPassword.isEmpty || isBusy)
                     .accessibilityIdentifier("data.delete.account.confirm")
                 }
@@ -446,8 +510,9 @@ struct DataControlsScreen: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(24)
+            .padding(isCompactWidth ? 16 : 24)
             .frame(maxWidth: 520, minHeight: 260, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
             .background(
                 LinearGradient(
                     gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
@@ -456,13 +521,17 @@ struct DataControlsScreen: View {
                 )
                 .ignoresSafeArea()
             )
+            #if os(macOS)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         clearAccountDeletionReauthentication()
                     }
+                    .frame(minWidth: 64, minHeight: 44)
+                    .accessibilityIdentifier("data.delete.account.cancel")
                 }
             }
+            #endif
         }
         .interactiveDismissDisabled(isBusy)
     }
@@ -479,17 +548,24 @@ struct DataControlsScreen: View {
                         await retryOfflineOutbox()
                     }
                 } label: {
-                    if isRetryingOutbox {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 7) {
+                        if isRetryingOutbox {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(isRetryingOutbox ? "Retrying" : "Retry")
+                            .font(.system(size: 13, weight: .semibold))
                     }
+                    .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
                 .disabled(isBusy || isRetryingOutbox)
                 .accessibilityLabel("Retry queued talk turns")
+                .accessibilityHint("Attempts to send queued voice turns again.")
+                .accessibilityIdentifier("data.outbox.retry")
             }
 
             Text(offlineOutboxSummary)
@@ -533,7 +609,9 @@ struct DataControlsScreen: View {
                     .foregroundStyle(Color.red.opacity(0.84))
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: 44)
                 .disabled(isBusy)
+                .accessibilityIdentifier("data.outbox.delete-parked")
             }
         }
         .padding(16)
@@ -604,18 +682,35 @@ struct DataControlsScreen: View {
                 .font(.system(size: 18, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.92))
 
-            Picker("Voice Transport", selection: $voiceTransportModeRaw) {
-                ForEach(ClementineVoiceTransportMode.allCases) { mode in
-                    Text(mode.title).tag(mode.rawValue)
+            if isCompactWidth {
+                VStack(spacing: 8) {
+                    ForEach(ClementineVoiceTransportMode.allCases) { mode in
+                        compactSelectionButton(
+                            title: mode.title,
+                            isSelected: voiceTransportModeRaw == mode.rawValue,
+                            identifier: "data.voice.transport.\(mode.rawValue)",
+                            hint: mode.subtitle
+                        ) {
+                            voiceTransportModeRaw = mode.rawValue
+                        }
+                    }
                 }
+            } else {
+                Picker("Voice Transport", selection: $voiceTransportModeRaw) {
+                    ForEach(ClementineVoiceTransportMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("data.voice.transport.picker")
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("data.voice.transport.picker")
 
             let selectedMode = ClementineVoiceTransportMode(rawValue: voiceTransportModeRaw) ?? .turnBased
             Text(selectedMode.subtitle)
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(
@@ -634,18 +729,37 @@ struct DataControlsScreen: View {
                 .font(.system(size: 18, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.92))
 
-            Picker("Realtime Provider", selection: $realtimeSupplierModeRaw) {
-                ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
-                    Text(mode.title).tag(mode.rawValue)
+            if isCompactWidth {
+                VStack(spacing: 8) {
+                    ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                        compactSelectionButton(
+                            title: mode.title,
+                            isSelected: ClementineRealtimeSupplierMode.normalized(
+                                rawValue: realtimeSupplierModeRaw
+                            ) == mode,
+                            identifier: "data.realtime.provider.\(mode.rawValue)",
+                            hint: mode.subtitle
+                        ) {
+                            realtimeSupplierModeRaw = mode.rawValue
+                        }
+                    }
                 }
+            } else {
+                Picker("Realtime Provider", selection: $realtimeSupplierModeRaw) {
+                    ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("data.realtime.provider.picker")
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("data.realtime.provider.picker")
 
             let selectedMode = ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
             Text(selectedMode.subtitle)
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(
@@ -670,17 +784,24 @@ struct DataControlsScreen: View {
                         await refreshMemoryStats(force: true)
                     }
                 } label: {
-                    if isRefreshingMemoryStats {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 14, weight: .semibold))
+                    HStack(spacing: 7) {
+                        if isRefreshingMemoryStats {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(isRefreshingMemoryStats ? "Refreshing" : "Refresh")
+                            .font(.system(size: 13, weight: .semibold))
                     }
+                    .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
                 .disabled(isRefreshingMemoryStats)
                 .accessibilityLabel("Refresh memory shape")
+                .accessibilityHint("Updates the memory summary from the backend.")
+                .accessibilityIdentifier("data.memory.refresh")
             }
 
             Text(memoryStatsSummary)
@@ -704,6 +825,40 @@ struct DataControlsScreen: View {
         )
     }
 
+    private func compactSelectionButton(
+        title: String,
+        isSelected: Bool,
+        identifier: String,
+        hint: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.herText.opacity(0.90))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(
+                        isSelected ? Color.herText.opacity(0.90) : Color.herText.opacity(0.42)
+                    )
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(isSelected ? 0.30 : 0.16))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     private var visualContextSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Visual Context")
@@ -721,6 +876,8 @@ struct DataControlsScreen: View {
                 }
             }
             .toggleStyle(.switch)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("data.visual-context.toggle")
 
             #if os(macOS)
             Text(ClementineVisualContextCapture.permissionStatusText())
@@ -736,6 +893,8 @@ struct DataControlsScreen: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.white.opacity(0.24))
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("data.visual-context.request-access")
             }
             #else
             Text("Visual context capture is currently available on macOS.")
@@ -770,6 +929,7 @@ struct DataControlsScreen: View {
                     Text("Run the release smoke, mark pass/fail, and export the latest launch proof.")
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -777,6 +937,7 @@ struct DataControlsScreen: View {
                     .foregroundStyle(Color.herText.opacity(0.58))
             }
             .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.white.opacity(0.20))
@@ -787,6 +948,9 @@ struct DataControlsScreen: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("data.launch-doctor.open")
+        .accessibilityLabel("Open V1 Launch Doctor")
+        .accessibilityHint("Opens release-readiness checks and report controls.")
     }
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {
@@ -813,6 +977,7 @@ struct DataControlsScreen: View {
                 }
             }
             .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.white.opacity(0.20))
@@ -824,6 +989,7 @@ struct DataControlsScreen: View {
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
+        .accessibilityIdentifier("data.action.\(action.id)")
     }
 
     private var statusRow: some View {

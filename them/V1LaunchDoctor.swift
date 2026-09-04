@@ -391,6 +391,7 @@ final class V1LaunchDoctorStore: ObservableObject {
 struct V1LaunchDoctorView: View {
     var onDone: () -> Void = {}
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var store = V1LaunchDoctorStore()
     @State private var exportMessage = ""
 
@@ -409,10 +410,11 @@ struct V1LaunchDoctorView: View {
                     }
                     exportPanel
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
+                .padding(.horizontal, isCompactWidth ? 16 : 24)
+                .padding(.top, isCompactWidth ? 16 : 28)
                 .padding(.bottom, 24)
-                .frame(maxWidth: 980, alignment: .topLeading)
+                .frame(maxWidth: 820, alignment: .topLeading)
+                .frame(maxWidth: .infinity)
             }
             .background(
                 LinearGradient(
@@ -426,13 +428,53 @@ struct V1LaunchDoctorView: View {
                 )
                 .ignoresSafeArea()
             )
+            #if os(iOS)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                launchDoctorTopBar
+            }
+            #else
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done", action: onDone)
+                        .frame(minWidth: 64, minHeight: 44)
+                        .accessibilityIdentifier("launch-doctor.done")
+                        .accessibilityHint("Closes Launch Doctor and returns to Data Controls.")
                 }
             }
+            #endif
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch-doctor.screen")
+    }
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    #if os(iOS)
+    private var launchDoctorTopBar: some View {
+        HStack(spacing: 12) {
+            Label("Launch Doctor", systemImage: "checklist.checked")
+                .font(IOThemTypography.UI.calloutStrong)
+                .foregroundStyle(Color.herText.opacity(0.82))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Done", action: onDone)
+                .font(IOThemTypography.UI.calloutStrong)
+                .buttonStyle(.bordered)
+                .frame(minWidth: 64, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("launch-doctor.done")
+                .accessibilityHint("Closes Launch Doctor and returns to Data Controls.")
+        }
+        .padding(.horizontal, isCompactWidth ? 16 : 24)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.24)
         }
     }
+    #endif
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -442,17 +484,32 @@ struct V1LaunchDoctorView: View {
             Text("Run the release smoke in the app and leave a structured proof trail.")
                 .font(IOThemTypography.UI.body)
                 .foregroundStyle(Color.herText.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("launch-doctor.header")
     }
 
     private var summary: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 14)], alignment: .leading, spacing: 14) {
+        LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 12) {
             launchMetric(title: "Overall", value: report.overallStatus.rawValue.replacingOccurrences(of: "_", with: " "))
             launchMetric(title: "Passed", value: "\(report.summary.passed)/\(report.summary.total)")
             launchMetric(title: "Failed", value: "\(report.summary.failed)")
         }
         .padding(16)
         .background(panelBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch-doctor.summary")
+    }
+
+    private var summaryColumns: [GridItem] {
+        if isCompactWidth {
+            return [
+                GridItem(.flexible(), spacing: 10, alignment: .leading),
+                GridItem(.flexible(), spacing: 10, alignment: .leading),
+            ]
+        }
+        return [GridItem(.adaptive(minimum: 120), spacing: 14, alignment: .leading)]
     }
 
     private func launchMetric(title: String, value: String) -> some View {
@@ -464,54 +521,46 @@ struct V1LaunchDoctorView: View {
                 .font(IOThemTypography.UI.sectionTitle)
                 .foregroundStyle(Color.herText.opacity(0.92))
                 .textCase(.none)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(minWidth: 96, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
 
     private func flowPanel(_ flow: V1LaunchDoctorFlow) -> some View {
         let definition = flow.definition
         let result = store.result(for: flow)
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Image(systemName: result.status.symbolName)
-                    .font(IOThemTypography.UI.sectionTitle)
-                    .foregroundStyle(statusColor(result.status))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(definition.title)
-                        .font(IOThemTypography.UI.title)
-                        .foregroundStyle(Color.herText.opacity(0.94))
-                    Text(definition.goal)
-                        .font(IOThemTypography.UI.callout)
-                        .foregroundStyle(Color.herText.opacity(0.76))
-                }
-                Spacer(minLength: 0)
-                Text(definition.v1Pillar.uppercased())
-                    .font(IOThemTypography.UI.label)
-                    .foregroundStyle(Color.herText.opacity(0.58))
-            }
+            flowHeader(definition: definition, result: result)
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(definition.checklist.enumerated()), id: \.offset) { index, item in
                     Text("\(index + 1). \(item)")
                         .font(IOThemTypography.UI.callout)
                         .foregroundStyle(Color.herText.opacity(0.76))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             Text("Pass: \(definition.passCriteria)")
                 .font(IOThemTypography.UI.callout)
                 .foregroundStyle(Color.herText.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 126), spacing: 8)], alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: statusColumns, alignment: .leading, spacing: 8) {
                 ForEach(V1LaunchDoctorStatus.allCases) { status in
                     Button {
                         store.setStatus(status, for: flow)
                     } label: {
                         Label(status.title, systemImage: status.symbolName)
                             .font(IOThemTypography.UI.caption)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
-                    .tint(result.status == status ? statusColor(status) : Color.herText.opacity(0.28))
+                    .tint(result.status == status ? statusColor(status) : Color.herText.opacity(0.64))
+                    .accessibilityIdentifier("launch-doctor.status.\(flow.rawValue).\(status.rawValue)")
+                    .accessibilityAddTraits(result.status == status ? .isSelected : [])
                 }
             }
 
@@ -523,6 +572,8 @@ struct V1LaunchDoctorView: View {
                 )
             )
             .textFieldStyle(.roundedBorder)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("launch-doctor.evidence.\(flow.rawValue)")
 
             TextEditor(
                 text: Binding(
@@ -535,20 +586,88 @@ struct V1LaunchDoctorView: View {
             .scrollContentBackground(.hidden)
             .background(Color.white.opacity(0.16))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityIdentifier("launch-doctor.notes.\(flow.rawValue)")
         }
         .padding(16)
         .background(panelBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch-doctor.flow.\(flow.rawValue)")
+    }
+
+    @ViewBuilder
+    private func flowHeader(
+        definition: V1LaunchDoctorFlowDefinition,
+        result: V1LaunchDoctorFlowResult
+    ) -> some View {
+        if isCompactWidth {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    flowStatusIcon(result.status)
+                    Text(definition.title)
+                        .font(IOThemTypography.UI.title)
+                        .foregroundStyle(Color.herText.opacity(0.94))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                pillarBadge(definition.v1Pillar)
+                Text(definition.goal)
+                    .font(IOThemTypography.UI.callout)
+                    .foregroundStyle(Color.herText.opacity(0.76))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                flowStatusIcon(result.status)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(definition.title)
+                        .font(IOThemTypography.UI.title)
+                        .foregroundStyle(Color.herText.opacity(0.94))
+                    Text(definition.goal)
+                        .font(IOThemTypography.UI.callout)
+                        .foregroundStyle(Color.herText.opacity(0.76))
+                }
+                Spacer(minLength: 0)
+                pillarBadge(definition.v1Pillar)
+            }
+        }
+    }
+
+    private func flowStatusIcon(_ status: V1LaunchDoctorStatus) -> some View {
+        Image(systemName: status.symbolName)
+            .font(IOThemTypography.UI.sectionTitle)
+            .foregroundStyle(statusColor(status))
+    }
+
+    private func pillarBadge(_ pillar: String) -> some View {
+        Text(pillar.uppercased())
+            .font(IOThemTypography.UI.label)
+            .foregroundStyle(Color.herText.opacity(0.68))
+            .padding(.horizontal, 10)
+            .frame(minHeight: 30)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.18))
+            )
+    }
+
+    private var statusColumns: [GridItem] {
+        if isCompactWidth {
+            return [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ]
+        }
+        return [GridItem(.adaptive(minimum: 126), spacing: 8)]
     }
 
     private var exportPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    exportButtons
-                }
-
+            if isCompactWidth {
                 VStack(alignment: .leading, spacing: 8) {
-                    exportButtons
+                    exportButtons(fullWidth: true)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    exportButtons(fullWidth: false)
                 }
             }
 
@@ -556,39 +675,52 @@ struct V1LaunchDoctorView: View {
                 Text(exportMessage)
                     .font(IOThemTypography.UI.callout)
                     .foregroundStyle(Color.herText.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Text(reportLocationHint)
                 .font(IOThemTypography.UI.caption)
                 .foregroundStyle(Color.herText.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .background(panelBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch-doctor.export-panel")
     }
 
     @ViewBuilder
-    private var exportButtons: some View {
+    private func exportButtons(fullWidth: Bool) -> some View {
         Button {
             exportReport()
         } label: {
             Label("Export Latest Report", systemImage: "square.and.arrow.down")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("launch-doctor.export")
+        .accessibilityHint("Writes the latest JSON and Markdown launch reports.")
 
         Button {
             copyMarkdown()
         } label: {
             Label("Copy Markdown", systemImage: "doc.on.doc")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44)
         }
         .buttonStyle(.bordered)
+        .accessibilityIdentifier("launch-doctor.copy-markdown")
+        .accessibilityHint("Copies the current launch report as Markdown.")
 
         Button(role: .destructive) {
             store.reset()
             exportMessage = "Launch Doctor reset."
         } label: {
             Label("Reset", systemImage: "arrow.counterclockwise")
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44)
         }
         .buttonStyle(.bordered)
+        .accessibilityIdentifier("launch-doctor.reset")
+        .accessibilityHint("Clears all recorded Launch Doctor statuses and evidence.")
     }
 
     private var reportLocationHint: String {
@@ -606,7 +738,7 @@ struct V1LaunchDoctorView: View {
     private func statusColor(_ status: V1LaunchDoctorStatus) -> Color {
         switch status {
         case .notStarted:
-            return Color.herText.opacity(0.46)
+            return Color.herText.opacity(0.68)
         case .inProgress:
             return Color.blue.opacity(0.76)
         case .passed:
