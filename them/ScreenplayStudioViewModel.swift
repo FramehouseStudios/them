@@ -1719,6 +1719,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func load() async {
+        errorText = ""
+        infoText = ""
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-studio-recovery-error") {
+            didLoadScreenplayProjectsFromBackend = true
+            infoText = "Studio refreshed. The last saved version remains available."
+            return
+        }
+        #endif
         guard !IOThemRuntime.isRunningTests else {
             didLoadScreenplayProjectsFromBackend = false
             projects = []
@@ -1742,8 +1752,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 isLoading = false
             }
         }
-        errorText = ""
-        infoText = ""
         let result: BackendReadResult<BackendScreenplayProjectsResponse>
         do {
             result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(

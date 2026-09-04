@@ -80,6 +80,160 @@ struct ScreenplayStudioHeaderPresentation: Equatable {
     }
 }
 
+enum ScreenplayStudioRecoveryRetry: Equatable {
+    case saveDraft
+    case draftSync
+    case outlineSync
+    case reloadStudio
+
+    var accessibilityHint: String {
+        switch self {
+        case .saveDraft:
+            return "Tries to save the current draft again."
+        case .draftSync:
+            return "Reconnects and retries the draft already waiting on this device."
+        case .outlineSync:
+            return "Reconnects and retries the outline change already waiting on this device."
+        case .reloadStudio:
+            return "Reloads the current Studio project and project list."
+        }
+    }
+}
+
+struct ScreenplayStudioTransientStatusPresentation: Equatable {
+    static let maximumErrorCharacters = 420
+    static let maximumInfoCharacters = 240
+
+    let errorMessage: String?
+    let infoMessage: String?
+    let draftProtectionMessage: String?
+    let retry: ScreenplayStudioRecoveryRetry?
+
+    init(
+        errorText: String,
+        infoText: String,
+        autosaveStatusText: String,
+        hasSelectedProject: Bool,
+        hasDraft: Bool,
+        hasUnsavedDraftChanges: Bool,
+        isManualDraftEditing: Bool,
+        hasPersistedDocument: Bool,
+        queuedDraftSaveCount: Int,
+        queuedOutlineMutationCount: Int
+    ) {
+        let error = Self.bounded(errorText, maximumCharacters: Self.maximumErrorCharacters)
+        let info = Self.bounded(infoText, maximumCharacters: Self.maximumInfoCharacters)
+        errorMessage = error.isEmpty ? nil : error
+
+        let lowerInfo = info.lowercased()
+        let lowerAutosaveStatus = autosaveStatusText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let hasExplicitLocalSafetySignal =
+            lowerInfo.contains("preserved on this device") ||
+            lowerInfo.contains("preserved locally") ||
+            lowerInfo.contains("waiting safely") ||
+            lowerAutosaveStatus.contains("saved locally") ||
+            queuedDraftSaveCount > 0
+
+        if hasDraft && hasExplicitLocalSafetySignal {
+            draftProtectionMessage = "Your local draft is safe on this device."
+        } else if hasDraft && hasSelectedProject && hasPersistedDocument && !hasUnsavedDraftChanges {
+            draftProtectionMessage = "The last saved version remains available, and this draft remains open."
+        } else if hasDraft {
+            draftProtectionMessage = hasSelectedProject
+                ? "Your draft remains open in Studio. Save it before leaving."
+                : "Your draft remains open in Studio. Open Projects to save it before leaving."
+        } else {
+            draftProtectionMessage = nil
+        }
+
+        let infoOnlyRepeatsSafety =
+            lowerInfo.contains("preserved on this device") ||
+            lowerInfo == "your draft is preserved locally." ||
+            lowerInfo == "your draft is safe on this device."
+        let infoSupportsRecovery = [
+            "connection",
+            "preserved",
+            "queued",
+            "reconnect",
+            "retry",
+            "safe",
+            "sync",
+            "without overwriting",
+            "remains open",
+            "needs attention",
+        ].contains { lowerInfo.contains($0) }
+        if error.isEmpty {
+            infoMessage = info.isEmpty ? nil : info
+        } else {
+            infoMessage = info.isEmpty || infoOnlyRepeatsSafety || !infoSupportsRecovery
+                ? nil
+                : info
+        }
+
+        guard !error.isEmpty else {
+            retry = nil
+            return
+        }
+        if queuedDraftSaveCount > 0 {
+            retry = .draftSync
+        } else if queuedOutlineMutationCount > 0 {
+            retry = .outlineSync
+        } else if hasSelectedProject,
+                  hasDraft,
+                  hasUnsavedDraftChanges,
+                  Self.looksLikeDraftSaveFailure(error) {
+            retry = .saveDraft
+        } else if hasUnsavedDraftChanges || isManualDraftEditing {
+            retry = nil
+        } else if Self.isValidationOnlyError(error) {
+            retry = nil
+        } else {
+            retry = .reloadStudio
+        }
+    }
+
+    private static func looksLikeDraftSaveFailure(_ error: String) -> Bool {
+        let lower = error.lowercased()
+        return lower.contains("draft") &&
+            (lower.contains("save") || lower.contains("sync") || lower.contains("queue"))
+    }
+
+    private static func isValidationOnlyError(_ error: String) -> Bool {
+        let lower = error.lowercased()
+        return [
+            "select a project",
+            "select a scene",
+            "enter a ",
+            "add at least",
+            "draft is empty",
+            "snapshot draft is empty",
+            "that file did not contain",
+            "could not normalize",
+            "needs a label",
+            "no longer available",
+            "use an approved",
+            "ask io.them",
+            "resolve the parked",
+            "review it, then",
+        ].contains { lower.contains($0) }
+    }
+
+    private static func bounded(_ raw: String, maximumCharacters: Int) -> String {
+        let clean = raw
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard clean.count > maximumCharacters else { return clean }
+        let prefix = String(clean.prefix(maximumCharacters - 1))
+        if let lastWhitespace = prefix.lastIndex(where: \.isWhitespace),
+           prefix.distance(from: lastWhitespace, to: prefix.endIndex) < 48 {
+            return String(prefix[..<lastWhitespace]) + "…"
+        }
+        return prefix + "…"
+    }
+}
+
 struct ScreenplayStudioScreen: View {
     private static let crossDeviceRefreshTimer = Timer
         .publish(every: 3, on: .main, in: .common)
@@ -4538,12 +4692,181 @@ private func refreshStudioCreativeInstincts(
         !vm.infoText.isEmpty
     }
 
+    @ViewBuilder
     private var directionOneTransientStatusBar: some View {
+        let presentation = directionOneTransientStatusPresentation
+        if presentation.errorMessage != nil {
+            directionOneRecoveryBanner(presentation)
+        } else {
+            directionOneCompactActivityBar(presentation)
+        }
+    }
+
+    private var directionOneTransientStatusPresentation: ScreenplayStudioTransientStatusPresentation {
+        ScreenplayStudioTransientStatusPresentation(
+            errorText: vm.errorText,
+            infoText: vm.infoText,
+            autosaveStatusText: vm.autosaveStatusText,
+            hasSelectedProject: vm.selectedProject != nil,
+            hasDraft: !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasUnsavedDraftChanges: vm.hasUnsavedDraftChanges,
+            isManualDraftEditing: vm.isManualDraftEditing,
+            hasPersistedDocument: !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            queuedDraftSaveCount: vm.queuedDraftSaveCount,
+            queuedOutlineMutationCount: vm.queuedOutlineMutationCount
+        )
+    }
+
+    private func directionOneRecoveryBanner(
+        _ presentation: ScreenplayStudioTransientStatusPresentation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.red.opacity(0.82))
+                    .frame(width: 20, height: 20)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Studio needs your attention")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(directionOneChromeText.opacity(0.94))
+                    if let errorMessage = presentation.errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(Color.red.opacity(0.86))
+                            .lineLimit(5)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("studio.status.recovery.message")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let draftProtectionMessage = presentation.draftProtectionMessage {
+                let localDraftIsSafe = draftProtectionMessage.localizedCaseInsensitiveContains("safe")
+                Label(
+                    draftProtectionMessage,
+                    systemImage: localDraftIsSafe ? "checkmark.shield.fill" : "doc.text"
+                )
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(
+                        localDraftIsSafe
+                            ? Color.green.opacity(0.88)
+                            : directionOneChromeText.opacity(0.78)
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.status.recovery.draft-status")
+            }
+
+            if let infoMessage = presentation.infoMessage {
+                Text(infoMessage)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(directionOneChromeSecondaryText)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.status.recovery.info")
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    directionOneRecoveryActions(presentation)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    directionOneRecoveryActions(presentation)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .padding(.bottom, isDirectionOneCompactLayout ? 22 : 0)
+        .background(
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.red.opacity(0.045))
+        )
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.red.opacity(0.24))
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Studio recovery")
+        .accessibilityHint("The error remains visible until the failed action succeeds or another Studio action replaces it.")
+        .accessibilityIdentifier("studio.status.recovery")
+    }
+
+    @ViewBuilder
+    private func directionOneRecoveryActions(
+        _ presentation: ScreenplayStudioTransientStatusPresentation
+    ) -> some View {
+        if let retry = presentation.retry {
+            directionOneRecoveryButton(
+                title: "Retry",
+                systemImage: "arrow.clockwise",
+                identifier: "studio.status.recovery.retry",
+                hint: retry.accessibilityHint,
+                isPrimary: true
+            ) {
+                retryDirectionOneRecovery(retry)
+            }
+        }
+
+        directionOneRecoveryButton(
+            title: "Open Projects",
+            systemImage: "rectangle.stack",
+            identifier: "studio.status.recovery.open-projects",
+            hint: "Opens the real Projects drawer so you can select, create, or review a screenplay project.",
+            isPrimary: false
+        ) {
+            openDirectionOneProjectsDrawer()
+        }
+    }
+
+    private func directionOneRecoveryButton(
+        title: String,
+        systemImage: String,
+        identifier: String,
+        hint: String,
+        isPrimary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(isPrimary ? Color.white : directionOneChromeText.opacity(0.90))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(isPrimary ? Color.accentColor.opacity(0.92) : directionOneChromePanelSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            isPrimary ? Color.accentColor.opacity(0.95) : directionOneChromeStroke.opacity(0.55),
+                            lineWidth: 1
+                        )
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func directionOneCompactActivityBar(
+        _ presentation: ScreenplayStudioTransientStatusPresentation
+    ) -> some View {
         HStack(spacing: 10) {
             if talkIsActive {
                 Label(talkStatusText, systemImage: "waveform")
                     .font(.system(size: 11, weight: .medium, design: .default))
                     .foregroundStyle(directionOneChromeText.opacity(0.82))
+                    .lineLimit(1)
+                    .accessibilityIdentifier("studio.status.talk")
             }
 
             if liveDraftBridge.isStreamingDraftPreviewActive {
@@ -4554,6 +4877,9 @@ private func refreshStudioCreativeInstincts(
                     fill: Color.green.opacity(0.08),
                     stroke: Color.green.opacity(0.18)
                 )
+                .accessibilityLabel("Drafting screenplay")
+                .accessibilityHint("Clementine is writing a preview before it is committed to the page.")
+                .accessibilityIdentifier("studio.status.drafting")
             }
 
             if vm.isSaving {
@@ -4564,24 +4890,24 @@ private func refreshStudioCreativeInstincts(
                     fill: Color.accentColor.opacity(0.08),
                     stroke: Color.accentColor.opacity(0.18)
                 )
+                .accessibilityLabel("Saving screenplay")
+                .accessibilityHint("Studio is saving the current draft.")
+                .accessibilityIdentifier("studio.status.saving")
             }
 
-            if !vm.errorText.isEmpty {
-                Text(vm.errorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.red.opacity(0.82))
-                    .lineLimit(1)
-            } else if voiceFeedbackOpacity > 0.01 && !lastVoiceFeedback.isEmpty {
+            if voiceFeedbackOpacity > 0.01 && !lastVoiceFeedback.isEmpty {
                 Text(lastVoiceFeedback)
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
                     .opacity(voiceFeedbackOpacity)
-            } else if !vm.infoText.isEmpty {
-                Text(vm.infoText)
+                    .accessibilityIdentifier("studio.status.voice-feedback")
+            } else if let infoMessage = presentation.infoMessage {
+                Text(infoMessage)
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.status.info")
             }
 
             Spacer(minLength: 0)
@@ -4598,6 +4924,8 @@ private func refreshStudioCreativeInstincts(
                 .fill(directionOneChromeStroke.opacity(0.24))
                 .frame(height: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.status.activity")
     }
 
     private var directionOneSettingsPopover: some View {
@@ -8892,10 +9220,7 @@ Current draft version:
                             fill: Color.accentColor.opacity(0.08),
                             stroke: Color.accentColor.opacity(0.18)
                         ) {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                                isDirectionOneSidebarVisible = true
-                                selectedSidebarSection = .projects
-                            }
+                            openDirectionOneProjectsDrawer()
                         }
                     } else if vm.hasUnsavedDraftChanges {
                         screenplayPageActionChipButton(
@@ -12502,6 +12827,36 @@ Return revised screenplay lines only.
         studioPromptFocused = false
     }
 
+    private func retryDirectionOneRecovery(_ retry: ScreenplayStudioRecoveryRetry) {
+        if retry == .reloadStudio,
+           vm.hasUnsavedDraftChanges || vm.isManualDraftEditing {
+            vm.infoText = "Your draft remains open. Save it before reloading Studio."
+            return
+        }
+        Task { @MainActor in
+            switch retry {
+            case .saveDraft:
+                await vm.manualSaveDraft()
+            case .draftSync:
+                await vm.reconnectAndResumeQueuedDraftSaves()
+            case .outlineSync:
+                await vm.reconnectAndResumeQueuedOutlineMutations()
+            case .reloadStudio:
+                await vm.refresh()
+            }
+        }
+    }
+
+    private func openDirectionOneProjectsDrawer() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            selectedSidebarSection = .projects
+            isDirectionOneSidebarVisible = true
+            if isDirectionOneCompactLayout {
+                isDirectionOneRightRailExpanded = false
+            }
+        }
+    }
+
     private func toggleDirectionOneSidebarVisibility() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             let nextIsVisible = !isDirectionOneSidebarVisible
@@ -14919,6 +15274,7 @@ Look at the city.
         applyUITestCompanionSignalFixtureIfNeeded(arguments)
         applyUITestDraftConflictFixtureIfNeeded()
         applyUITestPendingScreenplayQuestionFixtureIfNeeded()
+        applyUITestStudioRecoveryErrorFixtureIfNeeded(arguments)
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
             studioPromptRoutingMode = .page
             submitStudioPromptText(
@@ -14959,6 +15315,12 @@ Look at the city.
     }
 
     #if DEBUG
+    private func applyUITestStudioRecoveryErrorFixtureIfNeeded(_ arguments: [String]) {
+        guard arguments.contains("--ui-studio-recovery-error") else { return }
+        vm.errorText = "Studio could not refresh this project because the server connection timed out. The draft shown on this page was not replaced, and no writing was removed. Check your connection, then retry."
+        vm.infoText = "Project updates are paused until the connection returns."
+    }
+
     private func applyUITestCompanionSignalFixtureIfNeeded(_ arguments: [String]) {
         guard arguments.contains("--ui-seed-companion-signal") else { return }
         let now = Date()

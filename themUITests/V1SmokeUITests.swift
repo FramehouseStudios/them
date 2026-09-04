@@ -1277,6 +1277,86 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_studio_recovery_banner_preserves_error_meaning_and_opens_real_projects_drawer() throws {
+#if os(iOS)
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            studioRecoveryError: true
+        )
+        defer { app.terminate() }
+
+        let banner = element(identifier: "studio.status.recovery", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Studio recovery banner was not exposed. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            banner.frame.maxX,
+            app.frame.maxX + 1,
+            "Recovery banner extended beyond the iPhone viewport: banner=\(banner.frame), app=\(app.frame)"
+        )
+
+        let message = app.staticTexts["studio.status.recovery.message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 3), "Recovery message was not accessible.")
+        XCTAssertTrue(
+            message.label.contains("server connection timed out") &&
+                message.label.contains("no writing was removed") &&
+                message.label.contains("then retry"),
+            "Recovery message lost useful failure meaning: \(message.label)"
+        )
+        XCTAssertGreaterThan(
+            message.frame.height,
+            22,
+            "Recovery message collapsed back to a single unreadable line: \(message.frame)"
+        )
+
+        let draftStatus = app.staticTexts["studio.status.recovery.draft-status"]
+        XCTAssertTrue(draftStatus.waitForExistence(timeout: 3), "Saved draft availability was not stated.")
+        XCTAssertTrue(
+            draftStatus.label.localizedCaseInsensitiveContains("saved") &&
+                draftStatus.label.localizedCaseInsensitiveContains("available"),
+            "Saved draft availability copy was ambiguous: \(draftStatus.label)"
+        )
+
+        let retry = app.buttons["studio.status.recovery.retry"]
+        let openProjects = app.buttons["studio.status.recovery.open-projects"]
+        for (name, action) in [("Retry", retry), ("Open Projects", openProjects)] {
+            XCTAssertTrue(action.waitForExistence(timeout: 3), "\(name) recovery action was not exposed.")
+            XCTAssertGreaterThanOrEqual(action.frame.height, 44, "\(name) recovery action was too short: \(action.frame)")
+            XCTAssertTrue(action.isHittable, "\(name) recovery action was not connected or hittable.")
+        }
+        XCTAssertFalse(banner.buttons["Account"].exists, "Recovery banner exposed a disconnected Account action.")
+
+        openProjects.tap()
+        let projectsDrawer = element(identifier: "studio.sidebar.left.drawer", in: app)
+        XCTAssertTrue(
+            projectsDrawer.waitForExistence(timeout: 5),
+            "Open Projects did not reveal the real Projects drawer."
+        )
+
+        let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(leftToggle.waitForExistence(timeout: 3))
+        leftToggle.tap()
+        XCTAssertTrue(waitForDisappearance(of: projectsDrawer, timeout: 5))
+
+        XCTAssertTrue(retry.waitForExistence(timeout: 3))
+        retry.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 5),
+            "The real Studio reload path did not replace the recovery error."
+        )
+        let refreshConfirmation = app.staticTexts["studio.status.info"]
+        XCTAssertTrue(
+            refreshConfirmation.waitForExistence(timeout: 3) &&
+                refreshConfirmation.label.localizedCaseInsensitiveContains("Studio refreshed"),
+            "Retry only dismissed the banner instead of completing the ViewModel refresh path."
+        )
+#else
+        throw XCTSkip("The recovery banner narrow-width regression specifically covers iPhone Studio.")
+#endif
+    }
+
     func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
         let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
@@ -2637,6 +2717,7 @@ final class V1SmokeUITests: XCTestCase {
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
+        studioRecoveryError: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -2713,6 +2794,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showOutlineRecovery {
             arguments.append("--ui-outline-recovery-fixture")
+        }
+        if studioRecoveryError {
+            arguments.append("--ui-studio-recovery-error")
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
