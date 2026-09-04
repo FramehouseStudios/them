@@ -10,6 +10,76 @@ import AppKit
 #if os(iOS)
 import UIKit
 #endif
+
+enum ScreenplayStudioSaveStatus: Equatable {
+    case notSaved
+    case liveOnly
+    case saving
+    case unsaved
+    case saved
+
+    var text: String {
+        switch self {
+        case .notSaved: return "Not saved"
+        case .liveOnly: return "Live only"
+        case .saving: return "Saving…"
+        case .unsaved: return "Unsaved"
+        case .saved: return "Saved"
+        }
+    }
+}
+
+enum ScreenplayStudioSaveStatusTone: Equatable {
+    case muted
+    case accent
+    case warning
+    case success
+}
+
+struct ScreenplayStudioHeaderPresentation: Equatable {
+    static let compactInteractiveControlSize: CGFloat = 44
+    static let compactVisualControlSize: CGFloat = 28
+
+    static func controlSize(compact: Bool) -> CGFloat {
+        compact ? compactInteractiveControlSize : compactVisualControlSize
+    }
+
+    let saveStatus: ScreenplayStudioSaveStatus
+
+    init(
+        isSaving: Bool,
+        hasSelectedProject: Bool,
+        hasDraft: Bool,
+        hasUnsavedDraftChanges: Bool,
+        hasPersistedDocument: Bool
+    ) {
+        if !hasSelectedProject {
+            saveStatus = hasDraft ? .liveOnly : .notSaved
+        } else if isSaving {
+            saveStatus = .saving
+        } else if hasUnsavedDraftChanges {
+            saveStatus = .unsaved
+        } else if hasPersistedDocument {
+            saveStatus = .saved
+        } else {
+            saveStatus = .notSaved
+        }
+    }
+
+    var saveStatusTone: ScreenplayStudioSaveStatusTone {
+        switch saveStatus {
+        case .notSaved, .liveOnly:
+            return .muted
+        case .saving:
+            return .accent
+        case .unsaved:
+            return .warning
+        case .saved:
+            return .success
+        }
+    }
+}
+
 struct ScreenplayStudioScreen: View {
     private static let crossDeviceRefreshTimer = Timer
         .publish(every: 3, on: .main, in: .common)
@@ -2463,7 +2533,7 @@ private func directionOneHeader(usesDrawers: Bool) -> some View {
 
 private var directionOneExpandedHeader: some View {
     HStack(spacing: 12) {
-        directionOneHeaderLeftToggle
+        directionOneHeaderLeftToggle(compact: false)
         directionOneHeaderProjectBlock
 
         Spacer(minLength: 0)
@@ -2471,8 +2541,8 @@ private var directionOneExpandedHeader: some View {
         directionOneHeaderDraftShortcuts
         directionOneHeaderDraftButton
         directionOneTalkButton
-        directionOneHeaderRightToggle
-        directionOneHeaderSettingsButton
+        directionOneHeaderRightToggle(compact: false)
+        directionOneHeaderSettingsButton(compact: false)
         directionOneHeaderDoneButton
     }
     .padding(.horizontal, 14)
@@ -2486,8 +2556,8 @@ private var directionOneExpandedHeader: some View {
 }
 
 private var directionOneCompactHeader: some View {
-    HStack(spacing: 8) {
-        directionOneHeaderLeftToggle
+    HStack(spacing: 0) {
+        directionOneHeaderLeftToggle(compact: true)
             .fixedSize()
             .layoutPriority(2)
 
@@ -2498,10 +2568,10 @@ private var directionOneCompactHeader: some View {
         directionOneCompactTalkButton
             .fixedSize()
             .layoutPriority(2)
-        directionOneHeaderRightToggle
+        directionOneHeaderRightToggle(compact: true)
             .fixedSize()
             .layoutPriority(2)
-        directionOneHeaderSettingsButton
+        directionOneHeaderSettingsButton(compact: true)
             .fixedSize()
             .layoutPriority(2)
         directionOneCompactDoneButton
@@ -2509,7 +2579,7 @@ private var directionOneCompactHeader: some View {
             .layoutPriority(2)
     }
     .padding(.horizontal, 10)
-    .padding(.vertical, 9)
+    .padding(.vertical, 1)
     .background(directionOneChromeTopBar)
     .overlay(alignment: .bottom) {
         Rectangle()
@@ -2518,7 +2588,7 @@ private var directionOneCompactHeader: some View {
     }
 }
 
-private var directionOneHeaderLeftToggle: some View {
+private func directionOneHeaderLeftToggle(compact: Bool) -> some View {
     Button {
         toggleDirectionOneSidebarVisibility()
     } label: {
@@ -2534,6 +2604,11 @@ private var directionOneHeaderLeftToggle: some View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
+            .frame(
+                width: ScreenplayStudioHeaderPresentation.controlSize(compact: compact),
+                height: ScreenplayStudioHeaderPresentation.controlSize(compact: compact)
+            )
+            .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(isDirectionOneSidebarVisible ? "Close project drawer" : "Open project drawer")
@@ -2541,18 +2616,22 @@ private var directionOneHeaderLeftToggle: some View {
 }
 
 private var directionOneHeaderProjectBlock: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    let presentation = studioHeaderPresentation
+    return VStack(alignment: .leading, spacing: 2) {
         Text(directionOneProjectTitle)
             .font(.system(size: 14, weight: .semibold, design: .default))
             .foregroundStyle(directionOneChromeText.opacity(0.96))
             .lineLimit(1)
         HStack(spacing: 5) {
             Circle()
-                .fill(vm.hasUnsavedDraftChanges ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
+                .fill(directionOneHeaderSaveStatusColor)
                 .frame(width: 5, height: 5)
-            Text(vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved"))
+            Text(presentation.saveStatus.text)
                 .font(.system(size: 10, weight: .regular, design: .default))
                 .foregroundStyle(directionOneChromeSecondaryText)
+                .accessibilityLabel("Save status")
+                .accessibilityValue(presentation.saveStatus.text)
+                .accessibilityIdentifier("studio.header.save-status")
             if vm.isLoading {
                 ProgressView()
                     .controlSize(.mini)
@@ -2653,7 +2732,7 @@ private var directionOneHeaderDraftButton: some View {
     .buttonStyle(.plain)
 }
 
-private var directionOneHeaderRightToggle: some View {
+private func directionOneHeaderRightToggle(compact: Bool) -> some View {
     Button {
         toggleDirectionOneRightRailVisibility()
     } label: {
@@ -2669,13 +2748,18 @@ private var directionOneHeaderRightToggle: some View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(isDirectionOneRightRailExpanded ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
+            .frame(
+                width: ScreenplayStudioHeaderPresentation.controlSize(compact: compact),
+                height: ScreenplayStudioHeaderPresentation.controlSize(compact: compact)
+            )
+            .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel(isDirectionOneRightRailExpanded ? "Close Studio inspector" : "Open Studio inspector")
     .accessibilityIdentifier("studio.sidebar.right.toggle")
 }
 
-private var directionOneHeaderSettingsButton: some View {
+private func directionOneHeaderSettingsButton(compact: Bool) -> some View {
     Button {
         showingDirectionOneSettings.toggle()
     } label: {
@@ -2691,8 +2775,15 @@ private var directionOneHeaderSettingsButton: some View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
+            .frame(
+                width: ScreenplayStudioHeaderPresentation.controlSize(compact: compact),
+                height: ScreenplayStudioHeaderPresentation.controlSize(compact: compact)
+            )
+            .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .accessibilityLabel("Studio settings")
+    .accessibilityIdentifier("studio.header.settings")
     .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
         directionOneSettingsPopover
     }
@@ -2746,6 +2837,11 @@ private var directionOneCompactTalkButton: some View {
                         lineWidth: 1
                     )
             )
+            .frame(
+                width: ScreenplayStudioHeaderPresentation.compactInteractiveControlSize,
+                height: ScreenplayStudioHeaderPresentation.compactInteractiveControlSize
+            )
+            .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!canTalk && !talkIsActive)
@@ -2770,6 +2866,11 @@ private var directionOneCompactDoneButton: some View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
+            .frame(
+                width: ScreenplayStudioHeaderPresentation.compactInteractiveControlSize,
+                height: ScreenplayStudioHeaderPresentation.compactInteractiveControlSize
+            )
+            .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Close Studio")
@@ -4587,6 +4688,30 @@ private func refreshStudioCreativeInstincts(
             return "Live Draft"
         }
         return "Screenplay Studio"
+    }
+
+    private var studioHeaderPresentation: ScreenplayStudioHeaderPresentation {
+        ScreenplayStudioHeaderPresentation(
+            isSaving: vm.isSaving,
+            hasSelectedProject: vm.selectedProject != nil,
+            hasDraft: !screenplayPageShouldShowEmptyPlaceholder,
+            hasUnsavedDraftChanges: vm.hasUnsavedDraftChanges,
+            hasPersistedDocument: screenplayPageSavedDate != nil ||
+                !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+    }
+
+    private var directionOneHeaderSaveStatusColor: Color {
+        switch studioHeaderPresentation.saveStatusTone {
+        case .muted:
+            return directionOneChromeSecondaryText.opacity(0.52)
+        case .accent:
+            return Color.accentColor.opacity(0.82)
+        case .warning:
+            return Color.orange.opacity(0.88)
+        case .success:
+            return Color.green.opacity(0.72)
+        }
     }
 
     private var directionOneChromeTopBar: Color {
@@ -8877,36 +9002,24 @@ Current draft version:
     }
 
     private var screenplayPageSavedMetadataText: String {
-        let hasDraft = !screenplayPageShouldShowEmptyPlaceholder
-        if vm.isSaving {
-            return "Saving…"
-        }
-        if vm.selectedProject == nil {
-            return hasDraft ? "Live only" : "Not saved"
-        }
-        if vm.hasUnsavedDraftChanges {
-            return "Unsaved"
-        }
-        if let savedDate = screenplayPageSavedDate {
+        if studioHeaderPresentation.saveStatus == .saved,
+           let savedDate = screenplayPageSavedDate {
             return relativeTimestamp(savedDate)
         }
-        if !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Saved"
-        }
-        return "Not saved"
+        return studioHeaderPresentation.saveStatus.text
     }
 
     private var screenplayPageSavedMetadataTone: ScreenplayPageMetaTone {
-        if vm.isSaving {
+        switch studioHeaderPresentation.saveStatusTone {
+        case .muted:
+            return .muted
+        case .accent:
             return .accent
-        }
-        if vm.selectedProject != nil && vm.hasUnsavedDraftChanges {
+        case .warning:
             return .warning
-        }
-        if screenplayPageSavedDate != nil || !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        case .success:
             return .success
         }
-        return .muted
     }
 
     private var screenplayPageSavedDate: Date? {

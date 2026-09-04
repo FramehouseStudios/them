@@ -1245,6 +1245,38 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_studio_compact_header_reports_projectless_drafts_as_unsaved() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+
+        let saveStatus = app.staticTexts["studio.header.save-status"]
+        XCTAssertTrue(saveStatus.waitForExistence(timeout: 5), "Compact Studio save status was not exposed.")
+        XCTAssertEqual(
+            saveStatus.value as? String,
+            "Not saved",
+            "An empty projectless draft reported the wrong save state."
+        )
+
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "Projectless Studio editor was not exposed.")
+        editor.tap()
+        editor.typeText("INT. STORY ROOM - NIGHT")
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, saveStatus.value as? String != "Live only" {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertEqual(
+            saveStatus.value as? String,
+            "Live only",
+            "A populated projectless draft falsely implied it had been saved."
+        )
+#else
+        throw XCTSkip("The compact projectless save-state regression specifically covers iPhone Studio.")
+#endif
+    }
+
     func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
         let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
@@ -1262,6 +1294,26 @@ final class V1SmokeUITests: XCTestCase {
         let compactDone = app.buttons["studio.compact.done"]
         XCTAssertTrue(compactDone.waitForExistence(timeout: 5), "Compact close control was not exposed.")
         let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+        let compactControls: [(String, XCUIElement)] = [
+            ("project drawer", leftToggle),
+            ("Clementine talk", app.buttons["studio.compact.talk"]),
+            ("inspector drawer", app.buttons["studio.sidebar.right.toggle"]),
+            ("settings", app.buttons["studio.header.settings"]),
+            ("close", compactDone),
+        ]
+        for (name, control) in compactControls {
+            XCTAssertTrue(control.waitForExistence(timeout: 5), "Compact \(name) control was not exposed.")
+            XCTAssertGreaterThanOrEqual(
+                control.frame.width,
+                44,
+                "Compact \(name) control is narrower than the minimum interactive target: \(control.frame)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                control.frame.height,
+                44,
+                "Compact \(name) control is shorter than the minimum interactive target: \(control.frame)"
+            )
+        }
         XCTAssertTrue(
             waitForHittability(of: compactDone, timeout: 3),
             "Compact close control was compressed or obstructed: control=\(compactDone.frame), left=\(leftToggle.frame), app=\(app.frame)"
