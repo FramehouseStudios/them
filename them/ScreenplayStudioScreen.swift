@@ -235,12 +235,17 @@ struct ScreenplayStudioTransientStatusPresentation: Equatable {
 }
 
 struct ScreenplayStudioScreen: View {
-    private static let crossDeviceRefreshTimer = Timer
-        .publish(every: 3, on: .main, in: .common)
+    private static let backgroundSyncTimer = Timer
+        .publish(
+            every: AdaptiveBackgroundSyncPolicy.schedulerTickInterval,
+            on: .main,
+            in: .common
+        )
         .autoconnect()
 
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     var onDone: () -> Void
     @ObservedObject var liveDraftBridge: ScreenplayLiveDraftBridge
     var onArmTalk: () -> Void
@@ -293,6 +298,7 @@ struct ScreenplayStudioScreen: View {
 
     @StateObject private var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
+    @State private var backgroundSyncCoordinator = AdaptiveBackgroundSyncCoordinator()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
@@ -1325,18 +1331,64 @@ Replace is best when this file should become the script you edit. Append is safe
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
             }
-            .onReceive(Self.crossDeviceRefreshTimer) { _ in
-                guard !IOThemRuntime.isRunningTests else { return }
-                Task {
-                    await vm.refreshCrossDeviceStateIfNeeded()
-                    if directionOneRightPanelTab == .them {
-                        await refreshStudioCreativeInstincts(
-                            force: false,
-                            reportErrors: false
-                        )
-                    }
-                }
+            .onReceive(Self.backgroundSyncTimer) { date in
+                scheduleStudioBackgroundSync(
+                    trigger: .timer,
+                    now: date,
+                    isSceneActive: scenePhase == .active
+                )
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else { return }
+                scheduleStudioBackgroundSync(
+                    trigger: .becameActive,
+                    now: Date(),
+                    isSceneActive: true
+                )
+            }
+    }
+
+    private func scheduleStudioBackgroundSync(
+        trigger: AdaptiveBackgroundSyncTrigger,
+        now: Date,
+        isSceneActive: Bool
+    ) {
+        let isTestRuntime = IOThemRuntime.isRunningTests || IOThemRuntime.isRunningUITests
+        if backgroundSyncCoordinator.begin(
+            .studioProjects,
+            trigger: trigger,
+            now: now,
+            isSceneActive: isSceneActive,
+            isTestRuntime: isTestRuntime
+        ) {
+            Task {
+                let outcome = await vm.refreshCrossDeviceStateIfNeeded()
+                backgroundSyncCoordinator.finish(.studioProjects, outcome: outcome, at: Date())
+            }
+        }
+
+        let hasCreativeInstinctScope = directionOneRightPanelTab == .them &&
+            !vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasCreativeInstinctScope else { return }
+        if backgroundSyncCoordinator.begin(
+            .studioCreativeInstincts,
+            trigger: trigger,
+            now: now,
+            isSceneActive: isSceneActive,
+            isTestRuntime: isTestRuntime
+        ) {
+            Task {
+                let outcome = await refreshStudioCreativeInstincts(
+                    force: false,
+                    reportErrors: false
+                )
+                backgroundSyncCoordinator.finish(
+                    .studioCreativeInstincts,
+                    outcome: outcome,
+                    at: Date()
+                )
+            }
+        }
     }
 
     private var studioObservedView: some View {
@@ -4657,16 +4709,25 @@ private var directionOneCreativeInstinctsCard: some View {
     }
 }
 
+@discardableResult
 private func refreshStudioCreativeInstincts(
     force: Bool,
     reportErrors: Bool = true
-) async {
-    await creativeInstincts.load(
+) async -> AdaptiveBackgroundSyncOutcome {
+    let outcome = await creativeInstincts.load(
         projectID: vm.selectedProjectID,
         projectTitle: vm.selectedProject?.title ?? "",
         force: force,
         reportErrors: reportErrors
     )
+    if force {
+        backgroundSyncCoordinator.noteImmediateRefresh(
+            .studioCreativeInstincts,
+            outcome: outcome,
+            at: Date()
+        )
+    }
+    return outcome
 }
 
     private var directionOneSavedPanel: some View {

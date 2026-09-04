@@ -135,12 +135,17 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
-    func load(force: Bool = false, sinceVersion: String? = nil) async {
+    @discardableResult
+    func load(
+        force: Bool = false,
+        sinceVersion: String? = nil,
+        refreshPendingQuestion: Bool = true
+    ) async -> AdaptiveBackgroundSyncOutcome {
         let isDeltaFetch = !(sinceVersion?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        if isLoading { return }
+        if isLoading { return .deferred }
         if !force, !isDeltaFetch, let lastLoadedAt,
            Date().timeIntervalSince(lastLoadedAt) < reloadCooldownSeconds {
-            return
+            return .deferred
         }
 
         isLoading = true
@@ -160,7 +165,8 @@ final class MemoriesViewModel: ObservableObject {
         }
 
         do {
-            if let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: force) {
+            if refreshPendingQuestion,
+               let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: force) {
                 await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
             }
             var result = try await BackendMemoryAPI.shared.fetchMemories(
@@ -182,7 +188,7 @@ final class MemoriesViewModel: ObservableObject {
             if isDeltaFetch, payload.deltaNoChange == true {
                 lastSync = result.sync
                 adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
-                return
+                return .succeeded
             }
 
             var incoming = payload.memories.map(memoryItem(from:))
@@ -233,18 +239,21 @@ final class MemoriesViewModel: ObservableObject {
             if let selected = selection, !items.contains(where: { $0.id == selected.id }) {
                 self.selection = nil
             }
+            return .succeeded
         } catch {
             if isDeltaFetch {
                 if case .loading = state {
                     state = .error(message: error.localizedDescription)
                 }
-                return
+                return .failed
             }
             state = .error(message: error.localizedDescription)
+            return .failed
         }
     }
 
-    func retry() async {
+    @discardableResult
+    func retry() async -> AdaptiveBackgroundSyncOutcome {
         await load(force: true, sinceVersion: nil)
     }
 
@@ -259,22 +268,26 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
-    func refreshCrossDeviceMemoriesIfNeeded() async {
-        await refreshPendingScreenplayQuestion(force: true)
+    @discardableResult
+    func refreshCrossDeviceMemoriesIfNeeded() async -> AdaptiveBackgroundSyncOutcome {
         let sinceVersion = latestSeenStateVersion
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        await load(
+        return await load(
             force: false,
-            sinceVersion: sinceVersion.isEmpty ? nil : sinceVersion
+            sinceVersion: sinceVersion.isEmpty ? nil : sinceVersion,
+            refreshPendingQuestion: false
         )
     }
 
-    func refreshPendingScreenplayQuestion(force: Bool) async {
+    @discardableResult
+    func refreshPendingScreenplayQuestion(force: Bool) async -> AdaptiveBackgroundSyncOutcome {
         do {
             let session = try await BackendMemoryAPI.shared.bootstrapSession(force: force)
             await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+            return .succeeded
         } catch {
             // Preserve the last known question while the backend reconnects.
+            return .failed
         }
     }
 
@@ -854,11 +867,17 @@ enum MemoriesTheme {
 // MARK: - Screen
 
 struct MemoriesScreen: View {
-    private static let crossDeviceRefreshTimer = Timer
-        .publish(every: 3, on: .main, in: .common)
+    private static let backgroundSyncTimer = Timer
+        .publish(
+            every: AdaptiveBackgroundSyncPolicy.schedulerTickInterval,
+            on: .main,
+            in: .common
+        )
         .autoconnect()
 
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var vm = MemoriesViewModel()
+    @State private var backgroundSyncCoordinator = AdaptiveBackgroundSyncCoordinator()
     var dismissAction: () -> Void = {}
     var startTalkingAction: () -> Void = {}
     var openStudioAction: () -> Void = {}
@@ -906,21 +925,84 @@ struct MemoriesScreen: View {
         .accessibilityIdentifier("memories.screen")
         .task {
             guard !vm.installPendingScreenplayQuestionUITestFixtureIfNeeded() else { return }
-            await vm.load()
+            let outcome = await vm.load()
+            backgroundSyncCoordinator.noteImmediateRefresh(
+                .memories,
+                outcome: outcome,
+                at: Date()
+            )
         }
-        .onReceive(Self.crossDeviceRefreshTimer) { _ in
-            guard !IOThemRuntime.isRunningTests else { return }
-            Task { await vm.refreshCrossDeviceMemoriesIfNeeded() }
+        .onReceive(Self.backgroundSyncTimer) { date in
+            scheduleMemoriesBackgroundSync(
+                trigger: .timer,
+                now: date,
+                isSceneActive: scenePhase == .active
+            )
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            scheduleMemoriesBackgroundSync(
+                trigger: .becameActive,
+                now: Date(),
+                isSceneActive: true
+            )
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)
         ) { _ in
-            Task { await vm.refreshPendingScreenplayQuestion(force: true) }
+            refreshPendingScreenplayQuestionImmediately()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .themScreenplayQuestionResolved)
         ) { _ in
-            Task { await vm.refreshPendingScreenplayQuestion(force: true) }
+            refreshPendingScreenplayQuestionImmediately()
+        }
+    }
+
+    private func scheduleMemoriesBackgroundSync(
+        trigger: AdaptiveBackgroundSyncTrigger,
+        now: Date,
+        isSceneActive: Bool
+    ) {
+        let isTestRuntime = IOThemRuntime.isRunningTests || IOThemRuntime.isRunningUITests
+        if backgroundSyncCoordinator.begin(
+            .memories,
+            trigger: trigger,
+            now: now,
+            isSceneActive: isSceneActive,
+            isTestRuntime: isTestRuntime
+        ) {
+            Task {
+                let outcome = await vm.refreshCrossDeviceMemoriesIfNeeded()
+                backgroundSyncCoordinator.finish(.memories, outcome: outcome, at: Date())
+            }
+        }
+        if backgroundSyncCoordinator.begin(
+            .pendingScreenplayQuestion,
+            trigger: trigger,
+            now: now,
+            isSceneActive: isSceneActive,
+            isTestRuntime: isTestRuntime
+        ) {
+            Task {
+                let outcome = await vm.refreshPendingScreenplayQuestion(force: false)
+                backgroundSyncCoordinator.finish(
+                    .pendingScreenplayQuestion,
+                    outcome: outcome,
+                    at: Date()
+                )
+            }
+        }
+    }
+
+    private func refreshPendingScreenplayQuestionImmediately() {
+        Task {
+            let outcome = await vm.refreshPendingScreenplayQuestion(force: true)
+            backgroundSyncCoordinator.noteImmediateRefresh(
+                .pendingScreenplayQuestion,
+                outcome: outcome,
+                at: Date()
+            )
         }
     }
 
@@ -1004,7 +1086,14 @@ struct MemoriesScreen: View {
                     MemoriesEmptyView(startTalkingAction: startTalkingAction)
                 case .error(let message):
                     MemoriesErrorView(message: message, retry: {
-                        Task { await vm.retry() }
+                        Task {
+                            let outcome = await vm.retry()
+                            backgroundSyncCoordinator.noteImmediateRefresh(
+                                .memories,
+                                outcome: outcome,
+                                at: Date()
+                            )
+                        }
                     })
                 case .loaded(let items):
                     if let storySpine = StorySpineSnapshot.make(from: items) {

@@ -63,28 +63,29 @@ final class StudioCreativeInstinctsModel: ObservableObject {
         lastLoadedAt = nil
     }
 
+    @discardableResult
     func load(
         projectID: String,
         projectTitle: String,
         force: Bool = false,
         reportErrors: Bool = true
-    ) async {
+    ) async -> AdaptiveBackgroundSyncOutcome {
         activate(projectID: projectID, projectTitle: projectTitle)
         let requestedProjectID = activeProjectID
         let requestedProjectTitle = activeProjectTitle
         guard !requestedProjectID.isEmpty || !requestedProjectTitle.isEmpty else {
             preferences = []
-            return
+            return .deferred
         }
         if !force,
            let lastLoadedAt,
            Date().timeIntervalSince(lastLoadedAt) < minimumRefreshInterval {
-            return
+            return .deferred
         }
         if isLoading,
            loadingProjectID == requestedProjectID,
            loadingProjectTitle == requestedProjectTitle {
-            return
+            return .deferred
         }
 
         loadingProjectID = requestedProjectID
@@ -111,7 +112,7 @@ final class StudioCreativeInstinctsModel: ObservableObject {
             )
             guard requestedProjectID == activeProjectID,
                   requestedProjectTitle == activeProjectTitle else {
-                return
+                return .deferred
             }
             preferences = StudioStoryMovePreferencePresentation.scoped(
                 result.payload.storyMovePreferences ?? [],
@@ -120,14 +121,16 @@ final class StudioCreativeInstinctsModel: ObservableObject {
             )
             errorText = ""
             lastLoadedAt = Date()
+            return .succeeded
         } catch {
             guard requestedProjectID == activeProjectID,
                   requestedProjectTitle == activeProjectTitle else {
-                return
+                return .deferred
             }
             if reportErrors {
                 errorText = error.localizedDescription
             }
+            return .failed
         }
     }
 

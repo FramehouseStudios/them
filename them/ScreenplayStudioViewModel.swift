@@ -4966,14 +4966,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await refreshScreenplayExportFormats(reportErrors: false)
     }
 
-    func refreshCrossDeviceStateIfNeeded() async {
+    @discardableResult
+    func refreshCrossDeviceStateIfNeeded() async -> AdaptiveBackgroundSyncOutcome {
         await resumeQueuedDraftSavesIfNeeded()
         guard didLoadScreenplayProjectsFromBackend,
               !isCrossDeviceRefreshInFlight,
               !isLoading,
               !isSaving,
               !isStreamingDraftPreviewActive else {
-            return
+            return .deferred
         }
         isCrossDeviceRefreshInFlight = true
         defer { isCrossDeviceRefreshInFlight = false }
@@ -4985,7 +4986,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 includeVersions: false,
                 includeDrafts: false
             )
-            guard authContextIsCurrent(authContext) else { return }
+            guard authContextIsCurrent(authContext) else { return .deferred }
             let incomingStateVersion = result.payload.stateVersion?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let shouldRefresh = CrossDeviceStateVersionPolicy.shouldRefresh(
@@ -4995,17 +4996,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             if !incomingStateVersion.isEmpty {
                 lastSeenScreenplayStateVersion = incomingStateVersion
             }
-            guard shouldRefresh else { return }
+            guard shouldRefresh else { return .succeeded }
 
             let locallySelectedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             projects = result.payload.screenplayProjects
             selectedProjectID = locallySelectedProjectID
-            guard !locallySelectedProjectID.isEmpty else { return }
+            guard !locallySelectedProjectID.isEmpty else { return .succeeded }
             await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
-            guard authContextIsCurrent(authContext) else { return }
+            guard authContextIsCurrent(authContext) else { return .deferred }
             await refreshPendingScreenplayQuestion()
+            return .succeeded
         } catch {
             // Background continuity refreshes stay quiet; explicit refresh still reports errors.
+            return .failed
         }
     }
 
