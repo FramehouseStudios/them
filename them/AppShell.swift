@@ -376,6 +376,7 @@ struct VoiceSettingsPlaceholderScreen: View {
 struct VoiceSettingsScreen: View {
     var onDone: (() -> Void)? = nil
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("orb_mic_sensitivity") private var micSensitivity: Double = 0.62
     @AppStorage(ClementineVoiceSettings.endSilenceScaleKey) private var endSilenceScale: Double = 1.0
     @AppStorage(ClementineVoiceSettings.minSpeechSecondsKey) private var minSpeechSeconds: Double = 0.36
@@ -425,45 +426,8 @@ struct VoiceSettingsScreen: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top, spacing: 16) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Voice & Studio")
-                                    .font(.system(size: 28, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                Text("How io.them listens, responds, and tracks your arc together.")
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundStyle(.white.opacity(0.48))
-                            }
-
-                            Spacer(minLength: 12)
-
-                            if let onDone {
-                                Button("Done") {
-                                    onDone()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.white.opacity(0.22))
-                                .foregroundColor(.white.opacity(0.92))
-                            }
-                        }
-
-                        HStack(spacing: 10) {
-                            settingsHeaderChip(
-                                label: "Relationship-aware",
-                                systemImage: "heart.text.square.fill"
-                            )
-                            settingsHeaderChip(
-                                label: evolution.isScreenwriter ? "Writer mode remembered" : "Creative context ready",
-                                systemImage: evolution.isScreenwriter ? "film.fill" : "sparkles"
-                            )
-                            settingsHeaderChip(
-                                label: "Live controls",
-                                systemImage: "slider.horizontal.3"
-                            )
-                        }
-                    }
-                    .padding(22)
+                    settingsHeader
+                    .padding(isCompactWidth ? 18 : 22)
                     .background(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
                             .fill(Color.white.opacity(0.07))
@@ -473,14 +437,15 @@ struct VoiceSettingsScreen: View {
                             .stroke(Color.white.opacity(0.12), lineWidth: 1)
                     )
                     .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 16)
-                    .padding(.horizontal, 48)
-                    .padding(.top, 32)
+                    .padding(.horizontal, pageHorizontalPadding)
+                    .padding(.top, isCompactWidth ? 16 : 32)
                     .padding(.bottom, 24)
 
                     settingsSection("Listening") {
                         settingRow(
+                            identifier: "voice-settings.mic-sensitivity",
                             title: "Mic sensitivity",
-                            subtitle: "How easily the orb reacts to your mic input. Raise it if she seems hard to wake up; lower it in noisy rooms.",
+                            subtitle: "How easily the orb reacts to your mic input. Raise it if Clementine seems hard to wake; lower it in noisy rooms.",
                             value: micSensitivity,
                             range: 0.1...1.0,
                             step: 0.05,
@@ -488,6 +453,7 @@ struct VoiceSettingsScreen: View {
                         ) { micSensitivity = $0 }
 
                         settingRow(
+                            identifier: "voice-settings.silence-threshold",
                             title: "Silence threshold",
                             subtitle: "How patient turn-end detection should be after you stop talking.",
                             value: endSilenceScale,
@@ -497,6 +463,7 @@ struct VoiceSettingsScreen: View {
                         ) { endSilenceScale = $0 }
 
                         settingRow(
+                            identifier: "voice-settings.minimum-speech-length",
                             title: "Minimum speech length",
                             subtitle: "Captures shorter than this are ignored to filter accidental sounds and clipped starts.",
                             value: minSpeechSeconds,
@@ -508,8 +475,9 @@ struct VoiceSettingsScreen: View {
 
                     settingsSection("Playback") {
                         settingRow(
+                            identifier: "voice-settings.speaking-pace",
                             title: "Speaking pace",
-                            subtitle: "Guides io.them's delivery on the next response. Slower adds more space; faster keeps the cadence tighter.",
+                            subtitle: "Guides Clementine's delivery on the next response. Slower adds more space; faster keeps the cadence tighter.",
                             value: speakingPace,
                             range: 0.7...1.5,
                             step: 0.05,
@@ -523,61 +491,31 @@ struct VoiceSettingsScreen: View {
 
                     settingsSection("Studio") {
                         toggleRow(
+                            identifier: "voice-settings.auto-insert",
                             title: "Auto-insert voice turns",
                             subtitle: "Automatically place screenplay voice output into the draft at the cursor.",
                             isOn: $autoInsert
                         )
                         toggleRow(
+                            identifier: "voice-settings.live-script-preview",
                             title: "Show live script preview",
-                            subtitle: "Display the home-surface live preview when io.them is actively writing into Studio.",
+                            subtitle: "Display the home-surface live preview while Clementine is writing into Studio.",
                             isOn: $showScriptPreview
                         )
                     }
 
                     settingsSection("Relationship") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 12) {
-                                stagePill(evolution.stage)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Relationship stage \(evolution.stage) of 5")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundStyle(.white.opacity(0.82))
-                                    Text(stageDescription(evolution.stage))
-                                        .font(.system(size: 11, weight: .regular))
-                                        .foregroundStyle(.white.opacity(0.46))
-                                }
-                                Spacer()
-                            }
-
-                            HStack(spacing: 8) {
-                                Image(systemName: evolution.isScreenwriter ? "film" : "film.stack")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.white.opacity(0.45))
-                                Text(
-                                    evolution.isScreenwriter
-                                        ? "io.them knows you're a screenwriter"
-                                        : "Screenwriter identity not established yet"
-                                )
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundStyle(.white.opacity(0.45))
-                            }
-
-                            HStack(spacing: 16) {
-                                miniStat(label: "Sessions", value: "\(evolution.sessionCount)")
-                                miniStat(label: "Messages", value: "\(evolution.messageCount)")
-                                miniStat(label: "Depth", value: String(format: "%.1f", evolution.depthScore))
-                                miniStat(label: "Tension", value: String(format: "%.1f", evolution.romanceTension))
-                            }
-                            .padding(.top, 4)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 14)
+                        relationshipSummary
                     }
 
                     Spacer().frame(height: 40)
                 }
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("voice-settings.screen")
         .onAppear {
             liveDraftBridge.autoInsertEnabled = autoInsert
         }
@@ -586,30 +524,184 @@ struct VoiceSettingsScreen: View {
         }
     }
 
+    private var settingsHeader: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                Label(VoiceSettingsPresentation.companionName, systemImage: "waveform.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.74))
+                    .lineLimit(1)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("voice-settings.companion-name")
+                    .accessibilityLabel(VoiceSettingsPresentation.companionName)
+
+                Spacer(minLength: 8)
+
+                if let onDone {
+                    Button("Done") {
+                        onDone()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white.opacity(0.22))
+                    .foregroundColor(.white.opacity(0.92))
+                    .frame(minWidth: 64, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("voice-settings.done")
+                    .accessibilityHint("Returns to Clementine without starting a conversation.")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(VoiceSettingsPresentation.title)
+                    .font(.system(size: isCompactWidth ? 28 : 30, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+
+                Text(VoiceSettingsPresentation.subtitle)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    ForEach(VoiceSettingsPresentation.headerSignals(isScreenwriter: evolution.isScreenwriter)) { signal in
+                        settingsHeaderChip(signal)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(VoiceSettingsPresentation.headerSignals(isScreenwriter: evolution.isScreenwriter)) { signal in
+                        settingsHeaderChip(signal)
+                    }
+                }
+            }
+        }
+    }
+
+    private var relationshipSummary: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if isCompactWidth {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        stagePill(evolution.stage)
+                        Text(VoiceSettingsPresentation.relationshipStageTitle(evolution.stage))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.86))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Text(VoiceSettingsPresentation.stageDescription(evolution.stage))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.52))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    stagePill(evolution.stage)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(VoiceSettingsPresentation.relationshipStageTitle(evolution.stage))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.82))
+                        Text(VoiceSettingsPresentation.stageDescription(evolution.stage))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.46))
+                    }
+                    Spacer()
+                }
+            }
+
+            Label(
+                VoiceSettingsPresentation.screenwriterIdentity(isScreenwriter: evolution.isScreenwriter),
+                systemImage: evolution.isScreenwriter ? "film" : "film.stack"
+            )
+            .font(.system(size: 12, weight: .regular))
+            .foregroundStyle(.white.opacity(0.52))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("voice-settings.relationship-identity")
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 10),
+                    count: isCompactWidth ? 2 : 4
+                ),
+                spacing: 10
+            ) {
+                ForEach(
+                    VoiceSettingsPresentation.relationshipMetrics(
+                        sessionCount: evolution.sessionCount,
+                        messageCount: evolution.messageCount,
+                        depthScore: evolution.depthScore,
+                        romanceTension: evolution.romanceTension
+                    )
+                ) { metric in
+                    miniStat(metric)
+                }
+            }
+        }
+        .padding(.horizontal, rowHorizontalPadding)
+        .padding(.vertical, 16)
+    }
+
     private var realtimeSupplierPicker: some View {
         let selected = ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Realtime supplier")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.88))
-                    Text(selected.subtitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.38))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 16)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Realtime supplier")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                Text(selected.subtitle)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.48))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Picker("Realtime supplier", selection: $realtimeSupplierModeRaw) {
-                ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
-                    Text(mode.title).tag(mode.rawValue)
+            if isCompactWidth {
+                VStack(spacing: 8) {
+                    ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                        Button {
+                            realtimeSupplierModeRaw = mode.rawValue
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(mode.title)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.90))
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                Image(systemName: selected == mode ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 17, weight: .medium))
+                                    .foregroundStyle(
+                                        selected == mode
+                                            ? Color(red: 0.98, green: 0.72, blue: 0.65)
+                                            : Color.white.opacity(0.32)
+                                    )
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color.white.opacity(selected == mode ? 0.10 : 0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("voice-settings.realtime-supplier.\(mode.rawValue)")
+                        .accessibilityLabel(mode.title)
+                        .accessibilityHint(mode.subtitle)
+                        .accessibilityAddTraits(selected == mode ? .isSelected : [])
+                    }
                 }
+            } else {
+                Picker("Realtime supplier", selection: $realtimeSupplierModeRaw) {
+                    ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("voice-settings.realtime-supplier")
             }
-            .pickerStyle(.segmented)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, 14)
         .background(Color.white.opacity(0.015))
     }
@@ -620,8 +712,9 @@ struct VoiceSettingsScreen: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.30))
                 .kerning(1.2)
-                .padding(.horizontal, 48)
+                .padding(.horizontal, pageHorizontalPadding)
                 .padding(.bottom, 10)
+                .accessibilityIdentifier("voice-settings.section.\(title.lowercased())")
 
             VStack(spacing: 1) {
                 content()
@@ -633,12 +726,13 @@ struct VoiceSettingsScreen: View {
                     .stroke(Color.white.opacity(0.10), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 10)
-            .padding(.horizontal, 32)
+            .padding(.horizontal, sectionHorizontalPadding)
         }
-        .padding(.bottom, 28)
+        .padding(.bottom, isCompactWidth ? 22 : 28)
     }
 
     private func settingRow(
+        identifier: String,
         title: String,
         subtitle: String,
         value: Double,
@@ -648,49 +742,97 @@ struct VoiceSettingsScreen: View {
         onChange: @escaping (Double) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.88))
+            if isCompactWidth {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.90))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer(minLength: 8)
+
+                        valuePill(displayValue)
+                    }
+
                     Text(subtitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.38))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.48))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 16)
-                Text(displayValue)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.60))
-                    .frame(minWidth: 64, alignment: .trailing)
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.88))
+                        Text(subtitle)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.38))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 16)
+                    valuePill(displayValue)
+                }
             }
 
             Slider(value: Binding(get: { value }, set: onChange), in: range, step: step)
                 .tint(Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.70))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier(identifier)
+                .accessibilityLabel(title)
+                .accessibilityHint(subtitle)
+                .accessibilityValue(displayValue)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, 14)
         .background(Color.white.opacity(0.015))
     }
 
-    private func toggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+    private func valuePill(_ displayValue: String) -> some View {
+        Text(displayValue)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.72))
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 28)
+            .background(Color.white.opacity(0.07))
+            .clipShape(Capsule())
+    }
+
+    private func toggleRow(
+        identifier: String,
+        title: String,
+        subtitle: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 12) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.88))
-                Text(subtitle)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.38))
+                    .font(.system(size: isCompactWidth ? 14 : 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.90))
                     .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+
+                Toggle(title, isOn: isOn)
+                    .toggleStyle(.switch)
+                    .tint(Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.80))
+                    .labelsHidden()
+                    .frame(minWidth: 51, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier(identifier)
+                    .accessibilityLabel(title)
+                    .accessibilityHint(subtitle)
             }
-            Spacer()
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .tint(Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.80))
-                .labelsHidden()
+
+            Text(subtitle)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.white.opacity(0.48))
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, 14)
         .background(Color.white.opacity(0.015))
     }
@@ -717,17 +859,20 @@ struct VoiceSettingsScreen: View {
             )
     }
 
-    private func miniStat(label: String, value: String) -> some View {
+    private func miniStat(_ metric: VoiceSettingsRelationshipMetric) -> some View {
         VStack(spacing: 2) {
-            Text(value)
+            Text(metric.value)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.80))
-            Text(label)
+                .lineLimit(1)
+            Text(metric.label)
                 .font(.system(size: 9, weight: .regular))
                 .foregroundStyle(.white.opacity(0.32))
                 .textCase(.uppercase)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 54)
         .padding(.vertical, 8)
         .background(
             LinearGradient(
@@ -744,16 +889,9 @@ struct VoiceSettingsScreen: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
-    }
-
-    private func stageDescription(_ stage: Int) -> String {
-        switch stage {
-        case 1: return "Just meeting. Keep it warm."
-        case 2: return "Pattern-aware. Gentle personal tone."
-        case 3: return "Emotionally precise. Going deeper."
-        case 4: return "Challenging patterns with care."
-        default: return "Intimate. Mature. Restrained."
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("voice-settings.metric.\(metric.id)")
+        .accessibilityLabel("\(metric.label): \(metric.value)")
     }
 
     private func endSilenceLabel(_ value: Double) -> String {
@@ -770,10 +908,12 @@ struct VoiceSettingsScreen: View {
         return "Fast"
     }
 
-    private func settingsHeaderChip(label: String, systemImage: String) -> some View {
-        Label(label, systemImage: systemImage)
+    private func settingsHeaderChip(_ signal: VoiceSettingsHeaderSignal) -> some View {
+        Label(signal.title, systemImage: signal.systemImage)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.white.opacity(0.78))
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(Color.white.opacity(0.08))
@@ -782,6 +922,23 @@ struct VoiceSettingsScreen: View {
                 Capsule()
                     .stroke(Color.white.opacity(0.10), lineWidth: 1)
             )
+            .accessibilityIdentifier("voice-settings.header-chip.\(signal.id)")
+    }
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var pageHorizontalPadding: CGFloat {
+        isCompactWidth ? 16 : 48
+    }
+
+    private var sectionHorizontalPadding: CGFloat {
+        isCompactWidth ? 16 : 32
+    }
+
+    private var rowHorizontalPadding: CGFloat {
+        isCompactWidth ? 16 : 20
     }
 }
 
