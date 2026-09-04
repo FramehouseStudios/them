@@ -107,17 +107,44 @@ final class MemoriesViewModel: ObservableObject {
     @Published var preferenceActionError = ""
     @Published var correctingStoryObligationID = ""
     @Published var storyObligationActionError = ""
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var refreshError: String?
 
-    private var isLoading = false
+    typealias MemoriesLoader = @MainActor (Bool, String?) async throws -> BackendReadResult<BackendMemoriesResponse>
+    typealias PendingQuestionLoader = @MainActor (Bool) async throws -> BackendPendingScreenplayQuestion?
+
+    private let api: BackendMemoryAPI
+    private let notificationCenter: NotificationCenter
+    private var memoriesLoader: MemoriesLoader
+    private var pendingQuestionLoader: PendingQuestionLoader
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
     private var turnObserver: NSObjectProtocol?
     private var latestSeenStateVersion = ""
-    private var inFlightVersions: Set<String> = []
+    private var pendingEventVersions: Set<String> = []
+    private var pendingFullRefresh = false
+    private var mutationRevision = 0
+    private var editingMemoryID: String?
+    #if DEBUG
+    private var isUITestFixture = false
+    #endif
 
-    init() {
-        turnObserver = NotificationCenter.default.addObserver(
+    init(
+        api: BackendMemoryAPI = .shared,
+        notificationCenter: NotificationCenter = .default,
+        memoriesLoader: MemoriesLoader? = nil,
+        pendingQuestionLoader: PendingQuestionLoader? = nil
+    ) {
+        self.api = api
+        self.notificationCenter = notificationCenter
+        self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
+            try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
+        }
+        self.pendingQuestionLoader = pendingQuestionLoader ?? { force in
+            try await api.bootstrapSession(force: force).pendingScreenplayQuestion
+        }
+        turnObserver = notificationCenter.addObserver(
             forName: .themTurnCommitted,
             object: nil,
             queue: .main
@@ -131,7 +158,7 @@ final class MemoriesViewModel: ObservableObject {
 
     deinit {
         if let turnObserver {
-            NotificationCenter.default.removeObserver(turnObserver)
+            notificationCenter.removeObserver(turnObserver)
         }
     }
 
@@ -142,130 +169,143 @@ final class MemoriesViewModel: ObservableObject {
         refreshPendingQuestion: Bool = true
     ) async -> AdaptiveBackgroundSyncOutcome {
         let isDeltaFetch = !(sinceVersion?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        if isLoading { return .deferred }
+        if isRefreshing {
+            pendingFullRefresh = pendingFullRefresh || force
+            return .deferred
+        }
         if !force, !isDeltaFetch, let lastLoadedAt,
            Date().timeIntervalSince(lastLoadedAt) < reloadCooldownSeconds {
             return .deferred
         }
 
-        isLoading = true
-        let shouldShowLoading: Bool
-        switch state {
-        case .loaded:
-            shouldShowLoading = force && !isDeltaFetch
-        case .empty, .error, .loading:
-            shouldShowLoading = true
-        }
-        if shouldShowLoading {
-            state = .loading
-        }
-        defer {
-            isLoading = false
-            lastLoadedAt = Date()
-        }
+        isRefreshing = true
+        refreshError = nil
+        if case .error = state { state = .loading }
+        let readRevision = mutationRevision
+        defer { finishRead() }
 
         do {
-            if refreshPendingQuestion,
-               let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: force) {
-                await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+            if refreshPendingQuestion {
+                _ = await refreshPendingScreenplayQuestion(force: force)
             }
-            var result = try await BackendMemoryAPI.shared.fetchMemories(
-                limit: 72,
-                force: force,
-                sinceVersion: sinceVersion
-            )
-            var payload = result.payload
-            qualitySnapshot = payload.memoryQuality
-            recentActionReceipts = payload.actionReceipts?.items ?? []
-            storyMovePreferences = payload.storyMovePreferences ?? []
-
-            if let userName = payload.userName, !userName.isEmpty {
-                subtitle = "Moments I have remembered about \(userName)."
-            } else {
-                subtitle = "Moments I have remembered about you."
+            try Task.checkCancellation()
+            let result = try await memoriesLoader(force, sinceVersion)
+            try Task.checkCancellation()
+            guard readRevision == mutationRevision else {
+                pendingFullRefresh = true
+                return .deferred
             }
-
-            if isDeltaFetch, payload.deltaNoChange == true {
-                lastSync = result.sync
-                adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
-                return .succeeded
-            }
-
-            var incoming = payload.memories.map(memoryItem(from:))
-            if incoming.isEmpty && !payload.conversationSamples.isEmpty {
-                incoming = payload.conversationSamples.map(memoryItem(fromFallbackThread:))
-            }
-
-            let hasServerMemory = result.sync.memoryUpdatedAt > 0 ||
-                result.sync.historyUpdatedAt > 0 ||
-                !result.sync.lastTurnId.isEmpty
-            if !isDeltaFetch, !force, incoming.isEmpty, hasServerMemory {
-                await BackendMemoryAPI.shared.hardResync()
-                result = try await BackendMemoryAPI.shared.fetchMemories(
-                    limit: 72,
-                    force: true,
-                    sinceVersion: nil
-                )
-                payload = result.payload
-                qualitySnapshot = payload.memoryQuality
-                recentActionReceipts = payload.actionReceipts?.items ?? []
-                storyMovePreferences = payload.storyMovePreferences ?? []
-                incoming = payload.memories.map(memoryItem(from:))
-                if incoming.isEmpty && !payload.conversationSamples.isEmpty {
-                    incoming = payload.conversationSamples.map(memoryItem(fromFallbackThread:))
-                }
-            }
-
-            let items: [MemoryItem]
-            if isDeltaFetch {
-                switch state {
-                case .loaded(let current):
-                    var merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
-                    for memory in incoming {
-                        merged[memory.id] = memory
-                    }
-                    items = merged.values.sorted { $0.rememberedDate > $1.rememberedDate }
-                case .empty, .error, .loading:
-                    items = incoming
-                }
-            } else {
-                items = incoming
-            }
-
-            lastSync = result.sync
-            adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
-            state = items.isEmpty ? .empty : .loaded(items)
-
-            if let selected = selection, !items.contains(where: { $0.id == selected.id }) {
-                self.selection = nil
-            }
+            applyReadSnapshot(result.payload)
+            lastLoadedAt = Date()
             return .succeeded
         } catch {
-            if isDeltaFetch {
-                if case .loading = state {
-                    state = .error(message: error.localizedDescription)
-                }
-                return .failed
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return .deferred }
+            switch state {
+            case .loaded:
+                refreshError = "Couldn’t refresh memories. You can still read the memories already loaded."
+            case .empty:
+                refreshError = "Couldn’t refresh memories. Try again to check for new memories."
+            case .loading, .error:
+                state = .error(message: error.localizedDescription)
             }
-            state = .error(message: error.localizedDescription)
             return .failed
+        }
+    }
+
+    private func applyReadSnapshot(_ payload: BackendMemoriesResponse) {
+        let noChange = payload.deltaNoChange == true
+        if !noChange || payload.memoryQuality != nil { qualitySnapshot = payload.memoryQuality }
+        if !noChange || payload.actionReceipts != nil { recentActionReceipts = payload.actionReceipts?.items ?? [] }
+        if !noChange || payload.storyMovePreferences != nil { storyMovePreferences = payload.storyMovePreferences ?? [] }
+        if !noChange || payload.userName != nil {
+            let name = payload.userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            subtitle = name.isEmpty ? "Moments I have remembered about you." : "Moments I have remembered about \(name)."
+        }
+
+        // Advance only to the response this screen received, never a cursor
+        // inherited from another request through the shared API sync state.
+        lastSync.stateVersion = payload.stateVersion ?? ""
+        lastSync.lastTurnId = payload.lastTurnId ?? ""
+        lastSync.lastUpdatedAt = payload.lastUpdatedAt ?? 0
+        lastSync.memoryUpdatedAt = payload.memoryUpdatedAt ?? 0
+        lastSync.historyUpdatedAt = payload.historyUpdatedAt ?? 0
+        latestSeenStateVersion = lastSync.stateVersion
+        guard !noChange else { return }
+
+        // Changed /memories responses contain the complete bounded snapshot.
+        // Conversation samples must not recreate cards removed by a clear.
+        let unique = payload.memories.map(memoryItem(from:))
+            .reduce(into: [String: MemoryItem]()) { $0[$1.id] = $1 }
+        let items = unique.values.sorted {
+            $0.rememberedDate == $1.rememberedDate ? $0.id < $1.id : $0.rememberedDate > $1.rememberedDate
+        }
+        state = items.isEmpty ? .empty : .loaded(items)
+        if let selected = selection, unique[selected.id] == nil, editingMemoryID != selected.id {
+            selection = nil
+        }
+    }
+
+    private func finishRead() {
+        isRefreshing = false
+        let force = pendingFullRefresh
+        let needsRead = force || pendingEventVersions.contains { $0 != latestSeenStateVersion }
+        pendingFullRefresh = false
+        pendingEventVersions = []
+        guard needsRead else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.load(
+                force: force || self.latestSeenStateVersion.isEmpty,
+                sinceVersion: force || self.latestSeenStateVersion.isEmpty ? nil : self.latestSeenStateVersion,
+                refreshPendingQuestion: false
+            )
+        }
+    }
+
+    private func adoptMutationSync(_ sync: BackendSyncState) {
+        mutationRevision += 1
+        if isRefreshing { pendingFullRefresh = true }
+        lastSync = sync
+        if !sync.stateVersion.isEmpty { latestSeenStateVersion = sync.stateVersion }
+    }
+
+    func memory(forID id: String) -> MemoryItem? {
+        guard case .loaded(let items) = state else { return nil }
+        return items.first { $0.id == id }
+    }
+
+    func beginEditingMemory(_ item: MemoryItem) {
+        editingMemoryID = item.id
+    }
+
+    func endEditingMemory() {
+        editingMemoryID = nil
+        if let selection, memory(forID: selection.id) == nil { self.selection = nil }
+    }
+
+    func validateMemoryEdit(_ original: MemoryItem) throws {
+        guard let latest = memory(forID: original.id) else {
+            throw MemoryEditConflict.removed
+        }
+        guard latest == original else { throw MemoryEditConflict.changed }
+    }
+
+    private enum MemoryEditConflict: LocalizedError {
+        case changed, removed
+
+        var errorDescription: String? {
+            switch self {
+            case .changed:
+                return "This memory changed while you were correcting it. Your draft is still here. Copy any edits you want to keep, then cancel and reopen the latest memory."
+            case .removed:
+                return "This memory is no longer available. Your draft is still here, but it cannot be saved over a removed memory. Copy any edits you want to keep before closing."
+            }
         }
     }
 
     @discardableResult
     func retry() async -> AdaptiveBackgroundSyncOutcome {
         await load(force: true, sinceVersion: nil)
-    }
-
-    private func adoptMemoryStateVersion(_ payloadStateVersion: String?, fallback: String) {
-        let payloadVersion = payloadStateVersion?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let fallbackVersion = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !payloadVersion.isEmpty {
-            latestSeenStateVersion = payloadVersion
-        } else if !fallbackVersion.isEmpty {
-            latestSeenStateVersion = fallbackVersion
-        }
     }
 
     @discardableResult
@@ -282,8 +322,9 @@ final class MemoriesViewModel: ObservableObject {
     @discardableResult
     func refreshPendingScreenplayQuestion(force: Bool) async -> AdaptiveBackgroundSyncOutcome {
         do {
-            let session = try await BackendMemoryAPI.shared.bootstrapSession(force: force)
-            await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+            let question = try await pendingQuestionLoader(force)
+            try Task.checkCancellation()
+            await adoptPendingScreenplayQuestion(question)
             return .succeeded
         } catch {
             // Preserve the last known question while the backend reconnects.
@@ -309,11 +350,75 @@ final class MemoriesViewModel: ObservableObject {
             provisionalOptions: nil,
             askedAt: Date().timeIntervalSince1970 * 1_000
         )
+        isUITestFixture = true
+        let pending = pendingScreenplayQuestion
+        pendingQuestionLoader = { _ in pending }
+        memoriesLoader = { _, _ in
+            let payload = try JSONDecoder().decode(BackendMemoriesResponse.self, from:
+                Data(#"{"source":"ui-fixture","sourceIp":"","memories":[],"conversationSamples":[]}"#.utf8)
+            )
+            return BackendReadResult(payload: payload, sync: .empty, notModified: false)
+        }
         return true
         #else
         return false
         #endif
     }
+
+    func installMemoriesUITestFixtureIfNeeded(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        now: Date = Date()
+    ) -> Bool {
+        #if DEBUG
+        guard arguments.contains("--ui-testing"), arguments.contains("--ui-memories-fixture") else { return false }
+        isUITestFixture = true
+        pendingQuestionLoader = { _ in nil }
+        var shouldFail = arguments.contains("--ui-memories-refresh-failure")
+        let editable = arguments.contains("--ui-memories-editable-fixture")
+        memoriesLoader = { _, _ in
+            if shouldFail {
+                shouldFail = false
+                throw URLError(.notConnectedToInternet)
+            }
+            return BackendReadResult(
+                payload: try Self.memoriesUITestPayload(now: now, refreshed: true, editable: editable), sync: .empty, notModified: false
+            )
+        }
+        do {
+            applyReadSnapshot(try Self.memoriesUITestPayload(now: now, refreshed: false, editable: editable))
+        } catch {
+            state = .error(message: "The Memories test fixture could not load.")
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG
+    private static func memoriesUITestPayload(now: Date, refreshed: Bool, editable: Bool) throws -> BackendMemoriesResponse {
+        let summary = refreshed
+            ? "Mara returns to the lighthouse to tell June the truth."
+            : "Mara keeps returning to the lighthouse when she needs to make a difficult choice."
+        let rows: [[String: Any]] = [
+            ["id": "ui-lighthouse", "key": "lighthouse", "title": "The lighthouse promise",
+             "summary": summary, "reason": "A recurring image in your screenplay.",
+             "emotionalTone": "hopeful", "salience": 0.7, "confidence": 0.8,
+             "rememberedAt": now.timeIntervalSince1970, "snippets": ["Let the lighthouse hold the promise."],
+             "referenceHint": "", "source": "theme", "editable": editable],
+            ["id": "ui-causeway", "key": "causeway", "title": "The tide cuts off retreat",
+             "summary": "The causeway disappears behind Mara and June as the storm arrives.",
+             "emotionalTone": "tense", "salience": 0.6, "confidence": 0.75,
+             "rememberedAt": now.addingTimeInterval(-3_600).timeIntervalSince1970,
+             "snippets": [], "referenceHint": "", "source": "creative_memory", "editable": false],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: [
+            "source": "ui-fixture", "sourceIp": "", "stateVersion": refreshed ? "fixture-v2" : "fixture-v1",
+            "memories": rows, "conversationSamples": [], "deltaNoChange": false,
+        ])
+        return try JSONDecoder().decode(BackendMemoriesResponse.self, from: data)
+    }
+    #endif
 
     private func adoptPendingScreenplayQuestion(
         _ pending: BackendPendingScreenplayQuestion?
@@ -325,6 +430,13 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
+    private func checkMutationTransport() throws {
+        #if DEBUG
+        // Read fixtures must never send edits or destructive writes to a live account.
+        if isUITestFixture { throw URLError(.notConnectedToInternet) }
+        #endif
+    }
+
     func updateMemory(
         itemID: String,
         key: String,
@@ -332,19 +444,23 @@ final class MemoriesViewModel: ObservableObject {
         summary: String,
         reason: String,
         characterBible: BackendCharacterBibleMemory? = nil,
-        storySpine: BackendStorySpineMemory? = nil
+        storySpine: BackendStorySpineMemory? = nil,
+        expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        if let expectedItem { try validateMemoryEdit(expectedItem) }
+        _ = try? await api.bootstrapSession()
+        if let expectedItem { try validateMemoryEdit(expectedItem) }
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
             if let characterBible {
-                result = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
+                result = try await api.updateCharacterBibleMemory(
                     id: itemID,
                     key: key,
                     characterBible: characterBible
                 )
             } else {
-                result = try await BackendMemoryAPI.shared.updateMemoryCard(
+                result = try await api.updateMemoryCard(
                     id: itemID,
                     key: key,
                     title: title,
@@ -360,10 +476,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         if let card = result.payload.memoryCard {
             let updated = memoryItem(from: card)
             replaceMemoryItem(updated)
@@ -387,10 +500,11 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func forgetMemory(itemID: String, key: String) async throws {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        _ = try? await api.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await BackendMemoryAPI.shared.forgetMemoryCard(
+            result = try await api.forgetMemoryCard(
                 id: itemID,
                 key: key
             )
@@ -401,10 +515,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         let forgottenID = (result.payload.forgottenId ?? itemID).trimmingCharacters(in: .whitespacesAndNewlines)
         let characterKeyPrefix = "character:"
         if key.lowercased().hasPrefix(characterKeyPrefix) {
@@ -420,10 +531,11 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func undoCanonCorrection(receiptID: String) async throws {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        _ = try? await api.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await BackendMemoryAPI.shared.undoCanonCorrection(receiptID: receiptID)
+            result = try await api.undoCanonCorrection(receiptID: receiptID)
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
                backendError.isCrossDeviceMemoryConflict {
@@ -431,19 +543,17 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         selection = nil
         await load(force: true, sinceVersion: nil)
     }
 
     func resolveCanonCorrection(ambiguityID: String, selectedFacts: [String]) async throws {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        _ = try? await api.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
+            result = try await api.resolveCanonCorrection(
                 ambiguityID: ambiguityID,
                 selectedFacts: selectedFacts
             )
@@ -454,10 +564,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         selection = nil
         await load(force: true, sinceVersion: nil)
     }
@@ -467,10 +574,11 @@ final class MemoriesViewModel: ObservableObject {
         key: String,
         signal: String
     ) async throws -> MemoryItem {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        _ = try? await api.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await BackendMemoryAPI.shared.markMemoryQuality(
+            result = try await api.markMemoryQuality(
                 id: itemID,
                 key: key,
                 signal: signal
@@ -482,10 +590,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         if let card = result.payload.memoryCard {
             let updated = memoryItem(from: card)
             replaceMemoryItem(updated)
@@ -511,10 +616,11 @@ final class MemoriesViewModel: ObservableObject {
         summary: String,
         reason: String
     ) async throws -> MemoryItem {
-        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        try checkMutationTransport()
+        _ = try? await api.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await BackendMemoryAPI.shared.promoteMemoryCard(
+            result = try await api.promoteMemoryCard(
                 id: itemID,
                 key: key.isEmpty ? nil : key,
                 title: title,
@@ -528,10 +634,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        lastSync = result.sync
-        if !result.sync.stateVersion.isEmpty {
-            latestSeenStateVersion = result.sync.stateVersion
-        }
+        adoptMutationSync(result.sync)
         if let card = result.payload.memoryCard {
             let updated = memoryItem(from: card)
             replaceMemoryItem(updated)
@@ -560,17 +663,15 @@ final class MemoriesViewModel: ObservableObject {
         preferenceActionError = ""
         defer { updatingStoryMoveFamily = "" }
         do {
-            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+            try checkMutationTransport()
+            _ = try? await api.bootstrapSession()
+            let result = try await api.updateStoryMovePreference(
                 projectID: preference.projectId,
                 projectTitle: preference.projectTitle,
                 family: family,
                 action: action
             )
-            lastSync = result.sync
-            if !result.sync.stateVersion.isEmpty {
-                latestSeenStateVersion = result.sync.stateVersion
-            }
+            adoptMutationSync(result.sync)
             if let preferences = result.payload.storyMovePreferences {
                 storyMovePreferences = preferences
             } else {
@@ -594,17 +695,15 @@ final class MemoriesViewModel: ObservableObject {
         preferenceActionError = ""
         defer { updatingStoryMoveFamily = "" }
         do {
-            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-            let result = try await BackendMemoryAPI.shared.updateStoryMovePreference(
+            try checkMutationTransport()
+            _ = try? await api.bootstrapSession()
+            let result = try await api.updateStoryMovePreference(
                 projectID: projectID,
                 projectTitle: projectTitle,
                 family: "",
                 action: "reset_all"
             )
-            lastSync = result.sync
-            if !result.sync.stateVersion.isEmpty {
-                latestSeenStateVersion = result.sync.stateVersion
-            }
+            adoptMutationSync(result.sync)
             storyMovePreferences = result.payload.storyMovePreferences ?? []
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -626,17 +725,15 @@ final class MemoriesViewModel: ObservableObject {
         storyObligationActionError = ""
         defer { correctingStoryObligationID = "" }
         do {
-            _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-            let result = try await BackendMemoryAPI.shared.correctStoryObligation(
+            try checkMutationTransport()
+            _ = try? await api.bootstrapSession()
+            let result = try await api.correctStoryObligation(
                 projectID: projectID,
                 projectTitle: projectTitle,
                 change: change,
                 action: action
             )
-            lastSync = result.sync
-            if !result.sync.stateVersion.isEmpty {
-                latestSeenStateVersion = result.sync.stateVersion
-            }
+            adoptMutationSync(result.sync)
             await load(force: true, sinceVersion: nil)
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -648,73 +745,25 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     private func handleTurnCommitted(_ event: BackendTurnCommittedEvent) {
-        let versionKey = event.stateVersion.isEmpty ? event.turnId : event.stateVersion
-        guard !versionKey.isEmpty else { return }
-        if latestSeenStateVersion == versionKey { return }
-        if inFlightVersions.contains(versionKey) { return }
-        if event.memoryUpdatedAt > 0, lastSync.memoryUpdatedAt > 0, event.memoryUpdatedAt <= lastSync.memoryUpdatedAt {
-            latestSeenStateVersion = versionKey
+        #if DEBUG
+        guard !isUITestFixture else { return }
+        #endif
+        // Optimistic talk notifications do not establish a saved memory.
+        guard event.source != "optimistic" else { return }
+        let version = event.stateVersion.isEmpty ? event.turnId : event.stateVersion
+        guard !version.isEmpty, version != latestSeenStateVersion else { return }
+        if isRefreshing {
+            pendingEventVersions.insert(version)
             return
         }
-
-        inFlightVersions.insert(versionKey)
-        let sinceVersion = lastSync.stateVersion
-        let sinceTurnId = lastSync.lastTurnId
-
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.inFlightVersions.remove(versionKey) }
-
-            if !sinceVersion.isEmpty {
-                do {
-                    let result = try await BackendMemoryAPI.shared.fetchStateDelta(
-                        sinceVersion: sinceVersion,
-                        sinceTurnId: sinceTurnId.isEmpty ? nil : sinceTurnId,
-                        historyLimit: 1,
-                        memoriesLimit: 72
-                    )
-                    self.lastSync = result.sync
-                    if !result.sync.stateVersion.isEmpty {
-                        self.latestSeenStateVersion = result.sync.stateVersion
-                    } else {
-                        self.latestSeenStateVersion = versionKey
-                    }
-                    if result.payload.deltaNoChange == true {
-                        if case .loaded(let items) = self.state, !items.isEmpty {
-                            return
-                        }
-                        await self.load(force: true, sinceVersion: nil)
-                        return
-                    }
-                    self.applyMemoriesDelta(result.payload.memoriesDelta)
-                    return
-                } catch {
-                    // Fall back to endpoint-specific delta if aggregate path fails.
-                }
-            }
-
-            await self.load(force: false, sinceVersion: sinceVersion.isEmpty ? nil : sinceVersion)
-            if !self.lastSync.stateVersion.isEmpty {
-                self.latestSeenStateVersion = self.lastSync.stateVersion
-            } else {
-                self.latestSeenStateVersion = versionKey
-            }
+            await self.load(
+                force: self.latestSeenStateVersion.isEmpty,
+                sinceVersion: self.latestSeenStateVersion.isEmpty ? nil : self.latestSeenStateVersion,
+                refreshPendingQuestion: false
+            )
         }
-    }
-
-    private func applyMemoriesDelta(_ delta: [BackendMemoryCard]) {
-        guard !delta.isEmpty else { return }
-        let incoming = delta.map(memoryItem(from:))
-
-        var merged = [String: MemoryItem]()
-        if case .loaded(let current) = state {
-            merged = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
-        }
-        for memory in incoming {
-            merged[memory.id] = memory
-        }
-        let items = merged.values.sorted { $0.rememberedDate > $1.rememberedDate }
-        state = items.isEmpty ? .empty : .loaded(items)
     }
 
     private func memoryItem(from card: BackendMemoryCard) -> MemoryItem {
@@ -755,60 +804,6 @@ final class MemoriesViewModel: ObservableObject {
             correctionAmbiguity: card.correctionAmbiguity,
             referenceCount: max(0, card.referenceCount ?? 0),
             storySpine: card.storySpine
-        )
-    }
-
-    private func memoryItem(fromFallbackThread thread: BackendHistoryThread) -> MemoryItem {
-        let userSnippet = thread.user.trimmingCharacters(in: .whitespacesAndNewlines)
-        let assistantSnippet = thread.assistant.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = thread.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? String(userSnippet.prefix(64))
-            : thread.title
-        let summary: String
-        if !assistantSnippet.isEmpty {
-            summary = assistantSnippet
-        } else if !thread.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            summary = thread.preview
-        } else {
-            summary = userSnippet
-        }
-        return MemoryItem(
-            id: "history-\(thread.id)",
-            key: "turn_\(thread.turn)",
-            title: title.isEmpty ? "Conversation moment" : title,
-            summary: summary.isEmpty ? "A remembered conversation moment." : summary,
-            reason: "Captured from a previous conversation turn.",
-            rememberedDate: themDateFromEpoch(thread.updatedAt),
-            lastUsedDate: nil,
-            snippets: [userSnippet, assistantSnippet].filter { !$0.isEmpty },
-            emotionalTone: "",
-            salience: 0.42,
-            confidence: 0.48,
-            qualityScore: 0.58,
-            qualityHitCount: 0,
-            qualityCorrectionCount: 0,
-            qualityLastFeedbackDate: nil,
-            stalenessDays: 0,
-            stalenessBand: "fresh",
-            editable: false,
-            source: "history_fallback",
-            referenceHint: "",
-            characterBible: nil,
-            episodicID: "",
-            projectID: "",
-            projectTitle: "",
-            characterNames: [],
-            memoryTags: [],
-            isCorrectionMemory: false,
-            isSuperseded: false,
-            supersededDate: nil,
-            supersededByMemoryID: "",
-            supersededReason: "",
-            supersededTerms: [],
-            correctionReceipt: nil,
-            correctionAmbiguity: nil,
-            referenceCount: 0,
-            storySpine: nil
         )
     }
 
@@ -876,6 +871,7 @@ struct MemoriesScreen: View {
         .autoconnect()
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var vm = MemoriesViewModel()
     @State private var backgroundSyncCoordinator = AdaptiveBackgroundSyncCoordinator()
     var dismissAction: () -> Void = {}
@@ -898,32 +894,80 @@ struct MemoriesScreen: View {
 
                 VStack(spacing: 0) {
                     header
-                        .padding(.top, 28)
-                        .padding(.bottom, 20)
+                        .padding(.top, isCompact ? 12 : 28)
+                        .padding(.bottom, 12)
+
+                    refreshControls
+                        .padding(.bottom, 12)
 
                     Divider()
                         .overlay(Color.white.opacity(0.22))
 
                     content
-                        .padding(.top, 24)
-                        .padding(.bottom, 28)
+                        .padding(.top, isCompact ? 14 : 24)
+                        .padding(.bottom, isCompact ? 16 : 28)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, isCompact ? 16 : 24)
                 .frame(maxWidth: 1240, maxHeight: .infinity, alignment: .top)
             }
             .navigationTitle("")
             .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button("Return") {
-                        dismissAction()
+            .navigationDestination(item: $vm.selection) { item in
+                MemoryDetailView(
+                    item: vm.memory(forID: item.id) ?? item,
+                    onReturnHome: dismissAction,
+                    onEditingChanged: { editing in
+                        if editing { vm.beginEditingMemory(item) } else { vm.endEditingMemory() }
+                    },
+                    onSave: { updated, original in
+                        try await vm.updateMemory(
+                            itemID: updated.id,
+                            key: updated.key,
+                            title: updated.title,
+                            summary: updated.summary,
+                            reason: updated.reason,
+                            characterBible: updated.characterBible,
+                            storySpine: updated.storySpine,
+                            expectedItem: original
+                        )
+                    },
+                    onForget: { target in
+                        try await vm.forgetMemory(
+                            itemID: target.id,
+                            key: target.key
+                        )
+                    },
+                    onUndoCorrection: { receipt in
+                        try await vm.undoCanonCorrection(receiptID: receipt.id)
+                    },
+                    onResolveCorrection: { ambiguity, selectedFacts in
+                        try await vm.resolveCanonCorrection(
+                            ambiguityID: ambiguity.id,
+                            selectedFacts: selectedFacts
+                        )
+                    },
+                    onQualitySignal: { target, signal in
+                        try await vm.markMemoryQuality(
+                            itemID: target.id,
+                            key: target.key,
+                            signal: signal
+                        )
+                    },
+                    onPromote: { target in
+                        try await vm.promoteMemory(
+                            itemID: target.id,
+                            key: target.key,
+                            title: target.title,
+                            summary: target.summary,
+                            reason: target.reason
+                        )
                     }
-                    .font(.system(size: 14, weight: .regular, design: .default))
-                }
+                )
             }
         }
         .accessibilityIdentifier("memories.screen")
         .task {
+            guard !vm.installMemoriesUITestFixtureIfNeeded() else { return }
             guard !vm.installPendingScreenplayQuestionUITestFixtureIfNeeded() else { return }
             let outcome = await vm.load()
             backgroundSyncCoordinator.noteImmediateRefresh(
@@ -1006,37 +1050,75 @@ struct MemoriesScreen: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Memories")
-                        .font(.system(size: 34, weight: .semibold, design: .default))
-                        .foregroundStyle(MemoriesTheme.textPrimary)
+    private var isCompact: Bool { horizontalSizeClass == .compact }
 
-                    Text(vm.subtitle)
-                        .font(.system(size: 15, weight: .regular, design: .default))
-                        .foregroundStyle(MemoriesTheme.textSecondary)
-                }
-                Spacer()
-                Button {
-                    dismissAction()
-                } label: {
-                    Text("Return Home")
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(Capsule())
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Memories")
+                    .font(.system(size: isCompact ? 28 : 34, weight: .semibold))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                Spacer(minLength: 8)
+                Button(action: dismissAction) {
+                    Text("Return")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(minWidth: 74, minHeight: 44)
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(MemoriesTheme.textPrimary)
+                .background(Color.white.opacity(0.18), in: Capsule())
+                .accessibilityIdentifier("memories.return")
                 .accessibilityLabel("Return Home")
-                .accessibilityHint("Returns to the conversation screen.")
+                .accessibilityHint("Returns to Clementine and the orb.")
             }
+            Text(vm.subtitle)
+                .font(.system(size: 15))
+                .foregroundStyle(MemoriesTheme.textSecondary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("memories.summary")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Memories. Moments I have remembered about you.")
+        .accessibilityElement(children: .contain)
+    }
+
+    private var refreshControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                Task { await refreshMemories() }
+            } label: {
+                HStack(spacing: 8) {
+                    if vm.isRefreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Text(vm.isRefreshing ? "Refreshing…" : (vm.refreshError == nil ? "Refresh memories" : "Retry refresh"))
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(MemoriesTheme.textPrimary)
+            .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+            .disabled(vm.isRefreshing)
+            .accessibilityIdentifier("memories.refresh")
+            .accessibilityHint("Checks for the latest memories saved with Clementine.")
+
+            if let message = vm.refreshError {
+                Text(message)
+                    .font(.system(size: 14))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.refresh-error")
+            }
+        }
+    }
+
+    private func refreshMemories() async {
+        let outcome = await vm.retry()
+        backgroundSyncCoordinator.noteImmediateRefresh(.memories, outcome: outcome, at: Date())
     }
 
     @ViewBuilder
@@ -1119,59 +1201,12 @@ struct MemoriesScreen: View {
                     MemoriesGrid(items: items) { tapped in
                         vm.selection = tapped
                     }
-                    .navigationDestination(item: $vm.selection) { item in
-                        MemoryDetailView(
-                            item: item,
-                            onReturnHome: dismissAction,
-                            onSave: { updated in
-                                try await vm.updateMemory(
-                                    itemID: updated.id,
-                                    key: updated.key,
-                                    title: updated.title,
-                                    summary: updated.summary,
-                                    reason: updated.reason,
-                                    characterBible: updated.characterBible,
-                                    storySpine: updated.storySpine
-                                )
-                            },
-                            onForget: { target in
-                                try await vm.forgetMemory(
-                                    itemID: target.id,
-                                    key: target.key
-                                )
-                            },
-                            onUndoCorrection: { receipt in
-                                try await vm.undoCanonCorrection(receiptID: receipt.id)
-                            },
-                            onResolveCorrection: { ambiguity, selectedFacts in
-                                try await vm.resolveCanonCorrection(
-                                    ambiguityID: ambiguity.id,
-                                    selectedFacts: selectedFacts
-                                )
-                            },
-                            onQualitySignal: { target, signal in
-                                try await vm.markMemoryQuality(
-                                    itemID: target.id,
-                                    key: target.key,
-                                    signal: signal
-                                )
-                            },
-                            onPromote: { target in
-                                try await vm.promoteMemory(
-                                    itemID: target.id,
-                                    key: target.key,
-                                    title: target.title,
-                                    summary: target.summary,
-                                    reason: target.reason
-                                )
-                            }
-                        )
-                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.automatic)
+        .refreshable { await refreshMemories() }
     }
 }
 
@@ -2235,6 +2270,7 @@ struct MemoryCard: View {
     var onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
@@ -2253,7 +2289,8 @@ struct MemoryCard: View {
                     Text(item.title)
                         .font(.system(size: 20, weight: .semibold, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 8)
 
@@ -2267,14 +2304,7 @@ struct MemoryCard: View {
                     .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
                     .lineSpacing(7)
                     .lineLimit(3)
-                    .mask(
-                        LinearGradient(
-                            colors: [.black, .black, .black.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .offset(y: 16)
-                    )
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if !item.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("Why: \(item.reason)")
@@ -2317,11 +2347,14 @@ struct MemoryCard: View {
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.56))
                 }
             }
-            .padding(26)
-            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 200, alignment: .topLeading)
+            .padding(horizontalSizeClass == .compact ? 16 : 26)
+            .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("memories.card.\(item.id)")
+        .accessibilityLabel("Memory. \(item.title). \(item.repairAccessibilityLabel). Remembered \(rememberedDateText).")
+        .accessibilityHint("Opens memory details.")
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
@@ -2345,9 +2378,6 @@ struct MemoryCard: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(MemoriesTheme.focusAccent, lineWidth: isFocused ? 2 : 0)
         )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Memory. \(item.title). \(item.repairAccessibilityLabel). Remembered \(rememberedDateText).")
-        .accessibilityHint("Opens memory details.")
     }
 
     private var rememberedDateText: String {
@@ -2385,8 +2415,10 @@ private struct MemoryRepairBadge: View {
 // MARK: - Detail
 
 struct MemoryDetailView: View {
+    let item: MemoryItem
     let onReturnHome: () -> Void
-    let onSave: (MemoryItem) async throws -> MemoryItem
+    let onEditingChanged: (Bool) -> Void
+    let onSave: @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem
     let onForget: (MemoryItem) async throws -> Void
     let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
     let onResolveCorrection: (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void
@@ -2394,7 +2426,9 @@ struct MemoryDetailView: View {
     let onPromote: (MemoryItem) async throws -> MemoryItem
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var currentItem: MemoryItem
+    @State private var deferredItem: MemoryItem?
     @State private var showingEdit = false
     @State private var isSaving = false
     @State private var isForgetting = false
@@ -2407,14 +2441,17 @@ struct MemoryDetailView: View {
     init(
         item: MemoryItem,
         onReturnHome: @escaping () -> Void = {},
-        onSave: @escaping (MemoryItem) async throws -> MemoryItem,
+        onEditingChanged: @escaping (Bool) -> Void = { _ in },
+        onSave: @escaping @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem,
         onForget: @escaping (MemoryItem) async throws -> Void,
         onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
         onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void,
         onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
         onPromote: @escaping (MemoryItem) async throws -> MemoryItem
     ) {
+        self.item = item
         self.onReturnHome = onReturnHome
+        self.onEditingChanged = onEditingChanged
         self.onSave = onSave
         self.onForget = onForget
         self.onUndoCorrection = onUndoCorrection
@@ -2440,14 +2477,33 @@ struct MemoryDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text(currentItem.title)
-                        .font(.system(size: 34, weight: .semibold, design: .default))
+                        .font(.system(size: horizontalSizeClass == .compact ? 28 : 34, weight: .semibold))
                         .foregroundStyle(MemoriesTheme.textPrimary)
                         .padding(.top, 24)
+                        .accessibilityIdentifier("memories.detail.title")
 
                     Text(currentItem.summary)
                         .font(.system(size: 16, weight: .regular, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
                         .lineSpacing(8)
+                        .accessibilityIdentifier("memories.detail.summary")
+
+                    if currentItem.editable {
+                        Button {
+                            beginEditing()
+                        } label: {
+                            Label("Correct memory", systemImage: "pencil")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(MemoriesTheme.textPrimary)
+                        .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 12))
+                        .disabled(isBusy)
+                        .accessibilityIdentifier("memories.detail.correct")
+                        .accessibilityHint("Edit what Clementine remembers. Changes are saved only when you choose Save.")
+                    }
 
                     if currentItem.hasRepairState {
                         MemoryRepairDetailSection(
@@ -2511,7 +2567,7 @@ struct MemoryDetailView: View {
 
                     Spacer(minLength: 28)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, horizontalSizeClass == .compact ? 16 : 24)
                 .frame(maxWidth: 1240, alignment: .leading)
             }
         }
@@ -2519,34 +2575,38 @@ struct MemoryDetailView: View {
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
-                Button("Return Home") {
+                Button {
                     onReturnHome()
+                } label: {
+                    Text(horizontalSizeClass == .compact ? "Home" : "Return Home")
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(isBusy)
+                .accessibilityLabel("Return Home")
 
                 if currentItem.correctionReceipt?.canUndo == true {
                     Button {
                         Task { await undoCurrentCorrection() }
                     } label: {
                         Label("Undo Correction", systemImage: "arrow.uturn.backward")
+                            .frame(minHeight: 44)
                     }
                     .disabled(isBusy)
                 }
 
-                if currentItem.editable {
-                    Button("Correct") {
-                        showingEdit = true
-                    }
-                    .disabled(isBusy)
-                } else if canPromoteCurrentItem {
-                    Button("Promote") {
+                if canPromoteCurrentItem {
+                    Button {
                         Task { await promoteCurrentItem() }
+                    } label: {
+                        Text("Promote").frame(minWidth: 44, minHeight: 44)
                     }
                     .disabled(isBusy)
                 }
                 if !currentItem.hasCanonCorrectionControl {
-                    Button("Forget", role: .destructive) {
+                    Button(role: .destructive) {
                         Task { await forgetCurrentItem() }
+                    } label: {
+                        Text("Forget").frame(minWidth: 44, minHeight: 44)
                     }
                     .disabled(isBusy)
                 }
@@ -2556,6 +2616,7 @@ struct MemoryDetailView: View {
             MemoryEditSheet(
                 item: currentItem,
                 isSaving: isSaving,
+                errorText: errorText,
                 onSave: { edited in
                     await saveEditedItem(edited)
                 }
@@ -2563,6 +2624,29 @@ struct MemoryDetailView: View {
             .presentationDetents([.medium, .large])
         }
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("memories.detail.screen")
+        .onChange(of: item) { _, updated in
+            deferredItem = updated
+            adoptDeferredItemIfIdle()
+        }
+        .onChange(of: isBusy) { _, _ in adoptDeferredItemIfIdle() }
+        .onChange(of: showingEdit) { _, showing in
+            if !showing { onEditingChanged(false) }
+            adoptDeferredItemIfIdle()
+        }
+        .onDisappear { if showingEdit { onEditingChanged(false) } }
+    }
+
+    private func beginEditing() {
+        errorText = ""
+        onEditingChanged(true)
+        showingEdit = true
+    }
+
+    private func adoptDeferredItemIfIdle() {
+        guard !isBusy, !showingEdit, let deferredItem else { return }
+        currentItem = deferredItem
+        self.deferredItem = nil
     }
 
     private var isBusy: Bool {
@@ -2650,16 +2734,6 @@ struct MemoryDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!currentItem.editable || isBusy)
 
-                Button {
-                    showingEdit = true
-                } label: {
-                    Text("Correct Memory")
-                        .font(.system(size: 13, weight: .regular, design: .default))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.bordered)
-                .disabled(!currentItem.editable || isBusy)
             }
             Text(currentItem.editable
                 ? "Correcting a memory updates what Clementine uses next time."
@@ -2701,12 +2775,18 @@ struct MemoryDetailView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            let updated = try await onSave(edited)
+            let updated = try await onSave(edited, currentItem)
             currentItem = updated
             errorText = ""
             showingEdit = false
         } catch {
-            errorText = error.localizedDescription
+            if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+                errorText = "You’re offline. Your correction is still here. Reconnect, then choose Save again."
+            } else if error is URLError {
+                errorText = "Couldn’t confirm this correction was saved. Your draft is still here. Check your connection, then try Save again."
+            } else {
+                errorText = error.localizedDescription
+            }
         }
     }
 
@@ -3228,12 +3308,14 @@ private struct MemoryEditSheet: View {
     @State private var storyContinuityNotesText: String
     let original: MemoryItem
     let isSaving: Bool
-    let onSave: (MemoryItem) async -> Void
+    let errorText: String
+    let onSave: @MainActor (MemoryItem) async -> Void
 
     init(
         item: MemoryItem,
         isSaving: Bool,
-        onSave: @escaping (MemoryItem) async -> Void
+        errorText: String,
+        onSave: @escaping @MainActor (MemoryItem) async -> Void
     ) {
         original = item
         _title = State(initialValue: item.title)
@@ -3266,12 +3348,21 @@ private struct MemoryEditSheet: View {
         _storyActThreePayoffText = State(initialValue: Self.joinLines(spine?.actThreePayoffPath ?? []))
         _storyContinuityNotesText = State(initialValue: Self.joinLines(spine?.continuityNotes ?? []))
         self.isSaving = isSaving
+        self.errorText = errorText
         self.onSave = onSave
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                if !errorText.isEmpty {
+                    Section("Correction needs attention") {
+                        Text(errorText)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("memories.editor.error")
+                    }
+                }
                 if editsStorySpine {
                     Section("Project") {
                         TextField("Feature title", text: $storyProjectTitle)
@@ -3329,6 +3420,7 @@ private struct MemoryEditSheet: View {
                 } else if original.characterBible == nil {
                     Section("Title") {
                         TextField("Memory title", text: $title)
+                            .accessibilityIdentifier("memories.editor.title")
                     }
                     Section("Summary") {
                         TextEditor(text: $summary)
@@ -3368,6 +3460,7 @@ private struct MemoryEditSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isSaving)
+                        .accessibilityIdentifier("memories.editor.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -3396,9 +3489,11 @@ private struct MemoryEditSheet: View {
                         }
                     }
                     .disabled(isSaving || saveDisabled)
+                    .accessibilityIdentifier("memories.editor.save")
                 }
             }
         }
+        .interactiveDismissDisabled(isSaving)
     }
 
     private var saveDisabled: Bool {
