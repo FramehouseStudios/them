@@ -40,8 +40,12 @@ echo "macOS destination:  platform=macOS"
   -configuration "${IOS_CONFIGURATION}" \
   -destination "${ios_destination}" \
   -only-testing:"${TEST_IDENTIFIER}" \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO
+  -parallel-testing-enabled NO \
+  -maximum-concurrent-test-simulator-destinations 1
+
+# Keep Xcode's normal simulator "Sign to Run Locally" behavior. Even this
+# focused UI test launches through the shared V1 helper, whose state reset
+# clears Keychain credentials and must run with the app's simulator entitlement.
 
 "${XCODEBUILD_BIN}" -quiet test \
   -project "${PROJECT}" \

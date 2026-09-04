@@ -190,12 +190,10 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
-      - name: Run iOS V1 UI smoke tests (soft gate)
-        continue-on-error: true
+      - name: Run signed iOS V1 UI smoke tests
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
-        continue-on-error: true
+      - name: Run signed iPhone and macOS voice network-fault smokes
         run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
@@ -219,8 +217,8 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
-            echo "- iOS V1 UI smoke: soft gate (themUITests)"
-            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
+            echo "- iOS V1 UI smoke: enforced (signed themUITests; no provider secret)"
+            echo "- Voice network faults: enforced (signed iPhone + macOS fixture smokes)"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
