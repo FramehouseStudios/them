@@ -56,8 +56,8 @@ test("[postgres-live] concurrent email-login issuance commits one conflicting se
   try {
     await left.put({ domain: "auth_users", key: user.id, value: user });
     const outcomes = await Promise.all([
-      left.issueAuthSession({ userId: user.id, session }),
-      right.issueAuthSession({ userId: user.id, session }),
+      left.issueAuthSession({ userId: user.id, expectedUser: user, session }),
+      right.issueAuthSession({ userId: user.id, expectedUser: user, session }),
     ]);
     assert.deepEqual(
       outcomes.map((outcome) => outcome.status).sort(),
@@ -71,6 +71,128 @@ test("[postgres-live] concurrent email-login issuance commits one conflicting se
     await left.delete({ domain: "auth_sessions", key: session.sessionId });
     await left.delete({ domain: "auth_users", key: user.id });
     await Promise.all([left.close(), right.close()]);
+  }
+});
+
+test("[postgres-live] concurrent password reset and stale login leave no active old-password session", {
+  skip: databaseUrl ? false : "DATABASE_URL is not configured",
+}, async () => {
+  const resetPersistence = createPostgresPersistence({ databaseUrl });
+  const loginPersistence = createPostgresPersistence({ databaseUrl });
+  const runId = `${process.pid}-${Date.now()}-password-reset`;
+  const expectedUser = {
+    id: `live-reset-${runId}-writer`,
+    email: `live-reset-${runId}@example.com`,
+    name: "",
+    authProvider: "password",
+    appleSubject: "",
+    emailVerified: true,
+    emailVerifiedAt: Date.now() - 2,
+    password: { salt: "old-salt", iterations: 600_000, hash: "old-hash" },
+    createdAt: Date.now() - 2,
+    updatedAt: Date.now() - 1,
+  };
+  const completedAt = Date.now();
+  const updatedUser = {
+    ...expectedUser,
+    password: { salt: "new-salt", iterations: 600_000, hash: "new-hash" },
+    updatedAt: completedAt,
+  };
+  const expectedToken = {
+    tokenHash: `live-reset-${runId}-token`,
+    userId: expectedUser.id,
+    createdAt: completedAt - 1,
+    expiresAt: completedAt + 60_000,
+    usedAt: 0,
+  };
+  const consumedToken = { ...expectedToken, usedAt: completedAt };
+  const siblingToken = {
+    ...expectedToken,
+    tokenHash: `live-reset-${runId}-sibling-token`,
+  };
+  const unrelatedToken = {
+    ...expectedToken,
+    tokenHash: `live-reset-${runId}-unrelated-token`,
+    userId: `live-reset-${runId}-other-writer`,
+  };
+  const loginSession = {
+    sessionId: `live-reset-${runId}-login`,
+    familyId: `live-reset-${runId}-family`,
+    userId: expectedUser.id,
+    tokenHash: `live-reset-${runId}-session-hash`,
+    createdAt: completedAt,
+    updatedAt: completedAt,
+    expiresAt: completedAt + 60_000,
+    revokedAt: 0,
+    replacedBySessionId: "",
+    metadata: {},
+  };
+
+  try {
+    await resetPersistence.put({ domain: "auth_users", key: expectedUser.id, value: expectedUser });
+    await resetPersistence.put({
+      domain: "auth_password_reset_tokens",
+      key: expectedToken.tokenHash,
+      value: expectedToken,
+    });
+    await resetPersistence.put({
+      domain: "auth_password_reset_tokens",
+      key: siblingToken.tokenHash,
+      value: siblingToken,
+    });
+    await resetPersistence.put({
+      domain: "auth_password_reset_tokens",
+      key: unrelatedToken.tokenHash,
+      value: unrelatedToken,
+    });
+    const [reset, issuance] = await Promise.all([
+      resetPersistence.completePasswordReset({
+        expectedUser,
+        updatedUser,
+        expectedToken,
+        consumedToken,
+      }),
+      loginPersistence.issueAuthSession({
+        userId: expectedUser.id,
+        expectedUser,
+        session: loginSession,
+      }),
+    ]);
+    assert.equal(reset.status, "committed");
+    assert.ok(["committed", "user_missing"].includes(issuance.status));
+    const storedSession = await resetPersistence.get({
+      domain: "auth_sessions",
+      key: loginSession.sessionId,
+    });
+    if (issuance.status === "committed") {
+      assert.equal(Number(storedSession?.revokedAt || 0) > 0, true);
+    } else {
+      assert.equal(storedSession, null);
+    }
+    assert.equal(Number((await resetPersistence.get({
+      domain: "auth_password_reset_tokens",
+      key: siblingToken.tokenHash,
+    }))?.usedAt || 0), completedAt);
+    assert.deepEqual(await resetPersistence.get({
+      domain: "auth_password_reset_tokens",
+      key: unrelatedToken.tokenHash,
+    }), unrelatedToken);
+  } finally {
+    await resetPersistence.delete({ domain: "auth_sessions", key: loginSession.sessionId });
+    await resetPersistence.delete({
+      domain: "auth_password_reset_tokens",
+      key: expectedToken.tokenHash,
+    });
+    await resetPersistence.delete({
+      domain: "auth_password_reset_tokens",
+      key: siblingToken.tokenHash,
+    });
+    await resetPersistence.delete({
+      domain: "auth_password_reset_tokens",
+      key: unrelatedToken.tokenHash,
+    });
+    await resetPersistence.delete({ domain: "auth_users", key: expectedUser.id });
+    await Promise.all([resetPersistence.close(), loginPersistence.close()]);
   }
 });
 

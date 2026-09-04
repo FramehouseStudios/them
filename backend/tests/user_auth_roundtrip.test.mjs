@@ -91,15 +91,20 @@ function createPostgresAuthPersistence() {
   const domains = new Map();
   const putCalls = [];
   const issuanceCalls = [];
+  const passwordResetCompletionCalls = [];
   const rotationCalls = [];
   const revocationCalls = [];
   const userRevocationCalls = [];
   let issuanceFailure = null;
   let issuanceConflict = false;
+  let passwordResetCompletionFailure = null;
+  let passwordResetCompletionPostCommitFailure = null;
+  let canonicalListFailure = null;
   let rotationFailure = null;
   let revocationFailure = null;
   let beforeRevocation = null;
   let afterIssuance = null;
+  let afterPasswordResetCompletion = null;
   const domainRows = (domain) => {
     if (!domains.has(domain)) domains.set(domain, new Map());
     return domains.get(domain);
@@ -108,6 +113,7 @@ function createPostgresAuthPersistence() {
     kind: "postgres",
     putCalls,
     issuanceCalls,
+    passwordResetCompletionCalls,
     rotationCalls,
     revocationCalls,
     userRevocationCalls,
@@ -116,6 +122,15 @@ function createPostgresAuthPersistence() {
     },
     conflictNextIssuance() {
       issuanceConflict = true;
+    },
+    failNextPasswordResetCompletion(error = new Error("simulated password reset completion failure")) {
+      passwordResetCompletionFailure = error;
+    },
+    failAfterNextPasswordResetCompletion(error = new Error("simulated password reset unknown commit")) {
+      passwordResetCompletionPostCommitFailure = error;
+    },
+    failNextCanonicalList(error = new Error("simulated canonical hydration failure")) {
+      canonicalListFailure = error;
     },
     failNextRotation(error = new Error("simulated auth rotation failure")) {
       rotationFailure = error;
@@ -129,6 +144,9 @@ function createPostgresAuthPersistence() {
     observeAfterIssuance(observer) {
       afterIssuance = observer;
     },
+    observeAfterPasswordResetCompletion(observer) {
+      afterPasswordResetCompletion = observer;
+    },
     async put({ domain, key, value }) {
       putCalls.push({ domain, key });
       domainRows(domain).set(key, structuredClone(value));
@@ -141,6 +159,11 @@ function createPostgresAuthPersistence() {
       domainRows(domain).delete(key);
     },
     async list({ domain, afterKey = "", limit = 10_000 }) {
+      if (canonicalListFailure) {
+        const error = canonicalListFailure;
+        canonicalListFailure = null;
+        throw error;
+      }
       return [...domainRows(domain).entries()]
         .filter(([key]) => !afterKey || key > afterKey)
         .sort(([left], [right]) => left.localeCompare(right))
@@ -159,12 +182,75 @@ function createPostgresAuthPersistence() {
         return { status: "conflict" };
       }
       const user = domainRows("auth_users").get(input.userId);
-      if (!user || user.id !== input.userId) return { status: "user_missing" };
+      if (
+        !user
+        || user.id !== input.userId
+        || JSON.stringify(user) !== JSON.stringify(input.expectedUser)
+      ) return { status: "user_missing" };
       const sessions = domainRows("auth_sessions");
       if (sessions.has(input.session.sessionId)) return { status: "conflict" };
       sessions.set(input.session.sessionId, structuredClone(input.session));
       if (afterIssuance) afterIssuance(input);
       return { status: "committed", session: structuredClone(input.session) };
+    },
+    async completePasswordReset(input) {
+      passwordResetCompletionCalls.push(structuredClone(input));
+      if (passwordResetCompletionFailure) {
+        const error = passwordResetCompletionFailure;
+        passwordResetCompletionFailure = null;
+        throw error;
+      }
+      const tokens = domainRows("auth_password_reset_tokens");
+      const users = domainRows("auth_users");
+      const canonicalToken = tokens.get(input.expectedToken.tokenHash);
+      const canonicalUser = users.get(input.expectedUser.id);
+      if (
+        JSON.stringify(canonicalToken) !== JSON.stringify(input.expectedToken)
+        || JSON.stringify(canonicalUser) !== JSON.stringify(input.expectedUser)
+      ) return { status: "conflict" };
+      const canonicalTokens = [];
+      const invalidatedTokenHashes = [];
+      for (const [tokenHash, token] of tokens.entries()) {
+        if (token.userId !== input.expectedUser.id) continue;
+        const invalidated = Number(token.usedAt || 0) > 0
+          ? structuredClone(token)
+          : tokenHash === input.consumedToken.tokenHash
+            ? structuredClone(input.consumedToken)
+            : { ...structuredClone(token), usedAt: input.consumedToken.usedAt };
+        tokens.set(tokenHash, structuredClone(invalidated));
+        canonicalTokens.push(invalidated);
+        if (Number(token.usedAt || 0) <= 0) invalidatedTokenHashes.push(tokenHash);
+      }
+      users.set(input.updatedUser.id, structuredClone(input.updatedUser));
+      const sessions = [];
+      const revokedSessionIds = [];
+      for (const [sessionId, session] of domainRows("auth_sessions").entries()) {
+        if (session.userId !== input.expectedUser.id) continue;
+        const revoked = Number(session.revokedAt || 0) > 0
+          ? structuredClone(session)
+          : {
+            ...structuredClone(session),
+            revokedAt: input.consumedToken.usedAt,
+            updatedAt: input.consumedToken.usedAt,
+          };
+        domainRows("auth_sessions").set(sessionId, structuredClone(revoked));
+        sessions.push(revoked);
+        if (Number(session.revokedAt || 0) <= 0) revokedSessionIds.push(sessionId);
+      }
+      if (afterPasswordResetCompletion) afterPasswordResetCompletion(input);
+      if (passwordResetCompletionPostCommitFailure) {
+        const error = passwordResetCompletionPostCommitFailure;
+        passwordResetCompletionPostCommitFailure = null;
+        throw error;
+      }
+      return {
+        status: "committed",
+        user: structuredClone(input.updatedUser),
+        tokens: structuredClone(canonicalTokens),
+        invalidatedTokenHashes,
+        sessions,
+        revokedSessionIds,
+      };
     },
     async rotateAuthSession(input) {
       rotationCalls.push(structuredClone(input));
@@ -1364,12 +1450,27 @@ test("[user-auth-roundtrip] reset_password consumes the token and revokes all se
   await auth.handleAuthRequestPasswordReset(makeReq({ email: "fullreset@example.com" }), req);
   const resetToken = req._body.debug_password_reset_token;
   assert.ok(resetToken);
+  const siblingRequest = makeRes();
+  await auth.handleAuthRequestPasswordReset(
+    makeReq({ email: "fullreset@example.com" }),
+    siblingRequest,
+  );
+  const siblingResetToken = siblingRequest._body.debug_password_reset_token;
+  assert.ok(siblingResetToken);
 
   // Reset password (handler expects `new_password` field).
   const resetRes = makeRes();
   await auth.handleAuthResetPassword(makeReq({ token: resetToken, new_password: "newpass987" }), resetRes);
   assert.ok(resetRes._status >= 200 && resetRes._status < 300, `expected 2xx, got ${resetRes._status} body=${JSON.stringify(resetRes._body)}`);
   assert.ok(Number(resetRes._body.revoked_sessions || 0) >= 1);
+
+  const siblingReplay = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: siblingResetToken, new_password: "should-not-win-987" }),
+    siblingReplay,
+  );
+  assert.equal(siblingReplay._status, 400);
+  assert.equal(siblingReplay._body.error, "invalid_reset_token");
 
   // The original refresh token must no longer rotate.
   const stale = makeRes();
@@ -1380,6 +1481,362 @@ test("[user-auth-roundtrip] reset_password consumes the token and revokes all se
   const login = makeRes();
   await auth.handleAuthLogin(makeReq({ email: "fullreset@example.com", password: "newpass987" }), login);
   assert.equal(login._status, 200);
+});
+
+test("[user-auth-roundtrip] Postgres password reset commits every canonical row before changing memory", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-reset@example.com", password: "validpass123" }),
+    signup,
+  );
+  const secondLogin = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-reset@example.com", password: "validpass123" }),
+    secondLogin,
+  );
+  const unrelatedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-reset-other@example.com", password: "validpass123" }),
+    unrelatedSignup,
+  );
+  const unrelatedUserId = unrelatedSignup._body.user.user_id;
+  const unrelatedSessionId = unrelatedSignup._body.current_session_id;
+  const unrelatedUserBefore = await persistence.get({ domain: "auth_users", key: unrelatedUserId });
+  const unrelatedSessionBefore = await persistence.get({
+    domain: "auth_sessions",
+    key: unrelatedSessionId,
+  });
+  const request = makeRes();
+  await auth.handleAuthRequestPasswordReset(
+    makeReq({ email: "postgres-reset@example.com" }),
+    request,
+  );
+  const resetToken = request._body.debug_password_reset_token;
+  const siblingRequest = makeRes();
+  await auth.handleAuthRequestPasswordReset(
+    makeReq({ email: "postgres-reset@example.com" }),
+    siblingRequest,
+  );
+  const siblingResetToken = siblingRequest._body.debug_password_reset_token;
+  const unrelatedRequest = makeRes();
+  await auth.handleAuthRequestPasswordReset(
+    makeReq({ email: "postgres-reset-other@example.com" }),
+    unrelatedRequest,
+  );
+  const targetResetTokensBefore = [...passwordResetTokensByHash.values()]
+    .filter((token) => token.userId === signup._body.user.user_id);
+  const unrelatedResetTokenBefore = [...passwordResetTokensByHash.values()]
+    .find((token) => token.userId === unrelatedUserId);
+  assert.equal(targetResetTokensBefore.length, 2);
+  assert.ok(unrelatedResetTokenBefore);
+  const originalSessionIds = [signup._body.current_session_id, secondLogin._body.current_session_id];
+  const putsBeforeReset = persistence.putCalls.length;
+  let observedCanonicalBeforeMemory = false;
+  persistence.observeAfterPasswordResetCompletion(() => {
+    observedCanonicalBeforeMemory = authenticateUser(
+      "postgres-reset@example.com",
+      "validpass123",
+    ).ok && originalSessionIds.every((sessionId) => (
+      Number(authSessionsById.get(sessionId)?.revokedAt || 0) === 0
+    ));
+  });
+
+  const response = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    response,
+  );
+
+  assert.equal(response._status, 200);
+  assert.equal(response._body.revoked_sessions, 2);
+  assert.equal(observedCanonicalBeforeMemory, true);
+  assert.equal(persistence.passwordResetCompletionCalls.length, 1);
+  assert.equal(persistence.putCalls.length, putsBeforeReset, "reset completion must not snapshot auth rows");
+  assert.equal(authenticateUser("postgres-reset@example.com", "validpass123").ok, false);
+  assert.equal(authenticateUser("postgres-reset@example.com", "new-reset-password-456").ok, true);
+  for (const sessionId of originalSessionIds) {
+    assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0) > 0, true);
+    assert.equal(Number((await persistence.get({
+      domain: "auth_sessions",
+      key: sessionId,
+    }))?.revokedAt || 0) > 0, true);
+  }
+  assert.deepEqual(await persistence.get({ domain: "auth_users", key: unrelatedUserId }), unrelatedUserBefore);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: unrelatedSessionId }),
+    unrelatedSessionBefore,
+  );
+  for (const token of targetResetTokensBefore) {
+    assert.equal(Number(passwordResetTokensByHash.get(token.tokenHash)?.usedAt || 0) > 0, true);
+    assert.equal(Number((await persistence.get({
+      domain: "auth_password_reset_tokens",
+      key: token.tokenHash,
+    }))?.usedAt || 0) > 0, true);
+  }
+  assert.equal(
+    Number(passwordResetTokensByHash.get(unrelatedResetTokenBefore.tokenHash)?.usedAt || 0),
+    0,
+  );
+  assert.deepEqual(
+    await persistence.get({
+      domain: "auth_password_reset_tokens",
+      key: unrelatedResetTokenBefore.tokenHash,
+    }),
+    unrelatedResetTokenBefore,
+  );
+  const persistedCall = JSON.stringify(persistence.passwordResetCompletionCalls[0]);
+  assert.equal(persistedCall.includes(resetToken), false);
+  assert.equal(persistedCall.includes("new-reset-password-456"), false);
+
+  const replay = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "another-reset-password-789" }),
+    replay,
+  );
+  assert.equal(replay._status, 400);
+  assert.equal(replay._body.error, "invalid_reset_token");
+  assert.equal(persistence.passwordResetCompletionCalls.length, 1);
+
+  const siblingReplay = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: siblingResetToken, new_password: "sibling-reset-password-789" }),
+    siblingReplay,
+  );
+  assert.equal(siblingReplay._status, 400);
+  assert.equal(siblingReplay._body.error, "invalid_reset_token");
+  assert.equal(persistence.passwordResetCompletionCalls.length, 1);
+});
+
+test("[user-auth-roundtrip] Postgres password reset rejects stale canonical token and user rows", async () => {
+  for (const staleKind of ["token", "user"]) {
+    const persistence = createPostgresAuthPersistence();
+    const email = `postgres-reset-stale-${staleKind}@example.com`;
+    const auth = setupSubsystem({}, { persistence });
+    const signup = makeRes();
+    await auth.handleAuthSignup(makeReq({ email, password: "validpass123" }), signup);
+    const request = makeRes();
+    await auth.handleAuthRequestPasswordReset(makeReq({ email }), request);
+    const resetToken = request._body.debug_password_reset_token;
+    const [tokenHash, localToken] = [...passwordResetTokensByHash.entries()][0];
+    const userId = signup._body.user.user_id;
+    if (staleKind === "token") {
+      await persistence.put({
+        domain: "auth_password_reset_tokens",
+        key: tokenHash,
+        value: { ...localToken, usedAt: Date.now() },
+      });
+    } else {
+      const canonicalUser = await persistence.get({ domain: "auth_users", key: userId });
+      await persistence.put({
+        domain: "auth_users",
+        key: userId,
+        value: { ...canonicalUser, updatedAt: canonicalUser.updatedAt + 1 },
+      });
+    }
+
+    const response = makeRes();
+    await auth.handleAuthResetPassword(
+      makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+      response,
+    );
+    assert.equal(response._status, 400, staleKind);
+    assert.equal(response._body.error, "invalid_reset_token", staleKind);
+    assert.equal(authenticateUser(email, "validpass123").ok, true, staleKind);
+    assert.equal(authenticateUser(email, "new-reset-password-456").ok, false, staleKind);
+    assert.equal(Number(authSessionsById.get(signup._body.current_session_id)?.revokedAt || 0), 0);
+    assert.equal(Number(passwordResetTokensByHash.get(tokenHash)?.usedAt || 0), 0);
+    const safeEnvelope = JSON.stringify(response._body);
+    assert.equal(safeEnvelope.includes(resetToken), false);
+    assert.equal(safeEnvelope.includes(tokenHash), false);
+    assert.equal(safeEnvelope.includes("new-reset-password-456"), false);
+  }
+});
+
+test("[user-auth-roundtrip] Postgres password reset adapter failure is safely retryable without transient state", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const email = "postgres-reset-failure@example.com";
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(makeReq({ email, password: "validpass123" }), signup);
+  const request = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), request);
+  const resetToken = request._body.debug_password_reset_token;
+  persistence.failNextPasswordResetCompletion();
+
+  const failed = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    failed,
+  );
+  assert.equal(failed._status, 503);
+  assert.equal(failed._body.error, "auth_persistence_failed");
+  assert.equal(failed._body.retryable, true);
+  assert.equal(authenticateUser(email, "validpass123").ok, true);
+  assert.equal(authenticateUser(email, "new-reset-password-456").ok, false);
+  assert.equal(Number(authSessionsById.get(signup._body.current_session_id)?.revokedAt || 0), 0);
+  assert.equal(JSON.stringify(failed._body).includes(resetToken), false);
+  assert.equal(JSON.stringify(failed._body).includes("new-reset-password-456"), false);
+
+  const retry = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    retry,
+  );
+  assert.equal(retry._status, 200);
+});
+
+test("[user-auth-roundtrip] applied-but-unknown password-reset commit quarantines prior access until canonical reconciliation", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const email = "postgres-reset-uncertain@example.com";
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(makeReq({ email, password: "validpass123" }), signup);
+  const request = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), request);
+  const resetToken = request._body.debug_password_reset_token;
+  const siblingRequest = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), siblingRequest);
+  const userId = signup._body.user.user_id;
+  const originalTokenHashes = [...passwordResetTokensByHash.values()]
+    .filter((token) => token.userId === userId)
+    .map((token) => token.tokenHash);
+  assert.equal(originalTokenHashes.length, 2);
+  const error = new Error("simulated unknown password-reset commit");
+  error.commitOutcomeUnknown = true;
+  persistence.failAfterNextPasswordResetCompletion(error);
+  persistence.failNextCanonicalList();
+
+  const response = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    response,
+  );
+  assert.equal(response._status, 503);
+  assert.equal(response._body.error, "auth_persistence_failed");
+  assert.equal(response._body.retryable, false);
+  assert.equal(authenticateUser(email, "validpass123").ok, true);
+  assert.equal(authenticateUser(email, "new-reset-password-456").ok, false);
+  assert.equal(Number(authSessionsById.get(signup._body.current_session_id)?.revokedAt || 0) > 0, true);
+  const bearerRequest = {
+    headers: {},
+    get(name) {
+      return String(name || "").toLowerCase() === "authorization"
+        ? `Bearer ${signup._body.access_token}`
+        : undefined;
+    },
+  };
+  await new Promise((resolve, reject) => {
+    auth.attachUserAuth(bearerRequest, makeRes(), (nextError) => (
+      nextError ? reject(nextError) : resolve()
+    ));
+  });
+  assert.equal(bearerRequest.authUser, null);
+  assert.equal(bearerRequest.authUserError, "revoked_user_token");
+  assert.equal(Number((await persistence.get({
+    domain: "auth_sessions",
+    key: signup._body.current_session_id,
+  }))?.revokedAt || 0) > 0, true);
+  const committedUser = await persistence.get({ domain: "auth_users", key: userId });
+  for (const tokenHash of originalTokenHashes) {
+    assert.equal(Number((await persistence.get({
+      domain: "auth_password_reset_tokens",
+      key: tokenHash,
+    }))?.usedAt || 0) > 0, true);
+  }
+  const safeEnvelope = JSON.stringify(response._body);
+  assert.equal(safeEnvelope.includes(resetToken), false);
+  assert.equal(safeEnvelope.includes("new-reset-password-456"), false);
+
+  persistence.failNextCanonicalList();
+  const blockedSnapshotMutation = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), blockedSnapshotMutation);
+  assert.equal(blockedSnapshotMutation._status, 503);
+  assert.equal(blockedSnapshotMutation._body.error, "auth_persistence_failed");
+  assert.deepEqual(await persistence.get({ domain: "auth_users", key: userId }), committedUser);
+  for (const tokenHash of originalTokenHashes) {
+    assert.equal(Number((await persistence.get({
+      domain: "auth_password_reset_tokens",
+      key: tokenHash,
+    }))?.usedAt || 0) > 0, true);
+  }
+
+  const laterSnapshotMutation = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), laterSnapshotMutation);
+  assert.equal(laterSnapshotMutation._status, 200);
+  assert.deepEqual(await persistence.get({ domain: "auth_users", key: userId }), committedUser);
+  for (const tokenHash of originalTokenHashes) {
+    const token = await persistence.get({
+      domain: "auth_password_reset_tokens",
+      key: tokenHash,
+    });
+    assert.equal(token === null || Number(token.usedAt || 0) > 0, true);
+  }
+  assert.equal(authenticateUser(email, "validpass123").ok, false);
+  assert.equal(authenticateUser(email, "new-reset-password-456").ok, true);
+  const reconciledBearerRequest = {
+    headers: {},
+    get(name) {
+      return String(name || "").toLowerCase() === "authorization"
+        ? `Bearer ${signup._body.access_token}`
+        : undefined;
+    },
+  };
+  await new Promise((resolve, reject) => {
+    auth.attachUserAuth(reconciledBearerRequest, makeRes(), (nextError) => (
+      nextError ? reject(nextError) : resolve()
+    ));
+  });
+  assert.equal(reconciledBearerRequest.authUser, null);
+  assert.equal(reconciledBearerRequest.authUserError, "revoked_user_token");
+});
+
+test("[user-auth-roundtrip] unknown password-reset outcome recovers when canonical transaction rolled back", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const email = "postgres-reset-uncertain-rollback@example.com";
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(makeReq({ email, password: "validpass123" }), signup);
+  const request = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email }), request);
+  const resetToken = request._body.debug_password_reset_token;
+  const error = new Error("simulated lost result after canonical rollback");
+  error.commitOutcomeUnknown = true;
+  persistence.failNextPasswordResetCompletion(error);
+
+  const uncertain = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    uncertain,
+  );
+  assert.equal(uncertain._status, 503);
+  assert.equal(uncertain._body.retryable, false);
+  assert.equal(authenticateUser(email, "validpass123").ok, true);
+  assert.equal(Number(authSessionsById.get(signup._body.current_session_id)?.revokedAt || 0), 0);
+
+  const bearerRequest = {
+    headers: {},
+    get(name) {
+      return String(name || "").toLowerCase() === "authorization"
+        ? `Bearer ${signup._body.access_token}`
+        : undefined;
+    },
+  };
+  await new Promise((resolve, reject) => {
+    auth.attachUserAuth(bearerRequest, makeRes(), (nextError) => (
+      nextError ? reject(nextError) : resolve()
+    ));
+  });
+  assert.equal(bearerRequest.authUser?.id, signup._body.user.user_id);
+
+  const retry = makeRes();
+  await auth.handleAuthResetPassword(
+    makeReq({ token: resetToken, new_password: "new-reset-password-456" }),
+    retry,
+  );
+  assert.equal(retry._status, 200);
+  assert.equal(authenticateUser(email, "new-reset-password-456").ok, true);
 });
 
 // ---------- email verification ----------

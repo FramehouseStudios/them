@@ -3,11 +3,12 @@ import { createHash, createPublicKey } from "node:crypto";
 
 import {
   authenticateUser,
+  completePasswordResetDurably,
   consumeEmailVerificationToken,
-  consumePasswordResetToken,
   createOrAttachAppleUser,
   createUser,
   createUserStoreCheckpoint,
+  ensureUserStoreCanonicalReconciled,
   flushUserStorePersistenceWrites,
   getAuthSessionById,
   getAuthSessionByToken,
@@ -20,14 +21,12 @@ import {
   issuePasswordResetToken,
   listAuthSessionsForUser,
   markUserEmailVerified,
-  revokeAllAuthSessionsForUser,
   revokeAllAuthSessionsForUserDurablyInMutation,
   revokeAuthSessionById,
   revokeAuthSessionsDurably,
   restoreUserStoreCheckpoint,
   rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
-  updateUserPassword,
   validateUserPassword,
   waitForUserStoreMutations,
 } from "./user_store.js";
@@ -202,6 +201,13 @@ function createUserAuthSubsystem(options = {}) {
 
   function serializeAuthMutation(handler) {
     return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return res.status(503).json({
+          stage: "auth_user",
+          error: "auth_persistence_failed",
+          retryable: true,
+        });
+      }
       const checkpoint = createUserStoreCheckpoint(Date.now());
       return handler(req, res, checkpoint, next);
     });
@@ -786,6 +792,13 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     return runUserStoreMutationExclusive(async () => {
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return res.status(503).json({
+          stage: "auth_apple",
+          error: "auth_persistence_failed",
+          retryable: true,
+        });
+      }
       const checkpoint = createUserStoreCheckpoint(Date.now());
       return handleAuthAppleMutation(req, res, checkpoint, verified);
     });
@@ -1045,29 +1058,37 @@ function createUserAuthSubsystem(options = {}) {
         error: passwordValidation.status,
       });
     }
-    const consumed = consumePasswordResetToken(token, Date.now());
-    if (!consumed) {
+    const completed = await completePasswordResetDurably(token, newPassword, Date.now());
+    if (completed.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_reset_password",
+        error: "auth_persistence_failed",
+        retryable: completed.retryable === true,
+      });
+    }
+    if (completed.status === "invalid_reset_token") {
       if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
       return res.status(400).json({
         stage: "auth_reset_password",
         error: "invalid_reset_token",
       });
     }
-    const updated = updateUserPassword(consumed.userId, newPassword, Date.now());
-    if (!updated.ok) {
+    if (!completed.user) {
       if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
-      return res.status(updated.status === "not_found" ? 404 : 400).json({
+      return res.status(completed.status === "not_found" ? 404 : 400).json({
         stage: "auth_reset_password",
-        error: updated.status || "password_reset_failed",
+        error: completed.status || "password_reset_failed",
       });
     }
-    const revoked = revokeAllAuthSessionsForUser(updated.user.id, Date.now());
-    if (!(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))) return;
+    if (
+      completed.status === "snapshot_pending"
+      && !(await ensureAuthMutationPersisted(res, "auth_reset_password", checkpoint))
+    ) return;
     return res.status(200).json(buildAuthEnvelope({
-      user: updated.user,
+      user: completed.user,
       extra: {
         password_reset: true,
-        revoked_sessions: revoked.length,
+        revoked_sessions: completed.revoked.length,
       },
     }));
   }

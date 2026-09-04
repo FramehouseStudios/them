@@ -115,11 +115,23 @@ function assertAuthSessionRotation(expectedSession, previousSession, nextSession
   }
 }
 
-function assertAuthSessionIssuance(userId, session) {
+function assertAuthSessionIssuance(userId, expectedUser, session) {
   const normalizedUserId = String(userId || "").trim();
+  assertValue(expectedUser);
   assertValue(session);
-  if (!normalizedUserId || !session || typeof session !== "object" || Array.isArray(session)) {
-    throw new Error("auth session issuance requires a user and session object");
+  if (
+    !normalizedUserId
+    || !expectedUser
+    || typeof expectedUser !== "object"
+    || Array.isArray(expectedUser)
+    || !session
+    || typeof session !== "object"
+    || Array.isArray(session)
+  ) {
+    throw new Error("auth session issuance requires a user, canonical expectation, and session object");
+  }
+  if (String(expectedUser.id || "").trim() !== normalizedUserId) {
+    throw new Error("auth session issuance user expectation is inconsistent");
   }
   if (
     !String(session.sessionId || "").trim()
@@ -187,6 +199,91 @@ function assertAuthSessionRevocations(userId, expectedSessions, revokedSessions)
     }
   }
   return normalizedUserId;
+}
+
+function assertPasswordResetCompletion({
+  expectedUser,
+  updatedUser,
+  expectedToken,
+  consumedToken,
+}) {
+  for (const value of [expectedUser, updatedUser, expectedToken, consumedToken]) {
+    assertValue(value);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("password reset completion requires canonical record objects");
+    }
+  }
+  const userId = String(expectedUser.id || "").trim();
+  const tokenHash = String(expectedToken.tokenHash || "").trim();
+  const completedAt = Number(consumedToken.usedAt);
+  if (
+    !userId
+    || !tokenHash
+    || String(updatedUser.id || "").trim() !== userId
+    || String(expectedToken.userId || "").trim() !== userId
+    || String(consumedToken.userId || "").trim() !== userId
+    || String(consumedToken.tokenHash || "").trim() !== tokenHash
+    || Number(expectedToken.usedAt || 0) !== 0
+    || !Number.isFinite(completedAt)
+    || completedAt <= 0
+    || Number(consumedToken.createdAt || 0) !== Number(expectedToken.createdAt || 0)
+    || Number(consumedToken.expiresAt || 0) !== Number(expectedToken.expiresAt || 0)
+    || Number(expectedToken.expiresAt || 0) <= completedAt
+  ) {
+    throw new Error("password reset completion has inconsistent user or token state");
+  }
+  const expectedIdentity = { ...expectedUser };
+  const updatedIdentity = { ...updatedUser };
+  delete expectedIdentity.password;
+  delete expectedIdentity.updatedAt;
+  delete updatedIdentity.password;
+  delete updatedIdentity.updatedAt;
+  if (
+    JSON.stringify(expectedIdentity) !== JSON.stringify(updatedIdentity)
+    || !updatedUser.password
+    || typeof updatedUser.password !== "object"
+    || Array.isArray(updatedUser.password)
+    || JSON.stringify(updatedUser.password) === JSON.stringify(expectedUser.password)
+    || Number(updatedUser.updatedAt || 0) < completedAt
+  ) {
+    throw new Error("password reset completion must change only password material and update time");
+  }
+  return { userId, tokenHash, completedAt };
+}
+
+function assertCanonicalAuthSessionForUser(key, session, userId) {
+  if (
+    !session
+    || typeof session !== "object"
+    || Array.isArray(session)
+    || String(key || "").trim() !== String(session.sessionId || "").trim()
+    || String(session.userId || "").trim() !== userId
+    || !String(session.familyId || "").trim()
+    || !String(session.tokenHash || "").trim()
+  ) {
+    throw new Error("password reset encountered an invalid canonical session row");
+  }
+}
+
+function assertCanonicalPasswordResetTokenForUser(key, token, userId) {
+  const createdAt = Number(token?.createdAt);
+  const expiresAt = Number(token?.expiresAt);
+  const usedAt = Number(token?.usedAt);
+  if (
+    !token
+    || typeof token !== "object"
+    || Array.isArray(token)
+    || String(key || "").trim() !== String(token.tokenHash || "").trim()
+    || String(token.userId || "").trim() !== userId
+    || !Number.isFinite(createdAt)
+    || createdAt < 0
+    || !Number.isFinite(expiresAt)
+    || expiresAt <= 0
+    || !Number.isFinite(usedAt)
+    || usedAt < 0
+  ) {
+    throw new Error("password reset encountered an invalid canonical token row");
+  }
 }
 
 async function lockAuthUserMutation(transactionClient, userId) {
@@ -296,8 +393,8 @@ function createPostgresPersistence({
       return Number(r?.rowCount || r?.rows?.length || 0) === 1;
     },
 
-    async issueAuthSession({ userId, session }) {
-      const normalizedUserId = assertAuthSessionIssuance(userId, session);
+    async issueAuthSession({ userId, expectedUser, session }) {
+      const normalizedUserId = assertAuthSessionIssuance(userId, expectedUser, session);
       const c = await client();
       const transactionClient = typeof c.connect === "function"
         ? await c.connect()
@@ -314,9 +411,9 @@ function createPostgresPersistence({
         await lockAuthUserMutation(transactionClient, normalizedUserId);
         const canonicalUser = await transactionClient.query(
           `SELECT value FROM ${tableName("auth_users")}
-           WHERE key = $1
+           WHERE key = $1 AND value = $2::jsonb
            FOR UPDATE`,
-          [normalizedUserId],
+          [normalizedUserId, JSON.stringify(expectedUser)],
         );
         const storedUser = canonicalUser?.rows?.[0]?.value || null;
         if (
@@ -343,6 +440,170 @@ function createPostgresPersistence({
         await transactionClient.query("COMMIT");
         transactionOpen = false;
         return { status: "committed", session };
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+          releaseError = error;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release(releaseError || undefined);
+        }
+      }
+    },
+
+    async completePasswordReset({
+      expectedUser,
+      updatedUser,
+      expectedToken,
+      consumedToken,
+    }) {
+      const { userId, tokenHash, completedAt } = assertPasswordResetCompletion({
+        expectedUser,
+        updatedUser,
+        expectedToken,
+        consumedToken,
+      });
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres password reset completion requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      let releaseError = null;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, userId);
+        const selectedTokens = await transactionClient.query(
+          `SELECT key, value FROM ${tableName("auth_password_reset_tokens")}
+           WHERE value->>'userId' = $1
+           ORDER BY key ASC
+           FOR UPDATE`,
+          [userId],
+        );
+        const tokenRows = Array.isArray(selectedTokens?.rows) ? selectedTokens.rows : [];
+        const observedTokenHashes = new Set();
+        let presentedTokenMatches = false;
+        for (const row of tokenRows) {
+          assertCanonicalPasswordResetTokenForUser(row?.key, row?.value, userId);
+          const rowTokenHash = String(row.key || "").trim();
+          if (observedTokenHashes.has(rowTokenHash)) {
+            throw new Error("password reset encountered duplicate canonical token rows");
+          }
+          observedTokenHashes.add(rowTokenHash);
+          if (rowTokenHash === tokenHash) {
+            presentedTokenMatches = JSON.stringify(row.value) === JSON.stringify(expectedToken);
+          }
+        }
+        if (!presentedTokenMatches) {
+          await transactionClient.query("ROLLBACK");
+          transactionOpen = false;
+          return { status: "conflict" };
+        }
+        const tokens = [];
+        const invalidatedTokenHashes = [];
+        for (const row of tokenRows) {
+          const current = row.value;
+          if (Number(current.usedAt || 0) > 0) {
+            tokens.push(current);
+            continue;
+          }
+          const invalidated = String(row.key || "").trim() === tokenHash
+            ? consumedToken
+            : { ...current, usedAt: completedAt };
+          const updated = await transactionClient.query(
+            `UPDATE ${tableName("auth_password_reset_tokens")}
+             SET value = $3::jsonb, updated_at = NOW()
+             WHERE key = $1 AND value = $2::jsonb
+             RETURNING value`,
+            [row.key, JSON.stringify(current), JSON.stringify(invalidated)],
+          );
+          if (Number(updated?.rowCount || updated?.rows?.length || 0) !== 1) {
+            throw new Error("password reset token invalidation conflict");
+          }
+          const canonicalToken = updated?.rows?.[0]?.value || invalidated;
+          assertCanonicalPasswordResetTokenForUser(row.key, canonicalToken, userId);
+          if (JSON.stringify(canonicalToken) !== JSON.stringify(invalidated)) {
+            throw new Error("password reset token invalidation returned unexpected canonical state");
+          }
+          tokens.push(canonicalToken);
+          invalidatedTokenHashes.push(row.key);
+        }
+        if (!invalidatedTokenHashes.includes(tokenHash)) {
+          throw new Error("password reset did not consume the presented token");
+        }
+        const passwordUpdated = await transactionClient.query(
+          `UPDATE ${tableName("auth_users")}
+           SET value = $3::jsonb, updated_at = NOW()
+           WHERE key = $1 AND value = $2::jsonb
+           RETURNING key`,
+          [userId, JSON.stringify(expectedUser), JSON.stringify(updatedUser)],
+        );
+        if (Number(passwordUpdated?.rowCount || passwordUpdated?.rows?.length || 0) !== 1) {
+          await transactionClient.query("ROLLBACK");
+          transactionOpen = false;
+          return { status: "conflict" };
+        }
+        const selected = await transactionClient.query(
+          `SELECT key, value FROM ${tableName("auth_sessions")}
+           WHERE value->>'userId' = $1
+           ORDER BY key ASC
+           FOR UPDATE`,
+          [userId],
+        );
+        const sessions = [];
+        const revokedSessionIds = [];
+        for (const row of selected?.rows || []) {
+          const current = row?.value || null;
+          assertCanonicalAuthSessionForUser(row?.key, current, userId);
+          if (Number(current.revokedAt || 0) > 0) {
+            sessions.push(current);
+            continue;
+          }
+          const revoked = {
+            ...current,
+            revokedAt: completedAt,
+            updatedAt: completedAt,
+          };
+          const updated = await transactionClient.query(
+            `UPDATE ${tableName("auth_sessions")}
+             SET value = $3::jsonb, updated_at = NOW()
+             WHERE key = $1 AND value = $2::jsonb
+             RETURNING value`,
+            [row.key, JSON.stringify(current), JSON.stringify(revoked)],
+          );
+          if (Number(updated?.rowCount || updated?.rows?.length || 0) !== 1) {
+            throw new Error("password reset session revocation conflict");
+          }
+          sessions.push(updated?.rows?.[0]?.value || revoked);
+          revokedSessionIds.push(row.key);
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        return {
+          status: "committed",
+          user: updatedUser,
+          tokens,
+          invalidatedTokenHashes,
+          sessions,
+          revokedSessionIds,
+        };
       } catch (error) {
         if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
           error.commitOutcomeUnknown = true;
