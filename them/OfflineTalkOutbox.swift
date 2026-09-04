@@ -112,6 +112,12 @@ nonisolated struct OfflineTalkOutboxSendResult {
     }
 }
 
+nonisolated enum OfflineTalkOutboxAuthenticationRequest: Equatable, Sendable {
+    case current
+    case refreshExpired
+    case refreshAfterRejection
+}
+
 nonisolated struct OfflineTalkOutboxEnqueueResult {
     let entry: OfflineTalkOutboxEntry
     let snapshot: OfflineTalkOutboxSnapshot
@@ -136,7 +142,10 @@ actor OfflineTalkOutbox {
     }
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
-    typealias AuthenticationProvider = @Sendable () -> BackendRequestAuthentication
+    typealias AuthenticationProvider = @Sendable (
+        OfflineTalkOutboxAuthenticationRequest,
+        String
+    ) async throws -> BackendRequestAuthentication
 
     static let shared = OfflineTalkOutbox(storageDirectory: defaultStorageDirectory())
 
@@ -345,8 +354,35 @@ actor OfflineTalkOutbox {
 
             let entry = entries[index]
             do {
-                let request = try replayRequest(for: entry)
-                let result = try await sender(request)
+                var requestAuthentication = try await authentication(
+                    for: entry,
+                    request: .current
+                )
+                var didRefreshAuthentication = false
+                if requestAuthentication.hasKnownExpiredCredential {
+                    requestAuthentication = try await authentication(
+                        for: entry,
+                        request: .refreshExpired
+                    )
+                    didRefreshAuthentication = true
+                }
+                var request = try replayRequest(
+                    for: entry,
+                    authentication: requestAuthentication
+                )
+                var result = try await sender(request)
+                if isRefreshableAuthenticationFailure(result),
+                   !didRefreshAuthentication {
+                    requestAuthentication = try await authentication(
+                        for: entry,
+                        request: .refreshAfterRejection
+                    )
+                    request = try replayRequest(
+                        for: entry,
+                        authentication: requestAuthentication
+                    )
+                    result = try await sender(request)
+                }
                 try handleSendResult(result, forEntryID: entry.id, now: now)
             } catch {
                 handleRetryableFailure(
@@ -490,7 +526,124 @@ actor OfflineTalkOutbox {
         blobsDirectory.appendingPathComponent(bodyRef)
     }
 
-    private func replayRequest(for entry: OfflineTalkOutboxEntry) throws -> URLRequest {
+    private func authentication(
+        for entry: OfflineTalkOutboxEntry,
+        request: OfflineTalkOutboxAuthenticationRequest
+    ) async throws -> BackendRequestAuthentication {
+        let queuedUserID = normalizedHeader(entry.ownerUserId) ?? ""
+        let currentAuthentication: BackendRequestAuthentication
+        if let authenticationProvider {
+            currentAuthentication = try await authenticationProvider(request, queuedUserID)
+        } else {
+            currentAuthentication = try await Self.liveAuthentication(
+                request,
+                expectedUserID: queuedUserID
+            )
+        }
+        try validateAuthentication(
+            currentAuthentication,
+            queuedUserID: queuedUserID
+        )
+        if request != .current,
+           currentAuthentication.hasKnownExpiredCredential {
+            throw BackendError.stage(
+                "offline_outbox",
+                "Current credentials are still expired after refresh."
+            )
+        }
+        return currentAuthentication
+    }
+
+    private static func liveAuthentication(
+        _ request: OfflineTalkOutboxAuthenticationRequest,
+        expectedUserID: String
+    ) async throws -> BackendRequestAuthentication {
+        var authentication = BackendAuthClient.currentRequestAuthentication()
+        try validateLiveAuthentication(
+            authentication,
+            expectedUserID: expectedUserID
+        )
+        guard request != .current else { return authentication }
+
+        let authSession = BackendAuthClient.currentAuthSessionState()
+        let refreshAccessToken: Bool
+        let refreshClientToken: Bool
+        switch request {
+        case .current:
+            refreshAccessToken = false
+            refreshClientToken = false
+        case .refreshExpired:
+            refreshAccessToken = authentication.accessTokenExpired
+            refreshClientToken = authentication.clientTokenExpired
+        case .refreshAfterRejection:
+            refreshAccessToken = !authentication.accessToken.isEmpty || authSession.refreshTokenPresent
+            refreshClientToken = true
+        }
+
+        if refreshAccessToken {
+            guard authSession.refreshTokenPresent else {
+                throw BackendMemoryAPIError.server(
+                    status: 401,
+                    message: "refresh_token_required"
+                )
+            }
+            _ = try await BackendAuthClient.refreshAuthSession(force: true)
+            authentication = BackendAuthClient.currentRequestAuthentication()
+            try validateLiveAuthentication(
+                authentication,
+                expectedUserID: expectedUserID
+            )
+        }
+
+        if refreshClientToken {
+            _ = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
+            authentication = BackendAuthClient.currentRequestAuthentication()
+            try validateLiveAuthentication(
+                authentication,
+                expectedUserID: expectedUserID
+            )
+        }
+
+        return authentication
+    }
+
+    private static func validateLiveAuthentication(
+        _ authentication: BackendRequestAuthentication,
+        expectedUserID: String
+    ) throws {
+        let currentUserID = authentication.userID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if expectedUserID.isEmpty {
+            guard currentUserID.isEmpty else {
+                throw BackendError.stage(
+                    "offline_outbox",
+                    "Queued action has no account owner and cannot be replayed while signed in."
+                )
+            }
+            return
+        }
+        guard currentUserID == expectedUserID else {
+            throw BackendError.stage(
+                "offline_outbox",
+                "Queued action belongs to a different signed-in account."
+            )
+        }
+    }
+
+    private func validateAuthentication(
+        _ authentication: BackendRequestAuthentication,
+        queuedUserID: String
+    ) throws {
+        try Self.validateLiveAuthentication(
+            authentication,
+            expectedUserID: queuedUserID
+        )
+    }
+
+    private func replayRequest(
+        for entry: OfflineTalkOutboxEntry,
+        authentication currentAuthentication: BackendRequestAuthentication
+    ) throws -> URLRequest {
         guard let url = URL(string: entry.urlString) else {
             throw BackendError.stage("offline_outbox", "Queued talk request URL is invalid.")
         }
@@ -502,19 +655,8 @@ actor OfflineTalkOutbox {
         for (key, value) in entry.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        let currentAuthentication = authenticationProvider?()
-            ?? BackendAuthClient.currentRequestAuthentication()
-        let queuedUserID = normalizedHeader(entry.ownerUserId) ?? ""
         let currentUserID = currentAuthentication.userID
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !queuedUserID.isEmpty {
-            guard !currentUserID.isEmpty, queuedUserID == currentUserID else {
-                throw BackendError.stage(
-                    "offline_outbox",
-                    "Queued action belongs to a different signed-in account."
-                )
-            }
-        }
         if !currentUserID.isEmpty {
             request.setValue(currentUserID, forHTTPHeaderField: "X-User-Id")
         }
@@ -637,6 +779,15 @@ actor OfflineTalkOutbox {
             data: body,
             retryableStatusCodes: retryableStatusCodes
         )
+    }
+
+    private func isRefreshableAuthenticationFailure(
+        _ result: OfflineTalkOutboxSendResult
+    ) -> Bool {
+        // Queue replay can safely give any rejected credential envelope one
+        // canonical refresh attempt. The original body and idempotency key are
+        // reused, so a lost success response cannot create a second action.
+        result.statusCode == 401
     }
 
     private func normalizedHeader(_ raw: String?) -> String? {

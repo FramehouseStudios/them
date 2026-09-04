@@ -2331,6 +2331,28 @@ nonisolated struct BackendRequestAuthentication: Equatable, Sendable {
     let clientToken: String
     let accessToken: String
     let appToken: String
+    let accessTokenExpired: Bool
+    let clientTokenExpired: Bool
+
+    init(
+        userID: String,
+        clientToken: String,
+        accessToken: String,
+        appToken: String,
+        accessTokenExpired: Bool = false,
+        clientTokenExpired: Bool = false
+    ) {
+        self.userID = userID
+        self.clientToken = clientToken
+        self.accessToken = accessToken
+        self.appToken = appToken
+        self.accessTokenExpired = accessTokenExpired
+        self.clientTokenExpired = clientTokenExpired
+    }
+
+    var hasKnownExpiredCredential: Bool {
+        accessTokenExpired || clientTokenExpired
+    }
 }
 
 nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
@@ -3932,12 +3954,24 @@ nonisolated enum BackendAuthClient {
         let identity = requestIdentitySnapshot(
             generateUserIDIfMissing: generateUserIDIfMissing
         )
+        let authSession = currentAuthSessionState()
         return BackendRequestAuthentication(
             userID: identity.userID,
             clientToken: identity.clientToken,
             accessToken: identity.accessToken,
-            appToken: appToken() ?? ""
+            appToken: appToken() ?? "",
+            accessTokenExpired: !identity.accessToken.isEmpty && authSession.accessExpired,
+            clientTokenExpired: !identity.clientToken.isEmpty && sharedClientTokenIsExpired()
         )
+    }
+
+    private static func sharedClientTokenIsExpired(now: Date = Date()) -> Bool {
+        guard let expiryRaw = sharedClientTokenExpiry() else { return false }
+        guard let expiry = ISO8601DateFormatter().date(from: expiryRaw) else {
+            // An unreadable stored expiry must not make a known token look current.
+            return true
+        }
+        return expiry <= now
     }
 
     private static func requestIdentitySnapshotLocked(

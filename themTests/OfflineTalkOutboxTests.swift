@@ -1,6 +1,52 @@
 import XCTest
 @testable import them
 
+private actor OfflineTalkAuthenticationScript {
+    enum RefreshOutcome: Sendable {
+        case success(BackendRequestAuthentication)
+        case revoked
+    }
+
+    struct Call: Equatable, Sendable {
+        let request: OfflineTalkOutboxAuthenticationRequest
+        let expectedUserID: String
+    }
+
+    enum ScriptError: Error {
+        case refreshRevoked
+    }
+
+    private let current: BackendRequestAuthentication
+    private let refreshOutcome: RefreshOutcome
+    private var calls: [Call] = []
+
+    init(
+        current: BackendRequestAuthentication,
+        refreshOutcome: RefreshOutcome
+    ) {
+        self.current = current
+        self.refreshOutcome = refreshOutcome
+    }
+
+    func authentication(
+        for request: OfflineTalkOutboxAuthenticationRequest,
+        expectedUserID: String
+    ) throws -> BackendRequestAuthentication {
+        calls.append(Call(request: request, expectedUserID: expectedUserID))
+        guard request != .current else { return current }
+        switch refreshOutcome {
+        case .success(let authentication):
+            return authentication
+        case .revoked:
+            throw ScriptError.refreshRevoked
+        }
+    }
+
+    func recordedCalls() -> [Call] {
+        calls
+    }
+}
+
 final class OfflineTalkOutboxTests: XCTestCase {
     private var directory: URL!
 
@@ -20,7 +66,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testEnqueuePersistsMultipartRequestAndRestoresOnRelaunch() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 12
@@ -34,7 +80,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(result.entry.idempotencyKey, "idem-1")
         XCTAssertEqual(result.entry.bodyByteCount, body.count)
 
-        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let relaunched = makeOutbox()
         let entries = await relaunched.allEntries()
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.idempotencyKey, "idem-1")
@@ -43,7 +89,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testEnqueueManifestExcludesCredentialBearingHeaders() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -105,7 +151,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testRelaunchScrubsCredentialsFromLegacyManifest() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("legacy-idem", forHTTPHeaderField: "X-Idempotency-Key")
@@ -128,7 +174,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
         let manifestURL = directory.appendingPathComponent("queue.jsonl")
         try legacyManifest.write(to: manifestURL, options: .atomic)
 
-        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let relaunched = makeOutbox()
         let restoredEntries = await relaunched.allEntries()
         let restoredEntry = try XCTUnwrap(restoredEntries.first)
 
@@ -142,7 +188,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testReplayRebuildsCurrentAuthenticationAfterTokensRotate() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -158,14 +204,22 @@ final class OfflineTalkOutboxTests: XCTestCase {
             reason: "offline"
         )
 
+        let currentAuthentication = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "new-client",
+            accessToken: "new-access",
+            appToken: "new-app"
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: currentAuthentication,
+            refreshOutcome: .success(currentAuthentication)
+        )
         let relaunched = OfflineTalkOutbox(
             storageDirectory: directory,
-            authenticationProvider: {
-                BackendRequestAuthentication(
-                    userID: "writer-1",
-                    clientToken: "new-client",
-                    accessToken: "new-access",
-                    appToken: "new-app"
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
                 )
             }
         )
@@ -185,10 +239,347 @@ final class OfflineTalkOutboxTests: XCTestCase {
 
         XCTAssertTrue(didSend)
         XCTAssertEqual(drained.pendingCount, 0)
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+            ]
+        )
+    }
+
+    func testKnownExpiredCredentialsRefreshBeforeReplayWithoutPersistingTokens() async throws {
+        let outbox = makeOutbox()
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-expired", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue("Bearer stale-access", forHTTPHeaderField: "Authorization")
+        request.setValue("stale-client", forHTTPHeaderField: "X-Client-Token")
+        let body = Data("expired-credential-body".utf8)
+        _ = try await outbox.enqueue(request: request, body: body, reason: "offline")
+
+        let expired = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "expired-client",
+            accessToken: "expired-access",
+            appToken: "current-app",
+            accessTokenExpired: true,
+            clientTokenExpired: true
+        )
+        let refreshed = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "fresh-client",
+            accessToken: "fresh-access",
+            appToken: "current-app"
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: expired,
+            refreshOutcome: .success(refreshed)
+        )
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
+                )
+            }
+        )
+        var transportCalls = 0
+        let drained = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { replayRequest in
+            transportCalls += 1
+            XCTAssertEqual(replayRequest.httpBody, body)
+            XCTAssertEqual(
+                replayRequest.value(forHTTPHeaderField: "X-Idempotency-Key"),
+                "idem-expired"
+            )
+            XCTAssertEqual(
+                replayRequest.value(forHTTPHeaderField: "Authorization"),
+                "Bearer fresh-access"
+            )
+            XCTAssertEqual(
+                replayRequest.value(forHTTPHeaderField: "X-Client-Token"),
+                "fresh-client"
+            )
+            let manifest = try String(
+                contentsOf: self.directory.appendingPathComponent("queue.jsonl"),
+                encoding: .utf8
+            )
+            XCTAssertFalse(manifest.contains("expired-access"))
+            XCTAssertFalse(manifest.contains("expired-client"))
+            XCTAssertFalse(manifest.contains("fresh-access"))
+            XCTAssertFalse(manifest.contains("fresh-client"))
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(transportCalls, 1)
+        XCTAssertEqual(drained.pendingCount, 0)
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+                .init(request: .refreshExpired, expectedUserID: "writer-1"),
+            ]
+        )
+    }
+
+    func testAuthenticationRejectionRefreshesOnceAndReusesExactAction() async throws {
+        let outbox = makeOutbox()
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-auth-retry", forHTTPHeaderField: "X-Idempotency-Key")
+        let body = Data("auth-retry-body".utf8)
+        _ = try await outbox.enqueue(request: request, body: body, reason: "offline")
+
+        let current = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "current-client",
+            accessToken: "current-access",
+            appToken: "current-app"
+        )
+        let refreshed = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "refreshed-client",
+            accessToken: "refreshed-access",
+            appToken: "current-app"
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: current,
+            refreshOutcome: .success(refreshed)
+        )
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
+                )
+            }
+        )
+        var replayedBodies: [Data] = []
+        var replayedIdempotencyKeys: [String] = []
+        var replayedAuthorizations: [String] = []
+        let drained = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { replayRequest in
+            replayedBodies.append(replayRequest.httpBody ?? Data())
+            replayedIdempotencyKeys.append(
+                replayRequest.value(forHTTPHeaderField: "X-Idempotency-Key") ?? ""
+            )
+            replayedAuthorizations.append(
+                replayRequest.value(forHTTPHeaderField: "Authorization") ?? ""
+            )
+            if replayedBodies.count == 1 {
+                return OfflineTalkOutboxSendResult(
+                    statusCode: 401,
+                    body: Data(#"{"stage":"auth_user","error":"expired_user_token"}"#.utf8)
+                )
+            }
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(replayedBodies, [body, body])
+        XCTAssertEqual(replayedIdempotencyKeys, ["idem-auth-retry", "idem-auth-retry"])
+        XCTAssertEqual(
+            replayedAuthorizations,
+            ["Bearer current-access", "Bearer refreshed-access"]
+        )
+        XCTAssertEqual(drained.pendingCount, 0)
+        let remainingEntries = await relaunched.allEntries()
+        XCTAssertTrue(remainingEntries.isEmpty)
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+                .init(request: .refreshAfterRejection, expectedUserID: "writer-1"),
+            ]
+        )
+
+        var duplicateSuccessCalls = 0
+        _ = await relaunched.drainDue(now: Date().addingTimeInterval(20)) { _ in
+            duplicateSuccessCalls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+        XCTAssertEqual(duplicateSuccessCalls, 0)
+    }
+
+    func testFailedRefreshOfKnownExpiredCredentialsDoesNotSendStaleRequest() async throws {
+        let outbox = makeOutbox()
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-expired-refresh-failure", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("expired-refresh-failure-body".utf8),
+            reason: "offline"
+        )
+
+        let expired = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "expired-client",
+            accessToken: "expired-access",
+            appToken: "current-app",
+            accessTokenExpired: true,
+            clientTokenExpired: true
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: expired,
+            refreshOutcome: .revoked
+        )
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
+                )
+            }
+        )
+        var transportCalls = 0
+        let snapshot = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            transportCalls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertEqual(transportCalls, 0)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 0)
+        let entries = await relaunched.allEntries()
+        XCTAssertEqual(entries.first?.status, .pending)
+        XCTAssertEqual(entries.first?.retries, 1)
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+                .init(request: .refreshExpired, expectedUserID: "writer-1"),
+            ]
+        )
+    }
+
+    func testRevokedRefreshAfterAuthenticationRejectionBacksOffWithoutParking() async throws {
+        let outbox = makeOutbox()
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-revoked-refresh", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("revoked-refresh-body".utf8),
+            reason: "offline"
+        )
+
+        let current = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "current-client",
+            accessToken: "rejected-access",
+            appToken: "current-app"
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: current,
+            refreshOutcome: .revoked
+        )
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
+                )
+            }
+        )
+        var transportCalls = 0
+        let snapshot = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            transportCalls += 1
+            return OfflineTalkOutboxSendResult(
+                statusCode: 401,
+                body: Data(#"{"stage":"auth_user","error":"revoked_user_token"}"#.utf8)
+            )
+        }
+
+        XCTAssertEqual(transportCalls, 1)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 0)
+        let entries = await relaunched.allEntries()
+        XCTAssertEqual(entries.first?.status, .pending)
+        XCTAssertEqual(entries.first?.retries, 1)
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+                .init(request: .refreshAfterRejection, expectedUserID: "writer-1"),
+            ]
+        )
+    }
+
+    func testAuthenticationRefreshCannotReplayAcrossAccountChange() async throws {
+        let outbox = makeOutbox()
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-account-change", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("account-change-body".utf8),
+            reason: "offline"
+        )
+
+        let current = BackendRequestAuthentication(
+            userID: "writer-1",
+            clientToken: "current-client",
+            accessToken: "rejected-access",
+            appToken: "current-app"
+        )
+        let differentAccount = BackendRequestAuthentication(
+            userID: "writer-2",
+            clientToken: "writer-2-client",
+            accessToken: "writer-2-access",
+            appToken: "current-app"
+        )
+        let authenticationScript = OfflineTalkAuthenticationScript(
+            current: current,
+            refreshOutcome: .success(differentAccount)
+        )
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { request, expectedUserID in
+                try await authenticationScript.authentication(
+                    for: request,
+                    expectedUserID: expectedUserID
+                )
+            }
+        )
+        var transportCalls = 0
+        let snapshot = await relaunched.drainDue(now: Date().addingTimeInterval(10)) { _ in
+            transportCalls += 1
+            return OfflineTalkOutboxSendResult(statusCode: 401)
+        }
+
+        XCTAssertEqual(transportCalls, 1)
+        XCTAssertEqual(snapshot.pendingCount, 1)
+        XCTAssertEqual(snapshot.parkedCount, 0)
+        let entries = await relaunched.allEntries()
+        XCTAssertEqual(entries.first?.status, .pending)
+        XCTAssertEqual(entries.first?.retries, 1)
+        XCTAssertTrue(
+            entries.first?.lastError?.contains("different signed-in account") == true
+        )
+        let authenticationCalls = await authenticationScript.recordedCalls()
+        XCTAssertEqual(
+            authenticationCalls,
+            [
+                .init(request: .current, expectedUserID: "writer-1"),
+                .init(request: .refreshAfterRejection, expectedUserID: "writer-1"),
+            ]
+        )
     }
 
     func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -211,7 +602,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testQuestionResolutionSurvivesRelaunchAndSuppressesOnlyActiveQuestion() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(
             url: URL(string: "https://them.test/memory/screenplay-question/resolve")!
         )
@@ -235,7 +626,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
 
         _ = try await outbox.enqueue(request: request, body: body, reason: "offline")
 
-        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let relaunched = makeOutbox()
         let queuedIDs = await relaunched.pendingScreenplayQuestionResolutionIDs()
         XCTAssertEqual(queuedIDs, Set(["screenplay-learning-4-project.theme_argument"]))
 
@@ -258,7 +649,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testQueuedWriteNeverCrossesIntoAnotherSignedInAccount() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(
             url: URL(string: "https://them.test/memory/screenplay-question/resolve")!
         )
@@ -291,7 +682,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testRetryableFailureBacksOffThenDrainsOnLaterSuccess() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -334,7 +725,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testProviderQuotaParksWithoutRetryingAfterRelaunch() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -358,7 +749,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testProviderRateLimitStillBacksOffForQueuedTurn() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -378,7 +769,7 @@ final class OfflineTalkOutboxTests: XCTestCase {
     }
 
     func testNonRetryableClientErrorParksAndCanBeDeleted() async throws {
-        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let outbox = makeOutbox()
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
@@ -397,5 +788,19 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(cleared.parkedCount, 0)
         entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
+    }
+
+    private func makeOutbox(
+        authentication: BackendRequestAuthentication = BackendRequestAuthentication(
+            userID: "",
+            clientToken: "",
+            accessToken: "",
+            appToken: ""
+        )
+    ) -> OfflineTalkOutbox {
+        OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: { _, _ in authentication }
+        )
     }
 }
