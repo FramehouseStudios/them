@@ -1284,11 +1284,21 @@ function updateUserPassword(userId, password, now = Date.now()) {
 function issueAuthSession(input = {}, now = Date.now()) {
   const userId = normalizeUserId(input.userId);
   if (!userId) return null;
+  const prepared = prepareAuthSession({ ...input, userId }, now);
+  const session = replaceAuthSessionRecord(prepared.session);
+  saveUserStore(now);
+  return {
+    session,
+    refreshToken: prepared.refreshToken,
+  };
+}
+
+function prepareAuthSession(input = {}, now = Date.now()) {
   const refreshToken = buildOpaqueToken();
-  const session = replaceAuthSessionRecord({
+  const session = sanitizeAuthSessionRecord({
     sessionId: "sess_" + randomUUID().replace(/-/g, "").slice(0, 16),
     familyId: String(input.familyId || "fam_" + randomUUID().replace(/-/g, "").slice(0, 16)).trim(),
-    userId,
+    userId: input.userId,
     tokenHash: hashOpaqueToken(refreshToken),
     createdAt: now,
     updatedAt: now,
@@ -1297,7 +1307,6 @@ function issueAuthSession(input = {}, now = Date.now()) {
     replacedBySessionId: "",
     metadata: sanitizeSessionMetadata(input.metadata),
   });
-  saveUserStore(now);
   return {
     session,
     refreshToken,
@@ -1406,7 +1415,7 @@ async function revokeAllAuthSessionsForUserDurably(userId, now = Date.now(), opt
 function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
   const current = getAuthSessionByToken(refreshToken, now);
   if (!current) return null;
-  const issued = issueAuthSession({
+  const issued = prepareAuthSession({
     userId: current.userId,
     familyId: current.familyId,
     ttlMs: input.ttlMs,
@@ -1415,18 +1424,109 @@ function rotateAuthSession(refreshToken, input = {}, now = Date.now()) {
       ? input.metadata
       : current.metadata,
   }, now);
-  if (!issued) return null;
+  if (!issued.session) return null;
+  const session = replaceAuthSessionRecord(issued.session);
   const previousSession = replaceAuthSessionRecord({
+    ...current,
+    revokedAt: now,
+    updatedAt: now,
+    replacedBySessionId: session.sessionId,
+  });
+  saveUserStore(now);
+  return {
+    previousSession,
+    session,
+    refreshToken: issued.refreshToken,
+  };
+}
+
+async function rotateAuthSessionDurably(refreshToken, input = {}, now = Date.now()) {
+  const { USER_STORE_PATH, writeJsonFileAtomic, persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    return {
+      status: "snapshot_pending",
+      rotation: rotateAuthSession(refreshToken, input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.rotateAuthSession !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: false,
+    };
+  }
+
+  const pendingPersistence = await flushUserStorePersistenceWrites();
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: false,
+    };
+  }
+  const current = getAuthSessionByToken(refreshToken, now);
+  if (!current || !getUserById(current.userId)) {
+    return { status: "invalid_refresh_token", rotation: null, retryable: false };
+  }
+  const issued = prepareAuthSession({
+    userId: current.userId,
+    familyId: current.familyId,
+    ttlMs: input.ttlMs,
+    expiresAt: input.expiresAt,
+    metadata: Object.keys(input.metadata && typeof input.metadata === "object" ? input.metadata : {}).length
+      ? input.metadata
+      : current.metadata,
+  }, now);
+  if (!issued.session) {
+    return { status: "invalid_refresh_token", rotation: null, retryable: false };
+  }
+  const previousSession = sanitizeAuthSessionRecord({
     ...current,
     revokedAt: now,
     updatedAt: now,
     replacedBySessionId: issued.session.sessionId,
   });
-  saveUserStore(now);
+
+  try {
+    const swapped = await persistence.rotateAuthSession({
+      expectedSession: current,
+      previousSession,
+      nextSession: issued.session,
+    });
+    if (!swapped) {
+      return { status: "invalid_refresh_token", rotation: null, retryable: false };
+    }
+  } catch (error) {
+    return {
+      status: "auth_persistence_failed",
+      rotation: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+
+  const committedPreviousSession = replaceAuthSessionRecord(previousSession);
+  const committedSession = replaceAuthSessionRecord(issued.session);
+  const localPayload = buildUserStorePayload(now, { cleanupExpired: false });
+  let localFileOk = true;
+  try {
+    localFileOk = typeof writeJsonFileAtomic === "function"
+      ? writeJsonFileAtomic(USER_STORE_PATH, localPayload, "user_store")
+      : true;
+  } catch {
+    localFileOk = false;
+  }
+  if (!localFileOk) {
+    console.error("[user_store] local auth mirror write failed after canonical refresh rotation");
+  }
   return {
-    previousSession,
-    session: issued.session,
-    refreshToken: issued.refreshToken,
+    status: "committed",
+    rotation: {
+      previousSession: committedPreviousSession,
+      session: committedSession,
+      refreshToken: issued.refreshToken,
+    },
+    retryable: true,
   };
 }
 
@@ -1524,6 +1624,7 @@ export {
   revokeAuthSessionByToken,
   restoreUserStoreCheckpoint,
   rotateAuthSession,
+  rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
   saveUserStore,
   usersByAppleSubject,

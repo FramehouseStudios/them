@@ -22,7 +22,7 @@ import {
   revokeAuthSessionById,
   revokeAuthSessionByToken,
   restoreUserStoreCheckpoint,
-  rotateAuthSession,
+  rotateAuthSessionDurably,
   runUserStoreMutationExclusive,
   updateUserPassword,
   validateUserPassword,
@@ -766,10 +766,18 @@ function createUserAuthSubsystem(options = {}) {
         error: "refresh_token_required",
       });
     }
-    const rotated = rotateAuthSession(refreshToken, {
+    const rotationResult = await rotateAuthSessionDurably(refreshToken, {
       ttlMs: refreshTtlSeconds * 1000,
       metadata: readRequestDevice(req),
     }, Date.now());
+    if (rotationResult.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_refresh",
+        error: "auth_persistence_failed",
+        retryable: rotationResult.retryable === true,
+      });
+    }
+    const rotated = rotationResult.rotation;
     if (!rotated) {
       return res.status(401).json({
         stage: "auth_refresh",
@@ -785,7 +793,8 @@ function createUserAuthSubsystem(options = {}) {
         error: "invalid_refresh_token",
       });
     }
-    if (!(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
+    if (rotationResult.status !== "committed"
+      && !(await ensureAuthMutationPersisted(res, "auth_refresh", checkpoint))) return;
     return res.status(200).json(buildAuthEnvelope({
       user,
       accessToken: signAccessToken(user, rotated.session),

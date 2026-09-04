@@ -37,6 +37,9 @@ function createPgMock() {
   return {
     async query(sql, params = []) {
       const trimmed = sql.replace(/\s+/g, " ").trim();
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(trimmed)) {
+        return { rows: [], rowCount: 0 };
+      }
       // SELECT one
       let m = trimmed.match(/^SELECT value FROM (\w+) WHERE key = \$1$/i);
       if (m) {
@@ -206,6 +209,149 @@ test("[postgres] list escapes LIKE metacharacters and declares the escape charac
   assert.equal(calls[0].params[0], "project\\%\\_\\\\%");
   assert.equal(calls[0].params[1], "project%_\\first");
   assert.equal(calls[0].params[2], 25);
+});
+
+function authSession({
+  sessionId,
+  userId = "writer-1",
+  familyId = "family-1",
+  tokenHash,
+  revokedAt = 0,
+  replacedBySessionId = "",
+} = {}) {
+  return {
+    sessionId,
+    familyId,
+    userId,
+    tokenHash: tokenHash || `hash-${sessionId}`,
+    createdAt: 1_000,
+    updatedAt: revokedAt || 1_000,
+    expiresAt: 9_000_000_000_000,
+    revokedAt,
+    replacedBySessionId,
+    metadata: {},
+  };
+}
+
+test("[postgres] concurrent auth rotation has one winner and leaves unrelated users untouched", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const current = authSession({ sessionId: "session-current" });
+  const unrelated = authSession({
+    sessionId: "session-unrelated",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  const nextA = authSession({ sessionId: "session-next-a" });
+  const nextB = authSession({ sessionId: "session-next-b" });
+  const previousA = {
+    ...current,
+    updatedAt: 2_000,
+    revokedAt: 2_000,
+    replacedBySessionId: nextA.sessionId,
+  };
+  const previousB = {
+    ...current,
+    updatedAt: 2_001,
+    revokedAt: 2_001,
+    replacedBySessionId: nextB.sessionId,
+  };
+  await p.put({ domain: "auth_sessions", key: current.sessionId, value: current });
+  await p.put({ domain: "auth_sessions", key: unrelated.sessionId, value: unrelated });
+
+  const results = await Promise.all([
+    p.rotateAuthSession({ expectedSession: current, previousSession: previousA, nextSession: nextA }),
+    p.rotateAuthSession({ expectedSession: current, previousSession: previousB, nextSession: nextB }),
+  ]);
+
+  assert.equal(results.filter(Boolean).length, 1);
+  const persistedPrevious = await p.get({ domain: "auth_sessions", key: current.sessionId });
+  const winner = persistedPrevious.replacedBySessionId === nextA.sessionId ? nextA : nextB;
+  const loser = winner.sessionId === nextA.sessionId ? nextB : nextA;
+  assert.equal(persistedPrevious.revokedAt > 0, true);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: winner.sessionId }), winner);
+  assert.equal(await p.get({ domain: "auth_sessions", key: loser.sessionId }), null);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+});
+
+test("[postgres] auth rotation rejects cross-user replacements before opening a transaction", async () => {
+  const calls = [];
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql) {
+        calls.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+    },
+  });
+  const current = authSession({ sessionId: "session-current" });
+  const next = authSession({
+    sessionId: "session-next",
+    userId: "writer-2",
+  });
+  await assert.rejects(
+    p.rotateAuthSession({
+      expectedSession: current,
+      previousSession: {
+        ...current,
+        revokedAt: 2_000,
+        replacedBySessionId: next.sessionId,
+      },
+      nextSession: next,
+    }),
+    /cannot cross users/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("[postgres] auth rotation rolls back when replacement insertion fails", async () => {
+  const current = authSession({ sessionId: "session-current" });
+  const next = authSession({ sessionId: "session-next" });
+  const rows = new Map([[current.sessionId, structuredClone(current)]]);
+  const transactionCalls = [];
+  let checkpoint = null;
+  const pgClient = {
+    async query(sql, params = []) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      transactionCalls.push(trimmed);
+      if (trimmed === "BEGIN") {
+        checkpoint = structuredClone([...rows.entries()]);
+        return { rows: [], rowCount: 0 };
+      }
+      if (trimmed.startsWith("UPDATE persistence_auth_sessions")) {
+        const existing = rows.get(params[0]);
+        if (JSON.stringify(existing) !== JSON.stringify(JSON.parse(params[1]))) {
+          return { rows: [], rowCount: 0 };
+        }
+        rows.set(params[0], JSON.parse(params[2]));
+        return { rows: [{ key: params[0] }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("INSERT INTO persistence_auth_sessions")) {
+        throw new Error("simulated replacement insert failure");
+      }
+      if (trimmed === "ROLLBACK") {
+        rows.clear();
+        for (const [key, value] of checkpoint || []) rows.set(key, value);
+        return { rows: [], rowCount: 0 };
+      }
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+  };
+  const p = createPostgresPersistence({ pgClient });
+  await assert.rejects(
+    p.rotateAuthSession({
+      expectedSession: current,
+      previousSession: {
+        ...current,
+        revokedAt: 2_000,
+        replacedBySessionId: next.sessionId,
+      },
+      nextSession: next,
+    }),
+    /simulated replacement insert failure/,
+  );
+  assert.deepEqual(rows.get(current.sessionId), current);
+  assert.equal(rows.has(next.sessionId), false);
+  assert.equal(transactionCalls.at(-1), "ROLLBACK");
 });
 
 // ---------- contract tests, run against both impls ----------

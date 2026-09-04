@@ -50,12 +50,12 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 
 4. **Keep the V1 backend at one instance.**
 
-   Auth mutations are serialized by an in-process lock and persisted as a
-   complete auth-store snapshot. That is safe for the V1 single-instance
-   deployment, but not for horizontal scaling: two writers can prune each
-   other's records or rotate the same refresh token twice. Before increasing
-   instance count, replace auth snapshot writes with row-scoped Postgres
-   transactions and compare-and-swap refresh rotation.
+   Refresh-token rotation now uses a row-scoped Postgres transaction and
+   compare-and-swap, so concurrent refresh requests have one winner. Other
+   auth mutations are still serialized by an in-process lock and persisted as
+   a complete auth-store snapshot. Keep the V1 backend at one instance until
+   those remaining writes and prunes are row-scoped too; otherwise two writers
+   can still overwrite unrelated auth records.
 
 ## Required production environment
 

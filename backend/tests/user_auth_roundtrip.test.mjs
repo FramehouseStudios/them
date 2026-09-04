@@ -87,6 +87,60 @@ function setupSubsystem(overrides = {}, userStoreOverrides = {}) {
   });
 }
 
+function createPostgresAuthPersistence() {
+  const domains = new Map();
+  const putCalls = [];
+  const rotationCalls = [];
+  let rotationFailure = null;
+  const domainRows = (domain) => {
+    if (!domains.has(domain)) domains.set(domain, new Map());
+    return domains.get(domain);
+  };
+  return {
+    kind: "postgres",
+    putCalls,
+    rotationCalls,
+    failNextRotation(error = new Error("simulated auth rotation failure")) {
+      rotationFailure = error;
+    },
+    async put({ domain, key, value }) {
+      putCalls.push({ domain, key });
+      domainRows(domain).set(key, structuredClone(value));
+    },
+    async get({ domain, key }) {
+      const value = domainRows(domain).get(key);
+      return value === undefined ? null : structuredClone(value);
+    },
+    async delete({ domain, key }) {
+      domainRows(domain).delete(key);
+    },
+    async list({ domain, afterKey = "", limit = 10_000 }) {
+      return [...domainRows(domain).entries()]
+        .filter(([key]) => !afterKey || key > afterKey)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .slice(0, limit)
+        .map(([key, value]) => ({ key, value: structuredClone(value) }));
+    },
+    async rotateAuthSession(input) {
+      rotationCalls.push(structuredClone(input));
+      if (rotationFailure) {
+        const error = rotationFailure;
+        rotationFailure = null;
+        throw error;
+      }
+      const sessions = domainRows("auth_sessions");
+      const current = sessions.get(input.expectedSession.sessionId);
+      if (JSON.stringify(current) !== JSON.stringify(input.expectedSession)) return false;
+      sessions.set(input.previousSession.sessionId, structuredClone(input.previousSession));
+      if (sessions.has(input.nextSession.sessionId)) {
+        throw new Error("replacement session collision");
+      }
+      sessions.set(input.nextSession.sessionId, structuredClone(input.nextSession));
+      return true;
+    },
+  };
+}
+
 function makeRes() {
   return {
     _status: 200,
@@ -301,6 +355,77 @@ test("[user-auth-roundtrip] refresh rotation and logout are durable when their h
   } finally {
     await persistence.close();
   }
+});
+
+test("[user-auth-roundtrip] Postgres refresh uses row-scoped rotation and rejects replay", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-rotation@example.com", password: "validpass123" }),
+    signup,
+  );
+  assert.equal(signup._status, 201);
+  const originalRefreshToken = signup._body.refresh_token;
+  const originalSessionId = signup._body.current_session_id;
+  const sessionPutsBeforeRefresh = persistence.putCalls
+    .filter((call) => call.domain === "auth_sessions").length;
+
+  const refresh = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), refresh);
+  assert.equal(refresh._status, 200);
+  assert.equal(persistence.rotationCalls.length, 1);
+  assert.equal(
+    persistence.putCalls.filter((call) => call.domain === "auth_sessions").length,
+    sessionPutsBeforeRefresh,
+    "refresh must not rewrite the full auth-session snapshot",
+  );
+  const previous = await persistence.get({ domain: "auth_sessions", key: originalSessionId });
+  assert.equal(previous.replacedBySessionId, refresh._body.current_session_id);
+  assert.equal(previous.revokedAt > 0, true);
+  assert.ok(await persistence.get({
+    domain: "auth_sessions",
+    key: refresh._body.current_session_id,
+  }));
+
+  const replay = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), replay);
+  assert.equal(replay._status, 401);
+  assert.equal(replay._body.error, "invalid_refresh_token");
+  assert.equal(persistence.rotationCalls.length, 1);
+});
+
+test("[user-auth-roundtrip] Postgres rotation failure keeps the original token retryable", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-retry@example.com", password: "validpass123" }),
+    signup,
+  );
+  const originalRefreshToken = signup._body.refresh_token;
+  const originalSessionId = signup._body.current_session_id;
+  const originalSession = await persistence.get({
+    domain: "auth_sessions",
+    key: originalSessionId,
+  });
+  persistence.failNextRotation();
+
+  const failed = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), failed);
+  assert.equal(failed._status, 503);
+  assert.equal(failed._body.error, "auth_persistence_failed");
+  assert.equal(failed._body.retryable, true);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: originalSessionId }),
+    originalSession,
+  );
+  assert.ok(getAuthSessionByToken(originalRefreshToken));
+
+  const retry = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: originalRefreshToken }), retry);
+  assert.equal(retry._status, 200);
+  assert.notEqual(retry._body.refresh_token, originalRefreshToken);
 });
 
 test("[user-auth-roundtrip] failed refresh restores live state without promising an undurable retry", async () => {

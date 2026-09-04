@@ -57,8 +57,62 @@ async function loadPgClient(poolConfig) {
   const pool = new Pool(poolConfig);
   return {
     query: (...args) => pool.query(...args),
+    connect: () => pool.connect(),
     end: () => pool.end(),
   };
+}
+
+function assertAuthSessionRotation(expectedSession, previousSession, nextSession) {
+  for (const [label, value] of [
+    ["expectedSession", expectedSession],
+    ["previousSession", previousSession],
+    ["nextSession", nextSession],
+  ]) {
+    assertValue(value);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`auth session rotation ${label} must be an object`);
+    }
+  }
+  const currentSessionId = String(expectedSession.sessionId || "").trim();
+  const previousSessionId = String(previousSession.sessionId || "").trim();
+  const nextSessionId = String(nextSession.sessionId || "").trim();
+  const currentUserId = String(expectedSession.userId || "").trim();
+  const currentFamilyId = String(expectedSession.familyId || "").trim();
+  if (!currentSessionId || previousSessionId !== currentSessionId) {
+    throw new Error("auth session rotation must replace the expected session row");
+  }
+  if (!nextSessionId || nextSessionId === currentSessionId) {
+    throw new Error("auth session rotation requires a distinct replacement session");
+  }
+  if (
+    !currentUserId
+    || String(previousSession.userId || "").trim() !== currentUserId
+    || String(nextSession.userId || "").trim() !== currentUserId
+  ) {
+    throw new Error("auth session rotation cannot cross users");
+  }
+  if (
+    !currentFamilyId
+    || String(previousSession.familyId || "").trim() !== currentFamilyId
+    || String(nextSession.familyId || "").trim() !== currentFamilyId
+  ) {
+    throw new Error("auth session rotation cannot cross session families");
+  }
+  if (String(previousSession.replacedBySessionId || "").trim() !== nextSessionId) {
+    throw new Error("auth session rotation replacement link is inconsistent");
+  }
+  if (
+    Number(expectedSession.revokedAt || 0) > 0
+    || String(expectedSession.replacedBySessionId || "").trim()
+    || String(previousSession.tokenHash || "").trim() !== String(expectedSession.tokenHash || "").trim()
+    || !String(nextSession.tokenHash || "").trim()
+    || String(nextSession.tokenHash || "").trim() === String(expectedSession.tokenHash || "").trim()
+  ) {
+    throw new Error("auth session rotation requires a fresh replacement token");
+  }
+  if (Number(previousSession.revokedAt || 0) <= 0 || Number(nextSession.revokedAt || 0) > 0) {
+    throw new Error("auth session rotation requires a revoked predecessor and active replacement");
+  }
 }
 
 function createPostgresPersistence({
@@ -156,6 +210,73 @@ function createPostgresPersistence({
         );
       }
       return Number(r?.rowCount || r?.rows?.length || 0) === 1;
+    },
+
+    async rotateAuthSession({ expectedSession, previousSession, nextSession }) {
+      assertAuthSessionRotation(expectedSession, previousSession, nextSession);
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres auth session rotation requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        const replaced = await transactionClient.query(
+          `UPDATE ${tableName("auth_sessions")}
+           SET value = $3::jsonb, updated_at = NOW()
+           WHERE key = $1 AND value = $2::jsonb
+           RETURNING key`,
+          [
+            expectedSession.sessionId,
+            JSON.stringify(expectedSession),
+            JSON.stringify(previousSession),
+          ],
+        );
+        if (Number(replaced?.rowCount || replaced?.rows?.length || 0) !== 1) {
+          await transactionClient.query("ROLLBACK");
+          transactionOpen = false;
+          return false;
+        }
+        const inserted = await transactionClient.query(
+          `INSERT INTO ${tableName("auth_sessions")} (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key`,
+          [nextSession.sessionId, JSON.stringify(nextSession)],
+        );
+        if (Number(inserted?.rowCount || inserted?.rows?.length || 0) !== 1) {
+          const conflict = new Error("auth session replacement row already exists");
+          conflict.code = "AUTH_SESSION_REPLACEMENT_CONFLICT";
+          throw conflict;
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        return true;
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release();
+        }
+      }
     },
 
     async delete({ domain, key }) {
