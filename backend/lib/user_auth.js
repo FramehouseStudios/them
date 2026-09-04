@@ -18,7 +18,7 @@ import {
   issueAuthSession,
   issueAuthSessionDurably,
   issueEmailVerificationToken,
-  issuePasswordResetToken,
+  issuePasswordResetTokenDurably,
   listAuthSessionsForUser,
   markUserEmailVerified,
   revokeAllAuthSessionsForUserDurablyInMutation,
@@ -171,13 +171,12 @@ function createUserAuthSubsystem(options = {}) {
     return res.status(503).json({ stage, error: "user_auth_not_configured" });
   }
 
-  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+  async function persistAuthMutationOrRestore(checkpoint) {
     try {
       const result = await flushUserStorePersistenceWrites();
-      if (result?.ok === true) return true;
+      if (result?.ok === true) return { ok: true, retryable: true };
     } catch {
-      // The response below is intentionally generic so storage details and
-      // credentials never escape through the auth surface.
+      // The compensating path below restores the pre-mutation checkpoint.
     }
     let retryable = false;
     try {
@@ -189,11 +188,17 @@ function createUserAuthSubsystem(options = {}) {
       // compensating durability attempt. Do not promise a safe retry unless
       // that compensation also reached durable storage.
     }
+    return { ok: false, retryable };
+  }
+
+  async function ensureAuthMutationPersisted(res, stage, checkpoint) {
+    const persistenceResult = await persistAuthMutationOrRestore(checkpoint);
+    if (persistenceResult.ok) return true;
     if (!res.headersSent) {
       res.status(503).json({
         stage,
         error: "auth_persistence_failed",
-        retryable,
+        retryable: persistenceResult.retryable,
       });
     }
     return false;
@@ -248,6 +253,32 @@ function createUserAuthSubsystem(options = {}) {
       verification_required: pendingEmailVerification,
       ...extra,
     };
+  }
+
+  function respondToPasswordResetRequest(res, debugResetToken = "") {
+    const safeDebugToken = allowDebugTokens ? String(debugResetToken || "").trim() : "";
+    const extra = {
+      password_reset_requested: true,
+      email_delivery: buildEmailDelivery(
+        safeDebugToken ? "token_in_response" : "queued",
+        safeDebugToken ? "inline_debug" : "none",
+      ),
+    };
+    if (safeDebugToken) extra.debug_password_reset_token = safeDebugToken;
+    return res.status(200).json(buildAuthEnvelope({ extra }));
+  }
+
+  function serializePasswordResetRequest(handler) {
+    return (req, res, next) => runUserStoreMutationExclusive(async () => {
+      // A reconciliation outage applies to every supplied address. Keep the
+      // reset-request contract generic instead of exposing whether an account
+      // would have existed after canonical hydration.
+      if (!(await ensureUserStoreCanonicalReconciled())) {
+        return respondToPasswordResetRequest(res);
+      }
+      const checkpoint = createUserStoreCheckpoint(Date.now());
+      return handler(req, res, checkpoint, next);
+    });
   }
 
   function signAccessToken(user, session) {
@@ -1018,27 +1049,25 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     const user = getUserByEmail(email);
-    const issued = user
-      ? issuePasswordResetToken({
-          userId: user.id,
-          ttlMs: passwordResetTtlSeconds * 1000,
-        }, Date.now())
-      : null;
-    const debugResetToken = allowDebugTokens && issued ? issued.token : "";
-    const extra = {
-      password_reset_requested: true,
-      email_delivery: buildEmailDelivery(
-        debugResetToken ? "token_in_response" : "queued",
-        debugResetToken ? "inline_debug" : "none"
-      ),
-    };
-    if (debugResetToken) {
-      extra.debug_password_reset_token = debugResetToken;
-    }
-    if (issued && !(await ensureAuthMutationPersisted(res, "auth_request_password_reset", checkpoint))) return;
-    return res.status(200).json(buildAuthEnvelope({
-      extra,
-    }));
+    const issuanceResult = await issuePasswordResetTokenDurably(user
+      ? {
+        userId: user.id,
+        ttlMs: passwordResetTtlSeconds * 1000,
+      }
+      : {
+        privacyCoverKey: email,
+        ttlMs: passwordResetTtlSeconds * 1000,
+      }, Date.now());
+    let issued = issuanceResult?.issuance || null;
+    if (
+      issuanceResult?.status === "snapshot_pending"
+      && !(await persistAuthMutationOrRestore(checkpoint)).ok
+    ) issued = null;
+
+    // Persistence failures, collisions, and uncertain commits intentionally
+    // collapse into the same accepted response as an unknown address. A raw
+    // token is exposed only in local/test mode after confirmed durability.
+    return respondToPasswordResetRequest(res, issued?.token);
   }
 
   async function handleAuthResetPassword(req, res, checkpoint) {
@@ -1189,7 +1218,7 @@ function createUserAuthSubsystem(options = {}) {
     handleAuthLogout: serializeAuthMutation(handleAuthLogout),
     handleAuthRefresh: serializeAuthMutation(handleAuthRefresh),
     handleAuthRequestEmailVerification: serializeAuthMutation(handleAuthRequestEmailVerification),
-    handleAuthRequestPasswordReset: serializeAuthMutation(handleAuthRequestPasswordReset),
+    handleAuthRequestPasswordReset: serializePasswordResetRequest(handleAuthRequestPasswordReset),
     handleAuthResetPassword: serializeAuthMutation(handleAuthResetPassword),
     handleAuthSessions,
     handleAuthSessionsRevoke: serializeAuthMutation(handleAuthSessionsRevoke),

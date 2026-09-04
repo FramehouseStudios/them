@@ -78,6 +78,9 @@ function createPgMock() {
       if (m) {
         const tbl = ensure(m[1]);
         if (/ON CONFLICT \(key\) DO NOTHING RETURNING key$/i.test(trimmed)) {
+          if (/WHERE \$3::boolean/i.test(trimmed) && params[2] !== true) {
+            return { rows: [], rowCount: 0 };
+          }
           if (tbl.has(params[0])) return { rows: [], rowCount: 0 };
           const value = JSON.parse(params[1]);
           tbl.set(params[0], { value, updated_at: new Date() });
@@ -430,6 +433,233 @@ test("[postgres] auth issuance rolls back a failed insert before reporting failu
   assert.equal(calls.at(-1), "ROLLBACK");
 });
 
+test("[postgres] password-reset request inserts one token without rewriting unrelated rows", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const user = authUser();
+  const token = passwordResetToken({ tokenHash: "request-token" });
+  const unrelated = passwordResetToken({
+    tokenHash: "request-unrelated",
+    userId: "writer-2",
+  });
+  await p.put({ domain: "auth_users", key: user.id, value: user });
+  await p.put({
+    domain: "auth_password_reset_tokens",
+    key: unrelated.tokenHash,
+    value: unrelated,
+  });
+
+  const issued = await p.issuePasswordResetToken({
+    userId: user.id,
+    expectedUser: user,
+    token,
+  });
+  assert.equal(issued.status, "committed");
+  assert.deepEqual(issued.token, token);
+  assert.deepEqual(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: token.tokenHash,
+  }), token);
+  assert.deepEqual(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: unrelated.tokenHash,
+  }), unrelated);
+
+  const replay = await p.issuePasswordResetToken({
+    userId: user.id,
+    expectedUser: user,
+    token,
+  });
+  assert.equal(replay.status, "conflict");
+  assert.deepEqual(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: token.tokenHash,
+  }), token);
+
+  const conflicting = passwordResetToken({
+    tokenHash: unrelated.tokenHash,
+    userId: user.id,
+  });
+  const collision = await p.issuePasswordResetToken({
+    userId: user.id,
+    expectedUser: user,
+    token: conflicting,
+  });
+  assert.equal(collision.status, "conflict");
+  assert.deepEqual(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: unrelated.tokenHash,
+  }), unrelated);
+});
+
+test("[postgres] known and privacy-cover reset requests share the insert-and-commit SQL shape", async () => {
+  const statements = [];
+  const baseClient = createPgMock();
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql, params = []) {
+        statements.push(sql.replace(/\s+/g, " ").trim());
+        return baseClient.query(sql, params);
+      },
+    },
+  });
+  const user = authUser({ id: "writer-reset-shape" });
+  const knownToken = passwordResetToken({
+    tokenHash: "reset-shape-known",
+    userId: user.id,
+  });
+  const privacyUserId = "password_reset_privacy_0123456789abcdef0123456789abcdef";
+  const privacyUser = { id: privacyUserId, passwordResetPrivacyCover: true };
+  const privacyToken = passwordResetToken({
+    tokenHash: "reset-shape-cover",
+    userId: privacyUserId,
+  });
+  await p.put({ domain: "auth_users", key: user.id, value: user });
+
+  statements.length = 0;
+  const known = await p.issuePasswordResetToken({
+    userId: user.id,
+    expectedUser: user,
+    token: knownToken,
+  });
+  const knownShape = [...statements];
+  statements.length = 0;
+  const privacyCover = await p.issuePasswordResetToken({
+    userId: privacyUserId,
+    expectedUser: privacyUser,
+    token: privacyToken,
+  });
+  const privacyShape = [...statements];
+
+  assert.equal(known.status, "committed");
+  assert.equal(privacyCover.status, "user_missing");
+  assert.deepEqual(privacyShape, knownShape);
+  assert.deepEqual(
+    knownShape.map((sql) => {
+      if (sql === "BEGIN" || sql === "COMMIT") return sql;
+      if (sql.startsWith("SELECT pg_advisory_xact_lock")) return "LOCK";
+      if (sql.startsWith("SELECT value FROM persistence_auth_users")) return "SELECT_USER";
+      if (sql.startsWith("INSERT INTO persistence_auth_password_reset_tokens")) return "INSERT_TOKEN";
+      return sql;
+    }),
+    ["BEGIN", "LOCK", "SELECT_USER", "INSERT_TOKEN", "COMMIT"],
+  );
+  assert.match(knownShape[3], /SELECT \$1, \$2::jsonb, NOW\(\) WHERE \$3::boolean/);
+  assert.deepEqual(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: knownToken.tokenHash,
+  }), knownToken);
+  assert.equal(await p.get({
+    domain: "auth_password_reset_tokens",
+    key: privacyToken.tokenHash,
+  }), null);
+});
+
+test("[postgres] password-reset request rejects stale and mixed-user issuance", async () => {
+  const calls = [];
+  const baseClient = createPgMock();
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql, params = []) {
+        calls.push(sql.replace(/\s+/g, " ").trim());
+        return baseClient.query(sql, params);
+      },
+    },
+  });
+  const user = authUser();
+  const token = passwordResetToken({ tokenHash: "request-stale" });
+  const stale = await p.issuePasswordResetToken({
+    userId: user.id,
+    expectedUser: user,
+    token,
+  });
+  assert.equal(stale.status, "user_missing");
+  assert.equal(await p.get({ domain: "auth_password_reset_tokens", key: token.tokenHash }), null);
+
+  const callsBeforeMixed = calls.length;
+  await assert.rejects(
+    p.issuePasswordResetToken({
+      userId: user.id,
+      expectedUser: user,
+      token: { ...token, userId: "writer-2" },
+    }),
+    /cannot cross users/,
+  );
+  assert.equal(calls.length, callsBeforeMixed);
+});
+
+test("[postgres] password-reset request rolls back insertion failures", async () => {
+  const user = authUser();
+  const token = passwordResetToken({ tokenHash: "request-rollback" });
+  const calls = [];
+  const transactionClient = {
+    async query(sql) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      calls.push(trimmed);
+      if (trimmed === "BEGIN" || trimmed === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("SELECT value FROM persistence_auth_users")) {
+        return { rows: [{ value: user }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("INSERT INTO persistence_auth_password_reset_tokens")) {
+        throw new Error("simulated reset-token insertion failure");
+      }
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+  };
+  const p = createPostgresPersistence({ pgClient: transactionClient });
+  await assert.rejects(
+    p.issuePasswordResetToken({ userId: user.id, expectedUser: user, token }),
+    (error) => (
+      /simulated reset-token insertion failure/.test(error.message)
+      && error.commitOutcomeUnknown !== true
+    ),
+  );
+  assert.equal(calls.at(-1), "ROLLBACK");
+});
+
+test("[postgres] unknown reset-token issuance COMMIT discards the connection", async () => {
+  const user = authUser();
+  const token = passwordResetToken({ tokenHash: "request-unknown-commit" });
+  const commitError = new Error("simulated reset-token commit connection loss");
+  const calls = [];
+  let releasedWith = null;
+  const transactionClient = {
+    async query(sql) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      calls.push(trimmed);
+      if (trimmed === "BEGIN" || trimmed === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("SELECT value FROM persistence_auth_users")) {
+        return { rows: [{ value: user }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("INSERT INTO persistence_auth_password_reset_tokens")) {
+        return { rows: [{ key: token.tokenHash }], rowCount: 1 };
+      }
+      if (trimmed === "COMMIT") throw commitError;
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+    release(error) {
+      releasedWith = error || null;
+    },
+  };
+  const p = createPostgresPersistence({
+    pgClient: {
+      async connect() { return transactionClient; },
+      async query() { throw new Error("pool query should not run during issuance"); },
+    },
+  });
+  await assert.rejects(
+    p.issuePasswordResetToken({ userId: user.id, expectedUser: user, token }),
+    (error) => error === commitError && error.commitOutcomeUnknown === true,
+  );
+  assert.deepEqual(calls.slice(-2), ["COMMIT", "ROLLBACK"]);
+  assert.equal(releasedWith, commitError);
+});
+
 test("[postgres] password reset atomically updates password, consumes token, and revokes only the user", async () => {
   const p = createPostgresPersistence({ pgClient: createPgMock() });
   const expectedUser = authUser();
@@ -696,6 +926,92 @@ test("[postgres] unknown password-reset COMMIT discards the connection and is un
   );
   assert.deepEqual(calls.slice(-2), ["COMMIT", "ROLLBACK"]);
   assert.equal(releasedWith, commitError);
+});
+
+test("[postgres] reset-token issuance and completion share the user lock in both orderings", async () => {
+  async function scenario(order) {
+    const calls = [];
+    const baseClient = createPgMock();
+    const p = createPostgresPersistence({
+      pgClient: {
+        async query(sql, params = []) {
+          calls.push(sql.replace(/\s+/g, " ").trim());
+          return baseClient.query(sql, params);
+        },
+      },
+    });
+    const expectedUser = authUser({ id: `writer-request-${order}` });
+    const updatedUser = authUser({
+      id: expectedUser.id,
+      passwordHash: `new-${order}`,
+      updatedAt: 2_000,
+    });
+    const completionToken = passwordResetToken({
+      tokenHash: `request-completion-${order}`,
+      userId: expectedUser.id,
+    });
+    const consumedToken = { ...completionToken, usedAt: 2_000 };
+    const issuedToken = passwordResetToken({
+      tokenHash: `request-concurrent-${order}`,
+      userId: expectedUser.id,
+    });
+    await p.put({ domain: "auth_users", key: expectedUser.id, value: expectedUser });
+    await p.put({
+      domain: "auth_password_reset_tokens",
+      key: completionToken.tokenHash,
+      value: completionToken,
+    });
+
+    let issuance;
+    let completion;
+    if (order === "issuance-first") {
+      issuance = await p.issuePasswordResetToken({
+        userId: expectedUser.id,
+        expectedUser,
+        token: issuedToken,
+      });
+      completion = await p.completePasswordReset({
+        expectedUser,
+        updatedUser,
+        expectedToken: completionToken,
+        consumedToken,
+      });
+    } else {
+      completion = await p.completePasswordReset({
+        expectedUser,
+        updatedUser,
+        expectedToken: completionToken,
+        consumedToken,
+      });
+      issuance = await p.issuePasswordResetToken({
+        userId: expectedUser.id,
+        expectedUser,
+        token: issuedToken,
+      });
+    }
+
+    assert.equal(completion.status, "committed");
+    if (order === "issuance-first") {
+      assert.equal(issuance.status, "committed");
+      assert.equal(Number((await p.get({
+        domain: "auth_password_reset_tokens",
+        key: issuedToken.tokenHash,
+      }))?.usedAt || 0), consumedToken.usedAt);
+    } else {
+      assert.equal(issuance.status, "user_missing");
+      assert.equal(await p.get({
+        domain: "auth_password_reset_tokens",
+        key: issuedToken.tokenHash,
+      }), null);
+    }
+    assert.equal(
+      calls.filter((sql) => sql.startsWith("SELECT pg_advisory_xact_lock")).length,
+      2,
+    );
+  }
+
+  await scenario("issuance-first");
+  await scenario("completion-first");
 });
 
 test("[postgres] reset and login issuance share the user lock in both serial orderings", async () => {

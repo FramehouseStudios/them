@@ -51,16 +51,18 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 4. **Keep the V1 backend at one instance.**
 
    Existing-user email-login session issuance, refresh-token rotation, logout,
-   session revocation, and password-reset completion now use row-scoped
+   session revocation, and password-reset request/completion now use row-scoped
    Postgres transactions. These session and credential mutations share a
    user-scoped transaction lock so their ordering is explicit and they cannot
    overwrite unrelated auth rows. A completed password reset atomically
-   invalidates every outstanding reset token and session for that user. Signup,
-   An ambiguous reset commit fences later auth snapshot writes until canonical
-   Postgres hydration succeeds. Signup, Apple account creation/linking,
-   password-reset request issuance, verification, and other auth mutations
-   still persist complete auth-store snapshots. Keep the V1 backend at one
-   instance until those remaining writes and prunes are row-scoped too;
+   invalidates every outstanding reset token and session for that user. An
+   ambiguous reset mutation fences later auth snapshot writes until canonical
+   Postgres hydration succeeds. Reset-request responses keep the same generic
+   accepted envelope for unknown addresses and persistence failures so the
+   route does not become an account-existence oracle. Signup, Apple account
+   creation/linking, verification, and other auth mutations still persist
+   complete auth-store snapshots. Keep the V1 backend at one instance until
+   those remaining writes and prunes are row-scoped too;
    otherwise two writers can still overwrite unrelated auth records.
 
 ## Required production environment

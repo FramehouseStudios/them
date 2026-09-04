@@ -196,6 +196,86 @@ test("[postgres-live] concurrent password reset and stale login leave no active 
   }
 });
 
+test("[postgres-live] concurrent reset-token issuance and completion serialize safely", {
+  skip: databaseUrl ? false : "DATABASE_URL is not configured",
+}, async () => {
+  const resetPersistence = createPostgresPersistence({ databaseUrl });
+  const requestPersistence = createPostgresPersistence({ databaseUrl });
+  const runId = `${process.pid}-${Date.now()}-reset-request`;
+  const completedAt = Date.now();
+  const expectedUser = {
+    id: `live-reset-request-${runId}-writer`,
+    email: `live-reset-request-${runId}@example.com`,
+    name: "",
+    authProvider: "password",
+    appleSubject: "",
+    emailVerified: true,
+    emailVerifiedAt: completedAt - 2,
+    password: { salt: "old-salt", iterations: 600_000, hash: "old-hash" },
+    createdAt: completedAt - 2,
+    updatedAt: completedAt - 1,
+  };
+  const updatedUser = {
+    ...expectedUser,
+    password: { salt: "new-salt", iterations: 600_000, hash: "new-hash" },
+    updatedAt: completedAt,
+  };
+  const completionToken = {
+    tokenHash: `live-reset-request-${runId}-completion`,
+    userId: expectedUser.id,
+    createdAt: completedAt - 1,
+    expiresAt: completedAt + 60_000,
+    usedAt: 0,
+  };
+  const consumedToken = { ...completionToken, usedAt: completedAt };
+  const issuedToken = {
+    ...completionToken,
+    tokenHash: `live-reset-request-${runId}-concurrent`,
+  };
+
+  try {
+    await resetPersistence.put({ domain: "auth_users", key: expectedUser.id, value: expectedUser });
+    await resetPersistence.put({
+      domain: "auth_password_reset_tokens",
+      key: completionToken.tokenHash,
+      value: completionToken,
+    });
+    const [completion, issuance] = await Promise.all([
+      resetPersistence.completePasswordReset({
+        expectedUser,
+        updatedUser,
+        expectedToken: completionToken,
+        consumedToken,
+      }),
+      requestPersistence.issuePasswordResetToken({
+        userId: expectedUser.id,
+        expectedUser,
+        token: issuedToken,
+      }),
+    ]);
+    assert.equal(completion.status, "committed");
+    assert.ok(["committed", "user_missing"].includes(issuance.status));
+    const storedIssued = await resetPersistence.get({
+      domain: "auth_password_reset_tokens",
+      key: issuedToken.tokenHash,
+    });
+    if (issuance.status === "committed") {
+      assert.equal(Number(storedIssued?.usedAt || 0), completedAt);
+    } else {
+      assert.equal(storedIssued, null);
+    }
+  } finally {
+    for (const tokenHash of [completionToken.tokenHash, issuedToken.tokenHash]) {
+      await resetPersistence.delete({
+        domain: "auth_password_reset_tokens",
+        key: tokenHash,
+      });
+    }
+    await resetPersistence.delete({ domain: "auth_users", key: expectedUser.id });
+    await Promise.all([resetPersistence.close(), requestPersistence.close()]);
+  }
+});
+
 test("[postgres-live] concurrent refresh rotation commits exactly one replacement", {
   skip: databaseUrl ? false : "DATABASE_URL is not configured",
 }, async () => {

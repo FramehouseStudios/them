@@ -147,6 +147,36 @@ function assertAuthSessionIssuance(userId, expectedUser, session) {
   return normalizedUserId;
 }
 
+function assertPasswordResetTokenIssuance(userId, expectedUser, token) {
+  const normalizedUserId = String(userId || "").trim();
+  for (const value of [expectedUser, token]) {
+    assertValue(value);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("password reset token issuance requires canonical record objects");
+    }
+  }
+  const createdAt = Number(token.createdAt);
+  const expiresAt = Number(token.expiresAt);
+  if (
+    !normalizedUserId
+    || String(expectedUser.id || "").trim() !== normalizedUserId
+    || String(token.userId || "").trim() !== normalizedUserId
+  ) {
+    throw new Error("password reset token issuance cannot cross users");
+  }
+  if (
+    !String(token.tokenHash || "").trim()
+    || !Number.isFinite(createdAt)
+    || createdAt < 0
+    || !Number.isFinite(expiresAt)
+    || expiresAt <= createdAt
+    || Number(token.usedAt || 0) !== 0
+  ) {
+    throw new Error("password reset token issuance requires a fresh expiring token");
+  }
+  return normalizedUserId;
+}
+
 function assertAuthSessionRevocations(userId, expectedSessions, revokedSessions) {
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) {
@@ -440,6 +470,74 @@ function createPostgresPersistence({
         await transactionClient.query("COMMIT");
         transactionOpen = false;
         return { status: "committed", session };
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+          releaseError = error;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release(releaseError || undefined);
+        }
+      }
+    },
+
+    async issuePasswordResetToken({ userId, expectedUser, token }) {
+      const normalizedUserId = assertPasswordResetTokenIssuance(userId, expectedUser, token);
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres password reset token issuance requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      let releaseError = null;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, normalizedUserId);
+        const canonicalUser = await transactionClient.query(
+          `SELECT value FROM ${tableName("auth_users")}
+           WHERE key = $1 AND value = $2::jsonb
+           FOR UPDATE`,
+          [normalizedUserId, JSON.stringify(expectedUser)],
+        );
+        const storedUser = canonicalUser?.rows?.[0]?.value || null;
+        const canonicalUserFound = (
+          Number(canonicalUser?.rowCount || canonicalUser?.rows?.length || 0) === 1
+          && String(storedUser?.id || "").trim() === normalizedUserId
+        );
+        const inserted = await transactionClient.query(
+          `INSERT INTO ${tableName("auth_password_reset_tokens")} (key, value, updated_at)
+           SELECT $1, $2::jsonb, NOW()
+           WHERE $3::boolean
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key`,
+          [token.tokenHash, JSON.stringify(token), canonicalUserFound],
+        );
+        const insertedCount = Number(inserted?.rowCount || inserted?.rows?.length || 0);
+        if (!canonicalUserFound && insertedCount !== 0) {
+          throw new Error("password reset token privacy cover unexpectedly inserted a row");
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        if (!canonicalUserFound) return { status: "user_missing" };
+        if (insertedCount !== 1) return { status: "conflict" };
+        return { status: "committed", token };
       } catch (error) {
         if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
           error.commitOutcomeUnknown = true;

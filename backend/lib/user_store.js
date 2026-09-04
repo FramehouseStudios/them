@@ -796,6 +796,11 @@ async function ensureUserStoreCanonicalReconciled() {
   }
 }
 
+async function fenceUserStoreAfterUnknownCanonicalCommit() {
+  userStoreCanonicalReconciliationRequired = true;
+  return ensureUserStoreCanonicalReconciled();
+}
+
 async function listAllUserStoreAdapterRows(persistence, domain) {
   const rows = [];
   const observedKeys = new Set();
@@ -1484,7 +1489,6 @@ async function completePasswordResetDurably(resetToken, password, now = Date.now
     };
   } catch (error) {
     if (error?.commitOutcomeUnknown) {
-      userStoreCanonicalReconciliationRequired = true;
       for (const localSession of [...authSessionsById.values()]) {
         if (localSession.userId !== expectedToken.userId) continue;
         if (Number(localSession.revokedAt || 0) > 0) continue;
@@ -1499,7 +1503,7 @@ async function completePasswordResetDurably(resetToken, password, now = Date.now
       // until a later canonical hydration or exact-CAS auth mutation safely
       // reconciles the outcome.
       writeLocalUserStoreMirror(now);
-      await ensureUserStoreCanonicalReconciled();
+      await fenceUserStoreAfterUnknownCanonicalCommit();
     }
     return {
       status: "auth_persistence_failed",
@@ -2109,19 +2113,26 @@ function listAuthSessionsForUser(userId, now = Date.now()) {
     .sort((left, right) => Math.max(0, Number(right.updatedAt || 0)) - Math.max(0, Number(left.updatedAt || 0)));
 }
 
-function issueOneTimeToken(targetMap, input = {}, now = Date.now()) {
+function prepareOneTimeToken(input = {}, now = Date.now()) {
   const userId = normalizeUserId(input.userId);
   if (!userId) return null;
   const token = buildOpaqueToken();
-  const record = replaceOneTimeTokenRecord(targetMap, {
+  const record = sanitizeOneTimeTokenRecord({
     tokenHash: hashOpaqueToken(token),
     userId,
     createdAt: now,
     expiresAt: Math.max(now + 1000, now + Math.max(60000, Number(input.ttlMs || 0))),
     usedAt: 0,
   });
-  saveUserStore(now);
   return { token, record };
+}
+
+function issueOneTimeToken(targetMap, input = {}, now = Date.now()) {
+  const prepared = prepareOneTimeToken(input, now);
+  if (!prepared?.record) return null;
+  const record = replaceOneTimeTokenRecord(targetMap, prepared.record);
+  saveUserStore(now);
+  return { token: prepared.token, record };
 }
 
 function consumeOneTimeToken(targetMap, token, now = Date.now()) {
@@ -2166,6 +2177,139 @@ function issuePasswordResetToken(input = {}, now = Date.now()) {
   return issueOneTimeToken(passwordResetTokensByHash, input, now);
 }
 
+async function issuePasswordResetTokenDurably(input = {}, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  const privacyCoverKey = String(input.privacyCoverKey || "").trim();
+  const isPrivacyCover = !normalizeUserId(input.userId) && Boolean(privacyCoverKey);
+  const privacyCoverUserId = isPrivacyCover
+    ? `password_reset_privacy_${randomUUID().replace(/-/g, "")}`
+    : "";
+  if (persistence?.kind !== "postgres") {
+    if (isPrivacyCover) {
+      // Local JSON development keeps its existing no-write behavior for an
+      // unknown address. Production always uses Postgres and takes the same
+      // row-scoped adapter path for known and unknown addresses below.
+      prepareOneTimeToken({
+        userId: privacyCoverUserId,
+        ttlMs: input.ttlMs,
+      }, now);
+      return {
+        status: "privacy_cover_complete",
+        issuance: null,
+        retryable: true,
+      };
+    }
+    return {
+      status: "snapshot_pending",
+      issuance: issuePasswordResetToken(input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.issuePasswordResetToken !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // A token must not be derived from a stale user expectation while an
+    // earlier canonical auth write is unresolved.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  const userId = isPrivacyCover
+    ? privacyCoverUserId
+    : normalizeUserId(input.userId);
+  // This deliberately cannot equal a valid hydrated auth-user record. It
+  // lets an unknown address traverse the same transaction, advisory lock,
+  // and exact canonical lookup as a known address without selecting or
+  // creating an account.
+  const expectedUser = isPrivacyCover
+    ? { id: userId, passwordResetPrivacyCover: true }
+    : getUserById(userId);
+  const prepared = prepareOneTimeToken({ ...input, userId }, now);
+  if (!userId || !expectedUser || !prepared?.record) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  try {
+    const result = await persistence.issuePasswordResetToken({
+      userId,
+      expectedUser,
+      token: prepared.record,
+    });
+    if (isPrivacyCover) {
+      if (result?.status === "user_missing") {
+        // Match the synchronous post-transaction mirror work performed after
+        // a known-user commit without publishing the prepared cover token.
+        writeLocalUserStoreMirror(now);
+        return {
+          status: "privacy_cover_complete",
+          issuance: null,
+          retryable: true,
+        };
+      }
+      // A cover request must never create or expose a usable token. Treat an
+      // unexpected commit acknowledgement as canonical state that needs a
+      // full validated hydration before any later snapshot mutation.
+      if (result?.status === "committed") {
+        await fenceUserStoreAfterUnknownCanonicalCommit();
+      }
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+    if (result?.status !== "committed") {
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+    const canonicalToken = sanitizeOneTimeTokenRecord(result.token);
+    if (JSON.stringify(canonicalToken) !== JSON.stringify(prepared.record)) {
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: false,
+      };
+    }
+    const committedToken = replaceOneTimeTokenRecord(passwordResetTokensByHash, canonicalToken);
+    writeLocalUserStoreMirror(now);
+    return {
+      status: "committed",
+      issuance: { token: prepared.token, record: committedToken },
+      retryable: true,
+    };
+  } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+    }
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+}
+
 function consumePasswordResetToken(token, now = Date.now()) {
   return consumeOneTimeToken(passwordResetTokensByHash, token, now);
 }
@@ -2202,6 +2346,7 @@ export {
   issueAuthSessionDurably,
   issueEmailVerificationToken,
   issuePasswordResetToken,
+  issuePasswordResetTokenDurably,
   loadUserStoreFromAdapter,
   listAuthSessionsForUser,
   loadUserStore,
