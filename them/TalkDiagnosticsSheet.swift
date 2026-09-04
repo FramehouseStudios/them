@@ -12,6 +12,8 @@ struct TalkDiagnosticsSheet: View {
     let onRefresh: () -> Void
     let onDone: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
@@ -28,12 +30,23 @@ struct TalkDiagnosticsSheet: View {
                     latencySection
                     statsSection
                     errorsSection
+                    footer
                 }
             }
-            footer
         }
-        .padding(24)
+        .padding(contentPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.herPeachMid)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("talk-diagnostics.screen")
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var contentPadding: CGFloat {
+        isCompact ? 16 : 24
     }
 
     private var latencySection: some View {
@@ -61,26 +74,69 @@ struct TalkDiagnosticsSheet: View {
                 .padding(.top, 2)
             }
         }
+        .accessibilityIdentifier("talk-diagnostics.latency")
     }
 
+    @ViewBuilder
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Talk Diagnostics")
-                    .font(IOThemTypography.UI.title)
-                    .foregroundStyle(Color.herText.opacity(0.96))
-                Text(refreshedLine)
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(Color.herText.opacity(0.62))
+        if isCompact {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
+                    titleAndRefreshTime
+                    Spacer(minLength: 8)
+                    doneButton
+                }
+                refreshButton
             }
-            Spacer()
-            Button(action: onRefresh) {
-                Label(isRefreshing ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("talk-diagnostics.header")
+        } else {
+            HStack(alignment: .center, spacing: 12) {
+                titleAndRefreshTime
+                Spacer(minLength: 8)
+                refreshButton
+                doneButton
             }
-            .disabled(isRefreshing)
-            Button("Done", action: onDone)
-                .keyboardShortcut(.defaultAction)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("talk-diagnostics.header")
         }
+    }
+
+    private var titleAndRefreshTime: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Talk Diagnostics")
+                .font(IOThemTypography.UI.title)
+                .foregroundStyle(Color.herText.opacity(0.96))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Clementine talk health • \(refreshedLine)")
+                .font(IOThemTypography.UI.caption)
+                .foregroundStyle(Color.herText.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var refreshButton: some View {
+        Button(action: onRefresh) {
+            Label(isRefreshing ? "Refreshing…" : "Refresh Diagnostics", systemImage: "arrow.clockwise")
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isRefreshing)
+        .accessibilityIdentifier("talk-diagnostics.refresh")
+        .accessibilityHint("Reloads safe aggregate talk health and local latency measurements.")
+    }
+
+    private var doneButton: some View {
+        Button(action: onDone) {
+            Text("Done")
+                .frame(minWidth: 48, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.herText.opacity(0.14))
+        .foregroundStyle(Color.herText.opacity(0.94))
+        .keyboardShortcut(.defaultAction)
+        .accessibilityIdentifier("talk-diagnostics.done")
+        .accessibilityHint("Returns to Clementine without starting a conversation.")
     }
 
     private var statsSection: some View {
@@ -100,6 +156,7 @@ struct TalkDiagnosticsSheet: View {
                 emptyLine("Refresh to load aggregate /talk stats.")
             }
         }
+        .accessibilityIdentifier("talk-diagnostics.conversation-health")
     }
 
     private var errorsSection: some View {
@@ -114,10 +171,10 @@ struct TalkDiagnosticsSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(errors.counts.sorted(by: errorSort), id: \.key) { key, count in
                             HStack {
-                Text(key)
+                                Text(key)
                                     .font(IOThemTypography.UI.monoCaption)
                                     .foregroundStyle(Color.herText.opacity(0.96))
-                                    .lineLimit(1)
+                                    .fixedSize(horizontal: false, vertical: true)
                                 Spacer()
                                 Text("\(count)")
                                     .font(IOThemTypography.UI.monoCaption)
@@ -131,6 +188,7 @@ struct TalkDiagnosticsSheet: View {
                 emptyLine("Refresh to load /talk/errors.")
             }
         }
+        .accessibilityIdentifier("talk-diagnostics.errors")
     }
 
     private var footer: some View {
@@ -174,12 +232,13 @@ struct TalkDiagnosticsSheet: View {
     }
 
     private func metricGrid(_ metrics: [(String, String)]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], alignment: .leading, spacing: 8) {
+        LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 8) {
             ForEach(metrics, id: \.0) { label, value in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(label)
                         .font(IOThemTypography.UI.micro)
                         .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(value)
                         .font(IOThemTypography.UI.monoCaption)
                         .foregroundStyle(Color.herText.opacity(0.96))
@@ -187,10 +246,17 @@ struct TalkDiagnosticsSheet: View {
                         .minimumScaleFactor(0.78)
                 }
                 .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
                 .background(Color.white.opacity(0.54), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
+    }
+
+    private var metricColumns: [GridItem] {
+        if isCompact {
+            return Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 2)
+        }
+        return [GridItem(.adaptive(minimum: 104), spacing: 8, alignment: .top)]
     }
 
     private func emptyLine(_ text: String) -> some View {

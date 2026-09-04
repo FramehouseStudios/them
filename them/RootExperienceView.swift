@@ -3186,6 +3186,8 @@ struct RootExperienceView: View {
                                 await refreshTalkDiagnostics(force: true)
                             }
                         }
+                        .accessibilityIdentifier("report.talk-diagnostics")
+                        .accessibilityHint("Opens Clementine talk health and latency diagnostics.")
                         NumberedChoiceActionButton(
                             number: "3",
                             title: "Send Debug Bundle",
@@ -3222,7 +3224,7 @@ struct RootExperienceView: View {
                             showingTalkDiagnostics = false
                         }
                     )
-                    .frame(minWidth: 520, minHeight: 520)
+                    .themDesktopSheetFrame(minWidth: 520, minHeight: 520)
                 }
                 .alert("Debug Bundle", isPresented: $showingDebugBundleNotice) {
                     Button("OK", role: .cancel) {}
@@ -3368,6 +3370,10 @@ struct RootExperienceView: View {
                     userMicLevel: voice.micLevel,
                     isUserSpeaking: voice.isSpeechDetected
                 )
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("home.orb")
+                .accessibilityLabel("Clementine's orb")
+                .accessibilityHint("Shows when Clementine or the microphone is active.")
 
                 if replyEchoOpacity > 0 || !assistantReplyEcho.isEmpty {
                     VStack(alignment: .center, spacing: 6) {
@@ -13966,9 +13972,49 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
     }
 }
 
+private struct HomeUtilitySheetBar: View {
+    let title: String
+    let identifier: String
+    let onDone: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold, design: .default))
+                .foregroundColor(.herText.opacity(0.96))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            Button(action: onDone) {
+                Text("Done")
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+                    .frame(minWidth: 64, minHeight: 44)
+            }
+                .buttonStyle(.borderedProminent)
+                .tint(.white.opacity(0.22))
+                .foregroundColor(.herText.opacity(0.94))
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("\(identifier).done")
+                .accessibilityHint("Returns to Clementine without starting a conversation.")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.08))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.12))
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(identifier).navigation")
+    }
+}
+
 private struct TasksPanel: View {
     let onDone: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var tasks: [BackendTaskItem] = []
     @State private var recap: BackendDailyRecapResponse?
     @State private var newTaskTitle = ""
@@ -13995,74 +14041,111 @@ private struct TasksPanel: View {
                 )
                 .ignoresSafeArea()
 
-                VStack(spacing: 18) {
-                    header
-                    composer
-                    if isLoading {
-                        ProgressView().controlSize(.large)
-                    } else {
-                        taskList
+                VStack(spacing: 0) {
+                    HomeUtilitySheetBar(
+                        title: "Tasks",
+                        identifier: "tasks",
+                        onDone: onDone
+                    )
+
+                    VStack(spacing: 18) {
+                        intro
+                        composer
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityLabel("Loading tasks")
+                        } else {
+                            taskList
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(contentPadding)
                 }
-                .padding(24)
             }
             .task {
                 await reload()
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tasks.screen")
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Tasks")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.95))
-                Spacer()
-                Button("Return", action: onDone)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white.opacity(0.22))
-                    .foregroundColor(.herText.opacity(0.92))
-            }
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
 
+    private var contentPadding: CGFloat {
+        isCompact ? 16 : 24
+    }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let recap {
                 Text(recap.recap)
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.80))
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Capture tasks as you talk. io.them keeps open items and recap outcomes.")
+                Text("Capture next steps while Clementine helps you write. Open work and recap outcomes stay together here.")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.80))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !errorText.isEmpty {
                 Text(errorText)
                     .font(.system(size: 13, weight: .regular, design: .default))
                     .foregroundColor(.red.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("tasks.error")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("tasks.summary")
+    }
+
+    @ViewBuilder
+    private var composer: some View {
+        if isCompact {
+            VStack(spacing: 10) {
+                taskTextField
+                addTaskButton
+            }
+        } else {
+            HStack(spacing: 10) {
+                taskTextField
+                addTaskButton
             }
         }
     }
 
-    private var composer: some View {
-        HStack(spacing: 10) {
-            TextField("Add a task", text: $newTaskTitle)
-                .textFieldStyle(.roundedBorder)
-                .focused($newTaskFocused)
-                .onSubmit {
-                    Task { await addTask() }
-                }
-            Button {
+    private var taskTextField: some View {
+        TextField("Add a task", text: $newTaskTitle)
+            .textFieldStyle(.roundedBorder)
+            .focused($newTaskFocused)
+            .frame(minHeight: 44)
+            .onSubmit {
                 Task { await addTask() }
-            } label: {
-                Text(isSubmitting ? "Adding…" : "Add")
-                    .font(.system(size: 14, weight: .semibold, design: .default))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.white.opacity(0.22))
-            .disabled(isSubmitting || newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityIdentifier("tasks.new-title")
+            .accessibilityHint("Enter a next step to save in your task list.")
+    }
+
+    private var addTaskButton: some View {
+        Button {
+            Task { await addTask() }
+        } label: {
+            Text(isSubmitting ? "Adding…" : "Add Task")
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
         }
+        .buttonStyle(.borderedProminent)
+        .tint(.white.opacity(0.22))
+        .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        .disabled(isSubmitting || newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .accessibilityIdentifier("tasks.add")
+        .accessibilityHint("Adds the entered task to your open list.")
     }
 
     private var taskList: some View {
@@ -14098,26 +14181,25 @@ private struct TasksPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 8)
         }
+        .accessibilityIdentifier("tasks.list")
     }
 
+    @ViewBuilder
     private func taskRow(_ task: BackendTaskItem, actionLabel: String, action: String) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(task.title)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.93))
-                if task.dueAt > 0 {
-                    Text("Due \(Date(timeIntervalSince1970: task.dueAt / 1000).formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.herText.opacity(0.74))
+        Group {
+            if isCompact {
+                VStack(alignment: .leading, spacing: 10) {
+                    taskDetails(task)
+                    taskActionButton(task, label: actionLabel, action: action)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    taskDetails(task)
+                    Spacer(minLength: 0)
+                    taskActionButton(task, label: actionLabel, action: action)
                 }
             }
-            Spacer(minLength: 0)
-            Button(actionLabel) {
-                Task { await mutateTask(action: action, taskID: task.id) }
-            }
-            .buttonStyle(.bordered)
-            .tint(.white.opacity(0.22))
         }
         .padding(12)
         .background(
@@ -14128,6 +14210,40 @@ private struct TasksPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
         )
+    }
+
+    private func taskDetails(_ task: BackendTaskItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(task.title)
+                .font(.system(size: 15, weight: .semibold, design: .default))
+                .foregroundColor(.herText.opacity(0.93))
+                .fixedSize(horizontal: false, vertical: true)
+            if task.dueAt > 0 {
+                Text("Due \(Date(timeIntervalSince1970: task.dueAt / 1000).formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundColor(.herText.opacity(0.74))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func taskActionButton(
+        _ task: BackendTaskItem,
+        label: String,
+        action: String
+    ) -> some View {
+        Button {
+            Task { await mutateTask(action: action, taskID: task.id) }
+        } label: {
+            Text(label)
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .tint(.white.opacity(0.22))
+        .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        .accessibilityIdentifier("tasks.\(action).\(task.id)")
+        .accessibilityHint("Updates this task in Clementine's task list.")
     }
 
     @MainActor
@@ -14208,6 +14324,7 @@ private struct RecapPanel: View {
 
     let onDone: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recap: BackendDailyRecapResponse?
     @State private var selectedWindow: RecapWindow = .today
     @State private var isLoading = false
@@ -14223,16 +14340,26 @@ private struct RecapPanel: View {
                 )
                 .ignoresSafeArea()
 
-                VStack(spacing: 16) {
-                    header
-                    if isLoading {
-                        ProgressView().controlSize(.large)
-                    } else {
-                        content
+                VStack(spacing: 0) {
+                    HomeUtilitySheetBar(
+                        title: "Recap",
+                        identifier: "recap",
+                        onDone: onDone
+                    )
+
+                    VStack(spacing: 16) {
+                        controlsAndSummary
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.large)
+                                .accessibilityLabel("Loading recap")
+                        } else {
+                            content
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(contentPadding)
                 }
-                .padding(24)
             }
             .task {
                 await reload()
@@ -14241,31 +14368,70 @@ private struct RecapPanel: View {
                 Task { await reload() }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("recap.screen")
     }
 
-    private var header: some View {
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var contentPadding: CGFloat {
+        isCompact ? 16 : 24
+    }
+
+    private var controlsAndSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Recap")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.95))
-                Spacer(minLength: 0)
-                Button("Refresh") {
-                    Task { await reload() }
+            if isCompact {
+                HStack(spacing: 4) {
+                    ForEach(RecapWindow.allCases) { window in
+                        Button {
+                            selectedWindow = window
+                        } label: {
+                            Text(window.title)
+                                .font(.system(size: 13, weight: .semibold, design: .default))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(selectedWindow == window ? .herText : .herText.opacity(0.74))
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.white.opacity(selectedWindow == window ? 0.30 : 0.10))
+                        )
+                        .accessibilityIdentifier("recap.window.\(window.rawValue)")
+                        .accessibilityLabel("Recap period: \(window.title)")
+                        .accessibilityValue(selectedWindow == window ? "Selected" : "Not selected")
+                        .accessibilityHint("Shows Clementine's recap for \(window.title.lowercased()).")
+                    }
                 }
-                .buttonStyle(.bordered)
-                .tint(.white.opacity(0.24))
-                Button("Return", action: onDone)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white.opacity(0.24))
-                    .foregroundColor(.herText.opacity(0.92))
-            }
-            Picker("Window", selection: $selectedWindow) {
-                ForEach(RecapWindow.allCases) { window in
-                    Text(window.title).tag(window)
+                .padding(3)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            } else {
+                Picker("Window", selection: $selectedWindow) {
+                    ForEach(RecapWindow.allCases) { window in
+                        Text(window.title).tag(window)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("recap.window")
+                .accessibilityHint("Chooses which period Clementine should summarize.")
             }
-            .pickerStyle(.segmented)
+
+            Button {
+                Task { await reload() }
+            } label: {
+                Label(isLoading ? "Refreshing…" : "Refresh Recap", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .tint(.white.opacity(0.24))
+            .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+            .disabled(isLoading)
+            .accessibilityIdentifier("recap.refresh")
+            .accessibilityHint("Reloads the selected recap period.")
+
             if let recap {
                 let label = recap.windowLabel ?? recap.localDay
                 Text("\(selectedWindow.title) • \(label)")
@@ -14274,17 +14440,24 @@ private struct RecapPanel: View {
                 Text(recap.recap)
                     .font(.system(size: 15, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.88))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("recap.summary")
             } else {
-                Text("Daily recap of highlights, outcomes, and next actions.")
+                Text("Review the highlights, outcomes, and next actions Clementine has gathered from your recent work.")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.74))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("recap.summary")
             }
             if !errorText.isEmpty {
                 Text(errorText)
                     .font(.system(size: 13, weight: .regular, design: .default))
                     .foregroundColor(.red.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("recap.error")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var content: some View {
@@ -14309,12 +14482,18 @@ private struct RecapPanel: View {
     }
 
     private func statsRow(_ stats: BackendDailyRecapStats) -> some View {
-        HStack(spacing: 10) {
+        LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
             statChip("Turns", value: "\(stats.turnsToday)")
             statChip("Open", value: "\(stats.openTasks)")
             statChip("Done", value: "\(stats.completedToday)")
             statChip("Total", value: "\(stats.totalTasks)")
         }
+        .accessibilityIdentifier("recap.metrics")
+    }
+
+    private var metricColumns: [GridItem] {
+        let count = isCompact ? 2 : 4
+        return Array(repeating: GridItem(.flexible(), spacing: 10), count: count)
     }
 
     private func statChip(_ label: String, value: String) -> some View {
@@ -14328,6 +14507,7 @@ private struct RecapPanel: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.white.opacity(0.12))
@@ -14431,6 +14611,8 @@ private struct TrustCenterScreen: View {
     let onOpenDataControls: () -> Void
     let onOpenPrivacyPolicy: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -14441,56 +14623,73 @@ private struct TrustCenterScreen: View {
                 )
                 .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        header
-                        trustBlock(
-                            title: "Non-Manipulative Policy",
-                            lines: [
-                                "io.them does not encourage emotional exclusivity.",
-                                "io.them does not present itself as your only source of meaning.",
-                                "io.them redirects dependency loops toward user agency.",
-                                "io.them does not claim a human body or human consciousness."
-                            ]
-                        )
-                        trustBlock(
-                            title: "Conversation Boundaries",
-                            lines: [
-                                "If a loop is detected, io.them names it gently and gives one concrete next step.",
-                                "If distress is high, responses shift to calm, specific, stabilizing language.",
-                                "One thoughtful question maximum per reply."
-                            ]
-                        )
-                        trustBlock(
-                            title: "Control and Transparency",
-                            lines: [
-                                "Use Data Controls to clear history, delete memories, or export your memory ledger.",
-                                "Privacy policy explains what is local vs backend vs sent to providers."
-                            ]
-                        )
-                        actionRow
+                VStack(spacing: 0) {
+                    HomeUtilitySheetBar(
+                        title: "Trust Center",
+                        identifier: "trust",
+                        onDone: onDone
+                    )
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            header
+                            trustBlock(
+                                title: "Non-Manipulative Policy",
+                                lines: [
+                                    "io.them does not encourage emotional exclusivity.",
+                                    "io.them does not present itself as your only source of meaning.",
+                                    "io.them redirects dependency loops toward user agency.",
+                                    "io.them does not claim a human body or human consciousness."
+                                ]
+                            )
+                            trustBlock(
+                                title: "Conversation Boundaries",
+                                lines: [
+                                    "If a loop is detected, io.them names it gently and gives one concrete next step.",
+                                    "If distress is high, responses shift to calm, specific, stabilizing language.",
+                                    "One thoughtful question maximum per reply."
+                                ]
+                            )
+                            trustBlock(
+                                title: "Control and Transparency",
+                                lines: [
+                                    "Use Data Controls to clear history, delete memories, or export your memory ledger.",
+                                    "Privacy policy explains what is local vs backend vs sent to providers."
+                                ]
+                            )
+                            actionRow
+                        }
+                        .padding(contentPadding)
+                        .frame(maxWidth: 980, alignment: .topLeading)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(24)
-                    .frame(maxWidth: 980, alignment: .topLeading)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button("Done", action: onDone)
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("trust.screen")
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var contentPadding: CGFloat {
+        isCompact ? 16 : 24
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Trust Center")
-                .font(.system(size: 34, weight: .semibold, design: .default))
+            Text("Built for writer agency")
+                .font(.system(size: isCompact ? 28 : 34, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.95))
-            Text("How io.them is designed to stay emotionally mature, safe, and non-possessive.")
+                .fixedSize(horizontal: false, vertical: true)
+            Text("How Clementine and io.them are designed to stay emotionally mature, safe, and non-possessive.")
                 .font(.system(size: 15, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.76))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityIdentifier("trust.header")
     }
 
     private func trustBlock(title: String, lines: [String]) -> some View {
@@ -14502,6 +14701,7 @@ private struct TrustCenterScreen: View {
                 Text("• \(line)")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
@@ -14515,21 +14715,52 @@ private struct TrustCenterScreen: View {
         )
     }
 
+    @ViewBuilder
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            Button("Open Data Controls", action: onOpenDataControls)
-                .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.24))
-            Button("Open Privacy Policy", action: onOpenPrivacyPolicy)
-                .buttonStyle(.bordered)
+        if isCompact {
+            VStack(spacing: 10) {
+                dataControlsButton
+                privacyPolicyButton
+            }
+        } else {
+            HStack(spacing: 10) {
+                dataControlsButton
+                privacyPolicyButton
+            }
         }
-        .foregroundColor(.herText.opacity(0.92))
+    }
+
+    private var dataControlsButton: some View {
+        Button(action: onOpenDataControls) {
+            Text("Open Data Controls")
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+            .buttonStyle(.borderedProminent)
+            .tint(.white.opacity(0.24))
+            .foregroundColor(.herText.opacity(0.92))
+            .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+            .accessibilityIdentifier("trust.open-data-controls")
+            .accessibilityHint("Opens controls for stored, synced, and exported writer data.")
+    }
+
+    private var privacyPolicyButton: some View {
+        Button(action: onOpenPrivacyPolicy) {
+            Text("Open Privacy Policy")
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+            .buttonStyle(.bordered)
+            .foregroundColor(.herText.opacity(0.92))
+            .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+            .accessibilityIdentifier("trust.open-privacy-policy")
+            .accessibilityHint("Opens the io.them privacy policy in your browser.")
     }
 }
 
 private struct CompanionControlsPanel: View {
     @ObservedObject var bridge: ScreenplayLiveDraftBridge
     let onDone: () -> Void
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         NavigationStack {
@@ -14541,38 +14772,54 @@ private struct CompanionControlsPanel: View {
                 )
                 .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
-                        modeSection
-                        analyticsSection
-                        threadSection
-                        controlsSection
+                VStack(spacing: 0) {
+                    HomeUtilitySheetBar(
+                        title: "Companion Controls",
+                        identifier: "companion-controls",
+                        onDone: onDone
+                    )
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            header
+                            modeSection
+                            analyticsSection
+                            threadSection
+                            controlsSection
+                        }
+                        .padding(contentPadding)
+                        .frame(maxWidth: 980, alignment: .topLeading)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(24)
-                    .frame(maxWidth: 980, alignment: .topLeading)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button("Done", action: onDone)
                 }
             }
         }
         .task {
             await bridge.hydrateBackendCompanionState(force: false)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("companion-controls.screen")
+    }
+
+    private var isCompact: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var contentPadding: CGFloat {
+        isCompact ? 16 : 24
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Companion")
-                .font(.system(size: 32, weight: .semibold, design: .default))
+            Text("Clementine")
+                .font(.system(size: isCompact ? 28 : 32, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.95))
-            Text("Shared companion mode, memory lane, and recent thread across Home and Studio.")
+            Text("Shape how your creative companion supports the shared memory lane and recent thread across Home and Studio.")
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityIdentifier("companion-controls.header")
     }
 
     private var modeSection: some View {
@@ -14580,7 +14827,7 @@ private struct CompanionControlsPanel: View {
             Text("Mode")
                 .font(.system(size: 15, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.90))
-            HStack(spacing: 10) {
+            LazyVGrid(columns: modeColumns, alignment: .leading, spacing: 10) {
                 ForEach(StudioCompanionMode.allCases) { mode in
                     let isActive = bridge.companionMode == mode
                     Button {
@@ -14596,7 +14843,7 @@ private struct CompanionControlsPanel: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .fill(isActive ? Color.white.opacity(0.22) : Color.white.opacity(0.12))
@@ -14607,9 +14854,21 @@ private struct CompanionControlsPanel: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("companion-controls.mode.\(mode.rawValue)")
+                    .accessibilityLabel("\(mode.title) mode")
+                    .accessibilityHint(mode.summary)
+                    .accessibilityAddTraits(isActive ? .isSelected : [])
                 }
             }
         }
+        .accessibilityIdentifier("companion-controls.modes")
+    }
+
+    private var modeColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: 10, alignment: .top),
+            count: isCompact ? 1 : max(1, StudioCompanionMode.allCases.count)
+        )
     }
 
     private var analyticsSection: some View {
@@ -14618,14 +14877,12 @@ private struct CompanionControlsPanel: View {
             Text("Analytics")
                 .font(.system(size: 15, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.90))
-            HStack(spacing: 10) {
+            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
                 metricCard("Turns", value: "\(analytics.totalTurns)")
                 metricCard("Home", value: "\(analytics.homeTurns)")
                 metricCard("Studio", value: "\(analytics.studioTurns)")
                 metricCard("Voice", value: "\(analytics.voiceTurns)")
                 metricCard("Typed", value: "\(analytics.typedTurns)")
-            }
-            HStack(spacing: 10) {
                 metricCard("Mode Switches", value: "\(analytics.modeSwitches)")
                 metricCard("Memory Clears", value: "\(analytics.memoryClears)")
                 metricCard("Thread Clears", value: "\(analytics.threadClears)")
@@ -14634,8 +14891,17 @@ private struct CompanionControlsPanel: View {
                 Text("Last companion interaction: \(lastSurface.title) via \(lastSource.rawValue).")
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityIdentifier("companion-controls.analytics")
+    }
+
+    private var metricColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: 10, alignment: .top),
+            count: isCompact ? 2 : 4
+        )
     }
 
     private var threadSection: some View {
@@ -14670,22 +14936,58 @@ private struct CompanionControlsPanel: View {
                 }
             }
         }
+        .accessibilityIdentifier("companion-controls.thread")
     }
 
+    @ViewBuilder
     private var controlsSection: some View {
-        HStack(spacing: 10) {
-            Button("Clear Companion Memory") {
-                bridge.clearCompanionMemory()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.white.opacity(0.22))
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Reset Clementine data")
+                .font(.system(size: 15, weight: .semibold, design: .default))
+                .foregroundColor(.herText.opacity(0.90))
 
-            Button("Clear Companion Thread") {
-                bridge.clearCompanionPinHistory()
+            if isCompact {
+                VStack(spacing: 10) {
+                    clearMemoryButton
+                    clearThreadButton
+                }
+            } else {
+                HStack(spacing: 10) {
+                    clearMemoryButton
+                    clearThreadButton
+                }
             }
-            .buttonStyle(.bordered)
         }
+        .accessibilityIdentifier("companion-controls.reset")
+    }
+
+    private var clearMemoryButton: some View {
+        Button {
+            bridge.clearCompanionMemory()
+        } label: {
+            Text("Clear Companion Memory")
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.white.opacity(0.22))
         .foregroundColor(.herText.opacity(0.92))
+        .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        .accessibilityIdentifier("companion-controls.clear-memory")
+        .accessibilityHint("Removes Clementine's saved creative companion memory.")
+    }
+
+    private var clearThreadButton: some View {
+        Button {
+            bridge.clearCompanionPinHistory()
+        } label: {
+            Text("Clear Companion Thread")
+                .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .foregroundColor(.herText.opacity(0.92))
+        .frame(maxWidth: isCompact ? .infinity : nil, minHeight: 44)
+        .accessibilityIdentifier("companion-controls.clear-thread")
+        .accessibilityHint("Removes the recent conversation shown to Clementine.")
     }
 
     private func metricCard(_ title: String, value: String) -> some View {
@@ -14699,7 +15001,7 @@ private struct CompanionControlsPanel: View {
                 .textCase(.uppercase)
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.white.opacity(0.12))
