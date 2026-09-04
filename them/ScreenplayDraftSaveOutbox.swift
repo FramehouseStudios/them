@@ -62,6 +62,8 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
 }
 
 actor ScreenplayDraftSaveOutbox {
+    typealias FileProtectionEnforcer = @Sendable (URL) throws -> Void
+
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxDraftBytes = 2 * 1024 * 1024
@@ -70,15 +72,21 @@ actor ScreenplayDraftSaveOutbox {
     private let storageDirectory: URL
     private let manifestURL: URL
     private let fileManager: FileManager
+    private let fileProtectionEnforcer: FileProtectionEnforcer?
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        storageDirectory: URL,
+        fileManager: FileManager = .default,
+        fileProtectionEnforcer: FileProtectionEnforcer? = nil
+    ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.json")
         self.fileManager = fileManager
+        self.fileProtectionEnforcer = fileProtectionEnforcer
     }
 
     func startNetworkMonitoring() {
@@ -151,12 +159,13 @@ actor ScreenplayDraftSaveOutbox {
             publish(nextSnapshot)
             return nextSnapshot
         }
+        let previousEntries = entries
         entries.append(entry)
         entries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        try persistOrRestore(previousEntries)
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -182,9 +191,10 @@ actor ScreenplayDraftSaveOutbox {
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
+        let previousEntries = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
         return entries[index]
     }
@@ -203,9 +213,10 @@ actor ScreenplayDraftSaveOutbox {
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previousEntries = entries
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
@@ -216,6 +227,7 @@ actor ScreenplayDraftSaveOutbox {
     ) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previousEntries = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
@@ -234,14 +246,15 @@ actor ScreenplayDraftSaveOutbox {
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
     func remove(id: String) throws {
         try loadIfNeeded()
+        let previousEntries = entries
         entries.removeAll { $0.id == id }
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
@@ -249,17 +262,19 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousEntries = entries
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previousEntries = entries
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
         entries[index].updatedAt = now.timeIntervalSince1970
@@ -271,18 +286,19 @@ actor ScreenplayDraftSaveOutbox {
             entries[index].status = .pending
             entries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[retryCount - 1]
         }
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previousEntries = entries
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].nextAttemptAt = 0
         entries[index].lastError = normalizedError(error)
-        try persist()
+        try persistOrRestore(previousEntries)
         publishSnapshot()
     }
 
@@ -329,34 +345,109 @@ actor ScreenplayDraftSaveOutbox {
             didLoad = true
             return
         }
+        try enforceCompleteFileProtection(at: storageDirectory)
+        try enforceCompleteFileProtection(at: manifestURL)
         let data = try Data(contentsOf: manifestURL)
         var restoredEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
         let now = Date().timeIntervalSince1970
+        let requiresRecoveryWrite = restoredEntries.contains { $0.status == .inflight }
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
             restoredEntries[index].status = .pending
             restoredEntries[index].nextAttemptAt = min(restoredEntries[index].nextAttemptAt, now)
             restoredEntries[index].lastError = "Interrupted while saving."
         }
+        let previousEntries = entries
         entries = restoredEntries
-        try persist()
+        if requiresRecoveryWrite {
+            try persistOrRestore(previousEntries)
+        }
         didLoad = true
+    }
+
+    private func persistOrRestore(
+        _ previousEntries: [ScreenplayDraftSaveOutboxEntry]
+    ) throws {
+        do {
+            try persist()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
     }
 
     private func persist() throws {
         try fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try enforceCompleteFileProtection(at: storageDirectory)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(entries)
-        try data.write(to: manifestURL, options: .atomic)
+        let candidateURL = storageDirectory.appendingPathComponent(
+            ".queue-\(UUID().uuidString).json"
+        )
+        defer {
+            if fileManager.fileExists(atPath: candidateURL.path) {
+                do {
+                    try fileManager.removeItem(at: candidateURL)
+                } catch {
+                    // A protected orphan candidate is never read as queue state.
+                }
+            }
+        }
+
         #if os(iOS)
-        try? fileManager.setAttributes(
+        try data.write(to: candidateURL, options: [.atomic, .completeFileProtection])
+        #else
+        try data.write(to: candidateURL, options: .atomic)
+        #endif
+        try enforceCompleteFileProtection(at: candidateURL)
+
+        var manifestIsDirectory: ObjCBool = false
+        if fileManager.fileExists(
+            atPath: manifestURL.path,
+            isDirectory: &manifestIsDirectory
+        ) {
+            guard !manifestIsDirectory.boolValue else {
+                throw NSError(
+                    domain: NSCocoaErrorDomain,
+                    code: CocoaError.Code.fileWriteInvalidFileName.rawValue,
+                    userInfo: [NSFilePathErrorKey: manifestURL.path]
+                )
+            }
+            _ = try fileManager.replaceItemAt(
+                manifestURL,
+                withItemAt: candidateURL,
+                backupItemName: nil,
+                options: [.usingNewMetadataOnly]
+            )
+        } else {
+            try fileManager.moveItem(at: candidateURL, to: manifestURL)
+        }
+    }
+
+    private func enforceCompleteFileProtection(at url: URL) throws {
+        if let fileProtectionEnforcer {
+            try fileProtectionEnforcer(url)
+            return
+        }
+
+        #if os(iOS) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+        try fileManager.setAttributes(
             [.protectionKey: FileProtectionType.complete],
-            ofItemAtPath: storageDirectory.path
+            ofItemAtPath: url.path
         )
-        try? fileManager.setAttributes(
-            [.protectionKey: FileProtectionType.complete],
-            ofItemAtPath: manifestURL.path
-        )
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        let protection = (attributes[.protectionKey] as? FileProtectionType)?.rawValue
+            ?? attributes[.protectionKey] as? String
+        guard protection == FileProtectionType.complete.rawValue else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: CocoaError.Code.fileWriteUnknown.rawValue,
+                userInfo: [
+                    NSFilePathErrorKey: url.path,
+                    NSLocalizedDescriptionKey: "Complete file protection could not be verified.",
+                ]
+            )
+        }
         #endif
     }
 
