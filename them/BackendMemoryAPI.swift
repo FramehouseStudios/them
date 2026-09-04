@@ -2326,6 +2326,13 @@ nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
     let accessToken: String
 }
 
+nonisolated struct BackendRequestAuthentication: Equatable, Sendable {
+    let userID: String
+    let clientToken: String
+    let accessToken: String
+    let appToken: String
+}
+
 nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
     let authIntentGeneration: Int
     let sessionEpoch: Int
@@ -3917,6 +3924,20 @@ nonisolated enum BackendAuthClient {
                 defaults: .standard
             )
         }
+    }
+
+    static func currentRequestAuthentication(
+        generateUserIDIfMissing: Bool = false
+    ) -> BackendRequestAuthentication {
+        let identity = requestIdentitySnapshot(
+            generateUserIDIfMissing: generateUserIDIfMissing
+        )
+        return BackendRequestAuthentication(
+            userID: identity.userID,
+            clientToken: identity.clientToken,
+            accessToken: identity.accessToken,
+            appToken: appToken() ?? ""
+        )
     }
 
     private static func requestIdentitySnapshotLocked(

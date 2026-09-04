@@ -42,6 +42,151 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(snapshot.pendingCount, 1)
     }
 
+    func testEnqueueManifestExcludesCredentialBearingHeaders() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-private", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue("clementine", forHTTPHeaderField: "X-Persona-Key")
+        request.setValue("audio", forHTTPHeaderField: "X-Talk-Stream")
+        request.setValue("Bearer access-secret", forHTTPHeaderField: "Authorization")
+        request.setValue("Basic proxy-secret", forHTTPHeaderField: "Proxy-Authorization")
+        request.setValue("client-secret", forHTTPHeaderField: "X-Client-Token")
+        request.setValue("app-secret", forHTTPHeaderField: "X-APP-TOKEN")
+        request.setValue("session=cookie-secret", forHTTPHeaderField: "Cookie")
+        request.setValue("api-secret", forHTTPHeaderField: "X-API-Key")
+        request.setValue("custom-secret", forHTTPHeaderField: "X-Custom-Secret")
+
+        let result = try await outbox.enqueue(
+            request: request,
+            body: Data("queued-body".utf8),
+            reason: "offline"
+        )
+
+        XCTAssertEqual(result.entry.ownerUserId, "writer-1")
+        XCTAssertEqual(
+            result.entry.headers,
+            [
+                "Accept": "application/json",
+                "Content-Type": "multipart/form-data; boundary=test",
+                "X-Idempotency-Key": "idem-private",
+                "X-Persona-Key": "clementine",
+                "X-Talk-Stream": "audio",
+            ]
+        )
+
+        let manifestURL = directory.appendingPathComponent("queue.jsonl")
+        let manifest = try String(contentsOf: manifestURL, encoding: .utf8)
+        for forbiddenValue in [
+            "access-secret",
+            "proxy-secret",
+            "client-secret",
+            "app-secret",
+            "cookie-secret",
+            "api-secret",
+            "custom-secret",
+        ] {
+            XCTAssertFalse(manifest.contains(forbiddenValue))
+        }
+        for forbiddenHeader in [
+            "Authorization",
+            "Proxy-Authorization",
+            "X-Client-Token",
+            "X-APP-TOKEN",
+            "Cookie",
+            "X-API-Key",
+            "X-Custom-Secret",
+        ] {
+            XCTAssertFalse(manifest.localizedCaseInsensitiveContains(forbiddenHeader))
+        }
+    }
+
+    func testRelaunchScrubsCredentialsFromLegacyManifest() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("legacy-idem", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("legacy-body".utf8),
+            reason: "offline"
+        )
+
+        let queuedEntries = await outbox.allEntries()
+        var legacyEntry = try XCTUnwrap(queuedEntries.first)
+        legacyEntry.ownerUserId = nil
+        legacyEntry.headers["X-User-Id"] = "writer-legacy"
+        legacyEntry.headers["Authorization"] = "Bearer legacy-access-secret"
+        legacyEntry.headers["X-Client-Token"] = "legacy-client-secret"
+        legacyEntry.headers["X-APP-TOKEN"] = "legacy-app-secret"
+        legacyEntry.headers["Cookie"] = "session=legacy-cookie-secret"
+        var legacyManifest = try JSONEncoder().encode(legacyEntry)
+        legacyManifest.append(0x0A)
+        let manifestURL = directory.appendingPathComponent("queue.jsonl")
+        try legacyManifest.write(to: manifestURL, options: .atomic)
+
+        let relaunched = OfflineTalkOutbox(storageDirectory: directory)
+        let restoredEntries = await relaunched.allEntries()
+        let restoredEntry = try XCTUnwrap(restoredEntries.first)
+
+        XCTAssertEqual(restoredEntry.ownerUserId, "writer-legacy")
+        XCTAssertEqual(restoredEntry.headers, ["X-Idempotency-Key": "legacy-idem"])
+        let scrubbedManifest = try String(contentsOf: manifestURL, encoding: .utf8)
+        XCTAssertFalse(scrubbedManifest.contains("legacy-access-secret"))
+        XCTAssertFalse(scrubbedManifest.contains("legacy-client-secret"))
+        XCTAssertFalse(scrubbedManifest.contains("legacy-app-secret"))
+        XCTAssertFalse(scrubbedManifest.contains("legacy-cookie-secret"))
+    }
+
+    func testReplayRebuildsCurrentAuthenticationAfterTokensRotate() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("writer-1", forHTTPHeaderField: "X-User-Id")
+        request.setValue("idem-rotated", forHTTPHeaderField: "X-Idempotency-Key")
+        request.setValue("Bearer old-access", forHTTPHeaderField: "Authorization")
+        request.setValue("old-client", forHTTPHeaderField: "X-Client-Token")
+        request.setValue("old-app", forHTTPHeaderField: "X-APP-TOKEN")
+        request.setValue("session=old-cookie", forHTTPHeaderField: "Cookie")
+        _ = try await outbox.enqueue(
+            request: request,
+            body: Data("rotated-body".utf8),
+            reason: "offline"
+        )
+
+        let relaunched = OfflineTalkOutbox(
+            storageDirectory: directory,
+            authenticationProvider: {
+                BackendRequestAuthentication(
+                    userID: "writer-1",
+                    clientToken: "new-client",
+                    accessToken: "new-access",
+                    appToken: "new-app"
+                )
+            }
+        )
+        var didSend = false
+        let drained = await relaunched.drainDue(
+            now: Date().addingTimeInterval(10)
+        ) { replayRequest in
+            didSend = true
+            XCTAssertEqual(replayRequest.value(forHTTPHeaderField: "X-User-Id"), "writer-1")
+            XCTAssertEqual(replayRequest.value(forHTTPHeaderField: "X-Client-Token"), "new-client")
+            XCTAssertEqual(replayRequest.value(forHTTPHeaderField: "X-APP-TOKEN"), "new-app")
+            XCTAssertEqual(replayRequest.value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+            XCTAssertNil(replayRequest.value(forHTTPHeaderField: "Cookie"))
+            XCTAssertFalse(replayRequest.httpShouldHandleCookies)
+            return OfflineTalkOutboxSendResult(statusCode: 200)
+        }
+
+        XCTAssertTrue(didSend)
+        XCTAssertEqual(drained.pendingCount, 0)
+    }
+
     func testDrainDueSendsPendingEntryAndRemovesItOnSuccess() async throws {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         var request = URLRequest(url: URL(string: "https://them.test/talk")!)

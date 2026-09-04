@@ -88,6 +88,7 @@ nonisolated struct OfflineTalkOutboxEntry: Identifiable, Codable, Equatable {
     var endpoint: String
     var method: String
     var urlString: String
+    var ownerUserId: String?
     var headers: [String: String]
     var bodyRef: String
     var bodyByteCount: Int
@@ -135,6 +136,7 @@ actor OfflineTalkOutbox {
     }
 
     typealias Transport = (URLRequest) async throws -> OfflineTalkOutboxSendResult
+    typealias AuthenticationProvider = @Sendable () -> BackendRequestAuthentication
 
     static let shared = OfflineTalkOutbox(storageDirectory: defaultStorageDirectory())
 
@@ -146,21 +148,40 @@ actor OfflineTalkOutbox {
         talkEndpoint,
         screenplayQuestionResolutionEndpoint,
     ]
+    private static let persistedHeaderNames: [String: String] = [
+        "accept": "Accept",
+        "content-type": "Content-Type",
+        "x-idempotency-key": "X-Idempotency-Key",
+        "x-persona-key": "X-Persona-Key",
+        "x-screenplay-question-id": "X-Screenplay-Question-ID",
+        "x-talk-stream": "X-Talk-Stream",
+        "x-them-client-build": "X-Them-Client-Build",
+        "x-them-client-name": "X-Them-Client-Name",
+        "x-them-client-platform": "X-Them-Client-Platform",
+        "x-them-client-version": "X-Them-Client-Version",
+        "x-them-outbox-action": "X-Them-Outbox-Action",
+    ]
 
     private let storageDirectory: URL
     private let manifestURL: URL
     private let blobsDirectory: URL
     private let fileManager: FileManager
+    private let authenticationProvider: AuthenticationProvider?
     private var didLoad = false
     private var entries: [OfflineTalkOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.offline-talk-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        storageDirectory: URL,
+        fileManager: FileManager = .default,
+        authenticationProvider: AuthenticationProvider? = nil
+    ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.jsonl")
         self.blobsDirectory = storageDirectory.appendingPathComponent("blobs", isDirectory: true)
         self.fileManager = fileManager
+        self.authenticationProvider = authenticationProvider
     }
 
     func startNetworkMonitoring() {
@@ -263,6 +284,9 @@ actor OfflineTalkOutbox {
         let id = UUID().uuidString.lowercased()
         let bodyRef = "blob-\(id).multipart"
         let now = Date().timeIntervalSince1970
+        let ownerUserId = normalizedHeader(
+            request.value(forHTTPHeaderField: "X-User-Id")
+        )
         let entry = OfflineTalkOutboxEntry(
             id: id,
             createdAt: now,
@@ -270,6 +294,7 @@ actor OfflineTalkOutbox {
             endpoint: endpoint,
             method: "POST",
             urlString: urlString,
+            ownerUserId: ownerUserId,
             headers: normalizedHeaders(request.allHTTPHeaderFields ?? [:], idempotencyKey: idempotencyKey),
             bodyRef: bodyRef,
             bodyByteCount: body.count,
@@ -376,28 +401,51 @@ actor OfflineTalkOutbox {
 
     private func loadIfNeeded() throws {
         guard !didLoad else { return }
-        didLoad = true
         entries = []
-        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
+        guard fileManager.fileExists(atPath: manifestURL.path) else {
+            didLoad = true
+            return
+        }
 
-        let data = try Data(contentsOf: manifestURL)
-        let raw = String(data: data, encoding: .utf8) ?? ""
-        let decoder = JSONDecoder()
-        let now = Date().timeIntervalSince1970
-        entries = raw
-            .split(separator: "\n")
-            .compactMap { line -> OfflineTalkOutboxEntry? in
-                guard let lineData = String(line).data(using: .utf8) else { return nil }
-                guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
-                    return nil
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            let decoder = JSONDecoder()
+            let now = Date().timeIntervalSince1970
+            var didSanitizeStoredEntries = false
+            entries = raw
+                .split(separator: "\n")
+                .compactMap { line -> OfflineTalkOutboxEntry? in
+                    guard let lineData = String(line).data(using: .utf8) else { return nil }
+                    guard var entry = try? decoder.decode(OfflineTalkOutboxEntry.self, from: lineData) else {
+                        return nil
+                    }
+                    let ownerUserId = normalizedHeader(entry.ownerUserId)
+                        ?? normalizedHeader(headerValue(named: "X-User-Id", in: entry.headers))
+                    let safeHeaders = normalizedHeaders(
+                        entry.headers,
+                        idempotencyKey: entry.idempotencyKey
+                    )
+                    if entry.ownerUserId != ownerUserId || entry.headers != safeHeaders {
+                        entry.ownerUserId = ownerUserId
+                        entry.headers = safeHeaders
+                        didSanitizeStoredEntries = true
+                    }
+                    if entry.status == .inflight {
+                        entry.status = .pending
+                        entry.nextAttemptAt = min(entry.nextAttemptAt, now)
+                        entry.lastError = "Interrupted while sending."
+                    }
+                    return entry
                 }
-                if entry.status == .inflight {
-                    entry.status = .pending
-                    entry.nextAttemptAt = min(entry.nextAttemptAt, now)
-                    entry.lastError = "Interrupted while sending."
-                }
-                return entry
+            if didSanitizeStoredEntries {
+                try persist()
             }
+            didLoad = true
+        } catch {
+            entries = []
+            throw error
+        }
     }
 
     private func persist() throws {
@@ -450,13 +498,15 @@ actor OfflineTalkOutbox {
         var request = URLRequest(url: url)
         request.httpMethod = entry.method
         request.timeoutInterval = entry.timeoutInterval
+        request.httpShouldHandleCookies = false
         for (key, value) in entry.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        let queuedUserID = headerValue(named: "X-User-Id", in: entry.headers) ?? ""
-        let currentAuth = BackendAuthClient.currentAuthSessionState()
-        let currentUserID = currentAuth.user?.userId
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let currentAuthentication = authenticationProvider?()
+            ?? BackendAuthClient.currentRequestAuthentication()
+        let queuedUserID = normalizedHeader(entry.ownerUserId) ?? ""
+        let currentUserID = currentAuthentication.userID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if !queuedUserID.isEmpty {
             guard !currentUserID.isEmpty, queuedUserID == currentUserID else {
                 throw BackendError.stage(
@@ -464,9 +514,24 @@ actor OfflineTalkOutbox {
                     "Queued action belongs to a different signed-in account."
                 )
             }
-            if let authorization = BackendAuthClient.authorizationHeaderValue() {
-                request.setValue(authorization, forHTTPHeaderField: "Authorization")
-            }
+        }
+        if !currentUserID.isEmpty {
+            request.setValue(currentUserID, forHTTPHeaderField: "X-User-Id")
+        }
+        let currentClientToken = currentAuthentication.clientToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentClientToken.isEmpty {
+            request.setValue(currentClientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        let currentAppToken = currentAuthentication.appToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentAppToken.isEmpty {
+            request.setValue(currentAppToken, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        let currentAccessToken = currentAuthentication.accessToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentAccessToken.isEmpty {
+            request.setValue("Bearer \(currentAccessToken)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = body
         return request
@@ -599,10 +664,12 @@ actor OfflineTalkOutbox {
         idempotencyKey: String
     ) -> [String: String] {
         var normalized = headers.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = pair.key
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
             let value = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, !value.isEmpty else { return }
-            result[key] = value
+            guard let persistedName = Self.persistedHeaderNames[key], !value.isEmpty else { return }
+            result[persistedName] = value
         }
         normalized["X-Idempotency-Key"] = idempotencyKey
         return normalized
