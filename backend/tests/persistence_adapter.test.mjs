@@ -254,6 +254,140 @@ function authSession({
   };
 }
 
+test("[postgres] auth issuance inserts one row and leaves unrelated sessions untouched", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const user = { id: "writer-1", email: "writer@example.com" };
+  const session = authSession({ sessionId: "session-login" });
+  const unrelated = authSession({
+    sessionId: "session-login-unrelated",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  await p.put({ domain: "auth_users", key: user.id, value: user });
+  await p.put({ domain: "auth_sessions", key: unrelated.sessionId, value: unrelated });
+
+  const result = await p.issueAuthSession({ userId: user.id, session });
+
+  assert.equal(result.status, "committed");
+  assert.deepEqual(result.session, session);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: session.sessionId }), session);
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+});
+
+test("[postgres] auth issuance rejects a conflicting session ID without overwriting its owner", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock() });
+  const user = { id: "writer-1", email: "writer@example.com" };
+  const existing = authSession({
+    sessionId: "session-login-conflict",
+    userId: "writer-2",
+    familyId: "family-2",
+  });
+  const attempted = authSession({ sessionId: existing.sessionId });
+  await p.put({ domain: "auth_users", key: user.id, value: user });
+  await p.put({ domain: "auth_sessions", key: existing.sessionId, value: existing });
+
+  const result = await p.issueAuthSession({ userId: user.id, session: attempted });
+
+  assert.equal(result.status, "conflict");
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: existing.sessionId }), existing);
+});
+
+test("[postgres] auth issuance rejects a missing canonical user and cross-user input", async () => {
+  const calls = [];
+  const pgClient = createPgMock();
+  const p = createPostgresPersistence({
+    pgClient: {
+      async query(sql, params = []) {
+        calls.push(sql.replace(/\s+/g, " ").trim());
+        return pgClient.query(sql, params);
+      },
+    },
+  });
+  const session = authSession({ sessionId: "session-login-missing-user" });
+
+  const missing = await p.issueAuthSession({ userId: session.userId, session });
+  assert.equal(missing.status, "user_missing");
+  assert.equal(await p.get({ domain: "auth_sessions", key: session.sessionId }), null);
+  const callsBeforeCrossUser = calls.length;
+  await assert.rejects(
+    p.issueAuthSession({ userId: "writer-2", session }),
+    /complete session for the requested user/,
+  );
+  assert.equal(calls.length, callsBeforeCrossUser, "cross-user issuance must fail before I/O");
+});
+
+test("[postgres] unknown auth issuance COMMIT outcome is unsafe to retry and discards the connection", async () => {
+  const user = { id: "writer-1", email: "writer@example.com" };
+  const session = authSession({ sessionId: "session-login-unknown-commit" });
+  const commitError = new Error("simulated login commit connection loss");
+  const calls = [];
+  let releasedWith = null;
+  const transactionClient = {
+    async query(sql) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      calls.push(trimmed);
+      if (trimmed === "BEGIN" || trimmed === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("SELECT value FROM persistence_auth_users")) {
+        return { rows: [{ value: user }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("INSERT INTO persistence_auth_sessions")) {
+        return { rows: [{ key: session.sessionId }], rowCount: 1 };
+      }
+      if (trimmed === "COMMIT") throw commitError;
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+    release(error) {
+      releasedWith = error || null;
+    },
+  };
+  const p = createPostgresPersistence({
+    pgClient: {
+      async connect() { return transactionClient; },
+      async query() { throw new Error("pool query should not be used inside the transaction"); },
+    },
+  });
+
+  await assert.rejects(
+    p.issueAuthSession({ userId: user.id, session }),
+    (error) => error === commitError && error.commitOutcomeUnknown === true,
+  );
+  assert.deepEqual(calls.slice(-2), ["COMMIT", "ROLLBACK"]);
+  assert.equal(releasedWith, commitError);
+});
+
+test("[postgres] auth issuance rolls back a failed insert before reporting failure", async () => {
+  const user = { id: "writer-1", email: "writer@example.com" };
+  const session = authSession({ sessionId: "session-login-insert-failure" });
+  const calls = [];
+  const transactionClient = {
+    async query(sql) {
+      const trimmed = sql.replace(/\s+/g, " ").trim();
+      calls.push(trimmed);
+      if (trimmed === "BEGIN" || trimmed === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (trimmed.startsWith("SELECT pg_advisory_xact_lock")) {
+        return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("SELECT value FROM persistence_auth_users")) {
+        return { rows: [{ value: user }], rowCount: 1 };
+      }
+      if (trimmed.startsWith("INSERT INTO persistence_auth_sessions")) {
+        throw new Error("simulated login insert failure");
+      }
+      throw new Error(`unexpected SQL: ${trimmed}`);
+    },
+  };
+  const p = createPostgresPersistence({ pgClient: transactionClient });
+
+  await assert.rejects(
+    p.issueAuthSession({ userId: user.id, session }),
+    /simulated login insert failure/,
+  );
+  assert.equal(calls.at(-1), "ROLLBACK");
+});
+
 test("[postgres] concurrent auth rotation has one winner and leaves unrelated users untouched", async () => {
   const p = createPostgresPersistence({ pgClient: createPgMock() });
   const current = authSession({ sessionId: "session-current" });

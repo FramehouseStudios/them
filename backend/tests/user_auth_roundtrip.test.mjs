@@ -90,12 +90,16 @@ function setupSubsystem(overrides = {}, userStoreOverrides = {}) {
 function createPostgresAuthPersistence() {
   const domains = new Map();
   const putCalls = [];
+  const issuanceCalls = [];
   const rotationCalls = [];
   const revocationCalls = [];
   const userRevocationCalls = [];
+  let issuanceFailure = null;
+  let issuanceConflict = false;
   let rotationFailure = null;
   let revocationFailure = null;
   let beforeRevocation = null;
+  let afterIssuance = null;
   const domainRows = (domain) => {
     if (!domains.has(domain)) domains.set(domain, new Map());
     return domains.get(domain);
@@ -103,9 +107,16 @@ function createPostgresAuthPersistence() {
   return {
     kind: "postgres",
     putCalls,
+    issuanceCalls,
     rotationCalls,
     revocationCalls,
     userRevocationCalls,
+    failNextIssuance(error = new Error("simulated auth issuance failure")) {
+      issuanceFailure = error;
+    },
+    conflictNextIssuance() {
+      issuanceConflict = true;
+    },
     failNextRotation(error = new Error("simulated auth rotation failure")) {
       rotationFailure = error;
     },
@@ -114,6 +125,9 @@ function createPostgresAuthPersistence() {
     },
     observeBeforeRevocation(observer) {
       beforeRevocation = observer;
+    },
+    observeAfterIssuance(observer) {
+      afterIssuance = observer;
     },
     async put({ domain, key, value }) {
       putCalls.push({ domain, key });
@@ -132,6 +146,25 @@ function createPostgresAuthPersistence() {
         .sort(([left], [right]) => left.localeCompare(right))
         .slice(0, limit)
         .map(([key, value]) => ({ key, value: structuredClone(value) }));
+    },
+    async issueAuthSession(input) {
+      issuanceCalls.push(structuredClone(input));
+      if (issuanceFailure) {
+        const error = issuanceFailure;
+        issuanceFailure = null;
+        throw error;
+      }
+      if (issuanceConflict) {
+        issuanceConflict = false;
+        return { status: "conflict" };
+      }
+      const user = domainRows("auth_users").get(input.userId);
+      if (!user || user.id !== input.userId) return { status: "user_missing" };
+      const sessions = domainRows("auth_sessions");
+      if (sessions.has(input.session.sessionId)) return { status: "conflict" };
+      sessions.set(input.session.sessionId, structuredClone(input.session));
+      if (afterIssuance) afterIssuance(input);
+      return { status: "committed", session: structuredClone(input.session) };
     },
     async rotateAuthSession(input) {
       rotationCalls.push(structuredClone(input));
@@ -405,6 +438,31 @@ test("[user-auth-roundtrip] completed signup restores without an explicit test f
     assert.equal(await loadUserStoreFromAdapter(), true);
     assert.equal(getUserByEmail("restart@example.com")?.id, userId);
     assert.equal(getAuthSessionByToken(refreshToken)?.userId, userId);
+  } finally {
+    await persistence.close();
+  }
+});
+
+test("[user-auth-roundtrip] JSON fallback persists an existing-user email login before responding", async () => {
+  const persistence = createJsonPersistence({ jsonRoot: tempPersistenceRoot() });
+  try {
+    const auth = setupSubsystem({}, { persistence });
+    await auth.handleAuthSignup(
+      makeReq({ email: "json-login@example.com", password: "validpass123" }),
+      makeRes(),
+    );
+    const login = makeRes();
+    await auth.handleAuthLogin(
+      makeReq({ email: "json-login@example.com", password: "validpass123" }),
+      login,
+    );
+    assert.equal(login._status, 200);
+    const refreshToken = login._body.refresh_token;
+    const sessionId = login._body.current_session_id;
+
+    resetState();
+    assert.equal(await loadUserStoreFromAdapter(), true);
+    assert.equal(getAuthSessionByToken(refreshToken)?.sessionId, sessionId);
   } finally {
     await persistence.close();
   }
@@ -979,6 +1037,139 @@ test("[user-auth-roundtrip] login returns access+refresh tokens for valid creden
   assert.equal(res._body.ok, true);
   assert.ok(res._body.access_token);
   assert.ok(res._body.refresh_token);
+});
+
+test("[user-auth-roundtrip] Postgres email login inserts only its session before publishing live tokens", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-login@example.com", password: "validpass123" }),
+    signup,
+  );
+  const unrelatedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-login-other@example.com", password: "validpass123" }),
+    unrelatedSignup,
+  );
+  const unrelatedSessionId = unrelatedSignup._body.current_session_id;
+  const unrelatedBefore = await persistence.get({
+    domain: "auth_sessions",
+    key: unrelatedSessionId,
+  });
+  const sessionPutsBeforeLogin = persistence.putCalls
+    .filter((call) => call.domain === "auth_sessions").length;
+  let observedCanonicalBeforeMemory = false;
+  persistence.observeAfterIssuance(({ session }) => {
+    observedCanonicalBeforeMemory = !authSessionsById.has(session.sessionId);
+  });
+
+  const response = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login@example.com", password: "validpass123" }),
+    response,
+  );
+
+  assert.equal(response._status, 200);
+  assert.equal(observedCanonicalBeforeMemory, true);
+  assert.equal(persistence.issuanceCalls.length, 1);
+  assert.equal(
+    persistence.putCalls.filter((call) => call.domain === "auth_sessions").length,
+    sessionPutsBeforeLogin,
+    "email login must not rewrite the full auth-session snapshot",
+  );
+  const issuedSession = persistence.issuanceCalls[0].session;
+  assert.equal(response._body.current_session_id, issuedSession.sessionId);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: issuedSession.sessionId }),
+    issuedSession,
+  );
+  assert.equal(authSessionsById.get(issuedSession.sessionId)?.sessionId, issuedSession.sessionId);
+  assert.deepEqual(
+    await persistence.get({ domain: "auth_sessions", key: unrelatedSessionId }),
+    unrelatedBefore,
+  );
+});
+
+test("[user-auth-roundtrip] Postgres email login session collision fails closed without leaking tokens", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-login-conflict@example.com", password: "validpass123" }),
+    makeRes(),
+  );
+  persistence.conflictNextIssuance();
+
+  const response = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login-conflict@example.com", password: "validpass123" }),
+    response,
+  );
+
+  assert.equal(response._status, 503);
+  assert.equal(response._body.error, "auth_persistence_failed");
+  assert.equal(response._body.retryable, true);
+  assert.equal(response._body.access_token, undefined);
+  assert.equal(response._body.refresh_token, undefined);
+  const attempted = persistence.issuanceCalls.at(-1).session;
+  assert.equal(authSessionsById.has(attempted.sessionId), false);
+  assert.equal(await persistence.get({ domain: "auth_sessions", key: attempted.sessionId }), null);
+});
+
+test("[user-auth-roundtrip] Postgres email login adapter failure leaves no transient live session", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-login-failure@example.com", password: "validpass123" }),
+    makeRes(),
+  );
+  persistence.failNextIssuance();
+
+  const failed = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login-failure@example.com", password: "validpass123" }),
+    failed,
+  );
+  assert.equal(failed._status, 503);
+  assert.equal(failed._body.error, "auth_persistence_failed");
+  assert.equal(failed._body.retryable, true);
+  assert.equal(failed._body.access_token, undefined);
+  assert.equal(failed._body.refresh_token, undefined);
+  const attempted = persistence.issuanceCalls.at(-1).session;
+  assert.equal(authSessionsById.has(attempted.sessionId), false);
+  assert.equal(await persistence.get({ domain: "auth_sessions", key: attempted.sessionId }), null);
+
+  const retry = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login-failure@example.com", password: "validpass123" }),
+    retry,
+  );
+  assert.equal(retry._status, 200);
+});
+
+test("[user-auth-roundtrip] unknown Postgres login commit never exposes credentials or promises retry", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-login-uncertain@example.com", password: "validpass123" }),
+    makeRes(),
+  );
+  const error = new Error("simulated unknown login commit outcome");
+  error.commitOutcomeUnknown = true;
+  persistence.failNextIssuance(error);
+
+  const response = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login-uncertain@example.com", password: "validpass123" }),
+    response,
+  );
+  assert.equal(response._status, 503);
+  assert.equal(response._body.error, "auth_persistence_failed");
+  assert.equal(response._body.retryable, false);
+  assert.equal(response._body.access_token, undefined);
+  assert.equal(response._body.refresh_token, undefined);
+  const attempted = persistence.issuanceCalls.at(-1).session;
+  assert.equal(authSessionsById.has(attempted.sessionId), false);
 });
 
 test("[user-auth-roundtrip] login rejects unknown email", async () => {

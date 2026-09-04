@@ -1313,6 +1313,87 @@ function prepareAuthSession(input = {}, now = Date.now()) {
   };
 }
 
+async function issueAuthSessionDurably(input = {}, now = Date.now()) {
+  const { persistence } = userStoreDeps();
+  if (persistence?.kind !== "postgres") {
+    return {
+      status: "snapshot_pending",
+      issuance: issueAuthSession(input, now),
+      retryable: true,
+    };
+  }
+  if (typeof persistence.issueAuthSession !== "function") {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  let pendingPersistence = null;
+  try {
+    pendingPersistence = await flushUserStorePersistenceWrites();
+  } catch {
+    // Existing-user login must not derive a new canonical row from live state
+    // while an earlier auth snapshot has an unresolved persistence failure.
+  }
+  if (pendingPersistence?.ok !== true) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  const userId = normalizeUserId(input.userId);
+  if (!userId || !getUserById(userId)) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+  const prepared = prepareAuthSession({ ...input, userId }, now);
+  if (!prepared.session) {
+    return {
+      status: "session_issue_failed",
+      issuance: null,
+      retryable: false,
+    };
+  }
+
+  try {
+    const result = await persistence.issueAuthSession({
+      userId,
+      session: prepared.session,
+    });
+    if (result?.status !== "committed") {
+      return {
+        status: "auth_persistence_failed",
+        issuance: null,
+        retryable: result?.status === "conflict",
+      };
+    }
+  } catch (error) {
+    return {
+      status: "auth_persistence_failed",
+      issuance: null,
+      retryable: !error?.rollbackError && !error?.commitOutcomeUnknown,
+    };
+  }
+
+  const session = replaceAuthSessionRecord(prepared.session);
+  writeLocalUserStoreMirror(now);
+  return {
+    status: "committed",
+    issuance: {
+      session,
+      refreshToken: prepared.refreshToken,
+    },
+    retryable: true,
+  };
+}
+
 function getAuthSessionById(sessionId, now = Date.now(), options = {}) {
   const safeSessionId = String(sessionId || "").trim();
   if (!safeSessionId) return null;
@@ -1869,6 +1950,7 @@ export {
   getUserByEmail,
   getUserById,
   issueAuthSession,
+  issueAuthSessionDurably,
   issueEmailVerificationToken,
   issuePasswordResetToken,
   loadUserStoreFromAdapter,

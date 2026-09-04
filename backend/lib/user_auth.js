@@ -15,6 +15,7 @@ import {
   getUserByEmail,
   getUserById,
   issueAuthSession,
+  issueAuthSessionDurably,
   issueEmailVerificationToken,
   issuePasswordResetToken,
   listAuthSessionsForUser,
@@ -437,6 +438,26 @@ function createUserAuthSubsystem(options = {}) {
     };
   }
 
+  async function issueEmailLoginAuthResult(user, req) {
+    const result = await issueAuthSessionDurably({
+      userId: String(user?.id || "").trim(),
+      ttlMs: refreshTtlSeconds * 1000,
+      metadata: readRequestDevice(req),
+    }, Date.now());
+    const issued = result?.issuance || null;
+    if (!issued?.session || !issued?.refreshToken) {
+      return { ...result, authResult: null };
+    }
+    return {
+      ...result,
+      authResult: {
+        accessToken: signAccessToken(user, issued.session),
+        refreshToken: issued.refreshToken,
+        session: issued.session,
+      },
+    };
+  }
+
   async function verifyReauthProof(req, user) {
     const normalizedUserId = String(user?.id || "").trim();
     if (!normalizedUserId) return false;
@@ -681,14 +702,25 @@ function createUserAuthSubsystem(options = {}) {
         error: authenticated.status === "email_required" ? "email_required" : "invalid_credentials",
       });
     }
-    const issued = issueAuthResult(authenticated.user, req);
+    const issuance = await issueEmailLoginAuthResult(authenticated.user, req);
+    if (issuance.status === "auth_persistence_failed") {
+      return res.status(503).json({
+        stage: "auth_login",
+        error: "auth_persistence_failed",
+        retryable: issuance.retryable === true,
+      });
+    }
+    const issued = issuance.authResult;
     if (!issued) {
       return res.status(500).json({
         stage: "auth_login",
         error: "session_issue_failed",
       });
     }
-    if (!(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))) return;
+    if (
+      issuance.status === "snapshot_pending"
+      && !(await ensureAuthMutationPersisted(res, "auth_login", checkpoint))
+    ) return;
     return res.status(200).json(buildAuthEnvelope({
       user: authenticated.user,
       accessToken: issued.accessToken,

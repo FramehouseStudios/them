@@ -115,6 +115,26 @@ function assertAuthSessionRotation(expectedSession, previousSession, nextSession
   }
 }
 
+function assertAuthSessionIssuance(userId, session) {
+  const normalizedUserId = String(userId || "").trim();
+  assertValue(session);
+  if (!normalizedUserId || !session || typeof session !== "object" || Array.isArray(session)) {
+    throw new Error("auth session issuance requires a user and session object");
+  }
+  if (
+    !String(session.sessionId || "").trim()
+    || !String(session.familyId || "").trim()
+    || !String(session.tokenHash || "").trim()
+    || String(session.userId || "").trim() !== normalizedUserId
+  ) {
+    throw new Error("auth session issuance requires a complete session for the requested user");
+  }
+  if (Number(session.revokedAt || 0) > 0 || String(session.replacedBySessionId || "").trim()) {
+    throw new Error("auth session issuance requires a fresh active session");
+  }
+  return normalizedUserId;
+}
+
 function assertAuthSessionRevocations(userId, expectedSessions, revokedSessions) {
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) {
@@ -274,6 +294,76 @@ function createPostgresPersistence({
         );
       }
       return Number(r?.rowCount || r?.rows?.length || 0) === 1;
+    },
+
+    async issueAuthSession({ userId, session }) {
+      const normalizedUserId = assertAuthSessionIssuance(userId, session);
+      const c = await client();
+      const transactionClient = typeof c.connect === "function"
+        ? await c.connect()
+        : c;
+      if (!transactionClient || typeof transactionClient.query !== "function") {
+        throw new Error("Postgres auth session issuance requires a query-capable transaction client");
+      }
+      let transactionOpen = false;
+      let commitAttempted = false;
+      let releaseError = null;
+      try {
+        await transactionClient.query("BEGIN");
+        transactionOpen = true;
+        await lockAuthUserMutation(transactionClient, normalizedUserId);
+        const canonicalUser = await transactionClient.query(
+          `SELECT value FROM ${tableName("auth_users")}
+           WHERE key = $1
+           FOR UPDATE`,
+          [normalizedUserId],
+        );
+        const storedUser = canonicalUser?.rows?.[0]?.value || null;
+        if (
+          Number(canonicalUser?.rowCount || canonicalUser?.rows?.length || 0) !== 1
+          || String(storedUser?.id || "").trim() !== normalizedUserId
+        ) {
+          await transactionClient.query("ROLLBACK");
+          transactionOpen = false;
+          return { status: "user_missing" };
+        }
+        const inserted = await transactionClient.query(
+          `INSERT INTO ${tableName("auth_sessions")} (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key`,
+          [session.sessionId, JSON.stringify(session)],
+        );
+        if (Number(inserted?.rowCount || inserted?.rows?.length || 0) !== 1) {
+          await transactionClient.query("ROLLBACK");
+          transactionOpen = false;
+          return { status: "conflict" };
+        }
+        commitAttempted = true;
+        await transactionClient.query("COMMIT");
+        transactionOpen = false;
+        return { status: "committed", session };
+      } catch (error) {
+        if (commitAttempted && error && (typeof error === "object" || typeof error === "function")) {
+          error.commitOutcomeUnknown = true;
+          releaseError = error;
+        }
+        if (transactionOpen) {
+          try {
+            await transactionClient.query("ROLLBACK");
+          } catch (rollbackError) {
+            if (error && (typeof error === "object" || typeof error === "function")) {
+              error.rollbackError = rollbackError;
+            }
+            releaseError = rollbackError;
+          }
+        }
+        throw error;
+      } finally {
+        if (transactionClient !== c && typeof transactionClient.release === "function") {
+          transactionClient.release(releaseError || undefined);
+        }
+      }
     },
 
     async rotateAuthSession({ expectedSession, previousSession, nextSession }) {

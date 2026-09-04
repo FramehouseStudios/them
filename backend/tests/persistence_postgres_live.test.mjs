@@ -30,6 +30,50 @@ test("[postgres-live] prefix metacharacters are literal in a real Postgres query
   }
 });
 
+test("[postgres-live] concurrent email-login issuance commits one conflicting session ID", {
+  skip: databaseUrl ? false : "DATABASE_URL is not configured",
+}, async () => {
+  const left = createPostgresPersistence({ databaseUrl });
+  const right = createPostgresPersistence({ databaseUrl });
+  const runId = `${process.pid}-${Date.now()}-login`;
+  const user = {
+    id: `live-login-${runId}-writer`,
+    email: `live-login-${runId}@example.com`,
+  };
+  const session = {
+    sessionId: `live-login-${runId}-session`,
+    familyId: `live-login-${runId}-family`,
+    userId: user.id,
+    tokenHash: `live-login-${runId}-hash`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    revokedAt: 0,
+    replacedBySessionId: "",
+    metadata: {},
+  };
+
+  try {
+    await left.put({ domain: "auth_users", key: user.id, value: user });
+    const outcomes = await Promise.all([
+      left.issueAuthSession({ userId: user.id, session }),
+      right.issueAuthSession({ userId: user.id, session }),
+    ]);
+    assert.deepEqual(
+      outcomes.map((outcome) => outcome.status).sort(),
+      ["committed", "conflict"],
+    );
+    assert.deepEqual(
+      await left.get({ domain: "auth_sessions", key: session.sessionId }),
+      session,
+    );
+  } finally {
+    await left.delete({ domain: "auth_sessions", key: session.sessionId });
+    await left.delete({ domain: "auth_users", key: user.id });
+    await Promise.all([left.close(), right.close()]);
+  }
+});
+
 test("[postgres-live] concurrent refresh rotation commits exactly one replacement", {
   skip: databaseUrl ? false : "DATABASE_URL is not configured",
 }, async () => {
