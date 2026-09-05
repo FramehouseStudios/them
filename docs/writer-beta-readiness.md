@@ -62,6 +62,16 @@ a real recovery path. A simulator fixture pass is not production acceptance.
   current state and disable Next at the final page. The density readout exposes
   a stable accessibility label and numeric value. The final signed navigation
   story passed. Committed with the Studio UI fixtures as `9f0ce37`.
+- Draft-save replies now belong to the account intent and project-selection
+  occurrence that requested them. A late success acknowledges the original
+  queue entry without navigating back or changing the new page's journal.
+  Late conflicts and failures retain the original queued bytes and leave the
+  visible page alone. Explicit saves in another project are neither coalesced
+  with identical text nor rebased onto the old project's version. Guards also
+  cover empty-base preflight, queue-acknowledgement suspension, and post-save
+  revision enrichment. Session bootstrap and authorization retry cannot dispatch
+  a screenplay write under a superseded sign-in intent. This extends the existing
+  auth-generation mechanism and canonical HTTP client, not a second auth system.
 - Backend fixture servers and memory seeders are isolated from ambient
   PostgreSQL/Redis settings (`adcd67e`). Studio render tests bind the same IPv4 loopback
   address they request, preventing collisions with unrelated IPv4 listeners.
@@ -96,6 +106,10 @@ activation coordinates landed below the visible reset button; tapping its
 current frame center passed the full navigation story. The final v6 regression
 set passed **735/735, with no failures or skips**. This is not a production-beta
 approval or proof that the unmerged newer main features work on this branch.
+The subsequent save-isolation pass also passed **749/749 (745 unit tests and
+the same four signed UI workflows), with no failures or skips**. See the
+suspended-save verification below for its independently reproduced failures
+and final artifacts.
 
 Completed checks so far:
 
@@ -245,14 +259,56 @@ a boot check green.
 2. Reconcile the two tested branches in an isolated integration checkout,
    retaining both contracts and rerunning the complete backend, Swift and UI
    suites. Do not use the earlier 16-conflict preview as a resolution plan.
-3. Complete the suspended-save response check described below before release.
 
-Before local integration/release, also cover the pre-existing save-completion
-project-switch race: `performDraftSave` still needs a suspended-response test
-that switches project/account before applying a server acknowledgement. The
-new debounce guards do not prove that separate completion path safe. Preserve
-the queue acknowledgement without moving selection or writing another account's
-recovery data. Do not label that concern an introduced regression.
+### Suspended-save adversarial verification
+
+The pre-existing save-completion concern above was reproduced through the real
+`manualSaveDraft` → canonical HTTP client → durable queue path. The first four
+controlled-delay tests all failed: success navigated back to the old project;
+conflict and error handling wrote the new project's draft into the old recovery
+record. Result: `/tmp/io-them-save-isolation-red-20260905.xcresult` (four tests,
+24 failed assertions). These were not introduced by the earlier debounce fix.
+
+The initial correction passed all 95 focused recovery/outbox/isolation tests,
+including 10 new delayed-response tests:
+`/tmp/io-them-save-isolation-v1-20260905.xcresult`.
+A further adversarial pass passed 13 of 14 isolation tests and exposed a second
+defect: changing auth intent while session bootstrap was pending still dispatched
+the old draft. Result: `/tmp/io-them-save-bootstrap-red-20260905.xcresult`.
+The canonical version-write API now validates the captured generation before
+bootstrap, after bootstrap, around header/response handling, and on authorization
+retry. Studio passes its original request generation across the actor boundary.
+
+Final verification after both fixes:
+
+- **745/745 unit tests passed**, including all 14 save-isolation regressions.
+- **4/4 signed iPhone 16e UI workflows passed** against a disposable authenticated
+  loopback backend: seeded-project restore, expired-auth/stale-conflict recovery,
+  queued-save relaunch/reconnect, and the complete narrow Pages navigator.
+- Result: `/tmp/io-them-writer-beta-save-isolation-full-20260905.xcresult`;
+  log: `/tmp/io-them-writer-beta-save-isolation-full-20260905.log`.
+  The backend stopped normally and its disposable fixture directory was removed.
+- macOS scaffold build passed via `scripts/desktop_preflight.sh`;
+  log: `/tmp/io-them-save-isolation-macos-20260905.log`. This is compile-only
+  proof, not a new native-macOS runtime acceptance claim.
+- `node scripts/pre_flight.mjs --strict` and `git diff --check` passed.
+  Existing concurrency warnings elsewhere in the Swift tests remain; the touched
+  view-model initializer's actor-isolation warning was removed by constructing its
+  default recovery store inside the main-actor initializer.
+- GitHub read access and admin repository permission were reverified. Remote
+  main remained `9c74759`; its latest hosted Quality Gate remained failed at
+  [run 33980301593](https://github.com/FramehouseStudios/them/actions/runs/33980301593).
+  No push, remote merge, workflow rerun, branch-policy change, or deployment occurred.
+
+Covered boundaries include same-page newer edits, project A → B, A → B → A,
+an explicit same-text save in B, a conflict in A while B's save is pending,
+empty-base preflight, auth-generation changes before response and during durable
+acknowledgement, and revision failure after navigation. Test transports use
+isolated URL sessions and temporary journals/queues; no production/provider
+request is involved. This does not certify all asynchronous project operations
+or physical-device account switching. Those remain in integrated release smoke.
+The next code-owned work is the isolated branch reconciliation and repeated
+newer-main writer-loop verification above, not another Pages redesign.
 
 ## September 5 file manifest
 
@@ -272,6 +328,13 @@ Shared branch code commits (`9351129`, `c67d23a`, `9f0ce37`):
 - `themUITests/V1SmokeUITests.swift`
 
 Shared branch handoff: `TASKS.md` and this document.
+
+Suspended-save fix and regression files:
+
+- `them/BackendMemoryAPI.swift`
+- `them/ScreenplayStudioViewModel.swift`
+- `themTests/ScreenplayStudioSaveResponseIsolationTests.swift`
+- `docs/writer-beta-readiness.md`
 
 Separate main-based branch commits (`5d0c57d` through `945c8cf`):
 

@@ -8510,9 +8510,19 @@ actor BackendMemoryAPI {
         clientRequestId: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        expectedAuthSessionIntentGeneration: Int? = nil
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
+        let authIntent = expectedAuthSessionIntentGeneration
+            ?? BackendAuthClient.currentAuthSessionIntentGeneration()
+        func validateAuthIntent() throws {
+            guard BackendAuthClient.currentAuthSessionIntentGeneration() == authIntent else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
+        }
+        try validateAuthIntent()
         _ = try? await bootstrapSession(force: false)
+        try validateAuthIntent()
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8579,6 +8589,7 @@ actor BackendMemoryAPI {
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
         while true {
+            try validateAuthIntent()
             var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
             applyProjectOwnerHeaders(
                 to: &request,
@@ -8587,7 +8598,11 @@ actor BackendMemoryAPI {
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
+            // Header construction reads the canonical identity snapshot. Never
+            // send that snapshot with a draft owned by a superseded sign-in intent.
+            try validateAuthIntent()
             let responsePair = try await session.data(for: request)
+            try validateAuthIntent()
             guard let response = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
