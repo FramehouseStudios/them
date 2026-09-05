@@ -11,8 +11,8 @@ Intelligence steps (do internally, don't show):
 2) Map to ScreenplayFeatureSpine: protagonistWant, protagonistNeed, antagonisticForce, logline, centralQuestion, actPosition — these persist for continuity.
 2b) Roster: support unlimited characters — each has name, background, objective (scene want), goal (external want), pursuits (what they chase episode-to-episode), weakness/flaw, strength/skill. Keep each character's voice distinct via their objective+weakness. Add new characters as introduced via "add character NAME" or "NAME is a ..." without dropping prior ones.
 3) Write as screenplay: Scene Heading (INT./EXT. DAY/NIGHT), Action (present tense, visual, 3-4 lines max), Character cue (UPPERCASE, centered), Dialogue (distinct voice per character, parenthetical only when needed), Transition only to end scene.
-4) Character consistency: reuse exact name spelling and voice once introduced; do not rename. Differentiate voices by objective: e.g., JESS wants to find her mother (direct, urgent), other character needs to trust (hesitant, subtext) — so same topic sounds different per want/need. For any character, strength shows in how they handle pressure, weakness shows under stress.
-5) Subtext: want/need must be shown through action/image, not stated. Dialogue with subtext_density — characters rarely say what they mean; use obstacle/cost to imply. E.g., instead of "I want to find my mother," show Jess staring at a photo, hesitating to dial, then saying "I'm fine" while not calling.
+4) Character consistency: reuse exact name spelling and voice once introduced; do not rename. Differentiate voices by objective: e.g., protagonist wants to find a missing person (direct, urgent), other character needs to trust (hesitant, subtext) — so same topic sounds different per want/need. For any character, strength shows in how they handle pressure, weakness shows under stress.
+5) Subtext: want/need must be shown through action/image, not stated. Dialogue with subtext_density — characters rarely say what they mean; use obstacle/cost to imply. E.g., instead of "I want to find her," show protagonist staring at a photo, hesitating to dial, then saying "I'm fine" while not calling.
 6) Anti-cliché: never use "this changes everything", "we need to talk", "I can't do this anymore", "are you okay?", "I'm sorry" as standalone, "what do you mean?", "trust your instinct" — replace with specific, visual action or subtext. See page_craft CLICHE_PATTERNS.
 7) Preserve voice: keep the user's tone, but tighten to screenplay economy. No purple prose.
 8) One beat per turn: 1-2 pages max, end on a button or question that echoes centralQuestion/motif.
@@ -28,7 +28,7 @@ function isStoryIntent(intent) {
 function extractStoryCanonTargets(utterance = "") {
   const text = String(utterance || "");
   const out = [];
-  // Protagonist name: "Jess wants", "my protagonist Jess", "Jess is 16 who wants", "hero Jess wants"
+  // Protagonist name: "my protagonist Alex", "Alex wants", generic detection
   const nameMatch = text.match(/\b(?:protagonist|hero|character|heroine)\s+(?:is\s+)?([A-Z][a-z]+)\b/) ||
     text.match(/\b([A-Z][a-z]+)\s+(?:is\s+(?:a\s+)?\d+[-\s]?year-old[^.]*?)?wants\b/) ||
     text.match(/\b([A-Z][a-z]+)\s+wants\b/);
@@ -40,7 +40,7 @@ function extractStoryCanonTargets(utterance = "") {
   }
   const want = text.match(/\bwants?\s+to\s+([^.]+)/i);
   if (want) out.push({ field: "protagonistWant", value: want[1].trim().slice(0, 180), source: "writer_correction" });
-  // Also capture "wants to find her mother" even when preceded by age clause: "Jess is 16 who wants to find..."
+  // Also capture "wants to" even when preceded by age clause
   else {
     const wantAlt = text.match(/\bwants?\s+([^.]{8,180})/i);
     if (wantAlt) out.push({ field: "protagonistWant", value: wantAlt[1].trim().slice(0, 180), source: "writer_correction" });
@@ -138,20 +138,14 @@ Now write the next page/beat from that explanation, properly formatted.
 
 const PAGE_REWRITE_ADDENDUM_PREFIX = `
 You are Clementine revising the current screenplay page. The user wants a tighter, less on-the-nose pass on the existing draft — not a new scene.
-Rules: keep slugline/characters, show don't tell, cut cliché ("are you okay?", "we need to talk", "I can't do this anymore"), tighten dialogue by subtext, keep JESS voice direct+urgent vs other character hesitant. Output full revised page text only, properly formatted.
+Rules: keep slugline/characters, show don't tell, cut cliché ("are you okay?", "we need to talk", "I can't do this anymore"), tighten dialogue by subtext, keep each character's voice distinct via objective/weakness. Output full revised page text only, properly formatted.
 `.trim();
 
-function pageRewritePromptAddendum(utterance, draftContext = "", opts = {}) {
+function pageRewritePromptAddendum(utterance, draftContext = "") {
   const clean = String(utterance || "").trim();
   if (!clean) return "";
   const draft = String(draftContext || "");
-  // Sniff protagonist from draft so tighten keeps voice even when note is just "tighten the kitchen scene"
-  const draftName = (draft.match(/^\s*([A-Z][A-Z ]{2,28})\s*$/m) || draft.match(/\b(JESS|[A-Z]{2,12})\b/) || [])[1] || "";
-  const voiceHint = draftName ? ` Keep ${draftName.trim()} voice: direct+urgent if JESS-like, hesitant+subtext for the other.` : "";
-  const canon = Array.isArray(opts.canon) ? opts.canon : [];
-  const canonLine = canon.length ? `Writer canon (persisted): ${canon.map(c => `${c.field}=${String(c.value).slice(0,80)}`).join(" | ")} — keep these consistent.` : "";
-  return `${PAGE_REWRITE_ADDENDUM_PREFIX}${voiceHint}
-${canonLine ? `\n${canonLine}` : ""}
+  return `${PAGE_REWRITE_ADDENDUM_PREFIX}
 
 User's rewrite note:
 """

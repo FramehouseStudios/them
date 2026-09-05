@@ -322,8 +322,7 @@ struct ScreenplayShortcuts: AppShortcutsProvider {
                 "Print draft in \(.applicationName)",
                 "Print my draft in \(.applicationName)",
                 "Print screenplay in \(.applicationName)",
-                "Print current draft in \(.applicationName)",
-                "Print Jess's Search in \(.applicationName)"
+                "Print current draft in \(.applicationName)"
             ]
         )
         AppShortcut(

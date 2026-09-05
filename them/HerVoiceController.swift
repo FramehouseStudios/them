@@ -1181,7 +1181,6 @@ final class HerVoiceController: ObservableObject {
     }
 
     private func computeDynamicStartThreshold() -> Float {
-        // Tuned for quiet-room storytelling: 2.6× floor (was 2.9) so soft “Jess whispers” still trips VAD, clamp 0.0038 lower so ghost appears at 0.08s cadence.
         let floorBased = max(noiseFloorRMS * 2.6, baseStartThreshold * 0.80)
         return min(max(floorBased, 0.0038), 0.022)
     }

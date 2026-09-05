@@ -13664,7 +13664,7 @@ The door closes softly. That is worse than a slam.
         case .project:
             return (
                 "Story Development",
-                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the kitchen scene feel like escalation instead of setup.\(characterContext.map { " For \($0), keep the wit as armor instead of decoration." } ?? "")"
+                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the scene feel like escalation instead of setup.\(characterContext.map { " For \($0), keep the wit as armor instead of decoration." } ?? "")"
             )
         }
     }

@@ -2,10 +2,10 @@ import AppIntents
 import Foundation
 
 // Siri follow-up for vague story → yellow pill.
-// When draft has `TODO: clarify [X]`, Siri asks “What's Jess's want?” and this intent captures the answer.
+// When draft has `TODO: clarify [X]`, Siri asks the clarification question and this intent captures the answer.
 struct ClarifyStoryIntent: AppIntent {
     static var title: LocalizedStringResource = "Clarify Story"
-    static var description = IntentDescription("Answers the yellow question pill when your story was vague — e.g., Jess's want.")
+    static var description = IntentDescription("Answers the yellow question pill when your story was vague.")
 
     @Parameter(title: "Answer", description: "Your clarification, e.g., 'find her mother'")
     var answer: String

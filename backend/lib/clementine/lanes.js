@@ -52,10 +52,6 @@ function laneForIntent(intent, overrides = {}) {
   if (lane === LANE.PAGE && overrides.multiBeat === true && effort === EFFORT.LOW) {
     effort = EFFORT.MEDIUM;
   }
-  // Feature-length (90/120) bumps PAGE to HIGH when caller flags featureLength
-  if ((lane === LANE.PAGE || lane === LANE.DEEP) && overrides.featureLength === true) {
-    effort = EFFORT.HIGH;
-  }
   // High only when user explicitly asked or visible "thinking longer" mode.
   if (lane === LANE.DEEP && (overrides.explicitHigh === true || overrides.failedFirstPass === true)) {
     effort = EFFORT.HIGH;

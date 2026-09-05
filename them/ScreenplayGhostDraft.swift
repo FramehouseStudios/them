@@ -6,8 +6,8 @@ import ScreenplayStudio
 ///
 /// Pure and synchronous: it runs on every partial-transcript tick (80–140 ms), so it
 /// must never touch the network or the model. Spoken slug fragments such as
-/// "interior kitchen day" become `INT. KITCHEN - DAY`; a bare name such as "Jess"
-/// becomes a centered character cue; everything else stays action.
+/// "interior day" become `INT. DAY`; a bare name becomes a centered character cue;
+/// everything else stays action.
 enum ScreenplayGhostDraft {
     struct Preview: Equatable {
         let text: String
@@ -51,7 +51,7 @@ enum ScreenplayGhostDraft {
         return Preview(text: slug + "\n" + restPreview.text, element: restPreview.element)
     }
 
-    /// Character cues already on the page, uppercased, so a spoken "Jess" ghosts as a
+    /// Character cues already on the page, uppercased, so a spoken name ghosts as a
     /// cue even when the recognizer lower-cases it. Memoized on the draft string because
     /// this is called on every partial tick.
     static func characterNames(in draft: String) -> Set<String> {

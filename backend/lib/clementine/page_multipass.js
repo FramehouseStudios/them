@@ -177,18 +177,18 @@ function critiquePageHeuristic(pageText = "", { scoreFn = scorePageHeuristic } =
 function buildPlanPrompt(utterance = "", rosterHint = "") {
   const hasAct = rosterHint.toLowerCase().includes("act");
   const lower = String(utterance || "").toLowerCase();
-  const isWhatIf = lower.includes("what if") || lower.includes("should jess");
+  const isWhatIf = lower.includes("what if") || (lower.includes("should ") && lower.includes(" or "));
   const continueWith = lower.includes("continue with") ? String(utterance).split(/continue with/i)[1]?.trim().slice(0, 160) : "";
   return [
     "You are Clementine planning one screenplay page (Fountain).",
     "Write a SHORT beat/intent outline only (6–10 lines). No full page.",
     "Cover: want, obstacle, cost, motif, and voice tactic.",
-    "If a character roster is given, make each Next: beat a want-vs-weakness collision using that character's strength/weakness/objective (e.g., use MARCUS loyalty vs distrust to block JESS).",
+    "If a character roster is given, make each Next: beat a want-vs-weakness collision using that character's strength/weakness/objective.",
     hasAct ? "Tailor Next: beats to the current act's pressure (Act One: inciting incident/setup, Act Two: rising obstacle/midpoint, Act Three: payoff/cost)." : "",
-    isWhatIf ? "What-if branching mode: make each Next: beat a divergent what-if alternative (different choice/consequence for Jess), so the 3 pills explore branching paths rather than one linear continuation." : "",
+    isWhatIf ? "What-if branching mode: make each Next: beat a divergent what-if alternative (different choice/consequence), so the 3 pills explore branching paths rather than one linear continuation." : "",
     continueWith ? `Writer picked Next: "${continueWith}" — write exactly that beat now, not a new random one; still end with 3 fresh Next: for after.` : "",
-    isWhatIf ? "Writer is asking what-if — make each Next: a divergent branch (e.g., 'Next (A): Jess finds mother — cost: she loses town trust', 'Next (B): Jess fails — cost: she doubles down on lie', 'Next (C): Marcus finds first — cost: Jess must confess')." : "",
-    "End with exactly 3 Next Beats as bullet lines starting with 'Next:' so the writer can tap one when blocked (e.g., 'Next: Jess finds the photo — cost: she must lie to Marcus').",
+    isWhatIf ? "Writer is asking what-if — make each Next: a divergent branch (e.g., 'Next (A): protagonist finds clue — cost: loses trust', 'Next (B): protagonist fails — cost: doubles down', 'Next (C): antagonist finds first — cost: protagonist must confess')." : "",
+    "End with exactly 3 Next Beats as bullet lines starting with 'Next:' so the writer can tap one when blocked (e.g., 'Next: protagonist finds the photo — cost: must lie to ally').",
     rosterHint ? `Roster: ${rosterHint}` : "",
     "Do not write dialogue blocks or scene text yet.",
     utterance ? `Writer ask: ${utterance}` : "",
@@ -777,22 +777,9 @@ async function runTalkGeneratePageMultipass({
     }
     return out.slice(0, 3);
   }
-  // Build rosterHint for character-driven Next: beats (unlimited cast)
+  // Roster hint for pills: use context already available; do not open a per-request store
   let rosterHint = "";
-  try {
-    const mod = await import("../../creative_memory_store.js");
-    const userId = String(req?.authUser?.id || req?.userId || req?.body?.user_id || req?.body?.userId || "").trim();
-    if (mod?.createCreativeMemoryStore && userId) {
-      const store = mod.createCreativeMemoryStore();
-      const rec = store?.get ? await store.get(userId) : null;
-      const canon = Array.isArray(rec?.writerCanonTargets) ? rec.writerCanonTargets : [];
-      if (canon.length) {
-        rosterHint = canon.slice(0, 10).map(c => `${c.field}=${String(c.value).slice(0, 80)}`).join(" | ");
-      }
-    }
-  } catch (_e) { /* roster is best-effort for pills */ }
-  // Also include any roster lines present in shortTermContextMessages
-  if (!rosterHint && Array.isArray(shortTermContextMessages) && shortTermContextMessages.length) {
+  if (Array.isArray(shortTermContextMessages) && shortTermContextMessages.length) {
     const last = String(shortTermContextMessages[shortTermContextMessages.length - 1]?.content || "").slice(0, 600);
     if (last) rosterHint = last.slice(0, 400);
   }

@@ -89,17 +89,12 @@ function peekPageHints(req) {
     0,
     Math.round(Number(body.max_output_tokens ?? body.maxOutputTokens ?? 0) || 0)
   );
-  const featureLength =
-    /\b(90|120|ninety|hundred)\b/.test(String(body.client_transcript || body.clientTranscript || body.transcript || body.text || "").toLowerCase()) ||
-    /\b(feature\s*(script|screenplay|film)|full\s*script|complete\s*screenplay)\b/.test(String(body.client_transcript || body.clientTranscript || body.transcript || body.text || "").toLowerCase()) ||
-    body.feature_length === true || body.featureLength === true;
   return {
     intent: forcedIntent,
     pageMode,
     continuePage,
-    multiBeat: multiBeat || featureLength,
-    maxOutputTokens: featureLength ? Math.max(maxOutputTokens, 12000) : maxOutputTokens,
-    featureLength,
+    multiBeat,
+    maxOutputTokens,
   };
 }
 
@@ -140,8 +135,6 @@ function resolveTalkLane(utterance, hints = {}) {
   const intent = classifyIntent(utterance, hints);
   const laneInfo = laneForIntent(intent, {
     multiBeat: hints.multiBeat === true,
-    featureLength: hints.featureLength === true,
-    explicitHigh: hints.featureLength === true,
   });
   return { intent, ...laneInfo };
 }
@@ -355,47 +348,19 @@ function createPageLaneTalkAdapter({
 
     // Story → Screenplay translation: inject story addendum so downstream prompt writes a formatted page
     // instead of a companion reply. Keeps writer voice, adds slugline/action/character scaffolding.
-    // PAGE_REWRITE uses same Page lane but with revision prompt + draft context so tighten/soften edits the page.
     if ((isStoryIntent(lane.intent) || isPageRewriteIntent(lane.intent)) && req?.body && typeof req.body === "object") {
       try {
         const draftCtx = pickString(req.body?.draft, req.body?.screenplay_draft, req.body?.fountainDraft, req.body?.fountain, "");
-        // For PAGE_REWRITE, load persisted writerCanon so tighten without a name still honors Jess/want/need
-        let persistedCanon = [];
-        if (isPageRewriteIntent(lane.intent) && userId) {
-          try {
-            const mod = await import("../creative_memory_store.js");
-            const store = mod.createCreativeMemoryStore ? mod.createCreativeMemoryStore() : null;
-            const rec = store?.get ? await store.get(userId) : null;
-            if (Array.isArray(rec?.writerCanonTargets) && rec.writerCanonTargets.length) {
-              persistedCanon = rec.writerCanonTargets.slice(0, 8);
-            }
-          } catch (_e) { /* non-blocking */ }
-        }
         const addendum = isPageRewriteIntent(lane.intent)
-          ? pageRewritePromptAddendum(utterance, draftCtx, { canon: persistedCanon })
+          ? pageRewritePromptAddendum(utterance, draftCtx)
           : storyPromptAddendum(utterance, draftCtx);
-        // Preserve original for logging, but make downstream talk_handler see the translated prompt
         req.body._originalUtterance = utterance;
         req.body._storyAddendum = addendum;
         const canonTargets = extractStoryCanonTargets(utterance);
         req.body._storyCanonTargets = canonTargets;
-        // Fire-and-forget persist to creative_memory so Jess/want/need survive app kill (WRITER_CANON_TARGETS_MAX 16)
-        if (canonTargets.length && userId) {
-          import("../creative_memory_store.js").then(async (mod) => {
-            try {
-              const store = mod.createCreativeMemoryStore ? mod.createCreativeMemoryStore() : null;
-              if (!store?.get || !store?.put) return;
-              const rec = (await store.get(userId)) || {};
-              const merged = mod.mergeWriterCanonTargets ? mod.mergeWriterCanonTargets(canonTargets, rec.writerCanonTargets || []) : canonTargets;
-              // Keep writerCanonTargets compact, let existing sanitizers trim
-              await store.put(userId, { ...rec, writerCanonTargets: merged.slice(0, 16) });
-            } catch (_e) { /* non-fatal, page still writes */ }
-          }).catch(()=>{});
-        }
-        // Also expose on clementine for prompt builders that read req.clementine
-        req.body.transcript = addendum;
-        req.body.text = addendum;
-        if (req.body.client_transcript) req.body.client_transcript = addendum;
+        // Put translated prompt in dedicated field; keep writer's words intact in transcript/text for logging
+        req.body.screenplay_generation_transcript = addendum;
+        req.body.screenplayGenerationTranscript = addendum;
       } catch (_e) {
         /* non-fatal */
       }

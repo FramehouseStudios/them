@@ -4674,7 +4674,7 @@ FRANK looks up, finally forced to meet her.
                 projectID: projectID,
                 versionID: versionID,
                 noteTitle: "Story Development",
-                noteBody: "Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the kitchen confrontation land as escalation instead of setup.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the private fear visible before the clever line; that makes the wit feel like armor, not decoration." } ?? "")",
+                noteBody: "Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the confrontation land as escalation instead of setup.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the private fear visible before the clever line; that makes the wit feel like armor, not decoration." } ?? "")",
                 insertedText: ""
             )
         case .companion:
@@ -13977,20 +13977,20 @@ TASK:
             let screenplayDraft = ScreenplayLiveDraftBridge.shared.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
             let lowerSpoken = spokenText.lowercased()
             let isScreenplayRewrite = !screenplayDraft.isEmpty && (
-                lowerSpoken.contains("scene") || lowerSpoken.contains("kitchen") || lowerSpoken.contains("beat") ||
+                lowerSpoken.contains("scene") || lowerSpoken.contains("beat") ||
                 lowerSpoken.contains("page") || lowerSpoken.contains("tighten") || lowerSpoken.contains("rewrite") ||
-                lowerSpoken.contains("dialogue") || lowerSpoken.contains("jess") || lowerSpoken.contains("character")
+                lowerSpoken.contains("dialogue") || lowerSpoken.contains("character")
             )
             if isScreenplayRewrite {
-                statusText = "Tightening kitchen beat — rewriting script, not note…"
-                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = "Rewriting \(targetHint ?? "kitchen beat")…"
+                statusText = "Tightening beat — rewriting script, not note…"
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = "Rewriting \(targetHint ?? "beat")…"
                 ScreenplayLiveDraftBridge.shared.ghostDraftElement = .action
                 do {
                     // Stable idempotency per utterance+draft slice so retry doesn't double-write; backend dedupes on x-idempotency-key
                     let draftHash = String(screenplayDraft.prefix(200).hashValue)
                     let utterHash = String(spokenText.prefix(80).hashValue)
                     let idem = "rw-\(draftHash)-\(utterHash)".replacingOccurrences(of: "-", with: "n")
-                    let result = try await BackendClient().talkText(
+                    let result = try await backend.talkText(
                         transcript: spokenText,
                         idempotencyKey: idem,
                         fountainDraft: screenplayDraft
@@ -14003,29 +14003,28 @@ TASK:
                                 quality: result.screenplayQuality ?? output.quality,
                                 output: output
                             )
-                            statusText = "Rewrote kitchen beat — \(style.rawValue) — check Studio draft."
-                            // Flush any offline-queued 90/120-page continues now that we're back online
+                            statusText = "Rewrote beat — \(style.rawValue) — check Studio draft."
+                            // Flush any offline-queued continues now that we're back online
                             let pending = BackendClient.OfflineTalkQueue.pending()
                             if !pending.isEmpty {
-                                Task.detached {
+                                Task.detached { [backend] in
                                     for item in BackendClient.OfflineTalkQueue.popAll() {
-                                        _ = try? await BackendClient().talkText(transcript: item.transcript, fountainDraft: item.fountainDraft)
+                                        _ = try? await backend.talkText(transcript: item.transcript, fountainDraft: item.fountainDraft)
                                     }
                                 }
                                 statusText += " — syncing \(pending.count) queued beat(s)…"
                             }
                         } else {
-                            statusText = "Rewrote kitchen beat — \(style.rawValue) — draft already tight."
+                            statusText = "Rewrote beat — \(style.rawValue) — draft already tight."
                         }
                     } else if let reply = result.reply, !reply.isEmpty {
-                        // Model replied without page write — surface as tightened ghost then sync
-                        statusText = "Rewrote kitchen beat — \(style.rawValue) — check Studio draft."
+                        statusText = "Rewrote beat — \(style.rawValue) — check Studio draft."
                     } else {
                         statusText = "Tightening queued — say it again to apply to page."
                     }
                 } catch {
                     BackendClient.OfflineTalkQueue.enqueue(transcript: spokenText, fountainDraft: screenplayDraft)
-                    statusText = "Rewrote kitchen beat — \(style.rawValue) — queued offline, will sync when back online."
+                    statusText = "Rewrote beat — \(style.rawValue) — queued offline, will sync when back online."
                 }
                 ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
                 ScreenplayLiveDraftBridge.shared.ghostDraftElement = .action

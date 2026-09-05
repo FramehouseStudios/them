@@ -45,15 +45,9 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.SILENCE;
   }
 
-  // Page rewrite — must win before STORY/PageEdit so "tighten the kitchen scene / Jess on-the-nose" rewrites the page, not narrates.
+  // Page rewrite — must win before STORY/PageEdit so "tighten the scene / on-the-nose" rewrites the page, not narrates.
   if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up|on-the-nose|too verbose|too long)\b/.test(text)) {
     return INTENT.PAGE_REWRITE;
-  }
-  // Feature-length screenplay: 90/120 pages is a plan-then-page job, not chit-chat
-  if (/\b(90|120|ninety|hundred\s*and\s*twenty)\s*(page|pages)\b/.test(text)
-    || /\b(feature\s*(script|screenplay|film)|full\s*script|complete\s*screenplay)\b/.test(text)) {
-    if (/\b120\b/.test(text) || text.includes("hundred")) return INTENT.THINK_HARD;
-    return INTENT.PLAN;
   }
 
   // Story explanation — narrative content that should become screenplay (writer telling story to Clementine)
