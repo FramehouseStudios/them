@@ -2761,6 +2761,38 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         try? fileManager.removeItem(at: draftURL(ownerUserID: ownerUserID, fileManager: fileManager))
     }
 
+    #if DEBUG
+    /// Deletes every live draft journal, including the owner-scoped files that
+    /// `remove()` cannot name without knowing each owner. The UI-test reset
+    /// must use this: a signed-out run writes the anonymous-owner journal, and
+    /// leaving it behind seeds the next launch's "empty" Studio with the
+    /// previous test's page.
+    nonisolated static func removeAllForUITesting(fileManager: FileManager = .default) {
+        removeAllForUITesting(
+            in: storageDirectory(fileManager: fileManager),
+            fileManager: fileManager
+        )
+    }
+
+    nonisolated static func removeAllForUITesting(in directory: URL, fileManager: FileManager = .default) {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for entry in entries where isLiveDraftJournal(entry) {
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    nonisolated static func isLiveDraftJournal(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        let baseName = fileName.replacingOccurrences(of: ".fountain", with: "")
+        return name.hasSuffix(".fountain")
+            && (name == fileName || name.hasPrefix(baseName + "."))
+    }
+    #endif
+
     static func migrateDraftIfNeeded(
         from sourceOwnerUserID: String?,
         to destinationOwnerUserID: String,
@@ -2776,11 +2808,15 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         }
     }
 
-    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
+    private static func storageDirectory(fileManager: FileManager) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
+        return applicationSupport.appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
         let resolvedFileName: String
         if let ownerUserID {
             resolvedFileName = ScreenplayOwnerScopedStoragePolicy.storageKey(
@@ -2790,8 +2826,7 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         } else {
             resolvedFileName = fileName
         }
-        return applicationSupport
-            .appendingPathComponent(directoryName, isDirectory: true)
+        return storageDirectory(fileManager: fileManager)
             .appendingPathComponent(resolvedFileName, isDirectory: false)
     }
 }
