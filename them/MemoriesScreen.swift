@@ -573,7 +573,7 @@ final class MemoriesViewModel: ObservableObject {
         pendingQuestionLoader = { _ in nil }
         storyPreferenceLoader = { _, _, _, _ in throw URLError(.notConnectedToInternet) }
         if arguments.contains("--ui-memories-preferences-fixture") {
-            return installStoryPreferencesUITestFixture(now: now)
+            return installStoryPreferencesUITestFixture(now: now, failRefresh: arguments.contains("--ui-memories-refresh-failure"))
         }
         if arguments.contains("--ui-memories-canon-fixture") {
             return installCanonActionsUITestFixture(now: now)
@@ -687,13 +687,18 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     #if DEBUG
-    private func installStoryPreferencesUITestFixture(now: Date) -> Bool {
+    private func installStoryPreferencesUITestFixture(now: Date, failRefresh: Bool) -> Bool {
         var rows = [Self.preferenceUITestRow()]
         var revision = "preferences-v1"
         var shouldFailUpdate = true
         var shouldFailReset = true
+        var shouldFailRead = failRefresh
         memoriesLoader = { _, _ in
-            try Self.preferencesUITestRead(now: now, rows: rows, revision: revision)
+            if shouldFailRead {
+                shouldFailRead = false
+                throw BackendMemoryAPIError.server(status: 503, message: "Memory sync is temporarily unavailable. No changes were applied.")
+            }
+            return try Self.preferencesUITestRead(now: now, rows: rows, revision: revision)
         }
         storyPreferenceLoader = { scope, family, action, expectedRevision in
             guard scope.projectID == "ui-project", expectedRevision == revision else {

@@ -15,7 +15,7 @@ import {
   mountMemoriesRoutes,
   MEMORIES_MUTATION_BODY_LIMIT,
 } from "../lib/memories_route.js";
-import { buildCreativeMemoryRevision } from "../lib/creative_memory_store.js";
+import { buildCreativeMemoryRevision, createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 
 function defaultDeps(overrides = {}) {
   const calls = {
@@ -84,6 +84,7 @@ function defaultDeps(overrides = {}) {
     },
     buildReadStateMeta: () => baseReadMeta,
     applyReadStateHeaders: (res, meta) => {
+      if (meta.etag) res.setHeader("etag", meta.etag);
       res.setHeader("x-state-version", String(meta.stateVersion || ""));
       res.setHeader("x-session-id", String(meta.sessionId || ""));
     },
@@ -209,6 +210,173 @@ test("[memories] mount fails when TASKS_MAX_STORED is not a number", () => {
 });
 
 // ============== GET /memories ==============
+
+for (const reader of ["getCreativeMemoryLedger", "getCreativeMemoryForPrompt"]) {
+  test(`[memories] failed ${reader} is a retryable read error, never empty or unchanged`, async () => {
+    let shouldFail = true;
+    const deps = defaultDeps({
+      creativeMemoryStore: {
+        [reader]: async (input) => {
+          assert.equal(input.userId, "user_memories_test");
+          if (reader === "getCreativeMemoryLedger") assert.equal(input.requireValidRecord, true);
+          if (shouldFail) throw new Error("Private screenplay details in persistence error");
+          return null;
+        },
+      },
+      ifNoneMatchStateHit: () => true,
+    });
+    await withTestServer(deps, async (baseURL) => {
+      for (const query of ["", "?sinceVersion=v9", "?story_preference_project_id=project-a"]) {
+        const response = await fetch(`${baseURL}/memories${query}`, { headers: { "If-None-Match": "etag_v9" } });
+        const body = await response.json();
+        assert.equal(response.status, 503);
+        assert.equal(body.ok, false);
+        assert.equal(body.action, "read");
+        assert.equal(body.status, "memory_persistence_unavailable");
+        assert.equal(body.memories, undefined);
+        assert.equal(body.story_move_preferences, undefined);
+        assert.equal(body.creative_memory_revision, undefined);
+        // Express may hash the error body, but no successful list validator is published.
+        assert.doesNotMatch(response.headers.get("etag") || "", /memories_|etag_v9/);
+        assert.equal(response.headers.get("x-state-version"), null);
+        assert.equal(response.headers.get("x-creative-memory-revision"), null);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+      }
+      assert.equal(deps._calls.maybeBackfillThemesFromHistory, 0);
+      assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+      assert.ok(deps._calls.logs.every((line) => !line.includes("Private screenplay details")));
+      shouldFail = false;
+      // A healthy read once again reaches conditional response handling.
+      assert.equal((await fetch(`${baseURL}/memories`)).status, 304);
+    });
+  });
+}
+
+test("[memories] configured but missing creative reader fails closed", async () => {
+  await withTestServer(defaultDeps({ creativeMemoryStore: {} }), async (baseURL) => {
+    const result = await getJson(baseURL, "/memories");
+    assert.equal(result.status, 503);
+    assert.equal(result.body.status, "memory_persistence_unavailable");
+  });
+});
+
+test("[memories] canonical creative persistence failures and invalid records never masquerade as empty", async () => {
+  let persisted = null;
+  let fail = false;
+  let writes = 0;
+  const creativeMemoryStore = createCreativeMemoryStore({ persistence: {
+    async get() { if (fail) throw new Error("disk unavailable"); return persisted; },
+    async put() { writes += 1; },
+  } });
+  const deps = defaultDeps({ creativeMemoryStore });
+  await withTestServer(deps, async (baseURL) => {
+    fail = true;
+    assert.equal((await getJson(baseURL, "/memories?sinceVersion=v9")).status, 503);
+    fail = false;
+    for (const value of ["invalid", [], { version: 999 }, { version: 1, projects: "lost" }, { version: 1, characters: [null] }]) {
+      persisted = value;
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 503);
+      assert.equal(result.body.status, "memory_persistence_unavailable");
+      assert.equal(result.body.memories, undefined);
+    }
+    assert.equal(writes, 0);
+    assert.equal(deps._calls.maybeBackfillThemesFromHistory, 0);
+    for (const value of [null, { version: 1 }, { version: 1, projects: [], clearedAt: 100 }]) {
+      persisted = value;
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.delta_no_change, false);
+      assert.deepEqual(result.body.story_move_preferences, []);
+    }
+  });
+});
+
+test("[memories] an empty creative ledger is a full replacement even when the account cursor matches", async () => {
+  for (const ledger of [null, { projects: [], characters: [], episodicMemories: [] }]) {
+    const deps = defaultDeps({ creativeMemoryStore: { getCreativeMemoryLedger: async () => ledger } });
+    await withTestServer(deps, async (baseURL) => {
+      const result = await getJson(baseURL, "/memories?sinceVersion=v9");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.state_version, "v9");
+      assert.equal(result.body.delta_no_change, false);
+      assert.equal(result.body.is_delta, true);
+      assert.equal(result.body.memories.length, 1, "Account memories remain in the full snapshot.");
+      assert.deepEqual(result.body.story_move_preferences, []);
+      assert.match(result.headers.get("etag"), /^W\/"memories_[a-f0-9]{32}"$/);
+    });
+  }
+});
+
+function conditionalMemoriesDeps(creativeMemoryStore, overrides = {}) {
+  return defaultDeps({
+    creativeMemoryStore,
+    ifNoneMatchStateHit: (req, etag, stateVersion) => {
+      assert.equal(stateVersion, "", "Account-only cursors cannot validate a creative list.");
+      return String(req.get("If-None-Match") || "").split(",").some((item) => item.trim() === etag);
+    },
+    ...overrides,
+  });
+}
+
+test("[memories] conditional reads follow creative changes and clears without changing the account mutation cursor", async () => {
+  let ledger = { projects: [{
+    projectId: "project-a", projectTitle: "The Crossing", updatedAt: 100,
+    storyMovePreferenceOverrides: [{ family: "relationship_pressure", stance: "prefer", updatedAt: 100 }],
+  }] };
+  const deps = conditionalMemoriesDeps({ getCreativeMemoryLedger: async () => ledger });
+  await withTestServer(deps, async (baseURL) => {
+    const first = await getJson(baseURL, "/memories");
+    const tag = first.headers.get("etag");
+    assert.equal(first.body.story_move_preferences[0].explicit_stance, "prefer");
+    assert.equal(first.body.state_version, "v9");
+    const cached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": tag } });
+    assert.equal(cached.status, 304);
+    assert.equal(await cached.text(), "");
+    assert.equal(cached.headers.get("x-creative-memory-revision"), first.body.creative_memory_revision);
+
+    ledger.projects[0].storyMovePreferenceOverrides[0].stance = "avoid";
+    const changed = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": tag } });
+    const changedBody = await changed.json();
+    assert.equal(changed.status, 200);
+    assert.equal(changedBody.state_version, "v9");
+    assert.equal(changedBody.story_move_preferences[0].explicit_stance, "avoid");
+    assert.notEqual(changed.headers.get("etag"), tag);
+    assert.notEqual(changedBody.creative_memory_revision, first.body.creative_memory_revision);
+
+    // updatedAt affects ordering, despite the creative mutation hash ignoring it.
+    ledger.projects[0].updatedAt = 200;
+    const reordered = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": changed.headers.get("etag") } });
+    assert.equal(reordered.status, 200);
+    assert.equal((await reordered.json()).creative_memory_revision, changedBody.creative_memory_revision);
+    assert.notEqual(reordered.headers.get("etag"), changed.headers.get("etag"));
+
+    ledger = null;
+    const cleared = await fetch(`${baseURL}/memories?sinceVersion=v9`, { headers: { "If-None-Match": reordered.headers.get("etag") } });
+    const clearedBody = await cleared.json();
+    assert.equal(cleared.status, 200);
+    assert.equal(clearedBody.delta_no_change, false);
+    assert.deepEqual(clearedBody.story_move_preferences, []);
+    const clearedCached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": cleared.headers.get("etag") } });
+    assert.equal(clearedCached.status, 304);
+  });
+});
+
+test("[memories] cache validators include limit and project scope and reject legacy account-only tags", async () => {
+  const deps = conditionalMemoriesDeps({ getCreativeMemoryLedger: async () => null });
+  await withTestServer(deps, async (baseURL) => {
+    const tags = new Set();
+    for (const query of ["", "?limit=1", "?story_preference_project_id=a", "?story_preference_project_id=b", "?story_preference_project_title=The%20Crossing"]) {
+      const response = await fetch(`${baseURL}/memories${query}`, { headers: { "If-None-Match": "etag_v9" } });
+      assert.equal(response.status, 200);
+      tags.add(response.headers.get("etag"));
+      assert.equal((await response.json()).state_version, "v9");
+    }
+    assert.equal(tags.size, 5);
+    const oldVersion = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": 'W/"v9"' } });
+    assert.equal(oldVersion.status, 200);
+  });
+});
 
 test("[memories] GET /memories: full envelope on happy path", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {

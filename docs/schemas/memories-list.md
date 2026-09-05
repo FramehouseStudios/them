@@ -9,7 +9,7 @@ and the delta-no-change short-circuit.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/memories` | memories envelope (200), 304 on If-None-Match hit |
+| GET | `/memories` | memories envelope (200), 304 on matching list ETag, 401 without auth, 503 when authoritative storage is unreadable |
 
 ## Schema version
 
@@ -18,9 +18,8 @@ from `buildReadStateMeta`.
 
 ## Owner
 
-- **Backend**: support agent. Inline handler in `backend/index.js`
-  (gated for Phase 6 extraction per #228 design note).
-- **iOS**: Codex. Decoded into the memory-list UI.
+- **Backend**: `backend/lib/memories_route.js`, with canonical account and creative persistence.
+- **Apple client**: `them/BackendMemoryAPI.swift` and `them/MemoriesScreen.swift`.
 
 ## Access-control posture
 
@@ -39,10 +38,15 @@ not accepted. Unauthenticated callers receive HTTP 401:
 | Name | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `limit` | int | no | clamps via `parseQueryLimit(.., 24, 120)` — default 24, max 120 |
-| `sinceVersion` | string | no | when matches the current `state_version`, server returns the delta-no-change short-circuit envelope (200 with `delta_no_change: true`) |
+| `sinceVersion` | string | no | account-store cursor; with creative persistence configured, responses remain full snapshots even when this matches |
+| `story_preference_project_id` | string | no | filters preference rows by project ID; takes precedence over title |
+| `story_preference_project_title` | string | no | filters preference rows by title when no ID is supplied |
 
-`If-None-Match` request header: when matches the current
-state-version etag, server returns 304 with no body.
+`If-None-Match` request header: a matching opaque list ETag returns 304
+with no body. With creative persistence configured, this validator covers
+the account cursor, creative ledger (including ordering timestamps), limit,
+and preference scope. An old account-only ETag cannot validate the list.
+The account `state_version` remains unchanged for mutation compatibility.
 
 ## Response shape (200 full)
 
@@ -59,6 +63,7 @@ state-version etag, server returns 304 with no body.
   "season_progress": 0.18,
   "session_id": "sess_abc",
   "state_version": "v9",
+  "creative_memory_revision": "cm_content_hash",
   "last_updated_at": 1715620920000,
   "history_updated_at": 1715620920000,
   "memory_updated_at": 1715620920000,
@@ -69,6 +74,7 @@ state-version etag, server returns 304 with no body.
   "is_delta": false,
   "delta_no_change": false,
   "memory_quality": { /* snapshot from buildMemoryQualitySnapshot */ },
+  "story_move_preferences": [ /* scoped learned and explicit preferences */ ],
   "memories": [ /* array of memory cards from buildMemoryCards */ ],
   "conversation_samples": [ /* array of history threads */ ]
 }
@@ -86,7 +92,8 @@ state-version etag, server returns 304 with no body.
 | `season` | int | yes | 1+ |
 | `season_progress` | number | yes | 0..1 |
 | `session_id` | string | yes | from `buildReadStateMeta` |
-| `state_version` | string | yes | used by iOS for cache invalidation + sinceVersion |
+| `state_version` | string | yes | account-store mutation cursor and sinceVersion; not the list ETag |
+| `creative_memory_revision` | string | yes | content revision for creative-memory mutations; unchanged timestamps alone do not change it |
 | `last_updated_at` | int \| null | yes | epoch ms |
 | `history_updated_at` | int \| null | yes | epoch ms |
 | `memory_updated_at` | int \| null | yes | epoch ms |
@@ -95,14 +102,16 @@ state-version etag, server returns 304 with no body.
 | `backend_build` | string | yes | from read meta |
 | `backend_boot_id` | string | yes | from read meta |
 | `is_delta` | boolean | yes | `true` when `?sinceVersion` was supplied |
-| `delta_no_change` | boolean | yes | `true` when `sinceVersion === state_version` (server skipped rebuild) |
+| `delta_no_change` | boolean | yes | may be true only for account-only operation without a configured creative store |
+| `story_move_preferences` | array | yes | project-scoped learned and corrected preferences; empty is authoritative only on successful reads |
 | `memory_quality` | object | yes | from `buildMemoryQualitySnapshot` — `memory-stats.md` for the rollup shape |
 | `memories` | array | yes | up to `limit` memory cards |
 | `conversation_samples` | array | yes | history-thread excerpts; size scales with `limit` (3..12) |
 
 ## Response shape (200 delta-no-change)
 
-When `?sinceVersion` matches `state_version` exactly:
+Only in legacy account-only operation (no creative store), when
+`?sinceVersion` matches `state_version` exactly:
 
 ```json
 {
@@ -136,7 +145,8 @@ All responses (200, 200-delta, and 304) set:
 - All headers from `applyReadStateHeaders(res, readMeta)` —
   typically `x-state-version`, `x-session-id`, `x-last-updated-at`,
   `x-history-updated-at`, `x-memory-updated-at`, `x-schema-version`,
-  `etag` (state-version-derived).
+  `etag` (opaque list representation validator with creative persistence).
+- `x-creative-memory-revision` (matches the response's creative content revision).
 
 ## Invariants
 
@@ -144,9 +154,9 @@ All responses (200, 200-delta, and 304) set:
 - `conversation_samples.length <= Math.max(3, Math.min(12, limit))`.
 - `delta_no_change: true` implies `memories: []` and
   `conversation_samples: []`. `is_delta` is true.
-- `delta_no_change: false` with `is_delta: true` means the
-  caller's `sinceVersion` was stale but provided — body is
-  full.
+- `delta_no_change: false` with `is_delta: true` means the body is
+  a full replacement snapshot. The account cursor may be unchanged while
+  creative preferences or canon changed or were cleared.
 - `delta_no_change: false` with `is_delta: false` means no
   `sinceVersion` was supplied — body is full.
 - A `?sinceVersion=` (empty string) is treated as not-supplied
@@ -159,15 +169,30 @@ All responses (200, 200-delta, and 304) set:
 `GET /memories` is mostly read-only but DOES perform a
 background backfill via `maybeBackfillThemesFromHistory`. If
 the backfill writes themes, the route persists the updated
-memory via `setPersistedUserMemoryForIp`. The visible response
-shape is unchanged; the backfill is internal.
+memory through `persistCanonicalWritableMemoryContext`. Both authoritative
+reads must succeed before backfill begins; an unreadable creative ledger
+must not trigger a write or manufacture an empty success response.
 
 ## Errors
 
-This route does not emit error envelopes in the documented
-field set today — it always returns a (possibly zero-state)
-200 envelope. A future change that adds error paths must add
-a separate `error` envelope row.
+Unreadable account or creative persistence returns HTTP 503 with
+`Cache-Control: no-store` and the existing error envelope:
+
+```json
+{
+  "ok": false,
+  "action": "read",
+  "status": "memory_persistence_unavailable",
+  "message": "Memory sync is temporarily unavailable. No changes were applied.",
+  "request_id": "request-id"
+}
+```
+
+No memory arrays or successful read cursors are published. The client keeps
+its loaded cards, preferences, selection, and cached validator, exposes a
+retry action, and replaces them only after a successful read. A missing or
+genuinely empty creative record remains valid; unsupported versions and
+malformed persisted records fail rather than silently clearing the list.
 
 ## Compatibility rules
 
@@ -195,3 +220,6 @@ fields (`relationship_depth_score`, `behavior_mode`, `cycle_index`,
 - 2026-05-26 — Auth/privacy hardening: `GET /memories` now
   requires trusted auth identity and no longer falls back to
   unauthenticated IP memory.
+- 2026-09-04 — Fail closed on unreadable creative persistence; preserve
+  client state on 503; scope list validators across account and creative
+  stores; return full empty snapshots after cross-device clears.

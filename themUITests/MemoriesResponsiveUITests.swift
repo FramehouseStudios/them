@@ -508,13 +508,49 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
-    private func launchPreferenceFixture() -> XCUIApplication {
+    func testUnavailableCreativeMemoryReadPreservesPreferencesAndStoryCards() throws {
+        #if os(iOS)
+        let app = launchPreferenceFixture(extraArguments: ["--ui-memories-refresh-failure"])
+        defer { app.terminate() }
+        app.buttons["memories.story-preferences.toggle"].tap()
+        let adjust = app.buttons["memories.story-preference.emotional_reveal.menu"]
+        reveal(adjust, in: app)
+        let memory = app.buttons["memories.card.ui-lighthouse"]
+        XCTAssertTrue(memory.exists)
+        let refresh = app.buttons["memories.refresh"]
+        refresh.tap()
+        let error = element("memories.refresh-error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertEqual(refresh.label, "Retry refresh")
+        XCTAssertTrue(adjust.exists, "Storage failure must not look like preference learning was reset.")
+        XCTAssertTrue(memory.exists, "Storage failure must not remove previously read story memories.")
+        capture("Memories - Storage failure preserves preferences and cards")
+        reveal(memory, in: app)
+        memory.tap()
+        XCTAssertTrue(element("memories.detail.screen", in: app).waitForExistence(timeout: 4))
+        XCTAssertEqual(element("memories.detail.title", in: app).label, "The lighthouse promise")
+        goBack(in: app)
+        refresh.tap()
+        let recovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: error)
+        XCTAssertEqual(XCTWaiter.wait(for: [recovered], timeout: 4), .completed)
+        XCTAssertEqual(refresh.label, "Refresh memories")
+        XCTAssertTrue(adjust.exists)
+        XCTAssertTrue(memory.exists)
+        capture("Memories - Storage recovery retains creative preferences")
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("Creative memory storage recovery is an iPhone workflow.")
+        #endif
+    }
+
+    private func launchPreferenceFixture(extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
             "--ui-memories-fixture", "--ui-memories-preferences-fixture",
             "-studio_debug_submit_transport_mode", "stub",
-        ]
+        ] + extraArguments
         app.launch()
         XCTAssertTrue(element("memories.screen", in: app).waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["memories.story-preferences.toggle"].waitForExistence(timeout: 4))

@@ -27,6 +27,139 @@ function freshPersistence() {
   return createJsonPersistence({ jsonRoot: root });
 }
 
+test("strict creative ledger reads preserve absent, empty, cleared, and partial legacy records", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger";
+  const read = () => store.getCreativeMemoryLedger({ userId, requireValidRecord: true });
+
+  assert.equal(await read(), null);
+  await persistence.put({
+    domain: "creative_memory", key: userId,
+    value: { userId, version: store.SCHEMA_VERSION },
+  });
+  assert.equal(await read(), null);
+
+  await persistence.put({
+    domain: "creative_memory", key: userId,
+    value: { userId, version: store.SCHEMA_VERSION, characters: [{ name: "Mara" }] },
+  });
+  assert.deepEqual((await read()).characters, [{ name: "Mara" }]);
+
+  await store.clearUserMemory({ userId });
+  const tombstone = await persistence.get({ domain: "creative_memory", key: userId });
+  assert.ok(tombstone.clearedAt > 0);
+  assert.equal(await read(), null);
+  assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), tombstone);
+});
+
+test("strict creative ledger reads reject malformed persisted shapes without modifying them", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger-invalid";
+  const base = { userId, version: store.SCHEMA_VERSION };
+  const records = [
+    false, 0, "", "invalid", [], {},
+    { ...base, version: store.SCHEMA_VERSION + 1, characters: [{ name: "Mara" }] },
+    { ...base, version: String(store.SCHEMA_VERSION) },
+    ...["projects", "characters", "episodicMemories", "canonCorrectionReceipts", "canonCorrectionAmbiguities"]
+      .flatMap((field) => [
+        { ...base, [field]: {} },
+        { ...base, [field]: null },
+        { ...base, [field]: [null] },
+        { ...base, [field]: ["invalid"] },
+        { ...base, [field]: [[]] },
+        { ...base, [field]: [{}] },
+      ]),
+    ...["style", "tone", "habits"].flatMap((field) => [
+      { ...base, [field]: [] },
+      { ...base, [field]: null },
+      { ...base, [field]: "invalid" },
+    ]),
+    { ...base, style: { lexicalFingerprint: "invalid" } },
+    { ...base, characters: [{ name: " \n " }] },
+    { ...base, characters: [{ name: 17 }] },
+    { ...base, projects: [{ projectId: " ", projectTitle: " " }] },
+    { ...base, episodicMemories: [{ id: "episode-without-content" }] },
+    { ...base, canonCorrectionReceipts: [{ id: "receipt-without-facts" }] },
+    { ...base, canonCorrectionAmbiguities: [{ id: "ambiguity-with-one-fact", candidateFacts: ["One fact."] }] },
+  ];
+
+  for (const value of records) {
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    await assert.rejects(
+      store.getCreativeMemoryLedger({ userId, requireValidRecord: true }),
+      { code: "creative_memory_record_invalid" },
+      JSON.stringify(value),
+    );
+    assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), value);
+  }
+});
+
+test("strict creative ledger reads accept canonical legacy items and reject mixed valid and invalid collections", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-strict-ledger-items";
+  const base = { userId, version: store.SCHEMA_VERSION };
+  const validItems = {
+    projects: { project_id: "rain-docket", project_title: "Rain Docket", updated_at: 1000 },
+    characters: { name: "Mara" },
+    episodicMemories: { summary: "Mara keeps the affidavit.", created_at: 1000 },
+    canonCorrectionReceipts: { id: "receipt-1", matched_facts: ["Mara kept the affidavit."] },
+    canonCorrectionAmbiguities: {
+      id: "ambiguity-1", candidate_facts: ["Mara kept the affidavit.", "Mara burned the affidavit."],
+    },
+  };
+  const validRecord = {
+    ...base,
+    ...Object.fromEntries(Object.entries(validItems).map(([field, item]) => [field, [item]])),
+  };
+  await persistence.put({ domain: "creative_memory", key: userId, value: validRecord });
+  const ledger = await store.getCreativeMemoryLedger({ userId, requireValidRecord: true });
+  for (const field of Object.keys(validItems)) assert.equal(ledger[field].length, 1, field);
+  assert.equal(ledger.projects[0].projectId, "rain-docket");
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].matchedFacts, ["Mara kept the affidavit."]);
+
+  for (const [field, item] of Object.entries(validItems)) {
+    const value = { ...base, [field]: [item, {}] };
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    await assert.rejects(
+      store.getCreativeMemoryLedger({ userId, requireValidRecord: true }),
+      { code: "creative_memory_record_invalid" },
+      field,
+    );
+    const legacyLedger = await store.getCreativeMemoryLedger({ userId });
+    assert.equal(legacyLedger[field].length, field === "characters" ? 2 : 1, field);
+    assert.deepEqual(await persistence.get({ domain: "creative_memory", key: userId }), value);
+  }
+});
+
+test("creative ledger validation stays opt-in and persistence failures still propagate", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const userId = "u-legacy-ledger";
+  for (const value of [
+    { version: store.SCHEMA_VERSION + 1, characters: [{ name: "Mara" }] },
+    { version: store.SCHEMA_VERSION, characters: "invalid" },
+  ]) {
+    await persistence.put({ domain: "creative_memory", key: userId, value });
+    assert.equal(await store.getCreativeMemoryLedger({ userId }), null);
+    assert.equal(await store.getCreativeMemoryLedger({ userId, requireValidRecord: false }), null);
+    assert.equal(await store.getCreativeMemoryForPrompt({ userId }), null);
+  }
+
+  const failure = new Error("fixture persistence outage");
+  const unavailableStore = createCreativeMemoryStore({
+    persistence: { get: async () => { throw failure; } },
+  });
+  for (const requireValidRecord of [false, true]) {
+    await assert.rejects(
+      unavailableStore.getCreativeMemoryLedger({ userId, requireValidRecord }),
+      (error) => error === failure,
+    );
+  }
+});
+
 test("recordTriggersFromTalkTurn skips with no userId", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const r = await store.recordTriggersFromTalkTurn({ userId: null, transcript: "hello" });

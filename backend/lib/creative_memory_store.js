@@ -4459,9 +4459,33 @@ function createCreativeMemoryStore({
     return next;
   }
 
-  async function readUser(userId) {
+  async function readUser(userId, { requireValidRecord = false } = {}) {
     if (!userId) return null;
     const raw = await store.get({ domain: DOMAIN, key: userId });
+    if (requireValidRecord && raw !== null) {
+      const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+      const collectionValidators = {
+        projects: sanitizeProjectContinuity,
+        characters: (item) => typeof item.name === "string" && cleanText(item.name, 48),
+        episodicMemories: sanitizeEpisodicMemoryItem,
+        canonCorrectionReceipts: sanitizeCanonCorrectionReceipt,
+        canonCorrectionAmbiguities: sanitizeCanonCorrectionAmbiguity,
+      };
+      const containerFields = ["style", "tone", "habits"];
+      const validRecord = isRecord(raw) && raw.version === SCHEMA_VERSION &&
+        Object.entries(collectionValidators).every(([field, validate]) => raw[field] === undefined || (
+          Array.isArray(raw[field]) && raw[field].every((item) => isRecord(item) && validate(item))
+        )) &&
+        containerFields.every((field) => raw[field] === undefined || isRecord(raw[field])) &&
+        (raw.style?.lexicalFingerprint === undefined || Array.isArray(raw.style.lexicalFingerprint));
+      if (!validRecord) {
+        // An authoritative list must distinguish unreadable persisted data
+        // from a cold or cleared account before replacing the client's cards.
+        const error = new Error("Creative memory persistence returned an invalid record.");
+        error.code = "creative_memory_record_invalid";
+        throw error;
+      }
+    }
     if (!raw) return null;
     if (raw.version !== SCHEMA_VERSION) {
       // Future migrations live here. Refuse stale shapes for now.
@@ -5261,8 +5285,9 @@ function createCreativeMemoryStore({
     userId,
     includeSuperseded = true,
     maxEpisodicMemories = EPISODIC_MEMORIES_MAX,
+    requireValidRecord = false,
   } = {}) {
-    const rec = await readUser(userId);
+    const rec = await readUser(userId, { requireValidRecord });
     if (!hasCreativeMemoryContent(rec)) return null;
     return sanitizeCreativeMemoryLedgerRecord(rec, {
       includeSuperseded,

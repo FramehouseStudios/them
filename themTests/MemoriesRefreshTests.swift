@@ -160,6 +160,44 @@ final class MemoriesRefreshTests: XCTestCase {
         XCTAssertNil(vm.refreshError)
     }
 
+    func testFullSnapshotClearsCreativeCardsAndPreferencesWithoutAccountVersionChange() async throws {
+        var reads = 0
+        let vm = MemoriesViewModel(
+            notificationCenter: NotificationCenter(),
+            memoriesLoader: { force, since in
+                reads += 1
+                if reads == 1 {
+                    return try Self.response(ids: ["a"], version: "account-v1", metadata: Self.metadata)
+                }
+                XCTAssertFalse(force)
+                XCTAssertEqual(since, "account-v1")
+                return try Self.response(
+                    ids: [], version: "account-v1", metadata: [
+                        "creativeMemoryRevision": "cm-cleared",
+                        "storyMovePreferences": [], "actionReceipts": ["count": 0, "items": []],
+                        "memoryQuality": ["totalCards": 0, "avgQualityScore": 0],
+                    ], samples: [Self.conversationSample]
+                )
+            },
+            pendingQuestionLoader: { _ in nil }
+        )
+        let loaded = await vm.load()
+        XCTAssertEqual(loaded, .succeeded)
+        vm.selection = try XCTUnwrap(Self.items(vm).first)
+        XCTAssertFalse(vm.storyMovePreferences.isEmpty)
+        XCTAssertFalse(vm.recentActionReceipts.isEmpty)
+
+        let cleared = await vm.refreshCrossDeviceMemoriesIfNeeded()
+        XCTAssertEqual(cleared, .succeeded)
+        XCTAssertEqual(vm.state, .empty)
+        XCTAssertNil(vm.selection)
+        XCTAssertTrue(vm.storyMovePreferences.isEmpty)
+        XCTAssertTrue(vm.recentActionReceipts.isEmpty)
+        XCTAssertEqual(vm.qualitySnapshot?.totalCards, 0)
+        XCTAssertNil(vm.refreshError)
+        XCTAssertEqual(reads, 2)
+    }
+
     func testBackgroundReadUsesPayloadCursorInsteadOfUnrelatedGlobalSync() async throws {
         var requests: [String?] = []
         var globalSync = BackendSyncState.empty
