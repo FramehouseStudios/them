@@ -50,6 +50,19 @@ final class BackendUserFacingErrorMapperTests: XCTestCase {
         )
     }
 
+    func testKnownMessageReturnsNilForUnmappedCodesAndParsesStagePrefixes() {
+        XCTAssertNil(BackendUserFacingErrorMapper.knownMessage(forServerMessage: "screenplay_store_unavailable"))
+        XCTAssertNil(BackendUserFacingErrorMapper.knownMessage(forServerMessage: "Backend returned an invalid response."))
+        XCTAssertEqual(
+            BackendUserFacingErrorMapper.knownMessage(forServerMessage: "auth_user: user_auth_required"),
+            "Please sign in to continue."
+        )
+        XCTAssertEqual(
+            BackendUserFacingErrorMapper.knownMessage(forServerMessage: "iap_verify_not_wired"),
+            "Purchases are temporarily unavailable. Your purchase is saved and will be applied automatically."
+        )
+    }
+
     func testDisplayMessageDecodesStructuredBodies() {
         let data = Data(#"{"stage":"auth_user","error":"user_auth_required"}"#.utf8)
         XCTAssertEqual(
