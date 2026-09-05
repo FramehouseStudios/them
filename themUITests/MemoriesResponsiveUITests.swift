@@ -180,6 +180,69 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
+    func testCorrectionConflictKeepsDraftAndReopenedMemoryCanSave() throws {
+        #if os(iOS)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-editable-fixture", "--ui-memories-correction-conflict",
+            "-studio_debug_submit_transport_mode", "stub",
+        ]
+        app.launch()
+        defer { app.terminate() }
+        let card = app.buttons["memories.card.ui-lighthouse"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        card.tap()
+        let correct = app.buttons["memories.detail.correct"]
+        XCTAssertTrue(correct.waitForExistence(timeout: 4))
+        correct.tap()
+        let title = app.textFields["memories.editor.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 4))
+        title.tap()
+        title.typeText(" — my correction")
+        let draft = try XCTUnwrap(title.value as? String)
+        let save = app.buttons["memories.editor.save"]
+        save.tap()
+        let error = element("memories.editor.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(error.label.contains("changed while you were correcting"))
+        XCTAssertTrue(error.label.contains("Your draft is still here"))
+        XCTAssertEqual(title.value as? String, draft)
+        capture("Memories - Cross-device conflict preserves correction")
+
+        save.tap()
+        XCTAssertTrue(error.exists, "Retrying the old draft must not overwrite the newer memory.")
+        XCTAssertEqual(title.value as? String, draft)
+        app.buttons["memories.editor.cancel"].tap()
+        let summary = element("memories.detail.summary", in: app)
+        XCTAssertTrue(summary.waitForExistence(timeout: 4))
+        XCTAssertEqual(summary.label, "Mara returns to the lighthouse to tell June the truth.")
+        XCTAssertEqual(element("memories.detail.title", in: app).label, "The lighthouse promise")
+
+        correct.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 4))
+        XCTAssertFalse(error.exists)
+        title.tap()
+        title.typeText(" — reviewed")
+        let revised = try XCTUnwrap(title.value as? String)
+        save.tap()
+        let editorDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: save)
+        XCTAssertEqual(XCTWaiter.wait(for: [editorDismissed], timeout: 4), .completed)
+        XCTAssertEqual(element("memories.detail.title", in: app).label, revised)
+        capture("Memories - Reviewed correction saved")
+        goBack(in: app)
+        app.buttons["memories.refresh"].tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 4))
+        card.tap()
+        XCTAssertEqual(element("memories.detail.title", in: app).label, revised)
+        goBack(in: app)
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("The narrow correction conflict workflow is iPhone-specific.")
+        #endif
+    }
+
     private func goBack(in app: XCUIApplication) {
         let back = app.navigationBars.buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 3))

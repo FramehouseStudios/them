@@ -9072,7 +9072,8 @@ actor BackendMemoryAPI {
         title: String,
         summary: String,
         reason: String,
-        storySpine: BackendStorySpineMemory? = nil
+        storySpine: BackendStorySpineMemory? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -9084,20 +9085,27 @@ actor BackendMemoryAPI {
             payload["story_spine"] = storySpine.payload
         }
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/update", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/update", payload: payload,
+            expectedStateVersion: expectedStateVersion
+        )
     }
 
     func updateCharacterBibleMemory(
         id: String,
         key: String? = nil,
-        characterBible: BackendCharacterBibleMemory
+        characterBible: BackendCharacterBibleMemory,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
             "character_bible": characterBible.payload
         ]
         if let key, !key.isEmpty { payload["key"] = key }
-        return try await runMemoryMutation(path: "/memories/character-bible/update", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/character-bible/update", payload: payload,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
+        )
     }
 
     func forgetMemoryCard(

@@ -825,6 +825,7 @@ test("[memories] POST /memories/character-bible/update: records structured chara
 
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_writer_observed",
       character_bible: {
         character: "Mara",
         canon: ["Mara is Eli's sister."],
@@ -847,11 +848,61 @@ test("[memories] POST /memories/character-bible/update: records structured chara
     assert.equal(recordCalls[0].userId, "user_memories_test");
     assert.equal(recordCalls[0].characterName, "Mara");
     assert.equal(recordCalls[0].source, "memory_character_bible_edit");
+    assert.equal(recordCalls[0].expectedRevision, "cm_writer_observed");
     assert.deepEqual(recordCalls[0].characterBible.canon, ["Mara is Eli's sister."]);
     assert.deepEqual(recordCalls[0].characterBible.correctedTerms, ["perfect proof can keep everyone safe"]);
     assert.equal(recordCalls[0].characterBible.arc.falseBelief, "truth will get Eli killed");
     assert.equal(recordCalls[0].characterBible.arc.nextEmotionalTurn, "public courage");
   });
+});
+
+test("[memories] character correction rejects a stale revision before canonical repair", async () => {
+  const writes = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      recordCharacterMention: async (input) => {
+        writes.push(input);
+        const error = new Error("Character memory changed on another device.");
+        error.code = "stale_creative_memory_revision";
+        error.expectedRevision = input.expectedRevision;
+        error.currentRevision = "cm_newer_correction";
+        throw error;
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_visible_correction",
+      character_bible: { character: "Mara", canon: ["Mara returns for June."] },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.status, "stale_creative_memory_revision");
+    assert.equal(response.body.current_creative_memory_revision, "cm_newer_correction");
+    assert.equal(response.headers.get("x-creative-memory-revision"), "cm_newer_correction");
+  });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].userId, "user_memories_test");
+  assert.equal(writes[0].expectedRevision, "cm_visible_correction");
+  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+  assert.equal(deps._calls.updateMemoryCardInMemory.length, 0);
+});
+
+test("[memories] character correction requires authentication before reading or writing memory", async () => {
+  let writes = 0;
+  const deps = defaultDeps({
+    creativeMemoryStore: { recordCharacterMention: async () => { writes += 1; return { ok: true }; } },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/memories/character-bible/update", {
+      expected_creative_memory_revision: "cm_visible_correction",
+      character_bible: { character: "Mara", canon: ["Mara returns for June."] },
+    });
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error, "user_auth_required");
+  }, { authenticated: false });
+  assert.equal(writes, 0);
+  assert.equal(deps._calls.resolveCanonicalWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
 });
 
 test("[memories] POST /memories/character-bible/update: derives structured replacements from correction prose", async () => {

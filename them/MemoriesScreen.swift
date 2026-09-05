@@ -97,7 +97,7 @@ enum MemoryForgetError: LocalizedError {
         case .invalidReceipt:
             return "Couldn’t confirm this memory was forgotten. Refresh Memories before trying again."
         case .inProgress:
-            return "A memory is already being forgotten. Wait for it to finish before trying again."
+            return "A memory change is still finishing. Wait for it to finish before trying again."
         }
     }
 }
@@ -169,6 +169,7 @@ final class MemoriesViewModel: ObservableObject {
     typealias MemoriesLoader = @MainActor (Bool, String?) async throws -> BackendReadResult<BackendMemoriesResponse>
     typealias PendingQuestionLoader = @MainActor (Bool) async throws -> BackendPendingScreenplayQuestion?
     typealias ForgetLoader = @MainActor (String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
+    typealias CorrectionLoader = @MainActor (MemoryItem, String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
 
     private let api: BackendMemoryAPI
     private let notificationCenter: NotificationCenter
@@ -176,6 +177,8 @@ final class MemoriesViewModel: ObservableObject {
     private var pendingQuestionLoader: PendingQuestionLoader
     private var forgetLoader: ForgetLoader?
     private var forgettingMemoryID: String?
+    private var correctionLoader: CorrectionLoader?
+    private var correctingMemoryID: String?
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
@@ -183,6 +186,8 @@ final class MemoriesViewModel: ObservableObject {
     private var latestSeenStateVersion = ""
     private var displayedMemoryStateVersion = ""
     private var displayedCreativeMemoryRevision = ""
+    private var correctedMemoryStateVersions: [String: String] = [:]
+    private var correctedCreativeMemoryRevisions: [String: String] = [:]
     private var pendingEventVersions: Set<String> = []
     private var pendingFullRefresh = false
     private var mutationRevision = 0
@@ -196,11 +201,13 @@ final class MemoriesViewModel: ObservableObject {
         notificationCenter: NotificationCenter = .default,
         memoriesLoader: MemoriesLoader? = nil,
         pendingQuestionLoader: PendingQuestionLoader? = nil,
-        forgetLoader: ForgetLoader? = nil
+        forgetLoader: ForgetLoader? = nil,
+        correctionLoader: CorrectionLoader? = nil
     ) {
         self.api = api
         self.notificationCenter = notificationCenter
         self.forgetLoader = forgetLoader
+        self.correctionLoader = correctionLoader
         self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
             try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
         }
@@ -295,6 +302,8 @@ final class MemoriesViewModel: ObservableObject {
         latestSeenStateVersion = lastSync.stateVersion
         displayedMemoryStateVersion = payload.stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         displayedCreativeMemoryRevision = payload.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        correctedMemoryStateVersions.removeAll()
+        correctedCreativeMemoryRevisions.removeAll()
         guard !noChange else { return }
 
         // Changed /memories responses contain the complete bounded snapshot.
@@ -355,8 +364,8 @@ final class MemoriesViewModel: ObservableObject {
         guard latest == original else { throw MemoryEditConflict.changed }
     }
 
-    private enum MemoryEditConflict: LocalizedError {
-        case changed, removed
+    enum MemoryEditConflict: LocalizedError {
+        case changed, removed, needsRefresh, invalidReceipt, inProgress
 
         var errorDescription: String? {
             switch self {
@@ -364,6 +373,12 @@ final class MemoriesViewModel: ObservableObject {
                 return "This memory changed while you were correcting it. Your draft is still here. Copy any edits you want to keep, then cancel and reopen the latest memory."
             case .removed:
                 return "This memory is no longer available. Your draft is still here, but it cannot be saved over a removed memory. Copy any edits you want to keep before closing."
+            case .needsRefresh:
+                return "Refresh this memory before saving a correction. Your draft is still here. Copy any edits you want to keep, then cancel, refresh Memories, and reopen it."
+            case .invalidReceipt:
+                return "Couldn’t confirm this correction was saved. Your draft is still here. Copy any edits you want to keep, then refresh Memories to check the saved version."
+            case .inProgress:
+                return "A memory change is still finishing. Your draft is still here. Wait for it to finish before saving again."
             }
         }
     }
@@ -417,6 +432,7 @@ final class MemoriesViewModel: ObservableObject {
         )
         isUITestFixture = true
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
+        correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         let pending = pendingScreenplayQuestion
         pendingQuestionLoader = { _ in pending }
         memoriesLoader = { _, _ in
@@ -439,10 +455,34 @@ final class MemoriesViewModel: ObservableObject {
         guard arguments.contains("--ui-testing"), arguments.contains("--ui-memories-fixture") else { return false }
         isUITestFixture = true
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
+        correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
         var shouldFail = arguments.contains("--ui-memories-refresh-failure")
         let editable = arguments.contains("--ui-memories-editable-fixture")
         var forgottenIDs: Set<String> = []
+        var correctedFixtureItem: MemoryItem?
+        if editable, arguments.contains("--ui-memories-correction-conflict") {
+            var shouldConflict = true
+            correctionLoader = { edited, _, _ in
+                guard edited.id == "ui-lighthouse", edited.key == "lighthouse",
+                      edited.characterBible == nil, edited.storySpine == nil else {
+                    throw MemoryEditConflict.removed
+                }
+                if shouldConflict {
+                    shouldConflict = false
+                    throw BackendMemoryAPIError.server(status: 409, message: "stale_memory_state_version")
+                }
+                correctedFixtureItem = edited
+                let row = Self.memoriesUITestRows(now: now, refreshed: true, editable: true, correction: edited)[0]
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "ok": true, "action": "update", "status": "updated", "memoryCard": row,
+                ])
+                return BackendReadResult(
+                    payload: try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: data),
+                    sync: .empty, notModified: false
+                )
+            }
+        }
         if arguments.contains("--ui-memories-forget-fixture") {
             var shouldFailForget = true
             forgetLoader = { id, _ in
@@ -468,7 +508,8 @@ final class MemoriesViewModel: ObservableObject {
             }
             return BackendReadResult(
                 payload: try Self.memoriesUITestPayload(
-                    now: now, refreshed: true, editable: editable, excluding: forgottenIDs
+                    now: now, refreshed: true, editable: editable,
+                    excluding: forgottenIDs, correction: correctedFixtureItem
                 ), sync: .empty, notModified: false
             )
         }
@@ -485,8 +526,21 @@ final class MemoriesViewModel: ObservableObject {
 
     #if DEBUG
     private static func memoriesUITestPayload(
-        now: Date, refreshed: Bool, editable: Bool, excluding forgottenIDs: Set<String> = []
+        now: Date, refreshed: Bool, editable: Bool, excluding forgottenIDs: Set<String> = [],
+        correction: MemoryItem? = nil
     ) throws -> BackendMemoriesResponse {
+        let rows = memoriesUITestRows(now: now, refreshed: refreshed, editable: editable, correction: correction)
+        let data = try JSONSerialization.data(withJSONObject: [
+            "source": "ui-fixture", "sourceIp": "", "stateVersion": refreshed ? "fixture-v2" : "fixture-v1",
+            "memories": rows.filter { !forgottenIDs.contains($0["id"] as? String ?? "") },
+            "conversationSamples": [], "deltaNoChange": false,
+        ])
+        return try JSONDecoder().decode(BackendMemoriesResponse.self, from: data)
+    }
+
+    private static func memoriesUITestRows(
+        now: Date, refreshed: Bool, editable: Bool, correction: MemoryItem?
+    ) -> [[String: Any]] {
         let summary = refreshed
             ? "Mara returns to the lighthouse to tell June the truth."
             : "Mara keeps returning to the lighthouse when she needs to make a difficult choice."
@@ -502,12 +556,14 @@ final class MemoriesViewModel: ObservableObject {
              "rememberedAt": now.addingTimeInterval(-3_600).timeIntervalSince1970,
              "snippets": [], "referenceHint": "", "source": "creative_memory", "editable": false],
         ]
-        let data = try JSONSerialization.data(withJSONObject: [
-            "source": "ui-fixture", "sourceIp": "", "stateVersion": refreshed ? "fixture-v2" : "fixture-v1",
-            "memories": rows.filter { !forgottenIDs.contains($0["id"] as? String ?? "") },
-            "conversationSamples": [], "deltaNoChange": false,
-        ])
-        return try JSONDecoder().decode(BackendMemoriesResponse.self, from: data)
+        return rows.map { row in
+            guard let correction, row["id"] as? String == correction.id else { return row }
+            var updated = row
+            updated["title"] = correction.title
+            updated["summary"] = correction.summary
+            updated["reason"] = correction.reason
+            return updated
+        }
     }
     #endif
 
@@ -538,60 +594,97 @@ final class MemoriesViewModel: ObservableObject {
         storySpine: BackendStorySpineMemory? = nil,
         expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        try checkMutationTransport()
-        if let expectedItem { try validateMemoryEdit(expectedItem) }
-        _ = try? await api.bootstrapSession()
-        if let expectedItem { try validateMemoryEdit(expectedItem) }
+        guard correctingMemoryID == nil, forgettingMemoryID == nil else { throw MemoryEditConflict.inProgress }
+        guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryEditConflict.removed }
+        guard original.id == itemID, original.key == key else { throw MemoryEditConflict.changed }
+        try validateMemoryEdit(original)
+        correctingMemoryID = itemID
+        actionNotice = nil
+        defer { correctingMemoryID = nil }
+        // Keep the revision associated with the validated visible snapshot across awaits.
+        let stateVersion = correctedMemoryStateVersions[itemID] ?? displayedMemoryStateVersion
+        let creativeRevision = correctedCreativeMemoryRevisions[itemID] ?? displayedCreativeMemoryRevision
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            if let characterBible {
+            if let correctionLoader {
+                var edited = original
+                edited.title = title
+                edited.summary = summary
+                edited.reason = reason
+                edited.characterBible = characterBible
+                edited.storySpine = storySpine
+                result = try await correctionLoader(edited, stateVersion, creativeRevision)
+            } else if let characterBible {
+                try checkMutationTransport()
+                guard !creativeRevision.isEmpty else { throw MemoryEditConflict.needsRefresh }
+                _ = try? await api.bootstrapSession()
+                try validateMemoryEdit(original)
                 result = try await api.updateCharacterBibleMemory(
                     id: itemID,
                     key: key,
-                    characterBible: characterBible
+                    characterBible: characterBible,
+                    expectedCreativeMemoryRevision: creativeRevision
                 )
             } else {
+                try checkMutationTransport()
+                guard !stateVersion.isEmpty else { throw MemoryEditConflict.needsRefresh }
+                _ = try? await api.bootstrapSession()
+                try validateMemoryEdit(original)
                 result = try await api.updateMemoryCard(
                     id: itemID,
                     key: key,
                     title: title,
                     summary: summary,
                     reason: reason,
-                    storySpine: storySpine
+                    storySpine: storySpine,
+                    expectedStateVersion: stateVersion
                 )
             }
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
                backendError.isCrossDeviceMemoryConflict {
                 await load(force: true, sinceVersion: nil)
+                if memory(forID: original.id) == nil { throw MemoryEditConflict.removed }
+                throw MemoryEditConflict.changed
             }
             throw error
         }
+        let expectedAction = characterBible == nil ? "update" : "character_bible_update"
+        guard result.payload.ok, result.payload.action == expectedAction,
+              result.payload.status == "updated" || (characterBible != nil && result.payload.status == "recorded"),
+              let card = result.payload.memoryCard,
+              card.id == itemID,
+              card.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            throw MemoryEditConflict.invalidReceipt
+        }
+        let updated = memoryItem(from: card)
+        guard let latest = memory(forID: itemID) else { throw MemoryEditConflict.removed }
+        guard latest == original || latest == updated else {
+            // A newer read may have arrived while this save response was in flight.
+            // Keep that snapshot and the writer's draft rather than applying an old receipt.
+            throw MemoryEditConflict.changed
+        }
         adoptMutationSync(result.sync)
-        if let card = result.payload.memoryCard {
-            let updated = memoryItem(from: card)
-            replaceMemoryItem(updated)
-            if selection?.id == updated.id {
-                selection = updated
-            }
-            if result.payload.storySpineRepaired == true ||
-                (result.payload.storySpineRepairCount ?? 0) > 0 {
-                await load(force: true, sinceVersion: nil)
-            }
-            return updated
+        // A returned card proves only this correction's revision, not the contents
+        // of other cards or the other memory store. Never advance them implicitly.
+        if characterBible == nil {
+            correctedMemoryStateVersions[itemID] = result.payload.stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } else {
+            correctedCreativeMemoryRevisions[itemID] = result.payload.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
-        await load(force: true, sinceVersion: nil)
-        if case .loaded(let items) = state,
-           let updated = items.first(where: { $0.id == itemID || $0.key == key }) {
-            return updated
+        replaceMemoryItem(updated)
+        if selection?.id == updated.id {
+            selection = updated
         }
-        throw NSError(domain: "MemoriesViewModel", code: -1, userInfo: [
-            NSLocalizedDescriptionKey: "Memory updated, but the updated card was not found."
-        ])
+        if result.payload.storySpineRepaired == true ||
+            (result.payload.storySpineRepairCount ?? 0) > 0 {
+            await load(force: true, sinceVersion: nil)
+        }
+        return updated
     }
 
     func forgetMemory(itemID: String, key: String, expectedItem: MemoryItem? = nil) async throws {
-        guard forgettingMemoryID == nil else { throw MemoryForgetError.inProgress }
+        guard forgettingMemoryID == nil, correctingMemoryID == nil else { throw MemoryForgetError.inProgress }
         let requestedID = MemoryForgetPresentation.normalizedID(itemID)
         guard !requestedID.isEmpty else { throw MemoryForgetError.removed }
         if let expectedItem { try validateMemoryForget(expectedItem, itemID: itemID, key: key) }
@@ -600,8 +693,8 @@ final class MemoriesViewModel: ObservableObject {
         defer { forgettingMemoryID = nil }
         let title = expectedItem?.title ?? memory(forID: itemID)?.title ?? "Memory"
         // Pin this action to the snapshot shown here, not another API request's newer state.
-        let expectedStateVersion = displayedMemoryStateVersion
-        let expectedCreativeMemoryRevision = displayedCreativeMemoryRevision
+        let expectedStateVersion = correctedMemoryStateVersions[itemID] ?? displayedMemoryStateVersion
+        let expectedCreativeMemoryRevision = correctedCreativeMemoryRevisions[itemID] ?? displayedCreativeMemoryRevision
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
             if let forgetLoader {
