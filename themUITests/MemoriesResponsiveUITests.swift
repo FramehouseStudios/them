@@ -322,6 +322,89 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
+    func testCanonChoicesSurviveFailureAndUndoRequiresConfirmation() throws {
+        #if os(iOS)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-canon-fixture",
+            "-studio_debug_submit_transport_mode", "stub",
+        ]
+        app.launch()
+        defer { app.terminate() }
+        let choice = app.buttons["memories.card.correction-choice-ui-canon-choice"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 8))
+        choice.tap()
+        let apply = app.buttons["memories.canon-clarification.apply"]
+        reveal(app.buttons["memories.canon-clarification.select-all"], in: app)
+        XCTAssertFalse(apply.isEnabled)
+        let first = app.buttons["memories.canon-clarification.fact.0"]
+        let second = app.buttons["memories.canon-clarification.fact.1"]
+        assertMinimumTarget(first)
+        assertMinimumTarget(second)
+        first.tap()
+        XCTAssertEqual(first.value as? String, "Selected")
+        XCTAssertEqual(second.value as? String, "Not selected")
+        reveal(apply, in: app)
+        assertMinimumTarget(apply)
+        apply.tap()
+        let error = element("memories.canon-action.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(error.label.contains("Your choices are still here"))
+        XCTAssertEqual(first.value as? String, "Selected")
+        XCTAssertEqual(second.value as? String, "Not selected")
+        capture("Memories - Canon failure preserves selected facts")
+        goBack(in: app)
+        app.buttons["memories.refresh"].tap()
+        XCTAssertTrue(choice.waitForExistence(timeout: 4))
+        choice.tap()
+        reveal(first, in: app)
+        first.tap()
+        reveal(apply, in: app)
+        apply.tap()
+        let receipt = app.buttons["memories.card.correction-ui-canon-receipt"]
+        XCTAssertTrue(receipt.waitForExistence(timeout: 5))
+        XCTAssertEqual(element("memories.action-notice", in: app).label, "Correction applied to the facts you selected.")
+        XCTAssertFalse(choice.exists)
+        receipt.tap()
+        let undo = app.buttons["memories.canon-action.undo"]
+        reveal(undo, in: app)
+        assertMinimumTarget(undo)
+        capture("Memories - Confirmed selected-fact correction")
+        undo.tap()
+        let confirm = app.buttons["Undo correction"].firstMatch
+        let keep = app.buttons["Keep correction"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Mara returns for both")).firstMatch.exists)
+        capture("Memories - Confirm before restoring prior canon")
+        keep.tap()
+        XCTAssertTrue(undo.isEnabled)
+        XCTAssertFalse(error.exists)
+        undo.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(undo.exists, "An unconfirmed undo must keep the original correction visible.")
+        capture("Memories - Undo failure remains recoverable")
+        reveal(undo, in: app)
+        undo.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        XCTAssertTrue(receipt.waitForExistence(timeout: 5))
+        XCTAssertEqual(element("memories.action-notice", in: app).label, "Correction undone. The prior canon is restored.")
+        app.buttons["memories.refresh"].tap()
+        receipt.tap()
+        XCTAssertTrue(app.staticTexts["Undone"].waitForExistence(timeout: 4))
+        XCTAssertFalse(undo.exists)
+        capture("Memories - Undo stays recorded after refresh")
+        goBack(in: app)
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("The canon confirmation workflow is iPhone-specific.")
+        #endif
+    }
+
     private func reveal(_ target: XCUIElement, in app: XCUIApplication) {
         XCTAssertTrue(target.waitForExistence(timeout: 4))
         for _ in 0..<5 where !target.isHittable { app.swipeUp() }

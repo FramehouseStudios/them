@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class MemoriesCardActionTests: XCTestCase {
     override func tearDown() {
-        CardActionURLProtocol.handler = nil
+        MemoryMutationURLProtocol.handler = nil
         super.tearDown()
     }
 
@@ -17,7 +17,7 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     private func assertPinnedAction(_ action: MemoryCardAction) async throws {
-        let log = CardActionRequestLog()
+        let log = MemoryMutationRequestLog()
         let (api, session) = makeAPI(log: log, action: action)
         defer { session.invalidateAndCancel() }
         _ = try await api.fetchMemories(limit: 1, force: true)
@@ -45,7 +45,7 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     func testExplicitBlankAPIBaselinesFailBeforeAnyTransport() async throws {
-        let log = CardActionRequestLog()
+        let log = MemoryMutationRequestLog()
         let (api, session) = makeAPI(log: log)
         defer { session.invalidateAndCancel() }
         for revision in ["", "  \n"] {
@@ -63,7 +63,7 @@ final class MemoriesCardActionTests: XCTestCase {
 
     func testMissingDisplayedRevisionBlocksBothLiveActionsBeforeTransport() async throws {
         for action in [MemoryCardAction.feedback("hit"), .promote] {
-            let log = CardActionRequestLog()
+            let log = MemoryMutationRequestLog()
             let (api, session) = makeAPI(log: log, action: action)
             defer { session.invalidateAndCancel() }
             let vm = MemoriesViewModel(
@@ -172,7 +172,7 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     func testPendingCardActionBlocksDuplicateCorrectionAndForget() async throws {
-        let pending = PendingCardAction()
+        let pending = PendingMemoryMutation()
         var writes = 0
         let vm = MemoriesViewModel(
             notificationCenter: NotificationCenter(), memoriesLoader: { _, _ in try Self.read() },
@@ -216,7 +216,7 @@ final class MemoriesCardActionTests: XCTestCase {
 
     func testHelpfulWaitsForPendingCorrectionOrForget() async throws {
         for forget in [false, true] {
-            let pending = PendingCardAction()
+            let pending = PendingMemoryMutation()
             var writes = 0
             let vm = MemoriesViewModel(
                 notificationCenter: NotificationCenter(), memoriesLoader: { _, _ in try Self.read() }, pendingQuestionLoader: { _ in nil },
@@ -239,7 +239,7 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     func testDelayedFeedbackRereadsWithoutReplacingNewerContentOrSelection() async throws {
-        let pending = PendingCardAction()
+        let pending = PendingMemoryMutation()
         var reads = 0
         let vm = MemoriesViewModel(
             notificationCenter: NotificationCenter(),
@@ -266,7 +266,7 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     func testFailedFeedbackReconciliationPreservesNewerCard() async throws {
-        let pending = PendingCardAction()
+        let pending = PendingMemoryMutation()
         var reads = 0
         let vm = MemoriesViewModel(
             notificationCenter: NotificationCenter(), memoriesLoader: { _, _ in
@@ -384,13 +384,13 @@ final class MemoriesCardActionTests: XCTestCase {
         }
     }
 
-    private func waitForAction(_ pending: PendingCardAction) async {
+    private func waitForAction(_ pending: PendingMemoryMutation) async {
         for _ in 0..<100 where !pending.isWaiting { await Task.yield() }
         XCTAssertTrue(pending.isWaiting)
     }
 
-    private func makeAPI(log: CardActionRequestLog, action: MemoryCardAction = .feedback("hit")) -> (BackendMemoryAPI, URLSession) {
-        CardActionURLProtocol.handler = { request in
+    private func makeAPI(log: MemoryMutationRequestLog, action: MemoryCardAction = .feedback("hit")) -> (BackendMemoryAPI, URLSession) {
+        MemoryMutationURLProtocol.handler = { request in
             log.append(request)
             switch request.url?.path {
             case "/session": return try Self.data(["client_token": "card-action-fixture", "expires_in": 3600, "remembered_names": []])
@@ -400,9 +400,9 @@ final class MemoriesCardActionTests: XCTestCase {
             }
         }
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [CardActionURLProtocol.self]
+        config.protocolClasses = [MemoryMutationURLProtocol.self]
         let session = URLSession(configuration: config)
-        return (BackendMemoryAPI(session: session, baseURL: URL(string: "https://card-action.test")!), session)
+        return (BackendMemoryAPI(session: session, baseURL: URL(string: "https://memory-mutation.test")!), session)
     }
 
     nonisolated private static func card(id: String = "theme-warmth", key: String = "warmth", history: Bool = false, summary: String = "Original.", votes: Int = 0, overrides: [String: Any] = [:]) -> [String: Any] {
@@ -435,56 +435,4 @@ final class MemoriesCardActionTests: XCTestCase {
     }
 
     nonisolated private static func data(_ body: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: body) }
-}
-
-@MainActor
-private final class PendingCardAction {
-    private var continuation: CheckedContinuation<BackendReadResult<BackendMemoryMutationResponse>, Error>?
-    var isWaiting: Bool { continuation != nil }
-    func wait() async throws -> BackendReadResult<BackendMemoryMutationResponse> {
-        try await withCheckedThrowingContinuation { continuation = $0 }
-    }
-    func complete(_ result: Result<BackendReadResult<BackendMemoryMutationResponse>, Error>) {
-        let pending = continuation
-        continuation = nil
-        pending?.resume(with: result)
-    }
-}
-
-private final class CardActionRequestLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var entries: [URLRequest] = []
-    var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return entries }
-    func append(_ request: URLRequest) { lock.lock(); defer { lock.unlock() }; entries.append(request) }
-}
-
-private final class CardActionURLProtocol: URLProtocol {
-    nonisolated(unsafe) static var handler: ((URLRequest) throws -> Data)?
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "card-action.test" }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        do {
-            var captured = request
-            if captured.httpBody == nil, let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var body = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    if count < 0 { throw stream.streamError ?? URLError(.cannotDecodeRawData) }
-                    if count == 0 { break }
-                    body.append(contentsOf: buffer.prefix(count))
-                }
-                captured.httpBody = body
-            }
-            guard let handler = Self.handler else { throw URLError(.unsupportedURL) }
-            let body = try handler(captured)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: body)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch { client?.urlProtocol(self, didFailWithError: error) }
-    }
-    override func stopLoading() {}
 }

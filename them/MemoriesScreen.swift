@@ -98,6 +98,26 @@ enum MemoryCardAction: Equatable {
     case promote
 }
 
+enum MemoryCanonAction {
+    case undo(BackendCanonCorrectionReceipt)
+    case resolve(BackendCanonCorrectionAmbiguity, [String])
+}
+
+enum MemoryCanonActionError: LocalizedError {
+    case changed, unavailable, invalidSelection, unconfirmed, inProgress, newerCorrection
+
+    var errorDescription: String? {
+        switch self {
+        case .changed: return "This correction changed. Your choices are still here. Review the latest canon before trying again."
+        case .unavailable: return "This correction is no longer available for this action. Refresh Memories to review the latest canon."
+        case .invalidSelection: return "Choose only the accepted facts shown in this correction. No new correction was sent."
+        case .unconfirmed: return "Couldn’t confirm the saved canon. Your choices are still here. Refresh Memories to check the result before trying again."
+        case .inProgress: return "A memory change is still finishing. Wait for it to finish before changing canon."
+        case .newerCorrection: return "Undo the newer correction for this screenplay first. Return to Memories to review it. This correction is still here."
+        }
+    }
+}
+
 enum MemoryCardActionError: LocalizedError {
     case changed, unavailable, unconfirmed, inProgress
 
@@ -197,6 +217,7 @@ final class MemoriesViewModel: ObservableObject {
     typealias ForgetLoader = @MainActor (String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
     typealias CorrectionLoader = @MainActor (MemoryItem, String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
     typealias CardActionLoader = @MainActor (MemoryCardAction, MemoryItem, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
+    typealias CanonActionLoader = @MainActor (MemoryCanonAction, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
 
     private let api: BackendMemoryAPI
     private let notificationCenter: NotificationCenter
@@ -208,6 +229,8 @@ final class MemoriesViewModel: ObservableObject {
     private var correctingMemoryID: String?
     private var cardActionLoader: CardActionLoader?
     private var isPerformingCardAction = false
+    private var canonActionLoader: CanonActionLoader?
+    private var protectedCanonMemoryID: String?
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
@@ -233,13 +256,15 @@ final class MemoriesViewModel: ObservableObject {
         pendingQuestionLoader: PendingQuestionLoader? = nil,
         forgetLoader: ForgetLoader? = nil,
         correctionLoader: CorrectionLoader? = nil,
-        cardActionLoader: CardActionLoader? = nil
+        cardActionLoader: CardActionLoader? = nil,
+        canonActionLoader: CanonActionLoader? = nil
     ) {
         self.api = api
         self.notificationCenter = notificationCenter
         self.forgetLoader = forgetLoader
         self.correctionLoader = correctionLoader
         self.cardActionLoader = cardActionLoader
+        self.canonActionLoader = canonActionLoader
         self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
             try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
         }
@@ -347,7 +372,8 @@ final class MemoriesViewModel: ObservableObject {
             $0.rememberedDate == $1.rememberedDate ? $0.id < $1.id : $0.rememberedDate > $1.rememberedDate
         }
         state = items.isEmpty ? .empty : .loaded(items)
-        if let selected = selection, unique[selected.id] == nil, editingMemoryID != selected.id {
+        if let selected = selection, unique[selected.id] == nil,
+           editingMemoryID != selected.id, protectedCanonMemoryID != selected.id {
             selection = nil
         }
     }
@@ -375,6 +401,11 @@ final class MemoriesViewModel: ObservableObject {
         // A mutation receipt describes only its target, not this entire list.
         // Advancing the read cursor here could make a later delta say "unchanged"
         // and authorize writes against cards whose newer content we never read.
+    }
+
+    private var hasMemoryMutationInFlight: Bool {
+        correctingMemoryID != nil || forgettingMemoryID != nil || isPerformingCardAction ||
+            protectedCanonMemoryID != nil || !updatingStoryMoveFamily.isEmpty || !correctingStoryObligationID.isEmpty
     }
 
     func memory(forID id: String) -> MemoryItem? {
@@ -468,6 +499,7 @@ final class MemoriesViewModel: ObservableObject {
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
+        canonActionLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         let pending = pendingScreenplayQuestion
         pendingQuestionLoader = { _ in pending }
         memoriesLoader = { _, _ in
@@ -492,7 +524,11 @@ final class MemoriesViewModel: ObservableObject {
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
+        canonActionLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
+        if arguments.contains("--ui-memories-canon-fixture") {
+            return installCanonActionsUITestFixture(now: now)
+        }
         var shouldFail = arguments.contains("--ui-memories-refresh-failure")
         let editable = arguments.contains("--ui-memories-editable-fixture")
         let cardActions = arguments.contains("--ui-memories-card-actions-fixture")
@@ -602,6 +638,96 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     #if DEBUG
+    private func installCanonActionsUITestFixture(now: Date) -> Bool {
+        var resolved = false
+        var undone = false
+        var chosenFacts: [String] = []
+        var shouldFailResolution = true
+        var shouldFailUndo = true
+        memoriesLoader = { _, _ in
+            try Self.canonUITestRead(now: now, resolved: resolved, undone: undone, facts: chosenFacts)
+        }
+        canonActionLoader = { action, _ in
+            let actionName: String
+            let status: String
+            switch action {
+            case .resolve(let ambiguity, let facts):
+                guard !resolved, ambiguity.id == "ui-canon-choice", !facts.isEmpty,
+                      facts.allSatisfy(Self.canonUITestFacts.contains) else { throw MemoryCanonActionError.unavailable }
+                if shouldFailResolution {
+                    shouldFailResolution = false
+                    throw URLError(.notConnectedToInternet)
+                }
+                chosenFacts = facts
+                resolved = true
+                actionName = "resolve_correction"
+                status = "resolved"
+            case .undo(let receipt):
+                guard resolved, !undone, receipt.id == "ui-canon-receipt" else { throw MemoryCanonActionError.unavailable }
+                if shouldFailUndo {
+                    shouldFailUndo = false
+                    throw URLError(.notConnectedToInternet)
+                }
+                undone = true
+                actionName = "undo_correction"
+                status = "undone"
+            }
+            var body: [String: Any] = [
+                "ok": true, "action": actionName, "status": status,
+                "correctionReceipt": Self.canonUITestReceipt(now: now, undone: undone, facts: chosenFacts),
+            ]
+            if actionName == "resolve_correction" {
+                body["correctionAmbiguity"] = Self.canonUITestAmbiguity(now: now, resolved: true, facts: chosenFacts)
+            }
+            return BackendReadResult(
+                payload: try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: JSONSerialization.data(withJSONObject: body)),
+                sync: .empty, notModified: false
+            )
+        }
+        do { applyReadSnapshot(try Self.canonUITestRead(now: now, resolved: false, undone: false, facts: []).payload) }
+        catch { state = .error(message: "The canon test fixture could not load.") }
+        return true
+    }
+
+    private static var canonUITestFacts: [String] {
+        ["Mara leaves June at the ferry dock.", "Mara leaves Eli at the ferry dock."]
+    }
+
+    private static func canonUITestReceipt(now: Date, undone: Bool, facts: [String]) -> [String: Any] {
+        ["id": "ui-canon-receipt", "status": undone ? "undone" : "active", "projectId": "ui-crossing", "projectTitle": "The Last Crossing",
+         "correctionText": "Mara returns for both of them.", "matchedFacts": facts, "replacementFacts": ["Mara returns for both of them."],
+         "createdAt": now.timeIntervalSince1970]
+    }
+
+    private static func canonUITestAmbiguity(now: Date, resolved: Bool, facts: [String]) -> [String: Any] {
+        ["id": "ui-canon-choice", "status": resolved ? "resolved" : "pending", "projectId": "ui-crossing", "projectTitle": "The Last Crossing",
+         "correctionText": "Mara returns for both of them.", "candidateFacts": canonUITestFacts,
+         "selectedFacts": resolved ? facts : [], "receiptId": resolved ? "ui-canon-receipt" : "", "createdAt": now.timeIntervalSince1970]
+    }
+
+    private static func canonUITestRead(now: Date, resolved: Bool, undone: Bool, facts: [String]) throws -> BackendReadResult<BackendMemoriesResponse> {
+        var row: [String: Any] = [
+            "id": resolved ? "correction-ui-canon-receipt" : "correction-choice-ui-canon-choice",
+            "key": resolved ? "correction:ui-canon-receipt" : "correction-ambiguity:ui-canon-choice",
+            "title": resolved ? "The Last Crossing Canon Correction" : "The Last Crossing Needs Clarification",
+            "summary": "Mara returns for both of them.", "reason": "Review the accepted facts this correction replaces.",
+            "emotionalTone": "", "salience": 0.9, "confidence": 0.9, "rememberedAt": now.timeIntervalSince1970,
+            "snippets": [], "referenceHint": "", "source": resolved ? "canon_correction" : "canon_correction_ambiguous",
+            "editable": false, "isCorrectionMemory": true,
+        ]
+        if resolved { row["correctionReceipt"] = canonUITestReceipt(now: now, undone: undone, facts: facts) }
+        else { row["correctionAmbiguity"] = canonUITestAmbiguity(now: now, resolved: false, facts: []) }
+        let body: [String: Any] = [
+            "source": "ui-fixture", "sourceIp": "", "stateVersion": "fixture-canon-v1",
+            "creativeMemoryRevision": undone ? "fixture-cm3" : resolved ? "fixture-cm2" : "fixture-cm1",
+            "memories": [row], "conversationSamples": [],
+        ]
+        return BackendReadResult(
+            payload: try JSONDecoder().decode(BackendMemoriesResponse.self, from: JSONSerialization.data(withJSONObject: body)),
+            sync: .empty, notModified: false
+        )
+    }
+
     private static func memoriesUITestPayload(
         now: Date, refreshed: Bool, editable: Bool, excluding forgottenIDs: Set<String> = [],
         correction: MemoryItem? = nil, cardActions: Bool = false, helpfulVotes: Int = 0, promoted: Bool = false
@@ -689,7 +815,7 @@ final class MemoriesViewModel: ObservableObject {
         storySpine: BackendStorySpineMemory? = nil,
         expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        guard correctingMemoryID == nil, forgettingMemoryID == nil, !isPerformingCardAction else { throw MemoryEditConflict.inProgress }
+        guard !hasMemoryMutationInFlight else { throw MemoryEditConflict.inProgress }
         guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryEditConflict.removed }
         guard original.id == itemID, original.key == key else { throw MemoryEditConflict.changed }
         try validateMemoryEdit(original)
@@ -787,7 +913,7 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func forgetMemory(itemID: String, key: String, expectedItem: MemoryItem? = nil) async throws {
-        guard forgettingMemoryID == nil, correctingMemoryID == nil, !isPerformingCardAction else { throw MemoryForgetError.inProgress }
+        guard !hasMemoryMutationInFlight else { throw MemoryForgetError.inProgress }
         let requestedID = MemoryForgetPresentation.normalizedID(itemID)
         guard !requestedID.isEmpty else { throw MemoryForgetError.removed }
         guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryForgetError.removed }
@@ -864,41 +990,123 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
-    func undoCanonCorrection(receiptID: String) async throws {
-        try checkMutationTransport()
-        _ = try? await api.bootstrapSession()
-        do {
-            _ = try await api.undoCanonCorrection(receiptID: receiptID)
-        } catch {
-            if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCrossDeviceMemoryConflict {
-                await load(force: true, sinceVersion: nil)
-            }
-            throw error
+    func undoCanonCorrection(receiptID: String, expectedReceipt: BackendCanonCorrectionReceipt? = nil) async throws {
+        guard let receipt = expectedReceipt ?? canonReceipt(forID: receiptID), receipt.id == receiptID else {
+            throw MemoryCanonActionError.unavailable
         }
-        recordMemoryMutation()
-        selection = nil
-        await load(force: true, sinceVersion: nil)
+        try await performCanonAction(.undo(receipt))
     }
 
-    func resolveCanonCorrection(ambiguityID: String, selectedFacts: [String]) async throws {
-        try checkMutationTransport()
-        _ = try? await api.bootstrapSession()
+    func resolveCanonCorrection(
+        ambiguityID: String, selectedFacts: [String], expectedAmbiguity: BackendCanonCorrectionAmbiguity? = nil
+    ) async throws {
+        guard let ambiguity = expectedAmbiguity ?? memoryItems.compactMap(\.correctionAmbiguity).first(where: { $0.id == ambiguityID }),
+              ambiguity.id == ambiguityID else { throw MemoryCanonActionError.unavailable }
+        try await performCanonAction(.resolve(ambiguity, selectedFacts))
+    }
+
+    private var memoryItems: [MemoryItem] {
+        if case .loaded(let items) = state { return items }
+        return []
+    }
+
+    private func canonReceipt(forID id: String) -> BackendCanonCorrectionReceipt? {
+        memoryItems.compactMap(\.correctionReceipt).first { $0.id == id }
+    }
+
+    private func validateCanonAction(_ action: MemoryCanonAction) throws -> MemoryItem {
+        switch action {
+        case .undo(let original):
+            guard original.canUndo,
+                  let item = memoryItems.first(where: { $0.correctionReceipt?.id == original.id }) else {
+                throw MemoryCanonActionError.unavailable
+            }
+            guard item.correctionReceipt == original else { throw MemoryCanonActionError.changed }
+            return item
+        case .resolve(let original, let facts):
+            guard original.isPending,
+                  let item = memoryItems.first(where: { $0.correctionAmbiguity?.id == original.id }) else {
+                throw MemoryCanonActionError.unavailable
+            }
+            guard item.correctionAmbiguity == original else { throw MemoryCanonActionError.changed }
+            guard !facts.isEmpty, facts.count <= 8, Set(facts).count == facts.count,
+                  facts.allSatisfy({ original.candidateFacts.contains($0) }) else {
+                throw MemoryCanonActionError.invalidSelection
+            }
+            return item
+        }
+    }
+
+    private func performCanonAction(_ action: MemoryCanonAction) async throws {
+        guard !hasMemoryMutationInFlight else { throw MemoryCanonActionError.inProgress }
+        let original = try validateCanonAction(action)
+        let revision = correctedCreativeMemoryRevisions[original.id] ?? displayedCreativeMemoryRevision
+        guard !revision.isEmpty else { throw MemoryCanonActionError.unconfirmed }
+        protectedCanonMemoryID = original.id
+        actionNotice = nil
+        defer { protectedCanonMemoryID = nil }
+        let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            _ = try await api.resolveCanonCorrection(
-                ambiguityID: ambiguityID,
-                selectedFacts: selectedFacts
-            )
+            if let canonActionLoader {
+                result = try await canonActionLoader(action, revision)
+            } else {
+                try checkMutationTransport()
+                _ = try? await api.bootstrapSession()
+                _ = try validateCanonAction(action)
+                switch action {
+                case .undo(let receipt):
+                    result = try await api.undoCanonCorrection(receiptID: receipt.id, expectedCreativeMemoryRevision: revision)
+                case .resolve(let ambiguity, let facts):
+                    result = try await api.resolveCanonCorrection(ambiguityID: ambiguity.id, selectedFacts: facts, expectedCreativeMemoryRevision: revision)
+                }
+            }
         } catch {
-            if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCrossDeviceMemoryConflict {
-                await load(force: true, sinceVersion: nil)
+            if case BackendMemoryAPIError.server(409, let message) = error {
+                _ = await load(force: true, sinceVersion: nil, refreshPendingQuestion: false)
+                if message.localizedCaseInsensitiveContains("newer correction") || message.localizedCaseInsensitiveContains("newer_correction_exists") {
+                    throw MemoryCanonActionError.newerCorrection
+                }
+                throw MemoryCanonActionError.changed
             }
             throw error
         }
+        guard result.payload.ok, let receipt = result.payload.correctionReceipt else { throw MemoryCanonActionError.unconfirmed }
+        switch action {
+        case .undo(let expected):
+            guard result.payload.action == "undo_correction", ["undone", "already_undone"].contains(result.payload.status),
+                  receipt.id == expected.id, receipt.status == "undone",
+                  sameCanonProject(receipt, expected), receipt.correctionText == expected.correctionText,
+                  Set(receipt.matchedFacts) == Set(expected.matchedFacts) else { throw MemoryCanonActionError.unconfirmed }
+        case .resolve(let expected, let facts):
+            guard result.payload.action == "resolve_correction", ["resolved", "already_resolved"].contains(result.payload.status),
+                  let resolved = result.payload.correctionAmbiguity, resolved.id == expected.id, resolved.status == "resolved",
+                  resolved.projectId == expected.projectId, resolved.projectTitle == expected.projectTitle,
+                  resolved.correctionText == expected.correctionText, Set(resolved.resolvedFacts) == Set(facts),
+                  resolved.receiptId == receipt.id, receipt.canUndo, !receipt.id.isEmpty,
+                  receipt.projectId == expected.projectId, receipt.projectTitle == expected.projectTitle,
+                  receipt.correctionText == expected.correctionText, Set(receipt.matchedFacts) == Set(facts) else {
+                throw MemoryCanonActionError.unconfirmed
+            }
+        }
         recordMemoryMutation()
-        selection = nil
-        await load(force: true, sinceVersion: nil)
+        let outcome = await load(force: true, sinceVersion: nil, refreshPendingQuestion: false)
+        guard outcome == .succeeded else { throw MemoryCanonActionError.unconfirmed }
+        guard let latest = canonReceipt(forID: receipt.id), sameCanonProject(latest, receipt),
+              latest.status == receipt.status, latest.correctionText == receipt.correctionText,
+              Set(latest.matchedFacts) == Set(receipt.matchedFacts) else { throw MemoryCanonActionError.changed }
+        if case .resolve(let expected, _) = action,
+           memoryItems.contains(where: { $0.correctionAmbiguity?.id == expected.id && $0.correctionAmbiguity?.isPending == true }) {
+            throw MemoryCanonActionError.changed
+        }
+        if selection?.id == original.id { selection = nil }
+        switch action {
+        case .undo: actionNotice = "Correction undone. The prior canon is restored."
+        case .resolve: actionNotice = "Correction applied to the facts you selected."
+        }
+    }
+
+    private func sameCanonProject(_ left: BackendCanonCorrectionReceipt, _ right: BackendCanonCorrectionReceipt) -> Bool {
+        left.projectId == right.projectId && left.projectTitle == right.projectTitle
     }
 
     func markMemoryQuality(
@@ -940,7 +1148,7 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     private func performCardAction(_ action: MemoryCardAction, original: MemoryItem, request: MemoryItem) async throws -> MemoryItem {
-        guard !isPerformingCardAction, correctingMemoryID == nil, forgettingMemoryID == nil else {
+        guard !hasMemoryMutationInFlight else {
             throw MemoryCardActionError.inProgress
         }
         let themeKey = original.key.lowercased()
@@ -1016,7 +1224,14 @@ final class MemoriesViewModel: ObservableObject {
         action: String
     ) async {
         let family = preference.family.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !family.isEmpty, updatingStoryMoveFamily.isEmpty else { return }
+        guard !family.isEmpty else {
+            preferenceActionError = "This creative preference is unavailable. Refresh Memories to review the latest preferences."
+            return
+        }
+        guard !hasMemoryMutationInFlight else {
+            preferenceActionError = MemoryCardActionError.inProgress.localizedDescription
+            return
+        }
         updatingStoryMoveFamily = family
         preferenceActionError = ""
         defer { updatingStoryMoveFamily = "" }
@@ -1048,7 +1263,10 @@ final class MemoriesViewModel: ObservableObject {
         projectID: String,
         projectTitle: String
     ) async {
-        guard updatingStoryMoveFamily.isEmpty else { return }
+        guard !hasMemoryMutationInFlight else {
+            preferenceActionError = MemoryCardActionError.inProgress.localizedDescription
+            return
+        }
         updatingStoryMoveFamily = "reset_all"
         preferenceActionError = ""
         defer { updatingStoryMoveFamily = "" }
@@ -1078,7 +1296,10 @@ final class MemoriesViewModel: ObservableObject {
         change: BackendStoryObligationChange,
         action: String
     ) async {
-        guard correctingStoryObligationID.isEmpty else { return }
+        guard !hasMemoryMutationInFlight else {
+            storyObligationActionError = MemoryCanonActionError.inProgress.localizedDescription
+            return
+        }
         correctingStoryObligationID = change.id
         storyObligationActionError = ""
         defer { correctingStoryObligationID = "" }
@@ -1302,12 +1523,13 @@ struct MemoriesScreen: View {
                         )
                     },
                     onUndoCorrection: { receipt in
-                        try await vm.undoCanonCorrection(receiptID: receipt.id)
+                        try await vm.undoCanonCorrection(receiptID: receipt.id, expectedReceipt: receipt)
                     },
                     onResolveCorrection: { ambiguity, selectedFacts in
                         try await vm.resolveCanonCorrection(
                             ambiguityID: ambiguity.id,
-                            selectedFacts: selectedFacts
+                            selectedFacts: selectedFacts,
+                            expectedAmbiguity: ambiguity
                         )
                     },
                     onQualitySignal: { target, signal in
@@ -2809,6 +3031,8 @@ struct MemoryDetailView: View {
     @State private var forgetConfirmationItem: MemoryItem?
     @State private var forgetError: String?
     @State private var isUndoingCorrection = false
+    @State private var showingUndoConfirmation = false
+    @State private var undoConfirmationReceipt: BackendCanonCorrectionReceipt?
     @State private var isResolvingCorrection = false
     @State private var isSendingQuality = false
     @State private var isPromoting = false
@@ -2908,13 +3132,15 @@ struct MemoryDetailView: View {
                         .accessibilityHint("Edit what Clementine remembers. Changes are saved only when you choose Save.")
                     }
 
-                    if currentItem.hasRepairState {
+                    if currentItem.hasRepairState || currentItem.hasCanonCorrectionControl {
                         MemoryRepairDetailSection(
                             item: currentItem,
                             isUndoing: isUndoingCorrection,
                             isResolving: isResolvingCorrection,
+                            isBusy: isBusy,
+                            errorMessage: errorText,
                             onUndo: {
-                                Task { await undoCurrentCorrection() }
+                                beginUndoingCorrection()
                             },
                             onResolve: { selectedFacts in
                                 Task { await resolveCurrentCorrection(selectedFacts: selectedFacts) }
@@ -2962,12 +3188,6 @@ struct MemoryDetailView: View {
                         }
                     }
 
-                    if !errorText.isEmpty && currentItem.hasCanonCorrectionControl {
-                        Text(errorText)
-                            .font(.system(size: 13, weight: .regular, design: .default))
-                            .foregroundStyle(.red.opacity(0.9))
-                    }
-
                     Spacer(minLength: 28)
                 }
                 .padding(.horizontal, horizontalSizeClass == .compact ? 16 : 24)
@@ -2986,16 +3206,6 @@ struct MemoryDetailView: View {
                 }
                 .disabled(isBusy)
                 .accessibilityLabel("Return Home")
-
-                if currentItem.correctionReceipt?.canUndo == true {
-                    Button {
-                        Task { await undoCurrentCorrection() }
-                    } label: {
-                        Label("Undo Correction", systemImage: "arrow.uturn.backward")
-                            .frame(minHeight: 44)
-                    }
-                    .disabled(isBusy)
-                }
 
                 if !currentItem.hasCanonCorrectionControl {
                     Button(role: .destructive) {
@@ -3023,6 +3233,14 @@ struct MemoryDetailView: View {
         } message: { target in
             Text(MemoryForgetPresentation.confirmationMessage(for: target))
         }
+        .alert("Undo this correction?", isPresented: $showingUndoConfirmation, presenting: undoConfirmationReceipt) { receipt in
+            Button("Undo correction", role: .destructive) {
+                Task { await undoCurrentCorrection(receipt) }
+            }
+            Button("Keep correction", role: .cancel) {}
+        } message: { receipt in
+            Text("This restores the accepted canon that “\(receipt.correctionText)” replaced. The correction remains in your memory history.")
+        }
         .sheet(isPresented: $showingEdit) {
             MemoryEditSheet(
                 item: currentItem,
@@ -3042,6 +3260,7 @@ struct MemoryDetailView: View {
         }
         .onChange(of: isBusy) { _, _ in adoptDeferredItemIfIdle() }
         .onChange(of: showingForgetConfirmation) { _, _ in adoptDeferredItemIfIdle() }
+        .onChange(of: showingUndoConfirmation) { _, _ in adoptDeferredItemIfIdle() }
         .onChange(of: showingEdit) { _, showing in
             if !showing { onEditingChanged(false) }
             adoptDeferredItemIfIdle()
@@ -3056,7 +3275,7 @@ struct MemoryDetailView: View {
     }
 
     private func adoptDeferredItemIfIdle() {
-        guard !isBusy, !showingEdit, !showingForgetConfirmation, let deferredItem else { return }
+        guard !isBusy, !showingEdit, !showingForgetConfirmation, !showingUndoConfirmation, let deferredItem else { return }
         currentItem = deferredItem
         self.deferredItem = nil
     }
@@ -3256,45 +3475,58 @@ struct MemoryDetailView: View {
         showingForgetConfirmation = true
     }
 
+    private func beginUndoingCorrection() {
+        guard !isBusy, let receipt = currentItem.correctionReceipt, receipt.canUndo else { return }
+        undoConfirmationReceipt = receipt
+        showingUndoConfirmation = true
+    }
+
     @MainActor
-    private func undoCurrentCorrection() async {
-        guard let receipt = currentItem.correctionReceipt, receipt.canUndo else {
+    private func undoCurrentCorrection(_ receipt: BackendCanonCorrectionReceipt) async {
+        guard !isBusy else { return }
+        guard receipt.canUndo else {
             errorText = "This correction has already been undone."
             return
         }
         isUndoingCorrection = true
+        errorText = ""
         defer { isUndoingCorrection = false }
         do {
             try await onUndoCorrection(receipt)
             errorText = ""
-            dismiss()
         } catch {
-            errorText = error.localizedDescription
+            errorText = canonActionErrorMessage(error)
         }
     }
 
     @MainActor
     private func resolveCurrentCorrection(selectedFacts: [String]) async {
+        guard !isBusy else { return }
         guard let ambiguity = currentItem.correctionAmbiguity, ambiguity.isPending else {
             errorText = "This correction choice is no longer pending."
             return
         }
-        let cleanFacts = selectedFacts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && ambiguity.candidateFacts.contains($0) }
-        guard !cleanFacts.isEmpty else {
+        guard !selectedFacts.isEmpty, selectedFacts.allSatisfy(ambiguity.candidateFacts.contains) else {
             errorText = "Choose at least one accepted canon fact."
             return
         }
         isResolvingCorrection = true
+        errorText = ""
         defer { isResolvingCorrection = false }
         do {
-            try await onResolveCorrection(ambiguity, cleanFacts)
+            try await onResolveCorrection(ambiguity, selectedFacts)
             errorText = ""
-            dismiss()
         } catch {
-            errorText = error.localizedDescription
+            errorText = canonActionErrorMessage(error)
         }
+    }
+
+    private func canonActionErrorMessage(_ error: Error) -> String {
+        if let error = error as? MemoryCanonActionError { return error.localizedDescription }
+        if let backend = error as? BackendMemoryAPIError, backend.requiresUserAuthentication {
+            return "Sign in to change screenplay canon. Your choices are still here. Return Home, sign in, then reopen this correction."
+        }
+        return "Couldn’t confirm this canon change. Your choices are still here. Check your connection and refresh Memories before trying again."
     }
 
     @MainActor
@@ -3352,6 +3584,8 @@ private struct MemoryRepairDetailSection: View {
     let item: MemoryItem
     let isUndoing: Bool
     let isResolving: Bool
+    let isBusy: Bool
+    let errorMessage: String
     let onUndo: () -> Void
     let onResolve: ([String]) -> Void
 
@@ -3385,6 +3619,14 @@ private struct MemoryRepairDetailSection: View {
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
 
+            if !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.system(size: 14))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.canon-action.error")
+            }
+
             if let receipt = item.correctionReceipt {
                 repairLine("Status", value: receipt.canUndo ? "Applied" : "Undone")
                 if !receipt.matchedFacts.isEmpty {
@@ -3407,9 +3649,11 @@ private struct MemoryRepairDetailSection: View {
                             isUndoing ? "Undoing Correction" : "Undo Correction",
                             systemImage: "arrow.uturn.backward"
                         )
+                        .frame(minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isUndoing)
+                    .disabled(isBusy)
+                    .accessibilityIdentifier("memories.canon-action.undo")
                     .accessibilityHint("Restores the accepted canon that this correction replaced.")
                 }
             }
@@ -3432,9 +3676,12 @@ private struct MemoryRepairDetailSection: View {
                             allCandidatesSelected ? "Clear" : "Select All",
                             systemImage: allCandidatesSelected ? "xmark.square" : "square"
                         )
+                        .frame(minHeight: 44)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(isResolving)
+                    .disabled(isBusy)
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .accessibilityIdentifier("memories.canon-clarification.select-all")
 
                     Spacer(minLength: 8)
 
@@ -3461,9 +3708,12 @@ private struct MemoryRepairDetailSection: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
+                        .frame(minHeight: 44)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(isResolving)
+                    .disabled(isBusy)
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .accessibilityIdentifier("memories.canon-clarification.fact.\(ambiguity.candidateFacts.firstIndex(of: fact) ?? 0)")
                     .accessibilityValue(selectedFacts.contains(fact) ? "Selected" : "Not selected")
                     .accessibilityHint("Includes or excludes this accepted screenplay fact from the correction.")
                 }
@@ -3480,10 +3730,11 @@ private struct MemoryRepairDetailSection: View {
                                 : "Apply to \(orderedSelection.count) \(orderedSelection.count == 1 ? "Fact" : "Facts")",
                             systemImage: "checkmark.seal.fill"
                         )
+                        .frame(minHeight: 44)
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(orderedSelection.isEmpty || isResolving)
+                .disabled(orderedSelection.isEmpty || isBusy)
                 .accessibilityIdentifier("memories.canon-clarification.apply")
             }
 

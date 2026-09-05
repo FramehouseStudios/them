@@ -56,11 +56,30 @@ test("[cross-device-memory-conflict] Apple client automatically sends the observ
 });
 
 test("[cross-device-memory-conflict] Memories refreshes before presenting mutation conflicts", () => {
-  assert.match(memoriesSource, /func forgetMemory\(itemID:/);
-  assert.match(memoriesSource, /func markMemoryQuality\(/);
-  assert.match(memoriesSource, /func promoteMemory\(/);
-  assert.ok(
-    (memoriesSource.match(/backendError\.isCrossDeviceMemoryConflict/g) || []).length >= 7,
-    "Every writer-controlled memory mutation should refresh after a cross-device conflict.",
-  );
+  const method = (name) => {
+    const start = memoriesSource.indexOf(`func ${name}(`);
+    assert.ok(start >= 0, `Missing mutation handler ${name}`);
+    const end = memoriesSource.indexOf("\n    }", start);
+    assert.ok(end > start, `Missing end of mutation handler ${name}`);
+    return memoriesSource.slice(start, end);
+  };
+  // Follow the shared handlers rather than counting repeated source strings.
+  // XCTest exercises their actual response ordering and preserved selection.
+  for (const [entry, handler] of [
+    ["markMemoryQuality", "performCardAction"],
+    ["promoteMemory", "performCardAction"],
+    ["undoCanonCorrection", "performCanonAction"],
+    ["resolveCanonCorrection", "performCanonAction"],
+  ]) {
+    assert.ok(method(entry).includes(`${handler}(`), `${entry} must use ${handler}`);
+  }
+  for (const handler of [
+    "updateMemory", "forgetMemory", "performCardAction", "performCanonAction",
+    "updateStoryMovePreference", "resetAllStoryMovePreferences", "correctStoryObligation",
+  ]) {
+    const body = method(handler);
+    const conflict = body.search(/backendError\.isCrossDeviceMemoryConflict|BackendMemoryAPIError\.server\(409, (?:_|let message)\)/);
+    assert.ok(conflict >= 0, `${handler} must recognize a memory conflict`);
+    assert.ok(body.indexOf("await load(force: true", conflict) > conflict, `${handler} must refresh after the conflict`);
+  }
 });

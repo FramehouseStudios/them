@@ -9170,17 +9170,20 @@ actor BackendMemoryAPI {
     }
 
     func undoCanonCorrection(
-        receiptID: String
+        receiptID: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         return try await runMemoryMutation(
             path: "/memories/corrections/undo",
-            payload: ["receipt_id": receiptID]
+            payload: ["receipt_id": receiptID],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
     func resolveCanonCorrection(
         ambiguityID: String,
-        selectedFacts: [String]
+        selectedFacts: [String],
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var seen = Set<String>()
         let cleanFacts = selectedFacts.compactMap { value -> String? in
@@ -9201,17 +9204,20 @@ actor BackendMemoryAPI {
             payload: [
                 "ambiguity_id": ambiguityID,
                 "selected_facts": cleanFacts,
-            ]
+            ],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
     func resolveCanonCorrection(
         ambiguityID: String,
-        selectedFact: String
+        selectedFact: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         try await resolveCanonCorrection(
             ambiguityID: ambiguityID,
-            selectedFacts: [selectedFact]
+            selectedFacts: [selectedFact],
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 
