@@ -101,7 +101,7 @@ App Store Server API secrets (`APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, `APP_ST
 
 Optional but commonly set: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`,
 `CORS_ALLOW_ORIGIN`, `API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`,
-`AUTH_REQUIRE_EMAIL_VERIFIED`.
+`AUTH_REQUIRE_EMAIL_VERIFIED`, `KNOWLEDGE_CARDS_FILE` (override path for `knowledge_cards.json`; image ships the 90-card `backend/knowledge_cards.json` by default, falling back to 30-card `FALLBACK_KNOWLEDGE_CARDS` on first load only if file absent — logged via `lifecycleLogger` as `knowledge_cards loaded {count, source}`).
 For V1 production, do not set `REQUIRE_USER_AUTH=false`; production requires
 login and the startup guard refuses that insecure opt-out.
 Production Apple Sign In verifies identity tokens against Apple's JWKS by

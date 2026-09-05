@@ -21113,6 +21113,7 @@ function loadKnowledgeCards() {
     return knowledgeCardsCache;
   }
   let parsed = null;
+  let loadedFromFile = false;
   try {
     if (fs.existsSync(KNOWLEDGE_CARDS_FILE)) {
       const raw = fs.readFileSync(KNOWLEDGE_CARDS_FILE, "utf8");
@@ -21122,15 +21123,22 @@ function loadKnowledgeCards() {
       } else if (Array.isArray(json?.cards)) {
         parsed = json.cards;
       }
+      loadedFromFile = Array.isArray(parsed) && parsed.length > 0;
     }
   } catch (_err) {
     parsed = null;
+    loadedFromFile = false;
   }
   const source = Array.isArray(parsed) && parsed.length ? parsed : FALLBACK_KNOWLEDGE_CARDS;
+  const isFileSource = loadedFromFile && source === parsed;
   knowledgeCardsCache = source
     .map((item, idx) => normalizeKnowledgeCard(item, idx))
     .filter(Boolean);
   knowledgeCardsLoadedAt = Date.now();
+  lifecycleLogger.info("knowledge_cards loaded", {
+    count: knowledgeCardsCache.length,
+    source: isFileSource ? KNOWLEDGE_CARDS_FILE : "fallback",
+  });
   return knowledgeCardsCache;
 }
 
@@ -33569,7 +33577,14 @@ if (SHOULD_START_SERVER) {
   }
 }
 
+function resetKnowledgeCardsCacheForTests() {
+  knowledgeCardsCache = null;
+  knowledgeCardsLoadedAt = 0;
+}
+
 export {
+  loadKnowledgeCards,
+  resetKnowledgeCardsCacheForTests,
   CLEMENTINE_PROFILE,
   DEFAULT_CHAT_SYSTEM_PROMPT,
   normalizeSystemPrompt,
