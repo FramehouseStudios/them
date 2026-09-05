@@ -797,7 +797,24 @@ test("[user-auth-roundtrip] Postgres logout adapter failure leaves canonical and
   assert.equal(retry._status, 200);
 });
 
-test("[user-auth-roundtrip] uncertain Postgres logout commit never promises a retry or leaks tokens", async () => {
+async function bearerAuthError(auth, accessToken) {
+  const request = {
+    headers: {},
+    get(name) {
+      return String(name || "").toLowerCase() === "authorization"
+        ? `Bearer ${accessToken}`
+        : undefined;
+    },
+  };
+  await new Promise((resolve, reject) => {
+    auth.attachUserAuth(request, makeRes(), (nextError) => (
+      nextError ? reject(nextError) : resolve()
+    ));
+  });
+  return request.authUser ? null : request.authUserError;
+}
+
+test("[user-auth-roundtrip] uncertain Postgres logout commit quarantines the session and recovers after canonical rollback", async () => {
   const persistence = createPostgresAuthPersistence();
   const auth = setupSubsystem({}, { persistence });
   const signup = makeRes();
@@ -806,10 +823,12 @@ test("[user-auth-roundtrip] uncertain Postgres logout commit never promises a re
     signup,
   );
   const refreshToken = signup._body.refresh_token;
+  const accessToken = signup._body.access_token;
   const sessionId = signup._body.current_session_id;
   const error = new Error("simulated unknown commit outcome");
   error.commitOutcomeUnknown = true;
   persistence.failNextRevocation(error);
+  persistence.failNextCanonicalList();
 
   const response = makeRes();
   await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), response);
@@ -818,7 +837,142 @@ test("[user-auth-roundtrip] uncertain Postgres logout commit never promises a re
   assert.equal(response._body.retryable, false);
   assert.equal(response._body.access_token, undefined);
   assert.equal(response._body.refresh_token, undefined);
+  // Postgres may have revoked the session, so the access token is denied now
+  // rather than until it expires; the canonical row itself was untouched.
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0) > 0, true);
+  assert.equal(await bearerAuthError(auth, accessToken), "revoked_user_token");
+  assert.equal(Number((await persistence.get({ domain: "auth_sessions", key: sessionId }))?.revokedAt || 0), 0);
+
+  // While the fence holds, snapshot mutations cannot overwrite canonical state.
+  persistence.failNextCanonicalList();
+  const blockedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "blocked-by-logout-fence@example.com", password: "validpass123" }),
+    blockedSignup,
+  );
+  assert.equal(blockedSignup._status, 503);
+  assert.equal(blockedSignup._body.error, "auth_persistence_failed");
+
+  // The transaction had rolled back: canonical hydration restores the session
+  // and the client's retry with the same refresh token succeeds.
+  const refresh = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: refreshToken }), refresh);
+  assert.equal(refresh._status, 200);
+  assert.ok(refresh._body.refresh_token);
+  assert.notEqual(refresh._body.refresh_token, refreshToken);
+  assert.equal(await bearerAuthError(auth, refresh._body.access_token), null);
+});
+
+test("[user-auth-roundtrip] uncertain Postgres logout commit that actually applied stays revoked after reconciliation", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-logout-applied@example.com", password: "validpass123" }),
+    signup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const accessToken = signup._body.access_token;
+  const sessionId = signup._body.current_session_id;
+  const canonical = await persistence.get({ domain: "auth_sessions", key: sessionId });
+  const error = new Error("simulated lost COMMIT acknowledgement");
+  error.commitOutcomeUnknown = true;
+  persistence.observeBeforeRevocation(() => {
+    // The transaction commits, but the acknowledgement never reaches the app.
+    persistence.put({
+      domain: "auth_sessions",
+      key: sessionId,
+      value: { ...canonical, revokedAt: canonical.updatedAt + 1, updatedAt: canonical.updatedAt + 1 },
+    });
+  });
+  persistence.failNextRevocation(error);
+
+  const response = makeRes();
+  await auth.handleAuthLogout(makeReq({ refresh_token: refreshToken }), response);
+  assert.equal(response._status, 503);
+  assert.equal(response._body.retryable, false);
+  assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0) > 0, true);
+  assert.equal(await bearerAuthError(auth, accessToken), "revoked_user_token");
+
+  const refresh = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: refreshToken }), refresh);
+  assert.equal(refresh._status, 401);
+  assert.equal(refresh._body.error, "invalid_refresh_token");
+  assert.equal(await bearerAuthError(auth, accessToken), "revoked_user_token");
+});
+
+test("[user-auth-roundtrip] uncertain revoke-others commit quarantines the other sessions but keeps the current one", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const email = "postgres-revoke-others-uncertain@example.com";
+  const signup = makeRes();
+  await auth.handleAuthSignup(makeReq({ email, password: "validpass123" }), signup);
+  const login = makeRes();
+  await auth.handleAuthLogin(makeReq({ email, password: "validpass123" }), login);
+  const otherSessionId = signup._body.current_session_id;
+  const currentSessionId = login._body.current_session_id;
+  const error = new Error("simulated unknown revoke-all outcome");
+  error.commitOutcomeUnknown = true;
+  persistence.failNextRevocation(error);
+  persistence.failNextCanonicalList();
+
+  const request = makeReq({ all_other_sessions: true });
+  request.authUser = usersByEmail.get(email);
+  request.authSession = authSessionsById.get(currentSessionId);
+  const response = makeRes();
+  await auth.handleAuthSessionsRevoke(request, response);
+  assert.equal(response._status, 503);
+  assert.equal(response._body.error, "auth_persistence_failed");
+  assert.equal(response._body.retryable, false);
+  assert.equal(Number(authSessionsById.get(otherSessionId)?.revokedAt || 0) > 0, true);
+  assert.equal(Number(authSessionsById.get(currentSessionId)?.revokedAt || 0), 0);
+  assert.equal(await bearerAuthError(auth, signup._body.access_token), "revoked_user_token");
+  assert.equal(await bearerAuthError(auth, login._body.access_token), null);
+
+  // Rolled back canonically: the other device's next refresh rehydrates and succeeds.
+  const refresh = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: signup._body.refresh_token }), refresh);
+  assert.equal(refresh._status, 200);
+  assert.equal(Number(authSessionsById.get(currentSessionId)?.revokedAt || 0), 0);
+});
+
+test("[user-auth-roundtrip] uncertain refresh rotation fences snapshots without revoking the presented token", async () => {
+  const persistence = createPostgresAuthPersistence();
+  const auth = setupSubsystem({}, { persistence });
+  const signup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "postgres-rotation-uncertain@example.com", password: "validpass123" }),
+    signup,
+  );
+  const refreshToken = signup._body.refresh_token;
+  const sessionId = signup._body.current_session_id;
+  const error = new Error("simulated unknown rotation outcome");
+  error.commitOutcomeUnknown = true;
+  persistence.failNextRotation(error);
+  persistence.failNextCanonicalList();
+
+  const uncertain = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: refreshToken }), uncertain);
+  assert.equal(uncertain._status, 503);
+  assert.equal(uncertain._body.error, "auth_persistence_failed");
+  assert.equal(uncertain._body.retryable, false);
+  assert.equal(uncertain._body.refresh_token, undefined);
+  // If the rotation rolled back the presented token is still canonically valid,
+  // so it is not denied locally; a committed rotation is caught by the CAS.
   assert.equal(Number(authSessionsById.get(sessionId)?.revokedAt || 0), 0);
+
+  persistence.failNextCanonicalList();
+  const blockedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "blocked-by-rotation-fence@example.com", password: "validpass123" }),
+    blockedSignup,
+  );
+  assert.equal(blockedSignup._status, 503);
+
+  const retry = makeRes();
+  await auth.handleAuthRefresh(makeReq({ refresh_token: refreshToken }), retry);
+  assert.equal(retry._status, 200);
+  assert.ok(retry._body.refresh_token);
 });
 
 test("[user-auth-roundtrip] logout rejects mixed-user sessions without revoking either account", async () => {
@@ -1290,6 +1444,7 @@ test("[user-auth-roundtrip] unknown Postgres login commit never exposes credenti
   const error = new Error("simulated unknown login commit outcome");
   error.commitOutcomeUnknown = true;
   persistence.failNextIssuance(error);
+  persistence.failNextCanonicalList();
 
   const response = makeRes();
   await auth.handleAuthLogin(
@@ -1303,6 +1458,24 @@ test("[user-auth-roundtrip] unknown Postgres login commit never exposes credenti
   assert.equal(response._body.refresh_token, undefined);
   const attempted = persistence.issuanceCalls.at(-1).session;
   assert.equal(authSessionsById.has(attempted.sessionId), false);
+
+  // The row may exist canonically; snapshot writes are fenced until hydration.
+  persistence.failNextCanonicalList();
+  const blockedSignup = makeRes();
+  await auth.handleAuthSignup(
+    makeReq({ email: "blocked-by-issuance-fence@example.com", password: "validpass123" }),
+    blockedSignup,
+  );
+  assert.equal(blockedSignup._status, 503);
+  assert.equal(blockedSignup._body.error, "auth_persistence_failed");
+
+  const recovered = makeRes();
+  await auth.handleAuthLogin(
+    makeReq({ email: "postgres-login-uncertain@example.com", password: "validpass123" }),
+    recovered,
+  );
+  assert.equal(recovered._status, 200);
+  assert.ok(recovered._body.refresh_token);
 });
 
 test("[user-auth-roundtrip] login rejects unknown email", async () => {

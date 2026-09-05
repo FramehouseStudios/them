@@ -801,6 +801,25 @@ async function fenceUserStoreAfterUnknownCanonicalCommit() {
   return ensureUserStoreCanonicalReconciled();
 }
 
+// A revocation whose COMMIT acknowledgement was lost may or may not have
+// applied canonically. Deny the affected sessions locally right away so an
+// access token cannot keep working against a session Postgres has already
+// revoked; the fence then makes the next auth mutation rehydrate canonical
+// state, which restores any session the transaction actually rolled back.
+async function quarantineSessionsAfterUnknownRevocation(sessionIds, now = Date.now()) {
+  for (const sessionId of sessionIds) {
+    const localSession = authSessionsById.get(sessionId);
+    if (!localSession || Number(localSession.revokedAt || 0) > 0) continue;
+    replaceAuthSessionRecord({
+      ...localSession,
+      revokedAt: Math.max(1, Number(now)),
+      updatedAt: now,
+    });
+  }
+  writeLocalUserStoreMirror(now);
+  await fenceUserStoreAfterUnknownCanonicalCommit();
+}
+
 async function listAllUserStoreAdapterRows(persistence, domain) {
   const rows = [];
   const observedKeys = new Set();
@@ -1610,6 +1629,12 @@ async function issueAuthSessionDurably(input = {}, now = Date.now()) {
       };
     }
   } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      // The row may exist canonically while its refresh token was never
+      // returned. Fence snapshot writes so hydration, not a stale snapshot,
+      // decides whether that orphan survives.
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+    }
     return {
       status: "auth_persistence_failed",
       issuance: null,
@@ -1792,6 +1817,9 @@ async function revokeAuthSessionsDurably(sessionIds, now = Date.now()) {
       retryable: true,
     };
   } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      await quarantineSessionsAfterUnknownRevocation(normalizedSessionIds, now);
+    }
     return {
       status: "auth_persistence_failed",
       revoked: [],
@@ -1987,6 +2015,15 @@ async function revokeAllAuthSessionsForUserDurablyInMutation(userId, now = Date.
       retryable: true,
     };
   } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      const affectedSessionIds = [...authSessionsById.values()]
+        .filter((session) => (
+          session.userId === normalizedUserId
+          && (!exceptSessionId || session.sessionId !== exceptSessionId)
+        ))
+        .map((session) => session.sessionId);
+      await quarantineSessionsAfterUnknownRevocation(affectedSessionIds, now);
+    }
     return {
       ok: false,
       status: "auth_persistence_failed",
@@ -2083,6 +2120,13 @@ async function rotateAuthSessionDurably(refreshToken, input = {}, now = Date.now
       return { status: "invalid_refresh_token", rotation: null, retryable: false };
     }
   } catch (error) {
+    if (error?.commitOutcomeUnknown) {
+      // Do not revoke locally: if the transaction rolled back, the presented
+      // refresh token is still canonically valid and a retry must succeed.
+      // If it committed, the next compare-and-swap rejects the stale row.
+      // Either way, hydration must win over the next snapshot write.
+      await fenceUserStoreAfterUnknownCanonicalCommit();
+    }
     return {
       status: "auth_persistence_failed",
       rotation: null,
