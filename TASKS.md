@@ -13,6 +13,23 @@
 
 ## Active work — quick view
 
+### Current milestone — dependable writer beta (September 5, 2026)
+
+- **Owner:** codex; human owns production credentials, deployment clearance,
+  privacy/signing, distribution, and physical-device release acceptance.
+- **Branch:** `codex/T-ios-keychain-token-migration` (local commits only).
+- **Status:** in-progress. This milestone supersedes the historical next-action
+  queue below; do not restart old merged work.
+- **Scope:** close verified reliability defects; run full client/backend and
+  real PostgreSQL regression checks; prepare the production-configured iPhone
+  writer-beta handoff while preserving the orb and Clementine.
+- **Done when:** the real idea → pages → edit → save → relaunch → corrected
+  memory → export journey passes on the signed beta with its approved backend,
+  required release gates are green, and the release owner records signoff.
+- **Evidence and exact remaining steps:** [Writer beta readiness](docs/writer-beta-readiness.md).
+- **Integration:** newer `main` has diverged; reconcile verified changes in an
+  isolated local branch. The shared checkout must not be reset or blindly merged.
+
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
