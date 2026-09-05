@@ -2966,6 +2966,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""
+    /// Up to three "Next:" beats the Page multipass plan stage suggested for the
+    /// last turn (`next_beats` in the turn-meta envelope). Replaced on every
+    /// screenplay-mode turn so stale suggestions never outlive the page they
+    /// were written for; cleared when the writer picks or dismisses them.
+    @Published var nextBeats: [String] = []
     @Published var preferredProjectID: String = "" {
         didSet {
             guard preferredProjectID != oldValue else { return }

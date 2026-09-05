@@ -7350,6 +7350,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     quality: result.screenplayQuality,
                     output: result.screenplayOutput
                 )
+                screenplayDraftBridge.nextBeats = ScreenplayNextBeatPills.visibleBeats(result.nextBeats)
             }
 #if DEBUG || os(macOS)
             debugTimingSource = (result.timingSource ?? "")

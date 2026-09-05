@@ -2914,6 +2914,40 @@ private var directionOneScriptEditor: some View {
             .onDrop(of: [UTType.fileURL], isTargeted: $draftDropIsTargeted) { providers in
                 handleDraftDrop(providers: providers)
             }
+            if !liveDraftBridge.nextBeats.isEmpty {
+                ScreenplayNextBeatPillsView(
+                    beats: liveDraftBridge.nextBeats,
+                    isBusy: isSubmittingStudioPrompt,
+                    onPick: { beat in
+                        // Same path as a typed prompt, routed to the page lane. The pills
+                        // clear immediately so a double tap cannot submit twice; they come
+                        // back only if the submit fails before reaching the backend.
+                        let pending = liveDraftBridge.nextBeats
+                        liveDraftBridge.nextBeats = []
+                        submitStudioPromptText(
+                            ScreenplayNextBeatPills.prompt(for: beat),
+                            displayText: ScreenplayNextBeatPills.label(for: beat),
+                            source: .typed,
+                            routingMode: .page,
+                            successMessage: "Writing the next beat to the page.",
+                            clearSeedOnSuccess: false,
+                            sendingSuggestionID: nil,
+                            completion: { error in
+                                if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    liveDraftBridge.nextBeats = pending
+                                }
+                            }
+                        )
+                    },
+                    onDismiss: {
+                        liveDraftBridge.nextBeats = []
+                    }
+                )
+                .padding(.horizontal, max((size.width - pageWidth) * 0.5, 16))
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .animation(.easeInOut(duration: 0.18), value: liveDraftBridge.nextBeats)
+            }
         }
     }
 
