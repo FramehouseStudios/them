@@ -6585,12 +6585,10 @@ nonisolated enum BackendAuthClient {
         if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data),
            let error = payload.error,
            !error.isEmpty {
-            if let stage = payload.stage, !stage.isEmpty {
-                return "\(stage): \(error)"
-            }
-            return error
+            // Never surface the raw stage:error pair to the writer.
+            return BackendUserFacingErrorMapper.message(forStage: payload.stage, error: error)
         }
-        return BackendErrorMessageSanitizer.displayMessage(from: data)
+        return BackendUserFacingErrorMapper.displayMessage(from: data)
     }
 }
 
@@ -10657,13 +10655,11 @@ actor BackendMemoryAPI {
                 return "\(message) Alternatives: \(alternatives)."
             }
             if let error = payload.error, !error.isEmpty {
-                if let stage = payload.stage, !stage.isEmpty {
-                    return "\(stage): \(error)"
-                }
-                return error
+                // Never surface the raw stage:error pair to the writer.
+                return BackendUserFacingErrorMapper.message(forStage: payload.stage, error: error)
             }
         }
-        return BackendErrorMessageSanitizer.displayMessage(from: data)
+        return BackendUserFacingErrorMapper.displayMessage(from: data)
     }
 
     private func decodeScreenplayExportError(status: Int, data: Data) -> Error {
