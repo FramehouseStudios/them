@@ -52,8 +52,8 @@ const SUPPORTED_FORMATS = Object.freeze([
     format: "pdf",
     extension: "pdf",
     mediaType: "application/pdf",
-    description: "Not supported locally — POST returns 400 pdf_export_not_supported_locally",
-    supported: false,
+    description: "Courier 12 on Letter with MORE/CONT'D page breaks and an optional title page",
+    supported: true,
   }),
 ]);
 

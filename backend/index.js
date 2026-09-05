@@ -85,6 +85,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { createGracefulShutdown } from "./lib/shutdown.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
+import { respondScreenplayPDF } from "./lib/screenplay_pdf_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
 import { normalizeStudioTextOutput } from "./lib/studio_text_output.js";
 import {
@@ -32091,18 +32092,21 @@ app.post("/screenplay/export", express.json({ limit: "2mb" }), (req, res) => {
     return res.status(200).send(xml);
   }
   if (format === "pdf") {
-    // T-screenplay-export-pdf-error-clarity: keep the existing error
-    // class string for backwards compatibility, but add a help payload
-    // so iOS / API callers can render a useful fallback path instead
-    // of just "exporter unavailable". The alternative_formats list
-    // mirrors the supported set in /screenplay/export/formats.
-    return res.status(400).json({
-      stage: "screenplay_export",
-      error: "pdf_export_not_supported_locally",
-      message: "PDF export is not implemented on this backend. Export Fountain or Markdown and convert client-side (e.g. via Highland, Final Draft, or a Markdown-to-PDF tool).",
-      alternative_formats: ["fountain", "fdx", "md"],
-      docs_path: "/screenplay/export/formats",
-    });
+    // T-screenplay-export-pdf: hand-written PDF (Courier 12, Letter,
+    // MORE/CONT'D page breaks, optional title page) via the pure helper
+    // in lib/. A title page is only rendered when the caller sent a
+    // title; the filename fallback "screenplay" never becomes one.
+    const explicitTitle = normalizeSnippet(req.body?.title, 160) || "";
+    const draftDate = normalizeSnippet(req.body?.draft_date, 40) || "";
+    try {
+      return respondScreenplayPDF(res, { draft, title: explicitTitle, baseName, draftDate });
+    } catch (e) {
+      return res.status(500).json({
+        stage: "screenplay_export",
+        error: "pdf_export_failed",
+        message: e?.message || "export failed",
+      });
+    }
   }
   if (format === "md" || format === "markdown") {
     // T-screenplay-export-markdown: line-by-line Markdown projection

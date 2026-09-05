@@ -30,11 +30,10 @@ test("[export-formats] canonical set includes the production routes", () => {
 test("[export-formats] supported flag matches what /screenplay/export actually serves", () => {
   const byFormat = Object.fromEntries(SUPPORTED_FORMATS.map((f) => [f.format, f]));
   // Production-supported.
-  for (const supported of ["fountain", "txt", "fdx", "md", "markdown"]) {
+  for (const supported of ["fountain", "txt", "fdx", "md", "markdown", "pdf"]) {
     assert.equal(byFormat[supported].supported, true, `${supported} should be supported=true`);
   }
-  // Documented-but-not-supported.
-  assert.equal(byFormat.pdf.supported, false);
+  assert.equal(byFormat.pdf.mediaType, "application/pdf");
 });
 
 test("[export-formats] every entry has a non-empty mediaType + extension", () => {
@@ -75,7 +74,7 @@ test("[export-formats] GET /screenplay/export/formats returns the snapshot", asy
     const md = r.body.formats.find((f) => f.format === "md");
     const pdf = r.body.formats.find((f) => f.format === "pdf");
     assert.equal(md.mediaType, "text/markdown; charset=utf-8");
-    assert.equal(pdf.supported, false);
+    assert.equal(pdf.supported, true);
   });
 });
 
