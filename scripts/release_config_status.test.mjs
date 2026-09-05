@@ -41,6 +41,10 @@ test("[release-config-status] reports missing private release inputs without pri
   assert.ok(payload.missingInputs.includes("DEVELOPMENT_TEAM_ID"));
   assert.ok(payload.missingInputs.includes("APP_TOKEN_RELEASE"));
   assert.ok(payload.missingInputs.includes("OPENAI_API_KEY"));
+  assert.equal(payload.missingInputs.includes("BACKEND_URL"), false);
+  const backendCheck = payload.checks.find((check) => check.id === "backend-url");
+  assert.equal(backendCheck.ok, true);
+  assert.equal(backendCheck.source, "project Release build settings fallback");
   assert.ok(payload.nextSteps.some((line) => /Create them\/Release\.local\.env/.test(line)));
   const tokenCheck = payload.checks.find((check) => check.id === "app-token-release");
   assert.equal(tokenCheck.secret.present, false);
@@ -64,7 +68,60 @@ test("[release-config-status] text output gives the first env-file recovery step
   assert.match(r.stdout, /Next steps:/);
   assert.match(r.stdout, /Create them\/Release\.local\.env from them\/Release\.local\.env\.example/);
   assert.match(r.stdout, /chmod 600 them\/Release\.local\.env/);
-  assert.match(r.stdout, /Fill missing private inputs: DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN_RELEASE, OPENAI_API_KEY/);
+  assert.match(r.stdout, /Fill missing private inputs: DEVELOPMENT_TEAM_ID, APP_TOKEN_RELEASE, OPENAI_API_KEY/);
+});
+
+test("[release-config-status] skipped Xcode uses the checked-in backend without invoking Xcode or resolving private placeholders", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-skipped-xcode-"));
+  const marker = path.join(dir, "xcodebuild-ran");
+  const fakeXcodebuild = path.join(dir, "xcodebuild");
+  fs.writeFileSync(fakeXcodebuild, '#!/bin/sh\n: > "$XCODEBUILD_MARKER"\nexit 1\n', { mode: 0o755 });
+  const token = "skipped-xcode-token-123456";
+  const key = "skipped-xcode-key-123456";
+  try {
+    const r = run(["--json", "--no-xcodebuild", `--release-env-file=${path.join(dir, "missing.env")}`], {
+      PATH: `${dir}${path.delimiter}${process.env.PATH || ""}`,
+      XCODEBUILD_MARKER: marker,
+      DEVELOPMENT_TEAM_ID: "ABCDE12345",
+      BACKEND_URL: "",
+      APP_TOKEN_RELEASE: token,
+      OPENAI_API_KEY: key,
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const payload = JSON.parse(r.stdout);
+    assert.equal(payload.ok, true);
+    assert.deepEqual(payload.missingInputs, []);
+    const backendCheck = payload.checks.find((check) => check.id === "backend-url");
+    assert.equal(backendCheck.value, "https://api.them.io");
+    assert.equal(backendCheck.source, "project Release build settings fallback");
+    const xcodeCheck = payload.checks.find((check) => check.id === "xcode-release-settings");
+    assert.equal(xcodeCheck.skipped, true);
+    assert.equal(xcodeCheck.fallback, true);
+    assert.equal(fs.existsSync(marker), false);
+    assert.ok(payload.warnings.some((warning) => /deliberately skipped.*not prove resolved Release configuration/.test(warning)));
+    assert.doesNotMatch(r.stdout, new RegExp(token));
+    assert.doesNotMatch(r.stdout, new RegExp(key));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("[release-config-status] checked-in fallback never hides an invalid explicit backend", () => {
+  for (const backend of ["http://release-api.them.io", "https://localhost:3000", "REPLACE_WITH_BACKEND_URL"]) {
+    const r = run(["--json", "--no-xcodebuild"], {
+      DEVELOPMENT_TEAM_ID: "ABCDE12345",
+      BACKEND_URL: backend,
+      APP_TOKEN_RELEASE: "valid-release-token-123456",
+      OPENAI_API_KEY: "valid-release-openai-key-123456",
+    });
+    assert.equal(r.status, 1, r.stderr);
+    const payload = JSON.parse(r.stdout);
+    const backendCheck = payload.checks.find((check) => check.id === "backend-url");
+    assert.equal(backendCheck.ok, false);
+    assert.equal(backendCheck.value, backend);
+    assert.equal(backendCheck.source, "environment");
+    assert.deepEqual(payload.missingInputs, ["BACKEND_URL"]);
+  }
 });
 
 test("[release-config-status] release env template stays secret-free and complete", () => {

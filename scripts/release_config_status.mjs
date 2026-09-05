@@ -215,8 +215,19 @@ function buildStatus(opts) {
   const tokenInput = valueFrom("APP_TOKEN_RELEASE", envFileValues, envFile);
   const openAIInput = valueFrom("OPENAI_API_KEY", envFileValues, envFile);
 
+  // A skipped Xcode check can still inspect the public checked-in backend
+  // default. Do not resolve private team/token placeholders from project text.
+  const checkedInBackend = opts.noXcodebuild
+    ? parseProjectReleaseBuildSettings().BACKEND_URL
+    : undefined;
   const xcode = opts.noXcodebuild
-    ? { ok: true, skipped: true, settings: {}, error: "" }
+    ? {
+      ok: true,
+      skipped: true,
+      fallback: Boolean(checkedInBackend),
+      settings: { BACKEND_URL: checkedInBackend },
+      error: "",
+    }
     : loadReleaseBuildSettings({
       team: teamInput.value,
     });
@@ -232,11 +243,9 @@ function buildStatus(opts) {
   const releaseAppToken = !isPlaceholder(tokenInput.value)
     ? tokenInput.value
     : trimQuotes(xcode.settings.APP_TOKEN);
-  const buildSettingsSource = xcode.ok
-    ? "Xcode Release build settings"
-    : xcode.fallback
-      ? "project Release build settings fallback"
-      : "Xcode Release build settings";
+  const buildSettingsSource = xcode.fallback
+    ? "project Release build settings fallback"
+    : "Xcode Release build settings";
 
   const checks = [];
 
@@ -365,6 +374,9 @@ function buildStatus(opts) {
   const warnings = [
     "Signing identity and App Store Connect archive validation are not proven by this status script; run the signed archive/upload path after config preflight is green.",
   ];
+  if (xcode.skipped) {
+    warnings.push("Xcode build settings were deliberately skipped; the checked-in backend default does not prove resolved Release configuration or live backend health. scripts/run_release_preflight.sh still runs the real Xcode preflight.");
+  }
   if (!xcode.ok && xcode.fallback) {
     warnings.push("xcodebuild -showBuildSettings was unavailable, so release config status used the checked-in project file fallback. scripts/run_release_preflight.sh still runs the real Xcode preflight.");
   }
