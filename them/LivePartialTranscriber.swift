@@ -4,8 +4,13 @@ import Speech
 
 final class LivePartialTranscriber {
     private let queue = DispatchQueue(label: "io.them.them.partial-transcriber")
-    private let cadenceSeconds: TimeInterval = 0.14
-    private let minCharsToEmit = 3
+    private var isStudioModeCached: Bool = false
+    private var cadenceSeconds: TimeInterval { isStudioModeCached ? 0.08 : 0.14 }
+    private var minCharsToEmit: Int { isStudioModeCached ? 2 : 3 }
+
+    func setStudioMode(_ enabled: Bool) {
+        queue.async { [weak self] in self?.isStudioModeCached = enabled }
+    }
 
     private var authStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     private var recognizer: SFSpeechRecognizer?

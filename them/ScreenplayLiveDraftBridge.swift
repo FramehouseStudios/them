@@ -2962,6 +2962,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
+    /// Ghost preview while the writer is still speaking — the inferred screenplay element,
+    /// rendered faded in Studio. Set from `HerVoiceController.onPartialTranscript` via
+    /// `RootExperienceView`, cleared the moment the utterance finalizes.
+    @Published var ghostDraftPreview: String?
+    @Published var ghostDraftElement: ScreenplayEditorElement?
+    @Published var ghostStable: Bool = false
     @Published var latestVoiceTurn: String = ""
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""

@@ -534,7 +534,9 @@ final class HerVoiceController: ObservableObject {
     // Called when we detect a complete utterance (PCM16 WAV)
     var onUtteranceReady: ((Data) -> Void)?
     /// Set when Screenplay Studio is visible so clean short dictation turns can finalize faster.
-    var isStudioMode: Bool = false
+    var isStudioMode: Bool = false {
+        didSet { partialTranscriber.setStudioMode(isStudioMode) }
+    }
     var debugStartThreshold: Float { dynamicStartThreshold }
     var debugPartialStabilityWindowSeconds: TimeInterval { partialStabilityWindowSeconds }
     private(set) var debugPartialStableSeconds: TimeInterval = 0
