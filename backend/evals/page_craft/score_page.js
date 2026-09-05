@@ -129,7 +129,17 @@ function actionLines(lines) {
     .filter(Boolean);
 }
 
-function motifImageScore(text, lines) {
+function collectRosterMotifs(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t ? [t] : [];
+  }
+  return [];
+}
+
+function motifImageScore(text, lines, rosterMotifs = null) {
   const actions = actionLines(lines);
   const bag = new Map();
   for (const line of actions) {
@@ -147,9 +157,24 @@ function motifImageScore(text, lines) {
   if (echoed.length >= 2 || strong.length >= 1) score = 4.2;
   if (strong.length >= 2) score = 4.8;
   // Bonus if fixture notes a motif token that actually appears twice
-  if (/\b(radio|tape|match|matches|coin|red light|keycard|whistle|orchid)\b/i.test(text)) {
-    const m = text.toLowerCase().match(/\b(radio|tape|match|matches|coin|red light|keycard|whistle|orchid)\b/g) || [];
+  if (/\b(radio|tape|match|matches|coin|red light|keycard|whistle|orchid|photo|photograph)\b/i.test(text)) {
+    const m = text.toLowerCase().match(/\b(radio|tape|match|matches|coin|red light|keycard|whistle|orchid|photo|photograph)\b/g) || [];
     if (m.length >= 2) score = Math.max(score, 4.3);
+  }
+  // Roster motif param: accept any roster motif (not just photo/hardcoded)
+  const roster = collectRosterMotifs(rosterMotifs);
+  if (roster.length) {
+    for (const raw of roster) {
+      const phrase = String(raw).trim();
+      if (!phrase) continue;
+      const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`\\b${esc}\\b`, "gi");
+      const hits = String(text).match(re);
+      if (hits && hits.length >= 2) {
+        score = Math.max(score, 4.3);
+        break;
+      }
+    }
   }
   if (actions.length === 0) score = Math.min(score, 2.0);
   return clampScore(score);
@@ -354,14 +379,29 @@ function applyCrossDimensionPenalties(dimensions, text, counts, lines) {
   return { dimensions: out, penaltyNotes: notes };
 }
 
-export function scorePageHeuristic(text = "", { fixture = null } = {}) {
+export function scorePageHeuristic(text = "", { fixture = null, motifs = null, rosterMotifs = null, imageMotifs = null, image_motifs = null, motif = null, roster_motifs = null } = {}) {
   const lines = classifyScreenplayLines(text);
   const counts = summarizeLineCounts(lines);
+  // Gather roster motifs from explicit param or fixture (any roster motif, not just photo)
+  const rosterCandidates = [
+    ...collectRosterMotifs(motifs),
+    ...collectRosterMotifs(rosterMotifs),
+    ...collectRosterMotifs(imageMotifs),
+    ...collectRosterMotifs(image_motifs),
+    ...collectRosterMotifs(motif),
+    ...collectRosterMotifs(roster_motifs),
+    ...collectRosterMotifs(fixture?.motifs),
+    ...collectRosterMotifs(fixture?.motif),
+    ...collectRosterMotifs(fixture?.rosterMotifs),
+    ...collectRosterMotifs(fixture?.roster_motifs),
+    ...collectRosterMotifs(fixture?.imageMotifs),
+    ...collectRosterMotifs(fixture?.image_motifs),
+  ];
   let dimensions = {
     distinct_character_voice: scoreDistinctVoice(counts, lines),
     subtext_density: scoreSubtext(counts, lines),
     continuity_want_obstacle_cost: scoreContinuity(text, counts),
-    motif_image_echo: motifImageScore(text, lines),
+    motif_image_echo: motifImageScore(text, lines, rosterCandidates),
     anti_cliche: scoreAntiCliche(text, counts),
     format_playability: scoreFormatPlayability(text, lines, counts),
   };

@@ -87,20 +87,20 @@ function serializeAction(line) {
 function serializeCharacter(line) {
   const name = trim(line?.name);
   if (!name) return "";
-  const out = [paragraph("Character", name.toUpperCase())];
+  const isDual = line?.dual === true || line?.isDual === true || String(line?.align || "").toLowerCase() === "dual";
+  const out = [paragraph("Character", name.toUpperCase(), isDual ? { DualDialogue: "Yes" } : {})];
   if (line?.parenthetical) {
     const p = trim(line.parenthetical).replace(/^\(|\)$/g, "");
-    if (p) out.push(paragraph("Parenthetical", `(${p})`));
+    if (p) out.push(paragraph("Parenthetical", `(${p})`, isDual ? { DualDialogue: "Yes" } : {}));
   }
   const dialogue = Array.isArray(line?.dialogue)
     ? line.dialogue.map(trim).filter(Boolean)
     : [trim(line?.dialogue)].filter(Boolean);
   if (dialogue.length === 0) {
-    // Don't emit a dangling cue.
     return "";
   }
   for (const d of dialogue) {
-    out.push(paragraph("Dialogue", d));
+    out.push(paragraph("Dialogue", d, isDual ? { DualDialogue: "Yes" } : {}));
   }
   return out.filter(Boolean).join("\n  ");
 }
@@ -152,15 +152,25 @@ function serializeLine(line) {
   }
 }
 
-function serializeScene(scene) {
+function serializeScene(scene, index = 0) {
   if (!scene || typeof scene !== "object") return "";
   const out = [];
   const heading = serializeHeading(scene.heading);
-  if (heading) out.push(heading);
+  if (heading) {
+    // Scene numbers for Final Draft parity — A1, A2... per FDX Number attr on Scene Heading
+    const number = index > 0 ? String(index) : "";
+    const numbered = number ? heading.replace('<Paragraph Type="Scene Heading">', `<Paragraph Type="Scene Heading" Number="${escapeXml(number)}">`) : heading;
+    out.push(numbered);
+  }
   if (Array.isArray(scene.lines)) {
     for (const line of scene.lines) {
       const text = serializeLine(line);
-      if (text) out.push(text);
+      if (text) {
+        // Revision marks: lines with trailing * keep FDX Revision="1" for blue-star parity
+        const isRevision = typeof line?.text === "string" && line.text.trim().endsWith("*") || line?.revision === true;
+        const revised = isRevision ? text.replace('<Paragraph ', '<Paragraph Revision="1" ') : text;
+        out.push(revised);
+      }
     }
   }
   return out.filter(Boolean).join("\n  ");
@@ -179,8 +189,13 @@ const TITLE_FIELDS = Object.freeze([
 function serializeTitlePage(title) {
   if (!title || typeof title !== "object" || Array.isArray(title)) return "";
   const paragraphs = [];
+  // Auto-fill Draft Date for festival submission if title provided but date empty
+  const filled = { ...title };
+  if (trim(filled.title) && !trim(filled.draftDate)) {
+    try { filled.draftDate = new Date().toISOString().slice(0, 10); } catch(_e) {}
+  }
   for (const [key, label] of TITLE_FIELDS) {
-    const value = trim(title[key]);
+    const value = trim(filled[key]);
     if (!value) continue;
     paragraphs.push(paragraph("General", `${label}: ${value}`, { Alignment: "Center" }));
   }
@@ -194,7 +209,7 @@ function exportToFDX(screenplay = {}) {
   }
   const scenes = Array.isArray(screenplay.scenes) ? screenplay.scenes : [];
   const body = scenes
-    .map(serializeScene)
+    .map((s, i) => serializeScene(s, i + 1))
     .filter(Boolean)
     .join("\n  ");
   const content = body

@@ -33,6 +33,7 @@ const INTENT_LANE_MAP = Object.freeze({
   [INTENT.PAGE_EDIT]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PAGE_CONTINUE]: { lane: LANE.PAGE, effort: EFFORT.LOW },
   [INTENT.PAGE_REWRITE]: { lane: LANE.PAGE, effort: EFFORT.LOW },
+  [INTENT.STORY]: { lane: LANE.PAGE, effort: EFFORT.MEDIUM },
   [INTENT.PLAN]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
   [INTENT.THINK_HARD]: { lane: LANE.DEEP, effort: EFFORT.MEDIUM },
 });
@@ -50,6 +51,10 @@ function laneForIntent(intent, overrides = {}) {
   // Multi-beat page work may bump to medium (caller can pass hints.multiBeat).
   if (lane === LANE.PAGE && overrides.multiBeat === true && effort === EFFORT.LOW) {
     effort = EFFORT.MEDIUM;
+  }
+  // Feature-length (90/120) bumps PAGE to HIGH when caller flags featureLength
+  if ((lane === LANE.PAGE || lane === LANE.DEEP) && overrides.featureLength === true) {
+    effort = EFFORT.HIGH;
   }
   // High only when user explicitly asked or visible "thinking longer" mode.
   if (lane === LANE.DEEP && (overrides.explicitHigh === true || overrides.failedFirstPass === true)) {

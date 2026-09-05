@@ -8920,8 +8920,16 @@ actor BackendMemoryAPI {
     private func screenplayExportDocumentPayload(draft: String, title: String) -> [String: Any] {
         var payload: [String: Any] = [:]
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedName = (UserDefaults.standard.string(forKey: DefaultsKey.userName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanTitle.isEmpty {
-            payload["title"] = ["title": cleanTitle]
+            var titleDict: [String: Any] = ["title": cleanTitle]
+            if !storedName.isEmpty {
+                titleDict["author"] = storedName
+                titleDict["contact"] = storedName
+            }
+            payload["title"] = titleDict
+        } else if !storedName.isEmpty {
+            payload["title"] = ["author": storedName, "contact": storedName]
         }
         payload["scenes"] = screenplayExportScenes(from: draft)
         return payload

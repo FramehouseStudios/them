@@ -3027,6 +3027,7 @@ final class BackendClient {
         memoryCue: String? = nil,
         idempotencyKey: String? = nil,
         userName: String? = nil,
+        fountainDraft: String? = nil,
         onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)? = nil,
         onFirstAudioSegmentReady: ((URL) -> Void)? = nil,
         onTextReady: ((String) -> Void)? = nil
@@ -3071,7 +3072,8 @@ final class BackendClient {
             partialTranscriptHint: nil,
             speculativeReuseKey: nil,
             speculativePromptHash: nil,
-            studioMetadata: nil,
+            studioMetadata: nil, // draft travels in the `fountain` / `screenplay_draft` multipart fields below
+            fountainDraft: fountainDraft,
             clientTranscriptOverride: cleanTranscript,
             screenplayGenerationTranscriptOverride: nil,
             onResponseMetadataReady: onResponseMetadataReady,
@@ -3089,6 +3091,24 @@ final class BackendClient {
         persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         _ = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+    }
+
+    // MARK: - Offline queue for 90/120-page builds (airplane mode)
+    enum OfflineTalkQueue {
+        private static let key = "io.them.offlineTalkQueue.v1"
+        struct Item: Codable { let transcript: String; let fountainDraft: String; let ts: Double }
+        static func enqueue(transcript: String, fountainDraft: String) {
+            var arr = pending()
+            arr.append(Item(transcript: String(transcript.prefix(800)), fountainDraft: String(fountainDraft.prefix(6000)), ts: Date().timeIntervalSince1970))
+            if arr.count > 12 { arr.removeFirst(arr.count - 12) }
+            if let data = try? JSONEncoder().encode(arr) { UserDefaults.standard.set(data, forKey: key) }
+        }
+        static func pending() -> [Item] {
+            guard let d = UserDefaults.standard.data(forKey: key), let arr = try? JSONDecoder().decode([Item].self, from: d) else { return [] }
+            return arr
+        }
+        static func clear() { UserDefaults.standard.removeObject(forKey: key) }
+        static func popAll() -> [Item] { let a = pending(); clear(); return a }
     }
 
 
@@ -4226,6 +4246,7 @@ final class BackendClient {
         speculativeReuseKey: String?,
         speculativePromptHash: String?,
         studioMetadata: BackendStudioThreadCommitMetadata?,
+        fountainDraft: String? = nil,
         clientTranscriptOverride: String?,
         screenplayGenerationTranscriptOverride: String?,
         onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)?,
@@ -4408,6 +4429,17 @@ final class BackendClient {
             body.appendString("--\(boundary)\r\n")
             body.appendString("Content-Disposition: form-data; name=\"speculative_prompt_hash\"\r\n\r\n")
             body.appendString(String(cleanSpeculativePromptHash.prefix(32)))
+            body.appendString("\r\n")
+        }
+        let cleanFountainDraft = String(fountainDraft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanFountainDraft.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"fountain\"\r\n\r\n")
+            body.appendString(String(cleanFountainDraft.prefix(6000)))
+            body.appendString("\r\n")
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"screenplay_draft\"\r\n\r\n")
+            body.appendString(String(cleanFountainDraft.prefix(6000)))
             body.appendString("\r\n")
         }
         if let studioMetadata, studioMetadata.isMeaningful {

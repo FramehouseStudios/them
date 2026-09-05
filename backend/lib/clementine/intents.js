@@ -17,6 +17,7 @@ const INTENT = Object.freeze({
   PAGE_EDIT: "page_edit",
   PAGE_CONTINUE: "page_continue",
   PAGE_REWRITE: "page_rewrite",
+  STORY: "story",
   PLAN: "plan",
   THINK_HARD: "think_hard",
   UNKNOWN: "unknown",
@@ -44,6 +45,37 @@ function classifyIntent(utterance, hints = {}) {
     return INTENT.SILENCE;
   }
 
+  // Page rewrite — must win before STORY/PageEdit so "tighten the kitchen scene / Jess on-the-nose" rewrites the page, not narrates.
+  if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up|on-the-nose|too verbose|too long)\b/.test(text)) {
+    return INTENT.PAGE_REWRITE;
+  }
+  // Feature-length screenplay: 90/120 pages is a plan-then-page job, not chit-chat
+  if (/\b(90|120|ninety|hundred\s*and\s*twenty)\s*(page|pages)\b/.test(text)
+    || /\b(feature\s*(script|screenplay|film)|full\s*script|complete\s*screenplay)\b/.test(text)) {
+    if (/\b120\b/.test(text) || text.includes("hundred")) return INTENT.THINK_HARD;
+    return INTENT.PLAN;
+  }
+
+  // Story explanation — narrative content that should become screenplay (writer telling story to Clementine)
+  // Long, descriptive, or protagonist/conflict-heavy utterances that are not chit-chat.
+  // This is the "explain your story" path: user narrates plot/character/world in natural language.
+  const isLongNarrative = text.split(/\s+/).length >= 12;
+  const storyHints = [
+    /\b(my )?(story|protagonist|character|hero|antagonist|villain|world|universe) (is|about|wants|needs|cares|has|was|were)\b/,
+    /\b(he|she|they) (wants|needs|tries|has to|must|is trying|is stuck|is trapped|loses|finds|discovers)\b/,
+    /\b(act one|act two|act three|inciting incident|climax|resolution|setup|confrontation)\b/,
+    /\b(what if|imagine a|there is a|there's a) (world|character|story|place) where\b/,
+    /\b(logline|premise|throughline|theme|want vs need)\b/,
+    /\b(once upon a time|in a world|far away|long ago)\b/,
+  ];
+  // Explicit plan/deep cues keep their HEAD routing ("help me plan act two conflict" -> PLAN, not STORY).
+  const hasPlanCue = /\b(think hard|think longer|deep dive|reason carefully)\b/.test(text)
+    || /\b(plan|outline|structure|break (act|story)|conflict|throughline)\b/.test(text)
+    || hints?.deep === true;
+  if (!hasPlanCue && (storyHints.some((re) => re.test(text)) || (isLongNarrative && /\b(wants?|needs?|because|but then|so then|and then)\b/.test(text)))) {
+    return INTENT.STORY;
+  }
+
   // Page lane cues (sacred — must win over casual talk)
   if (/\b(write|draft|type|insert|propose)\b.*\b(scene|beat|page|action|dialogue|line)\b/.test(text)
     || /\b(page|scene|beat)\b.*\b(edit|change|fix|rewrite)\b/.test(text)
@@ -54,9 +86,6 @@ function classifyIntent(utterance, hints = {}) {
   if (/\b(continue|keep going|next beat|next line|carry on)\b/.test(text)
     || hints?.continuePage === true) {
     return INTENT.PAGE_CONTINUE;
-  }
-  if (/\b(rewrite|tighten|sharpen|soften|shorten|punch up)\b/.test(text)) {
-    return INTENT.PAGE_REWRITE;
   }
 
   // Deep / plan

@@ -22,6 +22,7 @@ import {
   isPageMultipassEnabled,
   multipassWalletReserveTokenMultiplier,
 } from "./page_multipass.js";
+import { isStoryIntent, storyPromptAddendum, extractStoryCanonTargets, isPageRewriteIntent, pageRewritePromptAddendum } from "./story_to_screenplay.js";
 
 function pickString(...candidates) {
   for (const c of candidates) {
@@ -88,12 +89,17 @@ function peekPageHints(req) {
     0,
     Math.round(Number(body.max_output_tokens ?? body.maxOutputTokens ?? 0) || 0)
   );
+  const featureLength =
+    /\b(90|120|ninety|hundred)\b/.test(String(body.client_transcript || body.clientTranscript || body.transcript || body.text || "").toLowerCase()) ||
+    /\b(feature\s*(script|screenplay|film)|full\s*script|complete\s*screenplay)\b/.test(String(body.client_transcript || body.clientTranscript || body.transcript || body.text || "").toLowerCase()) ||
+    body.feature_length === true || body.featureLength === true;
   return {
     intent: forcedIntent,
     pageMode,
     continuePage,
-    multiBeat,
-    maxOutputTokens,
+    multiBeat: multiBeat || featureLength,
+    maxOutputTokens: featureLength ? Math.max(maxOutputTokens, 12000) : maxOutputTokens,
+    featureLength,
   };
 }
 
@@ -134,6 +140,8 @@ function resolveTalkLane(utterance, hints = {}) {
   const intent = classifyIntent(utterance, hints);
   const laneInfo = laneForIntent(intent, {
     multiBeat: hints.multiBeat === true,
+    featureLength: hints.featureLength === true,
+    explicitHigh: hints.featureLength === true,
   });
   return { intent, ...laneInfo };
 }
@@ -240,14 +248,34 @@ function createPageLaneTalkAdapter({
   return async function handleTalkWithPageLane(req, res) {
     const utterance = peekUtterance(req);
     const hints = peekPageHints(req);
+    // Multi-beat heuristic: long narrative (>80 words or >2 scene shifts) deserves MEDIUM effort so Page doesn't clip beats.
+    if (!hints.multiBeat && typeof utterance === "string" && utterance.trim().split(/\s+/).length > 80) {
+      hints.multiBeat = true;
+    }
+    if (!hints.multiBeat && typeof utterance === "string" && (utterance.match(/\b(INT|EXT)\./g) || []).length >= 2) {
+      hints.multiBeat = true;
+    }
     const sessionId = resolveSessionId(req);
     const userId = resolveUserId(req);
-
+    // Writer's block: "I'm stuck/blocked/don't know what happens" + draft present → treat as PLAN with pills, not generic comfort
+    const lowerUtter = String(utterance || "").toLowerCase();
+    const isStuck = /\b(i'?m )?(stuck|blocked|lost|don'?t know|have no idea|writer'?s block)\b/.test(lowerUtter);
+    let draftForBlock = "";
+    try { draftForBlock = pickString(req.body?.draft, req.body?.screenplay_draft, req.body?.fountainDraft, req.body?.fountain, ""); } catch(_e) {}
+    const stuckWithDraft = isStuck && draftForBlock.trim().length > 80;
     // --- Reflex short-circuit (before wallet / Spark) ---
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
-    const earlyLane = resolveTalkLane(utterance, hints);
-    const reflexHit = tryTalkEdgeReflex({
+    // stuck-with-draft bypasses comfort reflex so pills happen
+    let earlyLane = resolveTalkLane(utterance, hints);
+    if (stuckWithDraft) {
+      earlyLane = resolveTalkLane(utterance, { ...hints, multiBeat: true, featureLength: false });
+      // Force PLAN for pill generation (not companion comfort)
+      earlyLane.intent = "plan";
+      earlyLane.lane = "Deep";
+      earlyLane.effort = "medium";
+    }
+    const reflexHit = stuckWithDraft ? null : tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,
       knownFacts: peekKnownFacts(req),
@@ -323,6 +351,54 @@ function createPageLaneTalkAdapter({
         `[clementine/page] reserve skipped: ${err?.message || err}`
       );
       lane = resolveTalkLane(utterance, hints);
+    }
+
+    // Story → Screenplay translation: inject story addendum so downstream prompt writes a formatted page
+    // instead of a companion reply. Keeps writer voice, adds slugline/action/character scaffolding.
+    // PAGE_REWRITE uses same Page lane but with revision prompt + draft context so tighten/soften edits the page.
+    if ((isStoryIntent(lane.intent) || isPageRewriteIntent(lane.intent)) && req?.body && typeof req.body === "object") {
+      try {
+        const draftCtx = pickString(req.body?.draft, req.body?.screenplay_draft, req.body?.fountainDraft, req.body?.fountain, "");
+        // For PAGE_REWRITE, load persisted writerCanon so tighten without a name still honors Jess/want/need
+        let persistedCanon = [];
+        if (isPageRewriteIntent(lane.intent) && userId) {
+          try {
+            const mod = await import("../creative_memory_store.js");
+            const store = mod.createCreativeMemoryStore ? mod.createCreativeMemoryStore() : null;
+            const rec = store?.get ? await store.get(userId) : null;
+            if (Array.isArray(rec?.writerCanonTargets) && rec.writerCanonTargets.length) {
+              persistedCanon = rec.writerCanonTargets.slice(0, 8);
+            }
+          } catch (_e) { /* non-blocking */ }
+        }
+        const addendum = isPageRewriteIntent(lane.intent)
+          ? pageRewritePromptAddendum(utterance, draftCtx, { canon: persistedCanon })
+          : storyPromptAddendum(utterance, draftCtx);
+        // Preserve original for logging, but make downstream talk_handler see the translated prompt
+        req.body._originalUtterance = utterance;
+        req.body._storyAddendum = addendum;
+        const canonTargets = extractStoryCanonTargets(utterance);
+        req.body._storyCanonTargets = canonTargets;
+        // Fire-and-forget persist to creative_memory so Jess/want/need survive app kill (WRITER_CANON_TARGETS_MAX 16)
+        if (canonTargets.length && userId) {
+          import("../creative_memory_store.js").then(async (mod) => {
+            try {
+              const store = mod.createCreativeMemoryStore ? mod.createCreativeMemoryStore() : null;
+              if (!store?.get || !store?.put) return;
+              const rec = (await store.get(userId)) || {};
+              const merged = mod.mergeWriterCanonTargets ? mod.mergeWriterCanonTargets(canonTargets, rec.writerCanonTargets || []) : canonTargets;
+              // Keep writerCanonTargets compact, let existing sanitizers trim
+              await store.put(userId, { ...rec, writerCanonTargets: merged.slice(0, 16) });
+            } catch (_e) { /* non-fatal, page still writes */ }
+          }).catch(()=>{});
+        }
+        // Also expose on clementine for prompt builders that read req.clementine
+        req.body.transcript = addendum;
+        req.body.text = addendum;
+        if (req.body.client_transcript) req.body.client_transcript = addendum;
+      } catch (_e) {
+        /* non-fatal */
+      }
     }
 
     const pageMultipass = isPageMultipassEnabled();

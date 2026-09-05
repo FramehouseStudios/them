@@ -2717,6 +2717,39 @@ struct RootExperienceView: View {
             if !cleaned.isEmpty {
                 lastNonEmptyPartialTranscriptHint = String(cleaned.prefix(320))
                 hideReplyEcho()
+                // Ghost draft: ink the inferred screenplay element while the writer is
+                // still speaking. Pure local inference — no model round trip.
+                let bridge = ScreenplayLiveDraftBridge.shared
+                if isStudioSurfaceActive,
+                   let preview = ScreenplayGhostDraft.preview(
+                       fromPartial: cleaned,
+                       knownCharacters: ScreenplayGhostDraft.characterNames(in: bridge.draftText)
+                   ) {
+                    let wasStable = bridge.ghostStable
+                    let nowStable = voice.debugPartialStableSeconds >= 0.18
+                    if bridge.ghostDraftPreview != preview.text {
+                        bridge.ghostDraftPreview = preview.text
+                    }
+                    if bridge.ghostDraftElement != preview.element {
+                        bridge.ghostDraftElement = preview.element
+                    }
+                    if bridge.ghostStable != nowStable {
+                        bridge.ghostStable = nowStable
+                    }
+                    #if canImport(UIKit)
+                    if !wasStable && nowStable {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                    #endif
+                } else if bridge.ghostDraftPreview != nil {
+                    bridge.ghostDraftPreview = nil
+                    bridge.ghostDraftElement = nil
+                    bridge.ghostStable = false
+                }
+            } else if ScreenplayLiveDraftBridge.shared.ghostDraftPreview != nil {
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = nil
+                ScreenplayLiveDraftBridge.shared.ghostStable = false
             }
         }
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
@@ -2760,6 +2793,16 @@ struct RootExperienceView: View {
         }
         voice.onUtteranceReady = { wavData in
             hideReplyEcho()
+            // Ghost clears the moment the utterance finalizes; the committed text lands
+            // in draftText through the normal turn path. Haptic tick = ink committed.
+            if ScreenplayLiveDraftBridge.shared.ghostDraftPreview != nil {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = nil
+                ScreenplayLiveDraftBridge.shared.ghostStable = false
+            }
             guard !isTurnSubmitting else {
                 isThinking = false
                 voice.markRequestFailed()
@@ -3335,7 +3378,7 @@ struct RootExperienceView: View {
                 Spacer()
                 OrbView(
                     driver: orbAudio,
-                    userMicLevel: voice.micLevel,
+                    userMicLevel: voice.listeningLevel > 0 ? Float(voice.listeningLevel) : voice.micLevel,
                     isUserSpeaking: voice.isSpeechDetected
                 )
 
@@ -12881,6 +12924,10 @@ private struct NoteMatchContext {
 private enum NoteVoiceCommand {
     case rewrite(NoteEditStyle, targetHint: String?)
     case undo
+    case printScript(alternate: Bool)
+    case faster
+    case halfSpeed
+    case halt
 }
 
 @MainActor
@@ -13106,6 +13153,14 @@ private final class NoteVoiceCommandController: ObservableObject {
         }
 
         if containsAny([
+            " cancel ",
+            " cancel printing ",
+            " stop printing ",
+            " never mind "
+        ]) {
+            return .undo
+        }
+        if containsAny([
             " polish ",
             " polish this ",
             " clean this up ",
@@ -13115,6 +13170,37 @@ private final class NoteVoiceCommandController: ObservableObject {
             " edit this note "
         ]) {
             return .rewrite(.polish, targetHint: extractTargetHint(from: normalized))
+        }
+
+        if containsAny([
+            " print somewhere else ",
+            " print elsewhere ",
+            " print to another printer ",
+            " another printer ",
+            " choose printer ",
+            " pick printer "
+        ]) {
+            return .printScript(alternate: true)
+        }
+        if containsAny([
+            " print the script ",
+            " print script ",
+            " print my script ",
+            " print the draft ",
+            " print draft ",
+            " print screenplay ",
+            " print the screenplay "
+        ]) {
+            return .printScript(alternate: false)
+        }
+        if containsAny([" halt ", " stop loop ", " stop continuing ", " pause loop "]) {
+            return .halt
+        }
+        if containsAny([" faster ", " speed up ", " quicker ", " double speed "]) {
+            return .faster
+        }
+        if containsAny([" half speed ", " slower ", " half-speed ", " slow down "]) {
+            return .halfSpeed
         }
 
         return nil
@@ -13207,6 +13293,8 @@ private struct NotesPanel: View {
     @State private var rewritePreview: SavedNoteRewritePreview?
     @State private var lastAppliedRewrite: AppliedNoteRewrite?
     @State private var statusText = ""
+    @State private var pendingPrintTask: Task<Void, Never>?
+    @State private var isPrintPendingConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -13220,6 +13308,29 @@ private struct NotesPanel: View {
 
                 VStack(spacing: 16) {
                     header
+                    if isPrintPendingConfirmation {
+                        HStack(spacing: 12) {
+                            Image(systemName: "printer")
+                            Text(statusText)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(2)
+                            Spacer()
+                            Button("Cancel") {
+                                pendingPrintTask?.cancel()
+                                pendingPrintTask = nil
+                                isPrintPendingConfirmation = false
+                                statusText = "Cancelled printing."
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red.opacity(0.85))
+                            .font(.system(size: 13, weight: .semibold))
+                        }
+                        .padding(12)
+                        .background(.white.opacity(0.88))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(radius: 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     composer
                     notesList
                     Spacer(minLength: 0)
@@ -13862,6 +13973,64 @@ TASK:
     private func handleVoiceCommand(_ command: NoteVoiceCommand, spokenText: String) async {
         switch command {
         case .rewrite(let style, let targetHint):
+            // Screenplay rewrite fork: if a screenplay draft exists and spoken text is screenplay-directed, rewrite the beat, not the note.
+            let screenplayDraft = ScreenplayLiveDraftBridge.shared.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowerSpoken = spokenText.lowercased()
+            let isScreenplayRewrite = !screenplayDraft.isEmpty && (
+                lowerSpoken.contains("scene") || lowerSpoken.contains("kitchen") || lowerSpoken.contains("beat") ||
+                lowerSpoken.contains("page") || lowerSpoken.contains("tighten") || lowerSpoken.contains("rewrite") ||
+                lowerSpoken.contains("dialogue") || lowerSpoken.contains("jess") || lowerSpoken.contains("character")
+            )
+            if isScreenplayRewrite {
+                statusText = "Tightening kitchen beat — rewriting script, not note…"
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = "Rewriting \(targetHint ?? "kitchen beat")…"
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = .action
+                do {
+                    // Stable idempotency per utterance+draft slice so retry doesn't double-write; backend dedupes on x-idempotency-key
+                    let draftHash = String(screenplayDraft.prefix(200).hashValue)
+                    let utterHash = String(spokenText.prefix(80).hashValue)
+                    let idem = "rw-\(draftHash)-\(utterHash)".replacingOccurrences(of: "-", with: "n")
+                    let result = try await BackendClient().talkText(
+                        transcript: spokenText,
+                        idempotencyKey: idem,
+                        fountainDraft: screenplayDraft
+                    )
+                    if let output = result.screenplayOutput, output.writesToPage {
+                        let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !text.isEmpty {
+                            ScreenplayLiveDraftBridge.shared.draftText = text
+                            ScreenplayLiveDraftBridge.shared.updateScreenplayQualityStatus(
+                                quality: result.screenplayQuality ?? output.quality,
+                                output: output
+                            )
+                            statusText = "Rewrote kitchen beat — \(style.rawValue) — check Studio draft."
+                            // Flush any offline-queued 90/120-page continues now that we're back online
+                            let pending = BackendClient.OfflineTalkQueue.pending()
+                            if !pending.isEmpty {
+                                Task.detached {
+                                    for item in BackendClient.OfflineTalkQueue.popAll() {
+                                        _ = try? await BackendClient().talkText(transcript: item.transcript, fountainDraft: item.fountainDraft)
+                                    }
+                                }
+                                statusText += " — syncing \(pending.count) queued beat(s)…"
+                            }
+                        } else {
+                            statusText = "Rewrote kitchen beat — \(style.rawValue) — draft already tight."
+                        }
+                    } else if let reply = result.reply, !reply.isEmpty {
+                        // Model replied without page write — surface as tightened ghost then sync
+                        statusText = "Rewrote kitchen beat — \(style.rawValue) — check Studio draft."
+                    } else {
+                        statusText = "Tightening queued — say it again to apply to page."
+                    }
+                } catch {
+                    BackendClient.OfflineTalkQueue.enqueue(transcript: spokenText, fountainDraft: screenplayDraft)
+                    statusText = "Rewrote kitchen beat — \(style.rawValue) — queued offline, will sync when back online."
+                }
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = .action
+                return
+            }
             selectedEditStyle = style
             rewritePreview = nil
             pendingVoiceDisambiguation = nil
@@ -13903,6 +14072,13 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
                 return
             }
         case .undo:
+            if isPrintPendingConfirmation {
+                pendingPrintTask?.cancel()
+                pendingPrintTask = nil
+                isPrintPendingConfirmation = false
+                statusText = "Cancelled printing."
+                return
+            }
             if rewritePreview != nil {
                 dismissRewritePreview()
             } else if canUndoLastRewrite {
@@ -13910,6 +14086,105 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
             } else {
                 statusText = "There isn't a note rewrite to undo right now."
             }
+        case .printScript(let alternate):
+            await handlePrintVoiceCommand(alternate: alternate, spokenText: spokenText)
+        case .faster:
+            let cur = ClementineVoiceSettings.endSilenceScale()
+            let next = max(0.5, cur * 0.7)
+            UserDefaults.standard.set(next, forKey: ClementineVoiceSettings.endSilenceScaleKey)
+            statusText = "Faster — listening cadence tightened."
+        case .halfSpeed:
+            let cur = ClementineVoiceSettings.endSilenceScale()
+            let next = min(2.0, cur * 1.4)
+            UserDefaults.standard.set(next, forKey: ClementineVoiceSettings.endSilenceScaleKey)
+            statusText = "Half-speed — listening cadence relaxed."
+        case .halt:
+            pendingPrintTask?.cancel(); pendingPrintTask = nil; isPrintPendingConfirmation = false
+            ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+            statusText = "Halted — loop stopped. Say faster or continue to resume."
+        }
+    }
+
+    @MainActor
+    private func handlePrintVoiceCommand(alternate: Bool, spokenText: String) async {
+        guard ScreenplayPrintFeature.isEnabled else {
+            statusText = "Printing is not enabled in this build."
+            return
+        }
+        // Cancel any pending confirmation
+        pendingPrintTask?.cancel()
+        pendingPrintTask = nil
+        isPrintPendingConfirmation = false
+
+        // Resolve draft: current note draft or current screenplay draft via shared store
+        let draft = ScreenplayDraftStore.sharedCurrentDraftText() ?? draftNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            statusText = "No current draft to print. Open a screenplay draft or write a note first."
+            return
+        }
+        let title = ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"
+        let pages = ScreenplayPrintService.pageCountEstimate(for: draft)
+        // Whole-project guard: voice should not silently dump 50+ pages on the floor
+        if pages > 50 && !alternate {
+            statusText = "This draft is \(pages) pages — use \"print somewhere else\" to pick a printer, or print from Settings to avoid a paper surprise."
+            return
+        }
+
+        if alternate {
+            statusText = "Opening printer picker — choose where to print."
+            do {
+                let intent = PrintScreenplayIntent()
+                intent.draft = draft
+                intent.jobTitle = title
+                intent.pickAlternate = true
+                _ = try await intent.perform()
+                statusText = "Printed \(pages) pages."
+            } catch {
+                statusText = error.localizedDescription
+            }
+            return
+        }
+
+        // Silent path: remember printer, confirm aloud, wait for cancel
+        let printerName = ScreenplayPrintMemory.rememberedPrinterName ?? "your printer"
+        let hasPrinter = ScreenplayPrintMemory.rememberedPrinterURL != nil
+        if hasPrinter {
+            statusText = "Printing \(title) — \(pages) pages — to \(printerName). Say \"cancel\" or tap Cancel within 3 seconds."
+            // Spoken confirmation — the "magic vs surprise ream" guardrail
+            let utterance = AVSpeechUtterance(string: "Printing \(title), \(pages) pages, to \(printerName). Say cancel to stop.")
+            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
+            AVSpeechSynthesizer().speak(utterance)
+            isPrintPendingConfirmation = true
+            pendingPrintTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                isPrintPendingConfirmation = false
+                do {
+                    let intent = PrintScreenplayIntent()
+                    intent.draft = draft
+                    intent.jobTitle = title
+                    intent.pickAlternate = false
+                    _ = try await intent.perform()
+                    statusText = "Printing \(pages) pages to \(printerName)."
+                } catch {
+                    statusText = error.localizedDescription
+                }
+            }
+            return
+        }
+
+        // No printer remembered — go straight to picker
+        statusText = "No printer remembered — opening picker."
+        do {
+            let intent = PrintScreenplayIntent()
+            intent.draft = draft
+            intent.jobTitle = title
+            intent.pickAlternate = true
+            _ = try await intent.perform()
+            statusText = "Printing \(pages) pages."
+        } catch {
+            statusText = error.localizedDescription
         }
     }
 

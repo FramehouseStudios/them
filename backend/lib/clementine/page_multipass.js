@@ -174,11 +174,22 @@ function critiquePageHeuristic(pageText = "", { scoreFn = scorePageHeuristic } =
   };
 }
 
-function buildPlanPrompt(utterance = "") {
+function buildPlanPrompt(utterance = "", rosterHint = "") {
+  const hasAct = rosterHint.toLowerCase().includes("act");
+  const lower = String(utterance || "").toLowerCase();
+  const isWhatIf = lower.includes("what if") || lower.includes("should jess");
+  const continueWith = lower.includes("continue with") ? String(utterance).split(/continue with/i)[1]?.trim().slice(0, 160) : "";
   return [
     "You are Clementine planning one screenplay page (Fountain).",
-    "Write a SHORT beat/intent outline only (4–8 lines). No full page.",
+    "Write a SHORT beat/intent outline only (6–10 lines). No full page.",
     "Cover: want, obstacle, cost, motif, and voice tactic.",
+    "If a character roster is given, make each Next: beat a want-vs-weakness collision using that character's strength/weakness/objective (e.g., use MARCUS loyalty vs distrust to block JESS).",
+    hasAct ? "Tailor Next: beats to the current act's pressure (Act One: inciting incident/setup, Act Two: rising obstacle/midpoint, Act Three: payoff/cost)." : "",
+    isWhatIf ? "What-if branching mode: make each Next: beat a divergent what-if alternative (different choice/consequence for Jess), so the 3 pills explore branching paths rather than one linear continuation." : "",
+    continueWith ? `Writer picked Next: "${continueWith}" — write exactly that beat now, not a new random one; still end with 3 fresh Next: for after.` : "",
+    isWhatIf ? "Writer is asking what-if — make each Next: a divergent branch (e.g., 'Next (A): Jess finds mother — cost: she loses town trust', 'Next (B): Jess fails — cost: she doubles down on lie', 'Next (C): Marcus finds first — cost: Jess must confess')." : "",
+    "End with exactly 3 Next Beats as bullet lines starting with 'Next:' so the writer can tap one when blocked (e.g., 'Next: Jess finds the photo — cost: she must lie to Marcus').",
+    rosterHint ? `Roster: ${rosterHint}` : "",
     "Do not write dialogue blocks or scene text yet.",
     utterance ? `Writer ask: ${utterance}` : "",
   ]
@@ -198,7 +209,7 @@ function buildDraftPrompt({ utterance = "", plan = "" } = {}) {
     .join("\n\n");
 }
 
-function buildRevisePrompt({ draft = "", critique = null, utterance = "" } = {}) {
+function buildRevisePrompt({ draft = "", critique = null, utterance = "", rosterHint = "" } = {}) {
   const directives = Array.isArray(critique?.directives)
     ? critique.directives
     : [];
@@ -207,9 +218,12 @@ function buildRevisePrompt({ draft = "", critique = null, utterance = "" } = {})
         .map((w) => `- ${w.dimension}: ${w.score}`)
         .join("\n")
     : "";
+  const roster = String(rosterHint || "").trim();
   return [
     "Revise the Fountain page once using the critique. Keep what already works.",
     "Output only the revised Fountain page — no preamble.",
+    roster ? `Roster: ${roster}` : "",
+    roster ? "Use character strengths/weaknesses from roster to shape behavior and pressure (e.g., MARCUS loyalty vs distrust blocks JESS)." : "",
     utterance ? `Writer ask: ${utterance}` : "",
     directives.length ? `Directives:\n${directives.map((d) => `- ${d}`).join("\n")}` : "",
     weak ? `Weak dimensions:\n${weak}` : "",
@@ -339,6 +353,11 @@ async function runPageMultipass({
 
   // --- plan (unmetered, cheap) ---
   if (typeof planSupplier === "function") {
+    const rosterHint = String(context?.rosterHint || "").trim();
+    if (rosterHint && !rosterHint.toLowerCase().includes("next:")) {
+      // rosterHint will be injected via buildPlanPrompt second arg, not via supplier's prompt directly
+    }
+    const planPrompt = rosterHint ? buildPlanPrompt(utterance, rosterHint) : buildPlanPrompt(utterance);
     const planResult = await runStage("plan", {
       metered: false,
       fn: async () => {
@@ -346,7 +365,7 @@ async function runPageMultipass({
           signal,
           utterance,
           context,
-          prompt: buildPlanPrompt(utterance),
+          prompt: planPrompt,
         });
         plan = trimToString(out?.text || out?.plan || "");
         return {
@@ -447,6 +466,7 @@ async function runPageMultipass({
 
   // --- revise (metered) — skip only when supplier missing ---
   let revised = false;
+  const rosterHint = String(context?.rosterHint || "").trim();
   if (typeof reviseSupplier === "function") {
     await runStage("revise", {
       metered: true,
@@ -457,7 +477,7 @@ async function runPageMultipass({
           plan,
           draft,
           critique,
-          prompt: buildRevisePrompt({ draft, critique, utterance }),
+          prompt: buildRevisePrompt({ draft, critique, utterance, rosterHint }),
         });
         const text = trimToString(out?.text || out?.page || "");
         if (text) {
@@ -524,6 +544,7 @@ async function runPageMultipass({
             draft: page,
             critique: repairCritique,
             utterance,
+            rosterHint,
           }),
         });
         const text = trimToString(out?.text || out?.page || "");
@@ -743,13 +764,45 @@ async function runTalkGeneratePageMultipass({
     };
   };
 
+  // Parse Next: beats from plan for writer's-block pills (nextThreeTurns)
+  function parseNextBeats(planText = "") {
+    const lines = String(planText || "").split(/\n/);
+    const out = [];
+    for (const line of lines) {
+      const t = line.trim();
+      if (/^next\s*:/i.test(t)) {
+        const v = t.replace(/^next\s*:\s*/i, "").trim();
+        if (v) out.push(v.slice(0, 180));
+      }
+    }
+    return out.slice(0, 3);
+  }
+  // Build rosterHint for character-driven Next: beats (unlimited cast)
+  let rosterHint = "";
+  try {
+    const mod = await import("../../creative_memory_store.js");
+    const userId = String(req?.authUser?.id || req?.userId || req?.body?.user_id || req?.body?.userId || "").trim();
+    if (mod?.createCreativeMemoryStore && userId) {
+      const store = mod.createCreativeMemoryStore();
+      const rec = store?.get ? await store.get(userId) : null;
+      const canon = Array.isArray(rec?.writerCanonTargets) ? rec.writerCanonTargets : [];
+      if (canon.length) {
+        rosterHint = canon.slice(0, 10).map(c => `${c.field}=${String(c.value).slice(0, 80)}`).join(" | ");
+      }
+    }
+  } catch (_e) { /* roster is best-effort for pills */ }
+  // Also include any roster lines present in shortTermContextMessages
+  if (!rosterHint && Array.isArray(shortTermContextMessages) && shortTermContextMessages.length) {
+    const last = String(shortTermContextMessages[shortTermContextMessages.length - 1]?.content || "").slice(0, 600);
+    if (last) rosterHint = last.slice(0, 400);
+  }
   // Accumulate metered tokens; single commitWallet at end (wallet honesty).
   let pendingMetered = 0;
   const result = await runPageMultipass({
     signal: pageAbortSignal,
     reservationId: pageReservationId,
     utterance,
-    context: { shortTermContextMessages },
+    context: { shortTermContextMessages, rosterHint },
     planSupplier,
     draftSupplier,
     critiqueSupplier: null, // heuristic default
@@ -772,11 +825,19 @@ async function runTalkGeneratePageMultipass({
   }
 
   req.clementine = req.clementine || {};
+  const nextBeats = parseNextBeats(result.plan);
+  if (nextBeats.length) {
+    // Surface as nextThreeTurns so ScreenplayLiveDraftBridge shows tap pills when blocked
+    req.body = req.body || {};
+    req.body.screenplay_next_three_turns = nextBeats;
+    req.body.next_three_turns = nextBeats;
+  }
   req.clementine.multipass = {
     stages: result.stages,
     scores: result.scores,
     plan: result.plan,
     critique: result.critique,
+    nextBeats,
     meteredOutputTokens: result.meteredOutputTokens,
     routing: routingLog,
     stageRoutes,

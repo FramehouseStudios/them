@@ -226,6 +226,21 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         let upper = trimmed.uppercased()
         guard trimmed == upper else { return false }
         guard !looksLikeSceneHeadingStart(trimmed), !looksLikeTransition(trimmed) else { return false }
+        // Dual cue: "JESS / MARCUS" — validate each side as a single cue
+        if trimmed.contains("/") {
+            let parts = trimmed.components(separatedBy: "/")
+            guard parts.count == 2 else { return false }
+            let left = parts[0].trimmingCharacters(in: .whitespaces)
+            let right = parts[1].trimmingCharacters(in: .whitespaces)
+            guard !left.isEmpty, !right.isEmpty else { return false }
+            // Each side must itself be a valid single character cue (no nested "/")
+            guard !left.contains("/"), !right.contains("/") else { return false }
+            return looksLikeSingleCharacterCue(left) && looksLikeSingleCharacterCue(right)
+        }
+        return looksLikeSingleCharacterCue(trimmed)
+    }
+
+    private static func looksLikeSingleCharacterCue(_ trimmed: String) -> Bool {
         guard !trimmed.contains(".") && !trimmed.contains(":") else { return false }
         guard trimmed.count <= 32 else { return false }
         return trimmed.range(of: #"^[A-Z0-9 '\-()]+$"#, options: .regularExpression) != nil

@@ -498,7 +498,7 @@ final class HerVoiceController: ObservableObject {
     private var cooldownUntil: Date = .distantPast
     private var hasPendingUtterance = false
     private var pendingRequestDeadline: Date?
-    private var noiseFloorRMS: Float = 0.0018
+    private var noiseFloorRMS: Float = 0.0012
     private var dynamicStartThreshold: Float = 0.006
     private var dynamicEndSilenceSeconds: TimeInterval = 1.55
     private var smoothedRMS: Float = 0
@@ -534,10 +534,17 @@ final class HerVoiceController: ObservableObject {
     // Called when we detect a complete utterance (PCM16 WAV)
     var onUtteranceReady: ((Data) -> Void)?
     /// Set when Screenplay Studio is visible so clean short dictation turns can finalize faster.
-    var isStudioMode: Bool = false
+    var isStudioMode: Bool = false {
+        didSet { partialTranscriber.setStudioMode(isStudioMode) }
+    }
     var debugStartThreshold: Float { dynamicStartThreshold }
     var debugPartialStabilityWindowSeconds: TimeInterval { partialStabilityWindowSeconds }
     private(set) var debugPartialStableSeconds: TimeInterval = 0
+    /// 0...1 VU for HerOrbView — normalized smoothedRMS (0.001 ... 0.02)
+    var listeningLevel: Double {
+        let n = Double(smoothedRMS)
+        return min(1.0, max(0.0, (n - 0.001) / 0.019))
+    }
 
     // Snapshot of VAD/STT quality at the exact moment an utterance finalized.
     private(set) var lastFinalTurnHints = TurnEndHints(
@@ -1174,8 +1181,9 @@ final class HerVoiceController: ObservableObject {
     }
 
     private func computeDynamicStartThreshold() -> Float {
-        let floorBased = max(noiseFloorRMS * 2.9, baseStartThreshold * 0.80)
-        return min(max(floorBased, 0.0042), 0.022)
+        // Tuned for quiet-room storytelling: 2.6× floor (was 2.9) so soft “Jess whispers” still trips VAD, clamp 0.0038 lower so ghost appears at 0.08s cadence.
+        let floorBased = max(noiseFloorRMS * 2.6, baseStartThreshold * 0.80)
+        return min(max(floorBased, 0.0038), 0.022)
     }
 
     private func currentPartialStableSeconds(partialLength: Int, now: Date) -> TimeInterval {
