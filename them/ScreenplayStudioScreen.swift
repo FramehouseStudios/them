@@ -12409,12 +12409,7 @@ Return revised screenplay lines only.
         let nextIsVisible = !isDirectionOneRightRailExpanded
         #if os(iOS)
         if isDirectionOneCompactLayout, nextIsVisible {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
+            endCompactScreenplayEditing()
         }
         #endif
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
@@ -12441,6 +12436,29 @@ Return revised screenplay lines only.
         isDirectionOneRightRailExpanded = false
     }
 
+    #if os(iOS)
+    /// Ends screenplay editing on the phone layout so the inspector drawer is
+    /// not covered by the keyboard. The responder-chain action alone was not
+    /// enough on the hosted-runner iOS build: the editor stayed first
+    /// responder and the keyboard remained after Save now. Ask every window
+    /// to end editing as well, which resigns the current first responder
+    /// regardless of which hosted hierarchy owns it.
+    private func endCompactScreenplayEditing() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.endEditing(true)
+            }
+        }
+    }
+    #endif
+
     private func revealStudioSavedTab() {
         withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
             isDirectionOneRightRailExpanded = true
@@ -12456,12 +12474,7 @@ Return revised screenplay lines only.
         #endif
         #if os(iOS)
         if isDirectionOneCompactLayout {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
+            endCompactScreenplayEditing()
         }
         #endif
         guard !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
