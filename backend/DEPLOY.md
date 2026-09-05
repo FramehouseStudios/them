@@ -15,6 +15,10 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
    `011_auth_store_metadata.sql` must run before this auth build starts. It
    creates the marker table and marks an existing nonempty auth store, but it
    deliberately does not authorize an empty database as canonical.
+   `012_auth_user_scoped_indexes.sql` adds the `value->>'userId'` expression
+   indexes that password-reset completion and user-wide session revocation
+   rely on; without it those row-scoped transactions scan every auth session
+   and reset token while holding the user's lock.
 
 2. **Quality gate is green.**
 

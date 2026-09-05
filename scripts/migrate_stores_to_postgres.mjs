@@ -52,6 +52,7 @@ const PRE_IMPORT_MIGRATIONS = Object.freeze([
   "001_init_persistence.sql",
   "009_auth_persistence.sql",
   "010_auth_identity_uniqueness.sql",
+  "012_auth_user_scoped_indexes.sql",
 ]);
 const POST_IMPORT_MIGRATIONS = Object.freeze([
   "011_auth_store_metadata.sql",

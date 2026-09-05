@@ -989,3 +989,17 @@ test("[auth-store-metadata-migration] marks only nonempty auth stores during upg
   assert.match(sql, /ON CONFLICT \(key\) DO NOTHING/);
   assert.doesNotMatch(sql, /VALUES\s*\(\s*'canonical_state'/);
 });
+
+test("[auth-user-scoped-index-migration] indexes the user-scoped auth lookups used by canonical mutations", () => {
+  const sql = fs.readFileSync(
+    new URL("../migrations/012_auth_user_scoped_indexes.sql", import.meta.url),
+    "utf8"
+  );
+  // completePasswordReset and revokeAuthSessionsForUser select by value->>'userId'
+  // under FOR UPDATE; both tables need the matching expression index.
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS persistence_auth_sessions_user_id_idx\s+ON persistence_auth_sessions \(\(value->>'userId'\)\)/);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS persistence_auth_password_reset_tokens_user_id_idx\s+ON persistence_auth_password_reset_tokens \(\(value->>'userId'\)\)/);
+  assert.doesNotMatch(sql, /CONCURRENTLY/);
+  assert.match(sql, /^BEGIN;/m);
+  assert.match(sql, /^COMMIT;/m);
+});
