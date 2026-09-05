@@ -17,11 +17,17 @@
 
 - **Owner:** codex; human owns production credentials, deployment clearance,
   privacy/signing, distribution, and physical-device release acceptance.
-- **Branch:** `codex/T-writer-beta-integration` (local integration only), based
+- **Branch:** `codex/T-writer-beta-integration`, published as open
+  [PR #445](https://github.com/FramehouseStudios/them/pull/445), based
   on the tested main-gates branch and `codex/T-ios-keychain-token-migration`.
   Both source checkouts remain clean and unchanged.
 - **Status:** in-progress. This milestone supersedes the historical next-action
   queue below; do not restart old merged work.
+- **Merge hold (September 5):** required Quality Gate must be green on main
+  itself and the current #445 revision before merge. At the latest audit,
+  main `9c74759` failed Save now; #445 `d5763d4` passed the required writer loop
+  but failed Pages Previous in its broader required V1 suite. Diagnostic #446
+  tested a PR merge tree, not an isolated pre-#437 tree, and does not clear main.
 - **Product bar (human reaffirmed September 5):** care deeply about making
   something wonderful that we and our friends would want to use. Codex owns
   product/engineering polish decisions against that standard; protect the
@@ -44,6 +50,12 @@
   corrections into this project-owned branch; do not merge unsafe experimental
   feature stacks or relax required gates. Review completion is not feature or
   release acceptance.
+- **Coordination:** [current inbox](docs/claude-inbox.md) and
+  `docs/coordination.json` supersede #426's stale queue. #438 is now closed;
+  #443 is the preferred backend next-beats base and #444 its UI. Supervisor
+  owns closure/rescoping of still-open #440. No new pills/ghost PRs until #443
+  lands. Printing remains Release-off, opt-in, hard kill switch. App Store
+  credentials are not yet available; keep production unchanged.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

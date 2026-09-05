@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T04:29:41.147Z",
-  "updatedBy": "support",
+  "updatedAt": "2026-09-05T23:19:35Z",
+  "updatedBy": "codex",
   "openPullRequests": [
     {
       "number": 354,
@@ -1717,10 +1717,12 @@
       "title": "ci(quality-gate): run soft-gate iOS smokes on main/dispatch, opt-in on PRs",
       "owner": "support",
       "tier": 2,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/quality-gate-pr-cost",
-      "blocker": "Draft. Workflow-cost change; human decides whether PR-time iOS smokes become opt-in.",
-      "blocker_kind": "needs_human"
+      "blocker": "Draft remains open. The eleven-PR audit rejects weakening required verification or copying the old soft-gate policy.",
+      "blocker_kind": "needs_scope_narrowing",
+      "reviewer_note": "Reviewed head 5acce4f8323c6194d1c48a62e719023fb1d02a98; see docs/claude-pr-audit-2026-09-05.md.",
+      "expected_action": "Keep required iOS gates mandatory; any cost optimization must preserve the current verification contract. Do not merge this proposal as-is."
     },
     {
       "number": 422,
@@ -1737,32 +1739,266 @@
       "title": "Auth index, ETag guard, unknown-commit fencing, scoped UI gate (stacked on codex keychain branch)",
       "owner": "support",
       "tier": 3,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/auth-userid-index-etag-guard",
-      "blocker": "CONFLICTING with main; carries Codex's 41 unpushed keychain commits. Narrows to 4 commits once codex/T-ios-keychain-token-migration lands.",
-      "blocker_kind": "needs_rebase"
+      "blocker": "Useful auth/index/ETag work is integrated with stronger regressions in open #445; blanket UI-gate softening was rejected. Do not merge the inherited stack wholesale.",
+      "blocker_kind": "needs_scope_narrowing",
+      "blocker_against_pr": 445,
+      "reviewer_note": "Reviewed head 144aac6d12a84e269ffbacff68e436b51589441e; uncertain commits, exact owner IDs, and rollback recovery received additional hardening.",
+      "expected_action": "Reassess remaining unique work after #445 is verified and merged; no branch deletion or PR closure is authorized by this ledger."
     },
     {
       "number": 424,
       "title": "backend: boot-level IAP fail-closed, ship knowledge cards in the image, MUSE_MODEL knob",
       "owner": "support",
       "tier": 3,
-      "status": "review",
+      "status": "merged",
       "branch": "claude/launch-safety-boot-guard",
-      "blocker": "Human merge. Set APP_STORE_ISSUER_ID/KEY_ID/PRIVATE_KEY/BUNDLE_ID in Render before the next deploy or production boot refuses by design.",
-      "blocker_kind": "needs_human",
-      "expected_action": "Merge after Quality Gate; set the four APP_STORE_* values in Render; accept/reject the D001 and D011 proposals in docs/proposed-decisions.md."
+      "blocker": null,
+      "reviewer_note": "GitHub confirms merged 2026-09-05T05:13:19Z. Render's newer c2b80225 deployment failed after migrations because three App Store credential keys are missing. Keep the guard; production clearance remains a separate blocker."
     },
     {
       "number": 425,
       "title": "Fix the six V1 smoke failures: leaked draft journal on reset, phone-layout-aware tests",
       "owner": "support",
       "tier": 2,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/v1-smoke-fixes",
-      "blocker": "Stacked on #423; lands after it.",
-      "blocker_kind": "needs_rebase",
-      "blocker_against_pr": 423
+      "blocker": "Integrated owner-journal reset and inspector safeguards supersede this stack; its useful Remember me visibility fix is carried into #445.",
+      "blocker_kind": "needs_scope_narrowing",
+      "blocker_against_pr": 445,
+      "reviewer_note": "Reviewed head 0ca4d1343a97d3a1d9e59a4dc24304ab46298216, still open on base claude/auth-userid-index-etag-guard.",
+      "expected_action": "Keep exact-owner reset and surfaced failures; do not replace them with the broader deletion matcher or suppressed errors."
+    },
+    {
+      "number": 426,
+      "title": "docs: coordination refresh 2026-09-05 — this week's merges, open PRs, missing Claude inbox",
+      "owner": "support",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/coord-refresh-2026-09-05",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T05:10:56Z; superseded by the current verified coordination refresh, not a current launch-status report."
+    },
+    {
+      "number": 427,
+      "title": "Port from stale sprint branch: approver-is-not-author guard, writer-facing error mapper",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/port-error-mapper-approver-guard",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T05:12:23Z; #441 subsequently corrected error mapping at the presentation boundary."
+    },
+    {
+      "number": 428,
+      "title": "Fix the required iPhone writer-loop gate: end compact editing through every window on Save now",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/writer-loop-gate",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T08:32:58Z, but current-main run 33980301593 still failed the exactly-one Save now UI-action assertion. Merge status is not successful runtime verification."
+    },
+    {
+      "number": 429,
+      "title": "ios: recover unfinished pack purchases; tell the writer when a credit is refused",
+      "owner": "support",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/iap-credit-recovery",
+      "blocker": null,
+      "reviewer_note": "Merged into its stacked branch 2026-09-05T05:12:41Z, then re-landed on main through #430. This does not prove real App Store purchase acceptance."
+    },
+    {
+      "number": 430,
+      "title": "ios: recover unfinished pack purchases; tell the writer when a credit is refused (re-land of #429 onto main)",
+      "owner": "support",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/iap-credit-recovery-main",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T08:33:22Z; production IAP credentials and live verification remain unfulfilled."
+    },
+    {
+      "number": 431,
+      "title": "ios: ghost preview of the spoken screenplay element while the writer is still talking",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/ghost-preview-slice",
+      "blocker": "Ghost preview has uncorrected project/account/lifecycle ownership and scene-heading grammar risks; no accepted narrow-phone proof.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Reviewed head b1af671170ffe44c24f3d5d2557d2766ffa0fa0d; not ported. Preserve the orb and Clementine.",
+      "expected_action": "Hold new ghost PRs until #443 lands per the user-relayed supervisor coordination. Reuse canonical ownership/cancellation before any preview work resumes."
+    },
+    {
+      "number": 432,
+      "title": "feat(page): next-beat pills behind CLEMENTINE_PAGE_MULTIPASS",
+      "owner": "support",
+      "tier": 2,
+      "status": "closed",
+      "branch": "claude/next-beat-pills",
+      "blocker": null,
+      "reviewer_note": "GitHub confirms closed without merge; #443 is the preferred backend foundation, not this historical proposal."
+    },
+    {
+      "number": 433,
+      "title": "feat(fdx): scene numbers, dual dialogue, revision marks, draft date",
+      "owner": "support",
+      "tier": 2,
+      "status": "closed",
+      "branch": "claude/fdx-export-parity",
+      "blocker": null,
+      "reviewer_note": "GitHub confirms closed without merge; parity landed via #439, with deterministic-date corrections reviewed in #442."
+    },
+    {
+      "number": 434,
+      "title": "screenplay: recognize Fountain dual-dialogue cues; export as Final Draft attributes",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/fountain-dual-dialogue-cue",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T08:47:14Z."
+    },
+    {
+      "number": 435,
+      "title": "backend: real PDF export for POST /screenplay/export (title page, MORE/CONT'D, page numbers)",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/backend-pdf-export",
+      "blocker": "Bounded review reproduced nontermination, silent content loss, Unicode loss, and page-limit bypass. Not ported or enabled.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Reviewed head 7e1a16477ef7fb8683c8a3bfbc0ba53672fe6b98; reproductions and exact limits are in docs/claude-pr-audit-2026-09-05.md.",
+      "expected_action": "Prove pagination progress and complete-content conservation, explicit limit errors, Unicode-safe rendering, actual-route behavior, and visual PDF correctness before adoption."
+    },
+    {
+      "number": 436,
+      "title": "ios: TODO-clarify nudge pill that jumps to the line needing an answer",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/todo-clarify-nudge",
+      "blocker": "Restored drafts do not initialize the nudge; narrow layout and marker matching are unverified. Not ported.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Reviewed head 468124dc1af0c2d30ae0ce52823358bdf4f3c086.",
+      "expected_action": "Add restored-session, precise marker, real jump/focus, and phone accessibility proof before adopting; no parallel new pills PRs while #443 is pending."
+    },
+    {
+      "number": 437,
+      "title": "ios: voice-to-print — \"print the script\" via App Intent + AirPrint (opt-in in Release)",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/voice-print",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T17:13:49Z. Printing stays off by default in Release, explicit opt-in, hard kill switch. User-relayed supervisor correction reaffirms this; do not accept a conflicting Release-on claim. Physical printing remains unverified."
+    },
+    {
+      "number": 438,
+      "title": "backend: next-beat pills from the multipass plan (flag-gated)",
+      "owner": "support",
+      "tier": 2,
+      "status": "closed",
+      "branch": "claude/next-beat-pills",
+      "blocker": null,
+      "reviewer_note": "Reviewed head b38fc95fa8276909fe6bf96e2880551497de87a3; copying model suggestions into req.body crosses the writer-canon boundary. GitHub now confirms closed without merge; #443 is the preferred replacement. Codex did not close it."
+    },
+    {
+      "number": 439,
+      "title": "backend: Final Draft export parity — scene numbers, dual dialogue, revision marks, draft date",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/fdx-export-parity",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T17:07:04Z; #442's deterministic date correction is integrated in #445."
+    },
+    {
+      "number": 440,
+      "title": "ios: talk → ghost → print in Studio (ghost preview + voice print command)",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/talk-ghost-print-demo",
+      "blocker": "Duplicate ghost implementation and second print coordinator have stale ownership, overlapping picker/spool, cancellation, and Release-default risks. Not ported.",
+      "blocker_kind": "needs_scope_narrowing",
+      "reviewer_note": "Reviewed head 97596850effffcd6e294d4130a7a725a36c80cba; still OPEN on GitHub at this snapshot.",
+      "expected_action": "Supervisor owns closure or rescoping; do not claim it closed. Keep one print owner, Release-off plus opt-in and hard kill switch. No new ghost PRs until #443 lands."
+    },
+    {
+      "number": 441,
+      "title": "ios: keep raw server codes in error values; map to writer-facing text at presentation (fixes #427 regression)",
+      "owner": "support",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/error-mapper-presentation-layer",
+      "blocker": null,
+      "reviewer_note": "Merged 2026-09-05T17:07:19Z."
+    },
+    {
+      "number": 442,
+      "title": "backend: keep exportToFDX clock-free; default the Draft Date in the route instead",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/fdx-export-pure-date-revision",
+      "blocker": "Useful fix is already carried into #445 with additional alias/whitespace tests; standalone PR remains open, not merged.",
+      "blocker_kind": "needs_scope_narrowing",
+      "blocker_against_pr": 445,
+      "reviewer_note": "Reviewed head 50787d1ad4ff53303d06c6d191f665a49bf70a31; 25 focused FDX tests passed locally.",
+      "expected_action": "Avoid landing competing copies. Reconcile after #445's required gates pass; preserve pure serialization and route-owned date defaults."
+    },
+    {
+      "number": 443,
+      "title": "page: next beats from the multipass plan reach the phone via turn meta, never via req.body",
+      "owner": "support",
+      "tier": 2,
+      "status": "in-progress",
+      "branch": "claude/next-beats-response-field",
+      "blocker": "Preferred backend foundation, not yet accepted or ported. Requires scoped ownership, cancellation, retry/cost and actual transport verification with #444.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Reviewed head cddfca2dfbae331eb6d2f1284b2cd235baa35780. User-relayed supervisor correction selects #443 over #438; the additive response must never mutate writer-canon request fields.",
+      "expected_action": "Consolidate next-beat work here; keep default-off flags. No new Claude pills or ghost PRs until #443 lands. Selection as a base does not waive current required checks or authorize enabling unverified features."
+    },
+    {
+      "number": 444,
+      "title": "studio: next-beat pills under the page, tap to have Clementine write that beat",
+      "owner": "support",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/studio-next-beat-pills",
+      "blocker": "UI delta stacked on #443, not an independent backend. Suggestion identity, stale responses, unknown-outcome retries, cost disclosure and narrow UI remain unsafe/unverified.",
+      "blocker_kind": "needs_test_fix",
+      "blocker_against_pr": 443,
+      "reviewer_note": "Reviewed head c9f915b9db7d546195b3aab7f1ec69e37d2e24b2; not ported.",
+      "expected_action": "Reuse canonical account/project/request identity, preserve retry identity, invalidate stale batches, and prove both voice and typed transports plus narrow touch targets after consolidating on #443."
+    },
+    {
+      "number": 445,
+      "title": "Integrate writer-beta: Pages, save recovery, export, auth hardening",
+      "owner": "codex",
+      "tier": 3,
+      "status": "blocked",
+      "branch": "codex/T-writer-beta-integration",
+      "blocker": "OPEN, not uncommitted. Main's required Quality Gate is red; #445 also failed its required broader V1 suite at Pages Previous → page 2. Do not merge until main itself and the current PR revision have green required checks.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Verified base main 9c74759e8028acfe48b44add55fdf6f6fa75857d, head d5763d4a55f4859cc8923bd368396851cf7eb5be. Run 33988950331 passed signed units, Mac exports and required writer loop, but Quality Gate failed. Docker and fresh-Postgres migrations checks passed. Eleven-PR dispositions live in docs/claude-pr-audit-2026-09-05.md.",
+      "expected_action": "Fix the current Pages interaction without weakening assertions; independently repair and verify main's required gate. Recheck exact head/base and every required check before any merge. Preserve unrelated uncommitted work; production deployment remains credential-gated."
+    },
+    {
+      "number": 446,
+      "title": "ci probe: required gate at 4620164 (pre-#437), do not merge",
+      "owner": "support",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "ci/probe-gate-before-437",
+      "blocker": "Diagnostic draft only; do not merge. PR checkout used refs/pull/446/merge onto current main, so its green required writer loop did not isolate pre-#437 code.",
+      "blocker_kind": "needs_scope_narrowing",
+      "reviewer_note": "Head 2740e48470241507012b4e275b1346d6aebf6a42 is an empty child of 46201642b254c7e15a4f73bd58453471b42c3717. Run 33994535280 tested merge e804be9 with main 9c74759, included print code, and passed overall despite failed soft smokes. Separate direct dispatch 33994330170 stopped at Required Secrets before iOS.",
+      "expected_action": "Supervisor owns diagnostic follow-up. A true exact-revision run and a green main run are still needed; do not infer print causality or merge clearance from this probe."
     }
   ],
   "blockers": [
@@ -1775,7 +2011,19 @@
     {
       "id": "render-app-store-secrets",
       "owner": "human",
-      "summary": "Once #424 is on main, production boot refuses to start until APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and APP_STORE_BUNDLE_ID are set in the Render dashboard (render.yaml declares them sync:false).",
+      "summary": "#424 is merged. Authenticated Render inspection found APP_STORE_ISSUER_ID, APP_STORE_KEY_ID and APP_STORE_PRIVATE_KEY missing; the human says they do not have them yet. APP_STORE_BUNDLE_ID and APP_STORE_ENVIRONMENT keys exist but values were not revealed/validated. Live remains a5ea13fa; c2b80225 failed after successful pre-deploy migrations. Leave production unchanged and keep purchase verification fail-closed.",
+      "since": "2026-09-05"
+    },
+    {
+      "id": "writer-beta-required-quality-gate",
+      "owner": "codex",
+      "summary": "Hold #445 until the required Quality Gate is green on main itself and on the current PR revision. Main 9c74759 run 33980301593 failed Save now's exactly-one action; #445 d5763d4 run 33988950331 passed writer loop but failed Pages Previous in required V1 smokes. Diagnostic #446's green merge-ref run is not a main-branch pass or a pre-#437 isolation proof.",
+      "since": "2026-09-05"
+    },
+    {
+      "id": "next-beat-ghost-single-lane",
+      "owner": "support",
+      "summary": "Use #443 as the preferred backend next-beats foundation; #444 is its dependent UI, #438 is now closed. Supervisor owns closure/rescoping of still-open #440. No new Claude pills or ghost PRs until #443 lands; not permission to merge or enable unsafe code. Printing remains Release-off, explicit opt-in, hard kill switch; contradictory Release-on claims return to the supervisor via the human.",
       "since": "2026-09-05"
     }
   ],

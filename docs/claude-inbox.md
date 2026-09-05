@@ -1,9 +1,9 @@
 # Claude Inbox
 
-Short handoff for the Claude/support lane. Read after `AGENTS.md`, `TASKS.md`,
-`DECISIONS.md`, and `docs/coordination.json`. Codex owns this file per
-`AGENTS.md`; the support lane created it on 2026-09-05 because `AGENTS.md` and
-`docs/README.md` referenced it and it did not exist.
+Codex-owned handoff, refreshed at **2026-09-05 23:19 UTC / 16:19 PDT** from
+GitHub and local test artifacts. This supersedes #426's launch queue. Read
+`AGENTS.md`, current `TASKS.md`, `DECISIONS.md`, and `docs/coordination.json`.
+Historical assistant lanes are not authority to start competing work.
 
 Start with:
 
@@ -12,44 +12,108 @@ node scripts/agent_next.mjs --role=support
 node scripts/coordination_state.mjs read
 ```
 
-## Current Snapshot (2026-09-05)
+## Current merge boundary
 
-Merged this week: #416 live typing between devices, #417 sprint security
-rescue, #418 two-device UI smoke, #419 Quality Gate de-flake, #421 resilient
-cross-device live drafts. GitHub Actions is running again after the
-2026-09-03 billing block.
+VERIFIED: [#445](https://github.com/FramehouseStudios/them/pull/445) is **open**,
+not uncommitted. Its base is main `9c74759e8028acfe48b44add55fdf6f6fa75857d`;
+reviewed head is `d5763d4a55f4859cc8923bd368396851cf7eb5be`. The integration
+commit is `35557b7`. The checkout also contains later, uncommitted feature work:
+do not stage, overwrite, or represent it as part of this verified PR head.
 
-Open, in order of what unblocks launch:
+**Hold #445 until the required Quality Gate is green on main itself and on the
+current PR revision.** Human push/deploy permission does not waive that hold.
 
-| PR | Owner | Gate | What it needs |
-| --- | --- | --- | --- |
-| [#424](https://github.com/FramehouseStudios/them/pull/424) | support | tier 3, human merge | Boot-level IAP fail-closed (D011), `knowledge_cards.json` shipped in the image, `MUSE_MODEL` knob. Local suite 2518/0 fail; GitHub checks green, Quality Gate pending. After merge, set the four `APP_STORE_*` values in Render or production boot refuses by design. |
-| [#425](https://github.com/FramehouseStudios/them/pull/425) | support | stacked on #423 | Six V1 smoke fixes. Lands after #423. |
-| [#423](https://github.com/FramehouseStudios/them/pull/423) | support | needs rebase | Carries Codex's 41 unpushed keychain commits; conflicting with main until `codex/T-ios-keychain-token-migration` lands. |
-| [#422](https://github.com/FramehouseStudios/them/pull/422) | codex | tier 3, human | Authenticated first-run resume. |
-| [#420](https://github.com/FramehouseStudios/them/pull/420) | support | draft | Quality Gate PR-cost reduction; human decides on opt-in iOS smokes. |
+| Evidence | Actual result and limitation |
+| --- | --- |
+| [Main run 33980301593](https://github.com/FramehouseStudios/them/actions/runs/33980301593), `9c74759` | Failed required writer loop: “Save now did not deliver exactly one UI action.” Backend passed. Main is not green. |
+| [#445 run 33988950331](https://github.com/FramehouseStudios/them/actions/runs/33988950331), `d5763d4` | Backend, signed iOS units, native Mac exports and required writer loop passed. Required broader V1 suite failed Pages Previous → page 2 current-page assertion; 56 tests, 9 skipped, 1 failed. |
+| [Direct diagnostic 33994330170](https://github.com/FramehouseStudios/them/actions/runs/33994330170), `4620164` | Stopped at Required Secrets (`APP_TOKEN` missing), before iOS. No causal isolation result. |
+| [#446 probe 33994535280](https://github.com/FramehouseStudios/them/actions/runs/33994535280), `2740e48` | Required writer loop passed, but checkout was PR merge `e804be9` onto current main, not the pre-#437 tree. Print code compiled; soft V1 and voice smokes failed despite overall green. Not main-branch clearance. |
 
-Human-owned before launch: `render-app-store-secrets` blocker; the
-`v1-release-preflight-config` blocker (Team ID, release token,
-`scripts/run_release_preflight.sh` with the quality gate on); accept or reject
-the D001 and D011 entries in `docs/proposed-decisions.md`.
+The probe is diagnostic-only and **must not be merged**. A green merge-ref
+probe does not prove or disprove #437 caused a failure. Do not repair a red
+gate by suppressing the assertion or changing required jobs to optional.
 
-Branch hygiene: `claude/pii-safe-request-logs` is a stale sprint snapshot cut
-before #417. Its PII redaction is on main as #372, its backend work landed via
-#417, and its three newest commits moved to #424. Do not merge main into it
-(nine conflicting files including `backend/index.js`). Delete only after a
-salvage audit of its iOS tree and human clearance.
+## Eleven-PR audit and single implementation lanes
 
-Known local hazard: the main checkout on the release Mac carries ~411
-untracked iCloud conflict copies named `<file> 2.<ext>` (TASKS.md T01). The
-Xcode project uses synchronized folder groups, so the ` 2.swift` copies are
-compiled and break the iOS build. Human-owned cleanup; not ignored by
-`.gitignore` on main.
+The [full audit](claude-pr-audit-2026-09-05.md) records exact reviewed SHAs,
+reproductions and remaining engineering risks. All eleven were open at the
+original review; #438 is now closed. Review completion is not acceptance.
 
-## What the support lane does next
+| PR | Current disposition |
+| --- | --- |
+| [#420](https://github.com/FramehouseStudios/them/pull/420) | Open draft; reject old soft-gate/opt-in policy for required checks. |
+| [#423](https://github.com/FramehouseStudios/them/pull/423) | Open; useful auth/index/ETag work carried into #445 with stronger uncertain-commit, exact-owner and rollback tests. No wholesale stack merge. |
+| [#425](https://github.com/FramehouseStudios/them/pull/425) | Open atop #423; integrated reset/inspector safeguards supersede its weaker paths; Remember me correction carried into #445. |
+| [#431](https://github.com/FramehouseStudios/them/pull/431) | Open, parked ghost preview: ownership, lifecycle and scene-heading grammar need repair and real narrow UI proof. |
+| [#435](https://github.com/FramehouseStudios/them/pull/435) | Open, parked backend PDF: nontermination/content loss/Unicode/page-limit defects reproduced. Not enabled. |
+| [#436](https://github.com/FramehouseStudios/them/pull/436) | Open, parked TODO nudge: restored initialization, marker matching and phone accessibility unverified. |
+| [#438](https://github.com/FramehouseStudios/them/pull/438) | **Closed without merge**, verified on GitHub. Do not copy suggestions into writer-canon request fields. Codex did not close it. |
+| [#440](https://github.com/FramehouseStudios/them/pull/440) | Still open at this snapshot; supervisor owns closure/rescoping. Do not adopt a second ghost/print coordinator. |
+| [#442](https://github.com/FramehouseStudios/them/pull/442) | Open; clock-free FDX correction carried into #445 with extra alias/date tests. Avoid duplicate landing. |
+| [#443](https://github.com/FramehouseStudios/them/pull/443) | **Preferred backend base** for next beats; additive response/turn metadata, never request-body canon mutation. Not yet ported, merged or enabled. |
+| [#444](https://github.com/FramehouseStudios/them/pull/444) | Open UI delta atop #443, not a third backend. Stale batch ownership, unknown-outcome retry identity, cost disclosure and touch/layout proof remain required. |
 
-1. Nothing net-new until #424 is merged and the Render secrets exist.
-2. Backend-only follow-ups when asked: the D008 golden-set eval for
-   `muse-spark-1.3` once a Meta key is provided; client handling of the
-   fail-closed IAP credit path.
-3. Keep every claim verified by a local run; paste the summary line.
+User-relayed supervisor direction: **no new Claude pills or ghost PRs until
+#443 lands**. Consolidate backend work on #443 and its dependent UI on #444;
+do not let #438/#440 race those paths. This selects a foundation, not permission
+to merge unverified behavior or enable default-off multipass flags.
+
+Printing is final: **off by default in Release, explicit opt-in toggle, hard
+kill switch**. Preserve one canonical print owner. Any conflicting “user said
+on” claim goes back to the supervisor through the human. Physical AirPrint and
+end-to-end voice cancellation remain unverified. The orb and Clementine remain
+permanent anchors under D014.
+
+## Merges missing from the old snapshot
+
+GitHub confirms #424 (production boot guard), #426 (old coordination refresh),
+#427 (approver/error presentation work), #428 (Save now keyboard handling),
+#430 (purchase recovery re-land), #434 (dual-dialogue cues), #437 (opt-in
+printing), #439 (FDX parity), and #441 (presentation-layer error correction)
+merged into main. #429 first merged into its stacked branch; #430 brought it
+to main. #432 and #433 are closed without merge. #422 remains open and outside
+the eleven Claude-related PR audit; do not infer its acceptance.
+
+## Production and verification limits
+
+Authenticated Render inspection showed live revision `a5ea13fa`; the newer
+`c2b80225` deploy completed its migrations/pre-deploy step but refused boot
+because `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID` and `APP_STORE_PRIVATE_KEY`
+are absent. The human **does not have these credentials yet**. Bundle ID and
+environment keys exist but their values were not exposed or validated.
+Auto-Deploy is off. Keep the live backend unchanged; never weaken purchase
+verification for a green deployment. No production change was made here.
+
+Signing/Team ID, release-token agreement, public domains/privacy, real IAP and
+paid-provider acceptance, TestFlight and physical-iPhone signoff remain separate
+gates in [writer-beta-readiness.md](writer-beta-readiness.md). Proposed decision
+amendments remain proposals until the human accepts them; this refresh does not
+edit `DECISIONS.md`.
+
+Local full Node 20/PostgreSQL v4: **2,707 passed, 0 failed, 1 live-provider skip**.
+Signed native Mac export v4: **22 passed**. Signed local iOS export v1:
+**855 units passed**, but the clipboard test took 866 seconds with pasteboard
+errors; native Files presentation failed in the writer loop. Hosted #445 later
+passed real Files Cancel/Save, not a fake-export shortcut. Neither run reads
+back the delivered file bytes. These are distinct results, not beta signoff.
+
+## Next actions, without duplicate work
+
+1. Codex: diagnose and fix Pages Previous, including actual visible target
+   geometry; preserve the current-page assertion and repeat signed narrow-phone
+   verification.
+2. Codex/supervisor: repair and verify main's required gate; the existing
+   diagnostic did not isolate a pre-print revision. Do not launch another
+   supposedly pinned probe that checks out a PR merge ref.
+3. Codex: reconcile local native-export presentation, eliminate clipboard-test
+   permission stalls, and verify delivered export bytes before declaring the
+   full export story dependable.
+4. Supervisor: consolidate #443/#444, close or rescope #440 as planned; no new
+   competing pills/ghost PRs. Parked features retain their recorded test gates.
+5. Human: obtain App Store Server API credentials and enter them securely in
+   Render when ready. No secret values belong in chat or repository files.
+
+Preserve all unrelated modified/untracked files and shared branches. Historical
+iCloud-conflict counts and stale branch diagnostics require fresh inspection
+before cleanup; no destructive cleanup or bulk PR closure is authorized here.

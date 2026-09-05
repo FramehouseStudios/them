@@ -8,8 +8,9 @@ DECIDED: the next milestone is a dependable, production-configured iPhone
 writer beta. The orb and Clementine remain permanent product anchors (D014,
 formerly D008 on the writer-beta branch; renumbering explicitly approved by
 the human on September 5 to preserve main's separate D008 Muse-runtime decision).
-No push, deployment, paid-provider gate, distribution upload, or production
-credential change has been performed in this pass.
+The integration is published as open
+[PR #445](https://github.com/FramehouseStudios/them/pull/445); no production
+deployment, distribution upload, or credential change is claimed here.
 The human subsequently authorized pushing and deploying verified, safe work
 into main. This replaces the earlier no-push restriction, not the release
 configuration, credentials, privacy/signing, or acceptance requirements.
@@ -39,8 +40,9 @@ VERIFIED from the signed-in service dashboard, without changing configuration:
 - Actual service settings match the checked-in Dockerfile/context, pre-deploy
   command, `/healthz`, and Auto-Deploy Off. No deploy was triggered.
 
-HUMAN_INPUT_REQUIRED: enter the missing App Store Server API credentials
-securely in Render. Do not remove the production verification guard or claim
+HUMAN_INPUT_REQUIRED: the human confirmed these credentials are not yet
+available. Obtain them and enter them securely in Render when ready. Keep the
+live deployment unchanged. Do not remove the production verification guard or claim
 IAP acceptance merely because environment keys exist. TestFlight signing,
 public domains/privacy, exact release-token agreement, purchase verification,
 and current-revision deployment checks remain separate release gates.
@@ -49,35 +51,44 @@ and current-revision deployment checks remain separate release gates.
 
 The active isolated branch is `codex/T-writer-beta-integration` at
 `/private/tmp/io-them-writer-beta-integration.Xj45Mg`. It combines tested
-main-based commit `945c8cf` with writer-beta commit `6c9ed23`; the merge is
-still uncommitted while complete regression verification runs. Source branches
-and unrelated shared-worktree state were not changed. The reviewed 11 PR heads,
+main-based commit `945c8cf` with writer-beta commit `6c9ed23` in merge commit
+`35557b7`. Open #445 was inspected at head `d5763d4`, base main `9c74759`.
+Later uncommitted feature work is not part of that verified PR head and must
+be preserved separately. The reviewed 11 PR heads,
 reproductions, local ports and parked features are recorded in
 [the Claude-related PR audit](claude-pr-audit-2026-09-05.md).
 
 New integration corrections cover uncertain auth-commit fencing and recovery,
 empty ETag handling, owner-scoped turn metadata (including colliding public
 turn IDs), deterministic FDX dates, and native print/export correctness.
-The combined signed iOS build compiled; its first full unit pass found one
-design-token violation (835 passed, one failed), now corrected without adding
-a guard exception. Its complete UI run is still in progress. The first full
-PostgreSQL-enabled backend pass had 2,689 passes, five fixture failures and
-one provider-gated skip; scoped fixture repairs passed 71/71 and a deployment
-Node 20 full rerun is underway. These are not yet all-green integration claims.
+The final local Node 20/PostgreSQL v4 run passed **2,707 tests, zero failures,
+one live-provider skip**. Local signed iOS export v1 passed 855 units but
+exposed an 866-second clipboard permission stall and failed native Files
+presentation. Hosted #445 later passed signed units, native Mac exports and
+the real Files Cancel/Save writer loop; its required broader V1 suite failed
+Pages Previous → current page 2 (56 tests, nine skips, one failure).
+Exported-file byte readback remains unverified. These are not all-green claims.
+
+**Merge hold:** main itself and the current #445 revision must pass required
+checks before merge. Main `9c74759` run 33980301593 is still red on Save now's
+exactly-one UI-action assertion. #445 run 33988950331 is red on Pages. The green
+#446 diagnostic used a PR merge tree, not the intended pre-#437 revision, and
+its soft smokes failed. See [current coordination evidence](claude-inbox.md)
+for run links and the single-lane #443/#444 plan.
 
 The first native export tests passed despite inverted glyphs visible in the
 rendered PDFs. Both renderers' raw Quartz coordinate handling is now corrected,
-and native macOS export/print tests passed 9/9 with reading-order assertions.
-All six pages of the numbered Unicode fixture plus both print pages and the
-rotated-page fixture were visually inspected after correction. iOS continuation
-layout now reserves label space, but its corrected runtime/visual rerun is
-still pending behind the active UI run. Physical printing remains untested and
-Release printing remains off by default.
+and final native macOS export/print tests passed **22/22**. All nine corrected
+Mac PDF fixture pages and 19 corrected iOS fixture pages were visually
+inspected, including Unicode and continuation layout. Physical printing
+remains untested. Release printing remains off by default, with explicit opt-in
+and a hard kill switch.
 
 The disposable PostgreSQL database applied all 13 migrations, reran with zero
 pending/applied, and used both new account-scoped auth indexes on 10,000-row
 fixtures. No production migration was performed. Required hosted gates remain
-required, with native print drawing added to macOS coverage. Nothing was pushed.
+required, with native print drawing added to macOS coverage. Code publication
+in #445 is not production promotion or beta release approval.
 
 ### Previously committed writer-beta work
 

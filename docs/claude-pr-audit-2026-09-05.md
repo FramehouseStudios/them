@@ -2,13 +2,58 @@
 
 ## Scope and meaning
 
-All 11 open PRs below were reviewed at the recorded heads. **Review complete
+All 11 PRs below were open when reviewed at the recorded heads. **Review complete
 does not mean feature complete, approved for merge, or production verified.**
-Useful corrections are being integrated locally on
-`codex/T-writer-beta-integration`; no PR was merged, closed, commented on,
-pushed, or otherwise changed remotely by this audit. The shared writer-beta
+Useful corrections are now published in open
+[#445](https://github.com/FramehouseStudios/them/pull/445), reviewed head
+`d5763d4`, base main `9c74759`. The original audit itself did not merge, close,
+comment on, or otherwise mutate the reviewed PRs. The shared writer-beta
 checkout and Claude worktrees were not overwritten. The orb and Clementine
 remain permanent product anchors.
+
+### Current follow-up — September 5, 23:19 UTC
+
+This section supersedes earlier in-progress verification statements below;
+the original reproductions and reviewed-head dispositions remain evidence.
+[#445's gate](https://github.com/FramehouseStudios/them/actions/runs/33988950331)
+passed backend, signed units, native Mac exports and the real Files Cancel/Save
+writer loop, but failed the required broader V1 Pages workflow after Previous
+did not make page 2 current. Main's
+[required gate](https://github.com/FramehouseStudios/them/actions/runs/33980301593)
+still fails Save now's exactly-one-action assertion. **Do not merge #445 until
+main itself and the current PR revision pass required checks.**
+
+The supervisor's [#446 probe](https://github.com/FramehouseStudios/them/pull/446)
+passed the required loop on a PR merge tree identical to current main, not on
+the intended pre-#437 tree; optional smokes failed. Its separate direct dispatch
+stopped before iOS for missing `APP_TOKEN`. Neither establishes print causality
+or clears main. Exact run links are in [claude-inbox.md](claude-inbox.md).
+
+#438 is now verified closed without merge; #440 remains open for the supervisor
+to close or rescope. #443 is the selected backend foundation; #444 is its stacked
+UI delta, not an independent backend. No new Claude pills/ghost PRs until #443
+lands. Selection does not waive ownership/retry/cost/layout verification.
+Printing stays Release-off, explicit opt-in, hard kill switch; no accepted
+decision was changed by this refresh.
+
+Subsequent local evidence:
+
+- Node 20/PostgreSQL v4: **2,707 passed, zero failed/cancelled, one live-provider
+  skip**, `/tmp/io-them-integration-backend-node20-full-pg-v4-20260905.log`.
+- Final owner/auth adversarial focused set: **263 passed**; private exact owner
+  identity and owner-scoped cache keys replace the earlier global collision
+  concern. Unknown-commit and malformed-ack recovery remain fail-closed.
+- Mac native export v4: **22 passed**, with both corrected renderer families
+  visually inspected. All 19 corrected iOS fixture pages and nine Mac fixture
+  pages were inspected earlier in this session; no physical-print claim.
+- Local signed iOS export v1: **855 units passed**, but the clipboard test took
+  866 seconds with pasteboard errors and native Files presentation failed.
+  Later hosted real Files Cancel/Save passed; actual delivered file-byte readback
+  is still missing. Do not erase this local discrepancy with the hosted result.
+
+The following sections retain the original review chronology. Current work and
+production blockers are summarized in [claude-inbox.md](claude-inbox.md) and
+[writer-beta-readiness.md](writer-beta-readiness.md).
 
 These are engineering dispositions, not new accepted product decisions.
 GitHub mergeability/check state is transient; source review and scoped tests
