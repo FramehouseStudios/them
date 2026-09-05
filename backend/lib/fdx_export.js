@@ -157,7 +157,7 @@ function serializeScene(scene, index = 0) {
   const out = [];
   const heading = serializeHeading(scene.heading);
   if (heading) {
-    // Scene numbers for Final Draft parity — A1, A2... per FDX Number attr on Scene Heading
+    // Scene numbers for Final Draft parity: Number="1", "2", ... on each Scene Heading.
     const number = index > 0 ? String(index) : "";
     const numbered = number ? heading.replace('<Paragraph Type="Scene Heading">', `<Paragraph Type="Scene Heading" Number="${escapeXml(number)}">`) : heading;
     out.push(numbered);
@@ -188,13 +188,11 @@ const TITLE_FIELDS = Object.freeze([
 function serializeTitlePage(title) {
   if (!title || typeof title !== "object" || Array.isArray(title)) return "";
   const paragraphs = [];
-  // Auto-fill Draft Date for festival submission if title provided but date empty
-  const filled = { ...title };
-  if (trim(filled.title) && !trim(filled.draftDate)) {
-    try { filled.draftDate = new Date().toISOString().slice(0, 10); } catch(_e) {}
-  }
+  // No clock in here: the Draft Date default lives in the route
+  // (applyDraftDateDefault in fdx_export_route.js) so this module stays
+  // byte-for-byte deterministic for a given input.
   for (const [key, label] of TITLE_FIELDS) {
-    const value = trim(filled[key]);
+    const value = trim(title[key]);
     if (!value) continue;
     paragraphs.push(paragraph("General", `${label}: ${value}`, { Alignment: "Center" }));
   }

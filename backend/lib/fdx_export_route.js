@@ -23,7 +23,26 @@ function sanitizeFilenameBase(raw) {
   return cleaned || "screenplay";
 }
 
-function mountFDXExportRoute(app) {
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Title pages carry a Draft Date; when the caller sent a title but no
+// date, default it here (the exporter itself stays clock-free). The
+// explicit value wins: `title.draftDate`, then top-level `draft_date` /
+// `draftDate`. Returns a new object; the request body is not mutated.
+function applyDraftDateDefault(body, now = () => new Date()) {
+  const title = body && typeof body.title === "object" && body.title && !Array.isArray(body.title)
+    ? body.title
+    : null;
+  if (!title || !String(title.title || "").trim()) return body;
+  const explicit = String(title.draftDate || body.draft_date || body.draftDate || "").trim();
+  if (String(title.draftDate || "").trim()) return body;
+  const draftDate = explicit || isoDate(now());
+  return { ...body, title: { ...title, draftDate } };
+}
+
+function mountFDXExportRoute(app, { now = () => new Date() } = {}) {
   if (!app || typeof app.post !== "function") {
     throw new Error("mountFDXExportRoute requires an Express app");
   }
@@ -47,7 +66,7 @@ function mountFDXExportRoute(app) {
       }
       let fdx;
       try {
-        fdx = exportToFDX(body);
+        fdx = exportToFDX(applyDraftDateDefault(body, now));
       } catch (e) {
         return res.status(500).json({
           error: "fdx_export_failed",
@@ -70,4 +89,4 @@ function mountFDXExportRoute(app) {
   );
 }
 
-export { mountFDXExportRoute, sanitizeFilenameBase, FDX_BODY_LIMIT };
+export { mountFDXExportRoute, applyDraftDateDefault, sanitizeFilenameBase, FDX_BODY_LIMIT };

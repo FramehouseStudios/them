@@ -13,7 +13,7 @@ import {
   serializeTransition,
   escapeXml,
 } from "../lib/fdx_export.js";
-import { mountFDXExportRoute, sanitizeFilenameBase } from "../lib/fdx_export_route.js";
+import { mountFDXExportRoute, applyDraftDateDefault, sanitizeFilenameBase } from "../lib/fdx_export_route.js";
 
 // ---------- escapeXml ----------
 
@@ -308,21 +308,45 @@ test("[fdx] revision true carries Revision 1; trailing * without flag does NOT",
   assert.equal(plainStar.includes('Revision="1"'), false);
 });
 
-test("[fdx] draft date auto-fill: title present + no draftDate -> today; no title -> no draftDate", () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const withTitle = exportToFDX({
-    title: { title: "My Script", author: "A" },
-    scenes: [],
-  });
-  assert.match(withTitle, new RegExp(`Draft Date: ${today}`));
-  const noTitle = exportToFDX({
-    title: { title: "", author: "A" },
-    scenes: [],
-  });
-  assert.equal(noTitle.includes("Draft Date"), false);
-  const emptyTitle = exportToFDX({
-    title: {},
-    scenes: [],
-  });
-  assert.equal(emptyTitle.includes("Draft Date"), false);
+test("[fdx] exporter never invents a Draft Date and is byte-for-byte deterministic", () => {
+  const doc = { title: { title: "My Script", author: "A" }, scenes: [{ heading: "INT. ROOM - DAY", lines: [{ kind: "action", text: "He waits." }] }] };
+  const first = exportToFDX(doc);
+  assert.equal(first.includes("Draft Date"), false, "no clock inside the pure exporter");
+  assert.equal(exportToFDX(doc), first);
+  const dated = exportToFDX({ ...doc, title: { ...doc.title, draftDate: "2026-09-05" } });
+  assert.match(dated, /Draft Date: 2026-09-05/);
+});
+
+test("[fdx-route] applyDraftDateDefault fills today's date only when a title exists and no date was given", () => {
+  const now = () => new Date("2026-09-05T23:59:00Z");
+  const body = { title: { title: "My Script", author: "A" }, scenes: [] };
+  const filled = applyDraftDateDefault(body, now);
+  assert.equal(filled.title.draftDate, "2026-09-05");
+  assert.equal(body.title.draftDate, undefined, "request body is not mutated");
+  assert.equal(applyDraftDateDefault({ title: { title: "T", draftDate: "2025-01-02" }, scenes: [] }, now).title.draftDate, "2025-01-02");
+  assert.equal(applyDraftDateDefault({ title: { title: "T" }, draft_date: "2025-03-04", scenes: [] }, now).title.draftDate, "2025-03-04");
+  assert.equal(applyDraftDateDefault({ title: { title: "", author: "A" }, scenes: [] }, now).title.draftDate, undefined);
+  assert.equal(applyDraftDateDefault({ scenes: [] }, now).title, undefined);
+  assert.equal(applyDraftDateDefault(null, now), null);
+});
+
+test("[fdx-route] POST /screenplay/export/fdx stamps the title page with the injected clock's date", async () => {
+  const app = express();
+  mountFDXExportRoute(app, { now: () => new Date("2026-09-05T12:00:00Z") });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseURL = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const dated = await post(baseURL, "/screenplay/export/fdx", { title: { title: "My Script" }, scenes: [] });
+    assert.equal(dated.status, 200);
+    assert.match(dated.json.fdx, /Draft Date: 2026-09-05/);
+    const explicit = await post(baseURL, "/screenplay/export/fdx", { title: { title: "My Script", draftDate: "2024-12-31" }, scenes: [] });
+    assert.match(explicit.json.fdx, /Draft Date: 2024-12-31/);
+    assert.doesNotMatch(explicit.json.fdx, /2026-09-05/);
+    const untitled = await post(baseURL, "/screenplay/export/fdx", { title: { author: "A" }, scenes: [] });
+    assert.equal(untitled.status, 200);
+    assert.equal(untitled.json.fdx.includes("Draft Date"), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
