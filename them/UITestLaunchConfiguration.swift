@@ -19,7 +19,11 @@ nonisolated enum UITestLaunchConfiguration {
                     assertionFailure("UI-test credential reset could not clear Keychain state")
                 }
             }
-            ScreenplayLiveDraftFileStore.remove()
+            do {
+                try ScreenplayLiveDraftFileStore.resetStoredDraftsForUITesting(arguments: arguments)
+            } catch {
+                assertionFailure("UI-test draft reset could not clear draft journals: \(error.localizedDescription)")
+            }
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }
