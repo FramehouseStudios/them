@@ -29904,7 +29904,7 @@ function buildBackfilledThemesFromHistory(memory, historyThreads = [], nowTs = D
         quoteFragments: sanitizeThreadQuoteFragments(entry.quoteFragments),
         referenceHintTemplate: hint,
         lastReferencedTurn: Math.max(turnFallback, Number(entry.lastTurn || 0)),
-        lastMentionedAt: Math.max(0, Number(entry.lastTs || nowTs)),
+        lastMentionedAt: Math.max(0, Number(entry.lastTs || 0)),
         lastUsedAt: 0,
         salience,
         confidence,
@@ -30206,6 +30206,30 @@ function learnedFieldProvenanceToApi(rows = []) {
     .slice(0, 16);
 }
 
+// Presentation recency must use an item's stored timestamps, never the time of
+// this read. Keep ranking's legacy staleness helper separate from unknown data.
+function buildMemoryCardRecency({
+  rememberedAt = 0,
+  lastUsedAt = 0,
+  lastSignalAt = 0,
+  activityAt = 0,
+  superseded = false,
+} = {}, nowTs = Date.now()) {
+  const recordedTimestamp = (value) => (
+    typeof value === "number" && Number.isFinite(value) && value > 0 && value <= nowTs
+      ? value : 0
+  );
+  const anchor = recordedTimestamp(activityAt);
+  const days = anchor ? computeThemeStalenessDays({ lastMentionedAt: anchor }, nowTs) : null;
+  return {
+    rememberedAt: recordedTimestamp(rememberedAt),
+    lastUsedAt: recordedTimestamp(lastUsedAt),
+    qualityLastFeedbackAt: recordedTimestamp(lastSignalAt),
+    stalenessDays: days,
+    stalenessBand: days === null ? "unknown" : (superseded ? "stale" : classifyThemeStalenessBand(days)),
+  };
+}
+
 function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now()) {
   const characters = Array.isArray(creativeMemory?.characters)
     ? creativeMemory.characters
@@ -30276,7 +30300,7 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
     ].filter(Boolean);
     const lastReferenced = Math.max(0, Number(character?.last_referenced || character?.lastReferenced || 0));
     const firstSeen = Math.max(0, Number(character?.first_seen || character?.firstSeen || 0));
-    const updatedAt = Math.max(lastReferenced, firstSeen, Number(creativeMemory?.updatedAt || 0));
+    const updatedAt = Math.max(lastReferenced, firstSeen);
     const idKey = normalizeMemoryCardId(name) || `character-${cards.length + 1}`;
     cards.push({
       id: `character-${idKey}`,
@@ -30290,22 +30314,15 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
       emotionalTone: voice,
       salience: 0.86,
       confidence: corrections.length || correctionReplacements.length ? 0.88 : 0.80,
-      rememberedAt: updatedAt || nowTs,
-      lastUsedAt: lastReferenced || updatedAt || 0,
       qualityScore: corrections.length || correctionReplacements.length ? 0.84 : 0.76,
       qualityHitCount: 0,
       qualityCorrectionCount: corrections.length + correctionReplacements.length,
-      qualityLastFeedbackAt: lastReferenced || updatedAt || 0,
-      stalenessDays: computeThemeStalenessDays(
-        { lastMentionedAt: lastReferenced || updatedAt || nowTs },
-        nowTs
-      ),
-      stalenessBand: classifyThemeStalenessBand(
-        computeThemeStalenessDays(
-          { lastMentionedAt: lastReferenced || updatedAt || nowTs },
-          nowTs
-        )
-      ),
+      ...buildMemoryCardRecency({
+        rememberedAt: updatedAt,
+        lastUsedAt: lastReferenced,
+        lastSignalAt: lastReferenced,
+        activityAt: lastReferenced || firstSeen,
+      }, nowTs),
       editable: true,
       snippets: [
         ...authoritativeFields.map((item) => `Authoritative ${item.field}: ${item.value}`),
@@ -30401,19 +30418,15 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
       emotionalTone: "",
       salience: status === "undone" ? 0.36 : 0.92,
       confidence: status === "undone" ? 0.72 : 0.96,
-      rememberedAt: undoneAt || createdAt || nowTs,
-      lastUsedAt: undoneAt || createdAt || 0,
       qualityScore: status === "undone" ? 0.68 : 0.92,
       qualityHitCount: 0,
       qualityCorrectionCount: 1,
-      qualityLastFeedbackAt: undoneAt || createdAt || 0,
-      stalenessDays: computeThemeStalenessDays(
-        { lastMentionedAt: undoneAt || createdAt || nowTs },
-        nowTs
-      ),
-      stalenessBand: classifyThemeStalenessBand(
-        computeThemeStalenessDays({ lastMentionedAt: undoneAt || createdAt || nowTs }, nowTs)
-      ),
+      ...buildMemoryCardRecency({
+        rememberedAt: undoneAt || createdAt,
+        lastUsedAt: undoneAt || createdAt,
+        lastSignalAt: undoneAt || createdAt,
+        activityAt: undoneAt || createdAt,
+      }, nowTs),
       editable: false,
       snippets: [
         matchedFacts.length ? `Changed canon: ${matchedFacts.join(" / ")}` : "",
@@ -30480,16 +30493,15 @@ function buildCanonCorrectionAmbiguityCards(creativeMemory = null, nowTs = Date.
       emotionalTone: "",
       salience: 0.98,
       confidence: 0.52,
-      rememberedAt: createdAt || nowTs,
-      lastUsedAt: createdAt || 0,
       qualityScore: 0.74,
       qualityHitCount: 0,
       qualityCorrectionCount: 1,
-      qualityLastFeedbackAt: createdAt || 0,
-      stalenessDays: computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs),
-      stalenessBand: classifyThemeStalenessBand(
-        computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs)
-      ),
+      ...buildMemoryCardRecency({
+        rememberedAt: createdAt,
+        lastUsedAt: createdAt,
+        lastSignalAt: createdAt,
+        activityAt: createdAt,
+      }, nowTs),
       editable: false,
       snippets: candidateFacts.map((fact) => `Possible canon: ${fact}`),
       referenceHint: candidateFacts[0] || correctionText,
@@ -30557,7 +30569,7 @@ function buildEpisodicMemoryCards(
         ? `${subject} Correction Memory`
         : `${subject} Story Memory`;
     const qualityScore = isSuperseded ? 0.32 : (isCorrection ? 0.86 : 0.74);
-    const rememberedAt = updatedAt || createdAt || nowTs;
+    const rememberedAt = updatedAt || createdAt;
     const snippets = [
       isSuperseded
         ? normalizeSnippet(episode?.supersededReason ?? episode?.superseded_reason, 220)
@@ -30587,24 +30599,16 @@ function buildEpisodicMemoryCards(
       emotionalTone: "",
       salience: isSuperseded ? 0.18 : (isCorrection ? 0.88 : 0.72),
       confidence: isSuperseded ? 0.36 : (isCorrection ? 0.88 : 0.76),
-      rememberedAt,
-      lastUsedAt: lastReferencedAt || updatedAt || 0,
       qualityScore,
       qualityHitCount: referenceCount,
       qualityCorrectionCount: isCorrection ? 1 : 0,
-      qualityLastFeedbackAt: lastReferencedAt || 0,
-      stalenessDays: computeThemeStalenessDays(
-        { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
-        nowTs
-      ),
-      stalenessBand: isSuperseded
-        ? "stale"
-        : classifyThemeStalenessBand(
-          computeThemeStalenessDays(
-            { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
-            nowTs
-          )
-        ),
+      ...buildMemoryCardRecency({
+        rememberedAt,
+        lastUsedAt: lastReferencedAt || updatedAt,
+        lastSignalAt: lastReferencedAt,
+        activityAt: lastReferencedAt || updatedAt || rememberedAt,
+        superseded: isSuperseded,
+      }, nowTs),
       editable: false,
       snippets,
       referenceHint: normalizeSnippet(excerpt || summary, 120),
@@ -30901,22 +30905,14 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       emotionalTone: normalizeSnippet(item.emotionalContinuity, 72),
       salience: 0.84,
       confidence: 0.78,
-      rememberedAt: Math.max(0, Number(item.updatedAt || 0)),
-      lastUsedAt: Math.max(0, Number(item.updatedAt || 0)),
       qualityScore: 0.78,
       qualityHitCount: 0,
       qualityCorrectionCount: 0,
-      qualityLastFeedbackAt: 0,
-      stalenessDays: computeThemeStalenessDays(
-        { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
-        nowTs
-      ),
-      stalenessBand: classifyThemeStalenessBand(
-        computeThemeStalenessDays(
-          { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
-          nowTs
-        )
-      ),
+      ...buildMemoryCardRecency({
+        rememberedAt: Number(item.updatedAt || 0),
+        lastUsedAt: Number(item.updatedAt || 0),
+        activityAt: Number(item.updatedAt || 0),
+      }, nowTs),
       editable: true,
       snippets: snippets.slice(0, 3),
       referenceHint: normalizeSnippet(item.nextScenePlan, 120),
@@ -31005,14 +31001,20 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       emotionalTone: normalizeThemeTone(theme?.emotionalTone, ""),
       salience: clampUnit(theme?.salience, 0),
       confidence: clampUnit(theme?.confidence, 0),
-      rememberedAt: Math.max(0, Number(theme?.lastMentionedAt || 0)),
-      lastUsedAt: Math.max(0, Number(theme?.lastUsedAt || 0)),
       qualityScore: computeThemeQualityScore(theme, nowTs),
       qualityHitCount: Math.max(0, Number(theme?.qualityHitCount || 0)),
       qualityCorrectionCount: Math.max(0, Number(theme?.qualityCorrectionCount || 0)),
-      qualityLastFeedbackAt: Math.max(0, Number(theme?.qualityLastFeedbackAt || 0)),
-      stalenessDays: computeThemeStalenessDays(theme, nowTs),
-      stalenessBand: classifyThemeStalenessBand(computeThemeStalenessDays(theme, nowTs)),
+      ...buildMemoryCardRecency({
+        rememberedAt: Number(theme?.lastMentionedAt || 0),
+        lastUsedAt: Number(theme?.lastUsedAt || 0),
+        lastSignalAt: Number(theme?.qualityLastFeedbackAt || 0),
+        activityAt: Math.max(
+          0,
+          Number(theme?.lastMentionedAt || 0),
+          Number(theme?.lastUsedAt || 0),
+          Number(theme?.qualityLastFeedbackAt || 0)
+        ),
+      }, nowTs),
       editable: true,
       snippets: sanitizeThreadQuoteFragments(theme?.quoteFragments).slice(0, 3),
       referenceHint: normalizeSnippet(theme?.referenceHintTemplate, 120),
@@ -31046,8 +31048,6 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         emotionalTone: "",
         salience: 0.42,
         confidence: 0.48,
-        rememberedAt: Math.max(0, Number(thread.updatedAt || 0)),
-        lastUsedAt: 0,
         qualityScore: computeThemeQualityScore(
           {
             lastMentionedAt: Math.max(0, Number(thread.updatedAt || 0)),
@@ -31058,17 +31058,10 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         ),
         qualityHitCount: 0,
         qualityCorrectionCount: 0,
-        qualityLastFeedbackAt: 0,
-        stalenessDays: computeThemeStalenessDays(
-          { lastMentionedAt: Math.max(0, Number(thread.updatedAt || 0)) },
-          nowTs
-        ),
-        stalenessBand: classifyThemeStalenessBand(
-          computeThemeStalenessDays(
-            { lastMentionedAt: Math.max(0, Number(thread.updatedAt || 0)) },
-            nowTs
-          )
-        ),
+        ...buildMemoryCardRecency({
+          rememberedAt: Number(thread.updatedAt || 0),
+          activityAt: Number(thread.updatedAt || 0),
+        }, nowTs),
         editable: false,
         snippets: snippets.slice(0, 3),
         referenceHint: "",
@@ -31094,8 +31087,6 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       emotionalTone: normalizeSnippet(memory?.lastFeelingHint, 40),
       salience: 0.5,
       confidence: 0.5,
-      rememberedAt: Math.max(0, Number(memory?.lastConversationAt || 0)),
-      lastUsedAt: 0,
       qualityScore: computeThemeQualityScore(
         {
           lastMentionedAt: Math.max(0, Number(memory?.lastConversationAt || 0)),
@@ -31106,17 +31097,10 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
       ),
       qualityHitCount: 0,
       qualityCorrectionCount: 0,
-      qualityLastFeedbackAt: 0,
-      stalenessDays: computeThemeStalenessDays(
-        { lastMentionedAt: Math.max(0, Number(memory?.lastConversationAt || 0)) },
-        nowTs
-      ),
-      stalenessBand: classifyThemeStalenessBand(
-        computeThemeStalenessDays(
-          { lastMentionedAt: Math.max(0, Number(memory?.lastConversationAt || 0)) },
-          nowTs
-        )
-      ),
+      ...buildMemoryCardRecency({
+        rememberedAt: Number(memory?.lastConversationAt || 0),
+        activityAt: Number(memory?.lastConversationAt || 0),
+      }, nowTs),
       editable: false,
       snippets: [
         normalizeSnippet(memory?.lastConversationSnapshot, 180),
@@ -33763,6 +33747,7 @@ export {
   resolveTalkScreenplayRequestedPageBatch,
   buildKnowledgeRetrievalAddendum,
   buildMemoryAddendum,
+  buildBackfilledThemesFromHistory,
   buildMemoryCards,
   buildMemoryStateVersion,
   buildSessionContinuitySnapshot,

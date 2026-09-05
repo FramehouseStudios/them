@@ -412,6 +412,12 @@ function nowMs() {
   return Date.now();
 }
 
+function storedTimestamp(value) {
+  if (typeof value !== "number" && typeof value !== "string") return 0;
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+}
+
 function makeEmptyMemory(userId) {
   return {
     userId: String(userId || ""),
@@ -1348,7 +1354,7 @@ function sanitizeProjectContinuity(value = {}) {
   const out = {
     projectId,
     projectTitle,
-    updatedAt: Math.max(0, Number(source.updatedAt ?? source.updated_at ?? nowMs())),
+    updatedAt: storedTimestamp(source.updatedAt ?? source.updated_at),
   };
   for (const [field, maxChars] of PROJECT_CONTINUITY_SCALAR_FIELDS) {
     const clean = cleanText(source[field], maxChars);
@@ -2707,9 +2713,9 @@ function sanitizeEpisodicMemoryItem(item = {}) {
   const projectId = cleanText(item.projectId ?? item.project_id, 96);
   const projectTitle = cleanText(item.projectTitle ?? item.project_title, 160);
   if (!summary && !text && !characterNames.length && !projectTitle) return null;
-  const createdAt = Math.max(0, Number(item.createdAt ?? item.created_at ?? nowMs()));
-  const updatedAt = Math.max(createdAt, Number(item.updatedAt ?? item.updated_at ?? createdAt));
-  const supersededAt = Math.max(0, Number(item.supersededAt ?? item.superseded_at ?? 0));
+  const createdAt = storedTimestamp(item.createdAt ?? item.created_at);
+  const updatedAt = Math.max(createdAt, storedTimestamp(item.updatedAt ?? item.updated_at));
+  const supersededAt = storedTimestamp(item.supersededAt ?? item.superseded_at);
   const id = cleanText(
     item.id || `episode_${stableHash([projectId, projectTitle, summary, text, characterNames.join("|")].join("|"))}`,
     80
@@ -2738,7 +2744,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     }),
     createdAt,
     updatedAt,
-    lastReferencedAt: Math.max(0, Number(item.lastReferencedAt ?? item.last_referenced_at ?? updatedAt)),
+    lastReferencedAt: storedTimestamp(item.lastReferencedAt ?? item.last_referenced_at ?? updatedAt),
     referenceCount: Math.max(0, Number(item.referenceCount ?? item.reference_count ?? 0)),
     ...(supersededAt ? {
       supersededAt,

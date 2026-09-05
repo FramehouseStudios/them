@@ -8,6 +8,9 @@
 // what the live helpers produce in the happy path.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import express from "express";
 
@@ -210,6 +213,92 @@ test("[memories] mount fails when TASKS_MAX_STORED is not a number", () => {
 });
 
 // ============== GET /memories ==============
+
+test("[memories] real undated creative records stay unknown and unchanged across later HTTP reads", async (t) => {
+  const importRoot = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-memories-recency-import-"));
+  const environment = {
+    RUN_SERVER: "0", OUTBOX_SNAPSHOT_ENABLED: "0", OPENAI_API_KEY: "test-openai-key",
+    REALTIME_PROVIDER: "stub", DATABASE_URL: "", SCALE_BACKPLANE_ENABLED: "0",
+    PERSISTENCE_JSON_ROOT: path.join(importRoot, "persistence"),
+  };
+  for (const variable of [
+    "USER_MEMORY_STORE_PATH", "SCREENPLAY_STORE_PATH", "USER_STORE_PATH",
+    "OUTBOX_STORE_PATH", "ASSISTANT_IDENTITY_STORE_PATH",
+  ]) environment[variable] = path.join(importRoot, `${variable.toLowerCase()}.json`);
+  const previousEnvironment = Object.fromEntries(Object.keys(environment).map((key) => [key, process.env[key]]));
+  const realNow = Date.now;
+  t.after(() => {
+    Date.now = realNow;
+    for (const [key, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(importRoot, { recursive: true, force: true });
+  });
+  Object.assign(process.env, environment);
+  const { buildMemoryCards, createEmptyEmotionMemory } = await import("../index.js");
+  let nowTs = 1_800_000_000_000;
+  Date.now = () => nowTs;
+  const persisted = {
+    userId: "user_memories_test", version: 1, updatedAt: nowTs,
+    projects: [{ projectId: "rain-docket", projectTitle: "Rain Docket", currentBeat: "Mara keeps the affidavit." }],
+    episodicMemories: [{ id: "episode-undated", summary: "Mara keeps the affidavit.", projectId: "rain-docket" }],
+    characters: [{ name: "Mara", voice: "Guarded, precise, dry under pressure." }],
+  };
+  const original = structuredClone(persisted);
+  let writes = 0;
+  const creativeMemoryStore = createCreativeMemoryStore({ persistence: {
+    async get({ domain, key }) {
+      assert.equal(domain, "creative_memory");
+      assert.equal(key, persisted.userId);
+      return structuredClone(persisted);
+    },
+    async put() { writes += 1; },
+  } });
+  const memory = createEmptyEmotionMemory();
+  const originalMemory = structuredClone(memory);
+  const deps = defaultDeps({
+    creativeMemoryStore,
+    buildMemoryCards,
+    buildConversationHistoryThreads: () => [],
+    resolveCanonicalWritableMemoryContext: async () => ({
+      memory, requesterIp: "10.0.0.1", authenticatedUserId: persisted.userId, canonical: true,
+      canonicalRecord: { userId: persisted.userId, memory },
+    }),
+    ifNoneMatchStateHit: (req, etag) => req.get("If-None-Match") === etag,
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const first = await getJson(baseURL, "/memories");
+    nowTs += 24 * 60 * 60 * 1000;
+    const later = await getJson(baseURL, "/memories?sinceVersion=v9");
+    for (const result of [first, later]) {
+      assert.equal(result.status, 200);
+      assert.equal(result.body.delta_no_change, false);
+      assert.deepEqual(result.body.memories.map((card) => card.source).sort(), [
+        "character_bible", "episodic_memory", "screenplay_project",
+      ]);
+      for (const card of result.body.memories) {
+        assert.equal(card.rememberedAt, 0, card.source);
+        assert.equal(card.lastUsedAt, 0, card.source);
+        assert.equal(card.qualityLastFeedbackAt, 0, card.source);
+        assert.equal(card.stalenessDays, null, card.source);
+        assert.equal(card.stalenessBand, "unknown", card.source);
+      }
+      assert.equal(result.headers.get("x-creative-memory-revision"), result.body.creative_memory_revision);
+    }
+    assert.deepEqual(later.body.memories, first.body.memories);
+    assert.equal(later.body.creative_memory_revision, first.body.creative_memory_revision);
+    assert.match(first.headers.get("etag"), /^W\/"memories_[a-f0-9]{32}"$/);
+    assert.equal(later.headers.get("etag"), first.headers.get("etag"));
+    const cached = await fetch(`${baseURL}/memories`, { headers: { "If-None-Match": first.headers.get("etag") } });
+    assert.equal(cached.status, 304);
+    assert.equal(cached.headers.get("x-creative-memory-revision"), first.body.creative_memory_revision);
+  });
+  assert.equal(writes, 0);
+  assert.equal(deps._calls.persistCanonicalWritableMemoryContext, 0);
+  assert.deepEqual(persisted, original);
+  assert.deepEqual(memory, originalMemory, "reads must not backfill or mutate account memory");
+});
 
 for (const reader of ["getCreativeMemoryLedger", "getCreativeMemoryForPrompt"]) {
   test(`[memories] failed ${reader} is a retryable read error, never empty or unchanged`, async () => {

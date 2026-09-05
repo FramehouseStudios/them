@@ -127,10 +127,31 @@ estimates use recorded signals and elapsed time; some creative-memory scores are
 assigned by memory type and correction status. Positive signals can include
 automatic use; reference counts are not proof of successful recall. Activity age
 is a system-reported value, not a verification that a memory is still correct.
-Source calculations can use default timestamps or scores; coverage validates the
-reported values, not their provenance. Client presentation must not fabricate
-missing scores, counts, or ages. Older responses without `scored_cards` do not
-establish the average's scored-card denominator.
+Score calculations can use defaults; coverage validates the reported values,
+not their accuracy. Client presentation must not fabricate missing scores,
+counts, or ages. Older responses without `scored_cards` do not establish the
+average's scored-card denominator.
+
+### Card recency
+
+Card display timestamps (`rememberedAt`, `lastUsedAt`,
+`qualityLastFeedbackAt`) use finite, positive item-level source timestamps no
+later than the response time. Unknown, invalid, or future display timestamps
+use the existing numeric `0` sentinel. A missing activity anchor produces
+`stalenessDays: null` and `stalenessBand: "unknown"`, not a fresh zero-day card.
+These fields describe the card snapshot, not a live clock.
+
+Opening a ledger does not assign creation/update dates to undated projects or
+episodes. An unrelated ledger-wide update does not date a character memory.
+Backfilled themes retain the source conversation date, or zero if undated.
+Actual write and recall events continue to set their event timestamps. The
+source data and correction audit timestamps are not rewritten based on the
+clock; a superseded memory stays superseded even when its age is unknown.
+
+Ranking's existing score formulas are unchanged. New reads cannot identify
+timestamps that older code already fabricated and persisted, so the client
+continues to call age **reported**, not verified. This rule covers card recency;
+nested learning/canon provenance has its own field-level timestamps.
 
 ## Response shape (200 delta-no-change)
 
