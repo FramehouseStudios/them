@@ -38,6 +38,18 @@ final class BackendUserFacingErrorMapperTests: XCTestCase {
         )
     }
 
+    func testPurchaseCodesMapWithoutAStage() {
+        let refused = Data(#"{"ok":false,"error":"iap_verify_not_wired","failClosed":true}"#.utf8)
+        XCTAssertEqual(
+            BackendUserFacingErrorMapper.displayMessage(from: refused, status: 503),
+            "Purchases are temporarily unavailable. Your purchase is saved and will be applied automatically."
+        )
+        XCTAssertEqual(
+            BackendUserFacingErrorMapper.message(forStage: "iap_credit", error: "iap_credit_failed"),
+            "We couldn't apply that purchase yet. You won't be charged again; we'll keep retrying."
+        )
+    }
+
     func testDisplayMessageDecodesStructuredBodies() {
         let data = Data(#"{"stage":"auth_user","error":"user_auth_required"}"#.utf8)
         XCTAssertEqual(

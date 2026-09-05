@@ -2179,6 +2179,18 @@ nonisolated enum BackendUserFacingErrorMapper {
     static func message(forStage stage: String?, error: String?) -> String {
         let s = (stage ?? "").lowercased()
         let e = (error ?? "").lowercased()
+        // Purchase codes: POST /billing/iap/credit sends {ok, error, message}
+        // with no stage, and the client wraps its own failures as iap_credit.
+        switch e {
+        case "iap_verify_not_configured", "iap_verify_not_wired":
+            return "Purchases are temporarily unavailable. Your purchase is saved and will be applied automatically."
+        case "iap_verify_failed", "iap_credit_failed":
+            return "We couldn't apply that purchase yet. You won't be charged again; we'll keep retrying."
+        case "iap_unknown_product":
+            return "That pack isn't available in this version. Please update the app."
+        default:
+            break
+        }
         let key = "\(s):\(e)"
         switch key {
         case "auth:user_auth_required", "auth_user:user_auth_required":
