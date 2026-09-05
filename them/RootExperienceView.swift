@@ -2717,6 +2717,39 @@ struct RootExperienceView: View {
             if !cleaned.isEmpty {
                 lastNonEmptyPartialTranscriptHint = String(cleaned.prefix(320))
                 hideReplyEcho()
+                // Ghost draft: ink the inferred screenplay element while the writer is
+                // still speaking. Pure local inference — no model round trip.
+                let bridge = ScreenplayLiveDraftBridge.shared
+                if isStudioSurfaceActive,
+                   let preview = ScreenplayGhostDraft.preview(
+                       fromPartial: cleaned,
+                       knownCharacters: ScreenplayGhostDraft.characterNames(in: bridge.draftText)
+                   ) {
+                    let wasStable = bridge.ghostStable
+                    let nowStable = voice.debugPartialStableSeconds >= 0.18
+                    if bridge.ghostDraftPreview != preview.text {
+                        bridge.ghostDraftPreview = preview.text
+                    }
+                    if bridge.ghostDraftElement != preview.element {
+                        bridge.ghostDraftElement = preview.element
+                    }
+                    if bridge.ghostStable != nowStable {
+                        bridge.ghostStable = nowStable
+                    }
+                    #if canImport(UIKit)
+                    if !wasStable && nowStable {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                    #endif
+                } else if bridge.ghostDraftPreview != nil {
+                    bridge.ghostDraftPreview = nil
+                    bridge.ghostDraftElement = nil
+                    bridge.ghostStable = false
+                }
+            } else if ScreenplayLiveDraftBridge.shared.ghostDraftPreview != nil {
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = nil
+                ScreenplayLiveDraftBridge.shared.ghostStable = false
             }
         }
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
@@ -2760,6 +2793,16 @@ struct RootExperienceView: View {
         }
         voice.onUtteranceReady = { wavData in
             hideReplyEcho()
+            // Ghost clears the moment the utterance finalizes; the committed text lands
+            // in draftText through the normal turn path. Haptic tick = ink committed.
+            if ScreenplayLiveDraftBridge.shared.ghostDraftPreview != nil {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+                ScreenplayLiveDraftBridge.shared.ghostDraftPreview = nil
+                ScreenplayLiveDraftBridge.shared.ghostDraftElement = nil
+                ScreenplayLiveDraftBridge.shared.ghostStable = false
+            }
             guard !isTurnSubmitting else {
                 isThinking = false
                 voice.markRequestFailed()

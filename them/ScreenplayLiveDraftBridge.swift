@@ -2261,6 +2261,8 @@ struct ScreenplayLocalStudioCommandFeedback {
 private enum ScreenplayLocalStudioCommand: Equatable {
     case confirmPendingAction
     case cancelPendingAction
+    case printScript(alternate: Bool)
+    case cancelPrint
     case jumpToLine(Int)
     case jumpToSceneOrdinal(Int)
     case jumpToSceneLabel(String)
@@ -2909,6 +2911,9 @@ struct ScreenplayFeatureWorkflowContextPersistencePolicy {
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
+    /// "Print the script" / "cancel" from Studio voice. Observed directly by the Studio
+    /// print pill; the bridge only routes commands into it.
+    let printVoice = ScreenplayPrintVoiceCoordinator()
     private static var globalSuppressSyncedVoiceInsertUntil: Date?
 
     private struct ProjectBindingContext {
@@ -2962,6 +2967,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
+    /// Ghost preview while user is still speaking — inferred screenplay element, faded in UI.
+    /// Set from `HerVoiceController.onPartialTranscript` via `RootExperienceView`, cleared on utterance finalization.
+    @Published var ghostDraftPreview: String?
+    @Published var ghostDraftElement: ScreenplayEditorElement?
+    @Published var ghostStable: Bool = false
     @Published var latestVoiceTurn: String = ""
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
@@ -7329,6 +7339,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return nil }
 
+        if let printCommand = ScreenplayPrintVoiceCommand.match(normalized: normalized) {
+            switch printCommand {
+            case let .print(alternate):
+                return .printScript(alternate: alternate)
+            case .cancel:
+                return .cancelPrint
+            }
+        }
         if normalized == "next element" || normalized == "next mode" {
             return .cycleElement(backward: false)
         }
@@ -7699,7 +7717,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     ) -> ScreenplayLocalStudioCommandFeedback? {
         guard let command = localStudioCommand(in: rawText) else { return nil }
 
-        if command != .confirmPendingAction && command != .cancelPendingAction,
+        if command != .confirmPendingAction && command != .cancelPendingAction && command != .cancelPrint,
            pendingStudioActionPreview != nil {
             pendingStudioActionPreview = nil
         }
@@ -7723,6 +7741,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 isError: false
             )
         case .cancelPendingAction:
+            if printVoice.cancel() {
+                target = .voicePin
+                feedback = ScreenplayLocalStudioCommandFeedback(
+                    confirmation: "Cancelled printing.",
+                    shouldSpeakConfirmation: true,
+                    isError: false
+                )
+                break
+            }
             guard let preview = cancelPendingStudioActionPreview() else {
                 return ScreenplayLocalStudioCommandFeedback(
                     confirmation: "There isn't a pending structural change to cancel.",
@@ -7736,6 +7763,35 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 shouldSpeakConfirmation: true,
                 isError: false
             )
+        case let .printScript(alternate):
+            let printFeedback = printVoice.handlePrint(alternate: alternate, draft: draftText)
+            if printFeedback.isError {
+                return printFeedback
+            }
+            target = .voicePin
+            feedback = printFeedback
+        case .cancelPrint:
+            if printVoice.cancel() {
+                target = .voicePin
+                feedback = ScreenplayLocalStudioCommandFeedback(
+                    confirmation: "Cancelled printing.",
+                    shouldSpeakConfirmation: true,
+                    isError: false
+                )
+            } else if let preview = cancelPendingStudioActionPreview() {
+                target = .voicePin
+                feedback = ScreenplayLocalStudioCommandFeedback(
+                    confirmation: "Canceled \(preview.title.lowercased()).",
+                    shouldSpeakConfirmation: true,
+                    isError: false
+                )
+            } else {
+                return ScreenplayLocalStudioCommandFeedback(
+                    confirmation: "Nothing is printing right now.",
+                    shouldSpeakConfirmation: true,
+                    isError: true
+                )
+            }
         case let .jumpToLine(line):
             jumpToLine(line)
             highlightLineRange(startLine: line)

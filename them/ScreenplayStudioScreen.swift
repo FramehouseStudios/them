@@ -2914,6 +2914,45 @@ private var directionOneScriptEditor: some View {
             .onDrop(of: [UTType.fileURL], isTargeted: $draftDropIsTargeted) { providers in
                 handleDraftDrop(providers: providers)
             }
+            ScreenplayPrintNoticePill(coordinator: liveDraftBridge.printVoice)
+                .padding(.horizontal, max((size.width - pageWidth) * 0.5, 16))
+                .padding(.top, 8)
+            if let ghost = liveDraftBridge.ghostDraftPreview, !ghost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.herText.opacity(0.35))
+                        .padding(.top, 3)
+                    Text(ghost)
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Color.herText.opacity(liveDraftBridge.ghostStable ? 0.62 : 0.52))
+                        .lineLimit(2)
+                        .multilineTextAlignment(liveDraftBridge.ghostDraftElement == .character ? .center : (liveDraftBridge.ghostDraftElement == .transition ? .trailing : .leading))
+                        .frame(maxWidth: liveDraftBridge.ghostDraftElement == .character || liveDraftBridge.ghostDraftElement == .transition ? .infinity : nil, alignment: liveDraftBridge.ghostDraftElement == .character ? .center : (liveDraftBridge.ghostDraftElement == .transition ? .trailing : .leading))
+                        .padding(.leading, {
+                            switch liveDraftBridge.ghostDraftElement {
+                            case .dialogue: return 96
+                            case .parenthetical: return 126
+                            case .character: return 40
+                            default: return 0
+                            }
+                        }())
+                        .accessibilityIdentifier("studio.ghostDraft")
+                    Spacer(minLength: 0)
+                    Text("listening…")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.herText.opacity(0.32))
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.56))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.herText.opacity(0.08), lineWidth: 1))
+                .padding(.horizontal, max((size.width - pageWidth) * 0.5, 16))
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(.easeInOut(duration: 0.18), value: liveDraftBridge.ghostDraftPreview)
+            }
         }
     }
 

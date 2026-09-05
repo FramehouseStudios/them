@@ -541,6 +541,10 @@ struct VoiceSettingsScreen: View {
                         )
                     }
 
+                    settingsSection("Print") {
+                        printSettingsSection
+                    }
+
                     settingsSection("Relationship") {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 12) {
@@ -722,6 +726,82 @@ struct VoiceSettingsScreen: View {
                 Circle()
                     .stroke(Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.35), lineWidth: 1)
             )
+    }
+
+    private var printSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Paper size")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text("Letter in US, A4 elsewhere — auto by device region. Override here, never at print time.")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { ScreenplayPrintMemory.paperOverride },
+                    set: { ScreenplayPrintMemory.paperOverride = $0 }
+                )) {
+                    ForEach(ScreenplayPrintPaper.allCases, id: \.rawValue) { p in
+                        Text(p == .system ? "Auto" : p == .letter ? "Letter" : "A4").tag(p)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            Divider().overlay(Color.white.opacity(0.07))
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Printer")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text(ScreenplayPrintMemory.rememberedPrinterName.map { "Remembered: \($0)" } ?? "No printer remembered — you'll pick one on first print. After that, \"print the script\" goes straight to paper.")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                if ScreenplayPrintMemory.rememberedPrinterURL != nil {
+                    Button("Forget") { ScreenplayPrintMemory.forgetPrinter() }
+                        .buttonStyle(.bordered)
+                        .tint(.white.opacity(0.18))
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(Color.white.opacity(0.015))
+            Divider().overlay(Color.white.opacity(0.07))
+            HStack(spacing: 8) {
+                Image(systemName: "printer.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("Say \"print the script\" or \"print somewhere else\" to choose another printer. Works from Siri and Shortcuts too.")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            #if DEBUG
+            HStack(spacing: 8) {
+                Image(systemName: "doc.richtext")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.30))
+                Text("Debug: \(ScreenplayPrintMemory.effectivePaper == .a4 ? "A4" : "Letter") · \(ScreenplayPrintMemory.rememberedPrinterName ?? "no printer")")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.30))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+            #endif
+        }
+        .background(Color.white.opacity(0.015))
     }
 
     private func miniStat(label: String, value: String) -> some View {
