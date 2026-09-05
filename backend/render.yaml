@@ -83,6 +83,12 @@ services:
         value: "gpt-5.6-sol"
       - key: CHAT_MODEL_STRUCTURAL_FALLBACK
         value: "gpt-4o"
+      # Muse Spark brain (D008). Read only when CLEMENTINE_MUSE_ENABLED=1 and a
+      # MODEL_API_KEY/MUSE_API_KEY is set in the dashboard. Change this value to
+      # trial a newer model (e.g. muse-spark-1.3) without a code change; D008
+      # requires the companion golden-set eval before promoting a new default.
+      - key: MUSE_MODEL
+        value: "muse-spark-1.2"
       - key: CHAT_STRUCTURAL_REASONING_EFFORT
         value: "medium"
       - key: CHAT_SCREENPLAY_REPAIR_REASONING_EFFORT

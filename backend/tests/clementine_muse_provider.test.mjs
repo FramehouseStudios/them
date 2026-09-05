@@ -95,7 +95,8 @@ test("[muse-provider] CLEMENTINE_PROVIDER=muse + MUSE_API_KEY enables", async ()
   );
 });
 
-test("[muse-provider] messagesToMuseParts + request shape (Standard, store:false)", () => {
+test("[muse-provider] messagesToMuseParts + request shape (Standard, store:false)", async () => {
+  await withEnv({ MUSE_MODEL: undefined }, () => {
   const mapped = messagesToMuseParts([
     { role: "system", content: "You are Clementine." },
     { role: "user", content: "continue the scene softly" },
@@ -117,6 +118,7 @@ test("[muse-provider] messagesToMuseParts + request shape (Standard, store:false
   assert.equal(body.store, false);
   assert.equal(body.reasoning.effort, "low");
   assert.equal(body.prompt_cache_key, mapped.promptCacheKey);
+  });
 });
 
 test("[muse-provider] muse-aware chatSupplier uses Muse when gated; OpenAI otherwise", async () => {
@@ -166,6 +168,7 @@ test("[muse-provider] muse-aware chatSupplier uses Muse when gated; OpenAI other
       CLEMENTINE_MUSE_ENABLED: "1",
       CLEMENTINE_PROVIDER: "muse",
       MODEL_API_KEY: "test-meta-key",
+      MUSE_MODEL: undefined, // assert the D008 default, not the developer's shell
     },
     async () => {
       const museClient = createMuseClient({
