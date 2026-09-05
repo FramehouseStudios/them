@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   KNOWN_DOMAINS,
@@ -22,8 +23,17 @@ import {
 
 // ---------- in-memory pg-shaped mock ----------
 
-function createPgMock() {
+function reorderJSONKeys(value) {
+  if (Array.isArray(value)) return value.map(reorderJSONKeys);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, reorderJSONKeys(value[key])]));
+  }
+  return value;
+}
+
+function createPgMock({ reorderJSONB = false } = {}) {
   const tables = new Map(); // tableName -> Map(key -> { value, updated_at })
+  const parseValue = (value) => reorderJSONB ? reorderJSONKeys(JSON.parse(value)) : JSON.parse(value);
   function ensure(t) {
     if (!tables.has(t)) tables.set(t, new Map());
     return tables.get(t);
@@ -40,7 +50,8 @@ function createPgMock() {
       if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(trimmed)) {
         return { rows: [], rowCount: 0 };
       }
-      if (/^SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, 7468656d\)\)$/i.test(trimmed)) {
+      if (/^SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, \$2::bigint\)\)$/i.test(trimmed)) {
+        assert.equal(params[1], 0x7468656d);
         return { rows: [{ pg_advisory_xact_lock: "" }], rowCount: 1 };
       }
       // SELECT one
@@ -61,7 +72,7 @@ function createPgMock() {
         const tbl = ensure(m[1]);
         const row = tbl.get(params[0]);
         const expected = JSON.parse(params[1]);
-        const matches = row && JSON.stringify(row.value) === JSON.stringify(expected);
+        const matches = row && isDeepStrictEqual(row.value, expected);
         return { rows: matches ? [{ value: row.value }] : [], rowCount: matches ? 1 : 0 };
       }
       m = trimmed.match(/^SELECT key, value FROM (\w+) WHERE value->>'userId' = \$1 ORDER BY key ASC FOR UPDATE$/i);
@@ -82,11 +93,11 @@ function createPgMock() {
             return { rows: [], rowCount: 0 };
           }
           if (tbl.has(params[0])) return { rows: [], rowCount: 0 };
-          const value = JSON.parse(params[1]);
+          const value = parseValue(params[1]);
           tbl.set(params[0], { value, updated_at: new Date() });
           return { rows: [{ key: params[0] }], rowCount: 1 };
         }
-        const value = JSON.parse(params[1]);
+        const value = parseValue(params[1]);
         tbl.set(params[0], { value, updated_at: new Date() });
         return { rowCount: 1 };
       }
@@ -96,10 +107,10 @@ function createPgMock() {
         const tbl = ensure(m[1]);
         const row = tbl.get(params[0]);
         const expected = JSON.parse(params[1]);
-        if (!row || JSON.stringify(row.value) !== JSON.stringify(expected)) {
+        if (!row || !isDeepStrictEqual(row.value, expected)) {
           return { rows: [], rowCount: 0 };
         }
-        row.value = JSON.parse(params[2]);
+        row.value = parseValue(params[2]);
         row.updated_at = new Date();
         return {
           rows: [m[2].toLowerCase() === "value" ? { value: row.value } : { key: params[0] }],
@@ -739,6 +750,40 @@ test("[postgres] password reset atomically updates password, consumes token, and
   assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
 });
 
+test("[postgres] password reset accepts reordered JSONB objects without accepting changed identity or password reuse", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock({ reorderJSONB: true }) });
+  const expectedUser = authUser();
+  const updatedUser = reorderJSONKeys(authUser({ passwordHash: "new-hash", updatedAt: 2_000 }));
+  const expectedToken = passwordResetToken();
+  const consumedToken = passwordResetToken({ usedAt: 2_000 });
+  const sibling = passwordResetToken({ tokenHash: "reordered-sibling" });
+  const session = authSession({ sessionId: "reordered-session" });
+  await p.put({ domain: "auth_users", key: expectedUser.id, value: expectedUser });
+  await p.put({ domain: "auth_sessions", key: session.sessionId, value: session });
+  for (const token of [expectedToken, sibling]) {
+    await p.put({ domain: "auth_password_reset_tokens", key: token.tokenHash, value: token });
+  }
+  const storedToken = await p.get({ domain: "auth_password_reset_tokens", key: expectedToken.tokenHash });
+  assert.notEqual(JSON.stringify(storedToken), JSON.stringify(expectedToken));
+  assert.deepEqual(storedToken, expectedToken);
+  for (const invalidUser of [
+    { ...updatedUser, email: "someone-else@example.com" },
+    { ...updatedUser, password: reorderJSONKeys(expectedUser.password) },
+  ]) {
+    await assert.rejects(
+      p.completePasswordReset({ expectedUser, updatedUser: invalidUser, expectedToken, consumedToken }),
+      /must change only password material/,
+    );
+  }
+  const result = await p.completePasswordReset({ expectedUser, updatedUser, expectedToken, consumedToken });
+  assert.equal(result.status, "committed");
+  assert.deepEqual(await p.get({ domain: "auth_users", key: expectedUser.id }), updatedUser);
+  assert.deepEqual(await p.get({ domain: "auth_password_reset_tokens", key: expectedToken.tokenHash }), consumedToken);
+  assert.equal((await p.get({ domain: "auth_password_reset_tokens", key: sibling.tokenHash })).usedAt, 2_000);
+  assert.equal((await p.get({ domain: "auth_sessions", key: session.sessionId })).revokedAt, 2_000);
+  assert.equal((await p.completePasswordReset({ expectedUser, updatedUser, expectedToken, consumedToken })).status, "conflict");
+});
+
 test("[postgres] password reset rejects mixed-user and duplicate canonical token rows", async () => {
   const expectedUser = authUser();
   const updatedUser = authUser({ passwordHash: "new-hash", updatedAt: 2_000 });
@@ -1082,7 +1127,9 @@ test("[postgres] reset and login issuance share the user lock in both serial ord
   for (const result of [loginFirst, resetFirst]) {
     const locks = result.calls.filter((call) => call.sql.startsWith("SELECT pg_advisory_xact_lock"));
     assert.equal(locks.length, 2);
-    assert.deepEqual(locks.map((call) => call.params), [[result.expectedUser.id], [result.expectedUser.id]]);
+    assert.deepEqual(locks.map((call) => call.params), [
+      [result.expectedUser.id, 0x7468656d], [result.expectedUser.id, 0x7468656d],
+    ]);
   }
 });
 
@@ -1243,6 +1290,31 @@ test("[postgres] single-session revocation is idempotent and leaves unrelated us
   assert.equal(repeated.status, "committed");
   assert.deepEqual(repeated.sessions, [revoked]);
   assert.deepEqual(await p.get({ domain: "auth_sessions", key: unrelated.sessionId }), unrelated);
+});
+
+test("[postgres] session revocation accepts reordered nested metadata but rejects changed content", async () => {
+  const p = createPostgresPersistence({ pgClient: createPgMock({ reorderJSONB: true }) });
+  const current = {
+    ...authSession({ sessionId: "metadata-reorder" }),
+    metadata: { source: "iphone", device: { platform: "ios", label: "writer" }, scopes: ["write", "read"] },
+  };
+  const revoked = { ...current, metadata: reorderJSONKeys(current.metadata), revokedAt: 2_000, updatedAt: 2_000 };
+  await p.put({ domain: "auth_sessions", key: current.sessionId, value: current });
+  for (const metadata of [
+    { ...current.metadata, source: "another-device" },
+    { ...current.metadata, device: { ...current.metadata.device, label: "different" } },
+    { ...current.metadata, scopes: ["read", "write"] },
+  ]) {
+    await assert.rejects(p.revokeAuthSessions({
+      userId: current.userId, expectedSessions: [current], revokedSessions: [{ ...revoked, metadata }],
+    }), /must preserve identity/);
+    assert.deepEqual(await p.get({ domain: "auth_sessions", key: current.sessionId }), current);
+  }
+  const result = await p.revokeAuthSessions({
+    userId: current.userId, expectedSessions: [current], revokedSessions: [revoked],
+  });
+  assert.equal(result.status, "committed");
+  assert.deepEqual(await p.get({ domain: "auth_sessions", key: current.sessionId }), revoked);
 });
 
 test("[postgres] session revocation rejects mixed users and duplicate rows before I/O", async () => {
@@ -1448,7 +1520,9 @@ test("[postgres] refresh and revoke share one user lock and preserve both serial
   for (const result of [refreshFirst, revokeFirst]) {
     const locks = result.calls.filter((call) => call.sql.startsWith("SELECT pg_advisory_xact_lock"));
     assert.equal(locks.length, 2);
-    assert.deepEqual(locks.map((call) => call.params), [[result.current.userId], [result.current.userId]]);
+    assert.deepEqual(locks.map((call) => call.params), [
+      [result.current.userId, 0x7468656d], [result.current.userId, 0x7468656d],
+    ]);
   }
 });
 

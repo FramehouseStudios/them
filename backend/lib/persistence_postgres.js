@@ -9,6 +9,7 @@
 // applied via the migration script. Production deploys must run
 // migrations before booting the backend.
 
+import { isDeepStrictEqual } from "node:util";
 import {
   KNOWN_DOMAINS,
   assertDomain,
@@ -222,7 +223,7 @@ function assertAuthSessionRevocations(userId, expectedSessions, revokedSessions)
       || Number(expectedSession.expiresAt || 0) !== Number(revokedSession.expiresAt || 0)
       || String(expectedSession.replacedBySessionId || "").trim()
         !== String(revokedSession.replacedBySessionId || "").trim()
-      || JSON.stringify(expectedSession.metadata || {}) !== JSON.stringify(revokedSession.metadata || {})
+      || !isDeepStrictEqual(expectedSession.metadata || {}, revokedSession.metadata || {})
       || Number(revokedSession.revokedAt || 0) <= 0
     ) {
       throw new Error("auth session revocation must preserve identity and revoke the session");
@@ -269,11 +270,11 @@ function assertPasswordResetCompletion({
   delete updatedIdentity.password;
   delete updatedIdentity.updatedAt;
   if (
-    JSON.stringify(expectedIdentity) !== JSON.stringify(updatedIdentity)
+    !isDeepStrictEqual(expectedIdentity, updatedIdentity)
     || !updatedUser.password
     || typeof updatedUser.password !== "object"
     || Array.isArray(updatedUser.password)
-    || JSON.stringify(updatedUser.password) === JSON.stringify(expectedUser.password)
+    || isDeepStrictEqual(updatedUser.password, expectedUser.password)
     || Number(updatedUser.updatedAt || 0) < completedAt
   ) {
     throw new Error("password reset completion must change only password material and update time");
@@ -320,9 +321,11 @@ async function lockAuthUserMutation(transactionClient, userId) {
   // Rotation and user-wide revocation take the same transaction-scoped lock.
   // This closes the insertion race where a refresh could otherwise add a
   // replacement session after a revoke-all query took its statement snapshot.
+  // Bind the "them" namespace seed as a bigint; a bare hex string is not a
+  // PostgreSQL numeric literal and would abort every account transaction.
   await transactionClient.query(
-    "SELECT pg_advisory_xact_lock(hashtextextended($1, 7468656d))",
-    [userId],
+    "SELECT pg_advisory_xact_lock(hashtextextended($1, $2::bigint))",
+    [userId, 0x7468656d],
   );
 }
 
@@ -605,7 +608,8 @@ function createPostgresPersistence({
           }
           observedTokenHashes.add(rowTokenHash);
           if (rowTokenHash === tokenHash) {
-            presentedTokenMatches = JSON.stringify(row.value) === JSON.stringify(expectedToken);
+            // JSONB can reorder object keys. Compare content, not serialization order.
+            presentedTokenMatches = isDeepStrictEqual(row.value, expectedToken);
           }
         }
         if (!presentedTokenMatches) {
@@ -636,7 +640,7 @@ function createPostgresPersistence({
           }
           const canonicalToken = updated?.rows?.[0]?.value || invalidated;
           assertCanonicalPasswordResetTokenForUser(row.key, canonicalToken, userId);
-          if (JSON.stringify(canonicalToken) !== JSON.stringify(invalidated)) {
+          if (!isDeepStrictEqual(canonicalToken, invalidated)) {
             throw new Error("password reset token invalidation returned unexpected canonical state");
           }
           tokens.push(canonicalToken);
