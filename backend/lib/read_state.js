@@ -164,14 +164,22 @@ function createReadStateHelpers(deps = {}) {
   function ifNoneMatchStateHit(req, etag, stateVersion) {
     const candidates = parseIfNoneMatchValues(req.get("If-None-Match"));
     if (!candidates.length) return false;
+    const stripWeak = (value) => value.replace(/^w\//, "");
+    const stripQuotes = (value) => value.replace(/^"|"$/g, "");
     const etagLower = String(etag || "").toLowerCase();
     const stateLower = String(stateVersion || "").toLowerCase();
+    const etagBare = stripWeak(etagLower);
+    const stateBare = stripQuotes(stateLower);
+    // An absent validator never matches. Routes that validate only by ETag pass
+    // an empty state version; without these guards a client sending
+    // If-None-Match: "" would receive 304 for content it has never seen.
     return candidates.some((candidate) => {
       const normalized = candidate.toLowerCase();
-      return normalized === etagLower ||
-        normalized === stateLower ||
-        normalized.replace(/^w\//, "") === etagLower.replace(/^w\//, "") ||
-        normalized.replace(/^w\//, "").replace(/^"|"$/g, "") === stateLower.replace(/^"|"$/g, "");
+      const bare = stripWeak(normalized);
+      return (Boolean(etagLower) && normalized === etagLower) ||
+        (Boolean(stateLower) && normalized === stateLower) ||
+        (Boolean(etagBare) && bare === etagBare) ||
+        (Boolean(stateBare) && stripQuotes(bare) === stateBare);
     });
   }
 

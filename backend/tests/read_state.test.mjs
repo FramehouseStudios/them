@@ -82,6 +82,21 @@ test("[read-state] parses conditional state validators", () => {
   assert.equal(helpers.ifNoneMatchStateHit(request(), 'W/"abc123"', "abc123"), false);
 });
 
+test("[read-state] an empty validator never produces a conditional hit", () => {
+  const helpers = createReadStateHelpers(deps());
+  // ETag-only routes (memories list with a creative store) pass no state version.
+  for (const header of ['""', 'W/""', '"", "other"']) {
+    const req = request({ "If-None-Match": header });
+    assert.equal(helpers.ifNoneMatchStateHit(req, 'W/"memories_abc"', ""), false, header);
+    assert.equal(helpers.ifNoneMatchStateHit(req, "", ""), false, header);
+    assert.equal(helpers.ifNoneMatchStateHit(req, "", "abc123"), false, header);
+  }
+  // Real validators still match with or without the weak prefix.
+  const hit = request({ "If-None-Match": '"memories_abc"' });
+  assert.equal(helpers.ifNoneMatchStateHit(hit, 'W/"memories_abc"', ""), true);
+  assert.equal(helpers.ifNoneMatchStateHit(request({ "If-None-Match": "abc123" }), "", "abc123"), true);
+});
+
 test("[read-state] never accepts a session owned by another authenticated user", () => {
   const helpers = createReadStateHelpers(deps({
     getValidSession: () => ({ userId: "other-user", memory: { marker: "wrong-session" } }),
