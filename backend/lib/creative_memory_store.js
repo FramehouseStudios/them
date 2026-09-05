@@ -5524,7 +5524,13 @@ function createCreativeMemoryStore({
           projectIdentity(project).projectId === cleanProjectId
         ));
       }
-      if (projectIndex < 0 && cleanProjectTitle) {
+      if (!cleanProjectId && projectIndex < 0 && cleanProjectTitle) {
+        const titleMatches = projects.filter((project) => (
+          projectIdentity(project).projectTitle === cleanProjectTitle
+        ));
+        if (titleMatches.length > 1) {
+          return { ok: false, reason: "ambiguous_project_identity" };
+        }
         projectIndex = projects.findIndex((project) => (
           projectIdentity(project).projectTitle === cleanProjectTitle
         ));
@@ -5589,6 +5595,7 @@ function createCreativeMemoryStore({
         projectTitle: updatedProject?.projectTitle || project.projectTitle || "",
         updatedAt,
         creativeMemoryRevision: buildCreativeMemoryRevision(current),
+        project: clone(updatedProject),
       };
     });
   }

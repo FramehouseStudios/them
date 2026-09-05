@@ -884,15 +884,16 @@ function mountMemoriesRoutes(app, deps = {}) {
           status: String(receipt?.reason || "story_move_preference_failed"),
           message: notFound
             ? "That screenplay memory could not be found."
-            : "The preference could not be updated.",
+            : receipt?.reason === "ambiguous_project_identity"
+              ? "More than one screenplay has this title. Open the intended screenplay and try again."
+              : "The preference could not be updated.",
           request_id: rid,
         });
       }
-      const creativeMemory = await readCreativeMemoryForUser(
-        userId,
-        `${receipt.projectTitle || projectTitle} story move preferences`
-      );
-      const creativeMemoryRevision = buildCreativeMemoryRevision(creativeMemory);
+      if (!receipt.project || !receipt.creativeMemoryRevision) {
+        throw new Error("Story preference commit did not return its saved state.");
+      }
+      const creativeMemoryRevision = receipt.creativeMemoryRevision;
       const memory = sanitizePersistedSessionMemory(context.memory);
       const readMeta = buildReadStateMeta(req, memory, context.requesterIp);
       res.setHeader("Cache-Control", "no-store");
@@ -902,15 +903,15 @@ function mountMemoriesRoutes(app, deps = {}) {
         ok: true,
         action: "story_move_preference",
         status: action,
+        project_id: receipt.projectId,
+        project_title: receipt.projectTitle,
+        family: receipt.family,
         message: action === "reset_all"
           ? "Creative preference learning was reset for this screenplay."
           : action === "reset"
             ? "That creative preference was reset."
             : "Clementine will use this correction when ranking future story moves.",
-        story_move_preferences: buildStoryMovePreferencesPayload(creativeMemory, {
-          projectId: receipt.projectId || projectId,
-          projectTitle: receipt.projectTitle || projectTitle,
-        }),
+        story_move_preferences: buildStoryMovePreferencesPayload({ projects: [receipt.project] }),
         session_id: readMeta.sessionId,
         state_version: readMeta.stateVersion,
         creative_memory_revision: creativeMemoryRevision,

@@ -1467,6 +1467,9 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     let storyMovePreferences: [BackendStoryMovePreference]?
     let storyObligationCorrection: BackendStoryObligationCorrection?
+    let projectId: String?
+    let projectTitle: String?
+    let family: String?
     let sessionId: String?
     let stateVersion: String?
     let creativeMemoryRevision: String?
@@ -9127,7 +9130,8 @@ actor BackendMemoryAPI {
         projectID: String,
         projectTitle: String,
         family: String,
-        action: String
+        action: String,
+        expectedCreativeMemoryRevision: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "action": action,
@@ -9140,7 +9144,8 @@ actor BackendMemoryAPI {
         if !cleanFamily.isEmpty { payload["family"] = cleanFamily }
         return try await runMemoryMutation(
             path: "/memories/story-preferences/update",
-            payload: payload
+            payload: payload,
+            expectedCreativeMemoryRevision: expectedCreativeMemoryRevision
         )
     }
 

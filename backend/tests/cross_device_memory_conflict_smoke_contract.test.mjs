@@ -70,12 +70,14 @@ test("[cross-device-memory-conflict] Memories refreshes before presenting mutati
     ["promoteMemory", "performCardAction"],
     ["undoCanonCorrection", "performCanonAction"],
     ["resolveCanonCorrection", "performCanonAction"],
+    ["updateStoryMovePreference", "performStoryPreferenceAction"],
+    ["resetAllStoryMovePreferences", "performStoryPreferenceAction"],
   ]) {
     assert.ok(method(entry).includes(`${handler}(`), `${entry} must use ${handler}`);
   }
   for (const handler of [
     "updateMemory", "forgetMemory", "performCardAction", "performCanonAction",
-    "updateStoryMovePreference", "resetAllStoryMovePreferences", "correctStoryObligation",
+    "performStoryPreferenceAction", "correctStoryObligation",
   ]) {
     const body = method(handler);
     const conflict = body.search(/backendError\.isCrossDeviceMemoryConflict|BackendMemoryAPIError\.server\(409, (?:_|let message)\)/);

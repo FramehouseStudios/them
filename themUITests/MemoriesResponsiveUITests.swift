@@ -405,6 +405,122 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
+    func testCreativePreferencesPreserveFailedChangesAndConfirmProjectReset() throws {
+        #if os(iOS)
+        let app = launchPreferenceFixture()
+        defer { app.terminate() }
+        let toggle = app.buttons["memories.story-preferences.toggle"]
+        assertMinimumTarget(toggle)
+        toggle.tap()
+        let adjust = app.buttons["memories.story-preference.emotional_reveal.menu"]
+        reveal(adjust, in: app)
+        assertMinimumTarget(adjust)
+        capture("Memories - Readable creative preferences")
+        adjust.tap()
+        app.buttons["Suggest More Like This"].tap()
+        let error = element("memories.story-preferences.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(error.label.contains("Check your connection"))
+        XCTAssertTrue(adjust.exists, "An unconfirmed write must preserve the reviewed preference.")
+        capture("Memories - Preference failure remains recoverable")
+
+        app.buttons["memories.refresh"].tap()
+        reveal(adjust, in: app)
+        adjust.tap()
+        app.buttons["Suggest More Like This"].tap()
+        XCTAssertTrue(app.staticTexts["Your choice: more"].waitForExistence(timeout: 4))
+        XCTAssertTrue(element("memories.action-notice", in: app).label.contains("Clementine will suggest more"))
+        adjust.tap()
+        app.buttons["Suggest Less Like This"].tap()
+        XCTAssertTrue(app.staticTexts["Your choice: less"].waitForExistence(timeout: 4))
+        app.buttons["memories.refresh"].tap()
+        XCTAssertTrue(app.staticTexts["Your choice: less"].waitForExistence(timeout: 4))
+        capture("Memories - Saved preference survives refresh")
+
+        let reset = app.buttons["memories.story-preferences.reset-all"]
+        reveal(reset, in: app)
+        assertMinimumTarget(reset)
+        reset.tap()
+        let confirm = app.buttons["Reset Project Preferences"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "The Last Crossing at the Lighthouse")).firstMatch.exists)
+        capture("Memories - Reviewed project reset confirmation")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Your choice: less"].exists)
+        reset.tap()
+        confirm.tap()
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Your choice: less"].exists, "An offline reset cannot clear local preferences.")
+        capture("Memories - Failed reset preserves preferences")
+        app.buttons["memories.refresh"].tap()
+        reveal(reset, in: app)
+        reset.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.tap()
+        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 4), .completed)
+        XCTAssertTrue(element("memories.action-notice", in: app).label.contains("Story facts stay intact"))
+        app.buttons["memories.refresh"].tap()
+        XCTAssertFalse(toggle.exists)
+        XCTAssertTrue(app.buttons["memories.card.ui-lighthouse"].exists, "Resetting preferences must preserve remembered story facts.")
+        capture("Memories - Preference reset preserves story memories")
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("Creative preference interaction is an iPhone workflow.")
+        #endif
+    }
+
+    func testSingleCreativePreferenceResetRequiresReviewAndPreservesOfflineState() throws {
+        #if os(iOS)
+        let app = launchPreferenceFixture()
+        defer { app.terminate() }
+        app.buttons["memories.story-preferences.toggle"].tap()
+        let adjust = app.buttons["memories.story-preference.emotional_reveal.menu"]
+        reveal(adjust, in: app)
+        adjust.tap()
+        app.buttons["Reset This Preference…"].tap()
+        let confirm = app.buttons["Reset This Preference"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        capture("Memories - Reviewed single preference reset")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(adjust.exists)
+        for attempt in 0..<2 {
+            reveal(adjust, in: app)
+            adjust.tap()
+            app.buttons["Reset This Preference…"].tap()
+            XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+            confirm.tap()
+            if attempt == 0 {
+                XCTAssertTrue(element("memories.story-preferences.error", in: app).waitForExistence(timeout: 4))
+                XCTAssertTrue(adjust.exists)
+                app.buttons["memories.refresh"].tap()
+            }
+        }
+        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: adjust)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 4), .completed)
+        XCTAssertTrue(element("memories.action-notice", in: app).label.contains("preference reset"))
+        app.buttons["memories.refresh"].tap()
+        XCTAssertFalse(adjust.exists)
+        XCTAssertTrue(app.buttons["memories.card.ui-lighthouse"].exists)
+        #else
+        throw XCTSkip("Creative preference reset is an iPhone workflow.")
+        #endif
+    }
+
+    private func launchPreferenceFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-preferences-fixture",
+            "-studio_debug_submit_transport_mode", "stub",
+        ]
+        app.launch()
+        XCTAssertTrue(element("memories.screen", in: app).waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["memories.story-preferences.toggle"].waitForExistence(timeout: 4))
+        return app
+    }
+
     private func reveal(_ target: XCUIElement, in app: XCUIApplication) {
         XCTAssertTrue(target.waitForExistence(timeout: 4))
         for _ in 0..<5 where !target.isHittable { app.swipeUp() }

@@ -188,6 +188,44 @@ enum MemoryForgetPresentation {
 
 // MARK: - ViewModel
 
+struct StoryPreferenceScope: Hashable {
+    let projectID: String
+    let projectTitle: String
+
+    init(_ preference: BackendStoryMovePreference) {
+        projectID = preference.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        projectTitle = preference.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var name: String { projectTitle.isEmpty ? "this screenplay" : projectTitle }
+    var key: String { projectID.isEmpty ? "title:\(projectTitle.lowercased())" : "id:\(projectID.lowercased())" }
+    var isValid: Bool { !projectID.isEmpty || !projectTitle.isEmpty }
+
+    func matches(projectID: String, projectTitle: String) -> Bool {
+        if !self.projectID.isEmpty {
+            return self.projectID.lowercased() == projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        return projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            self.projectTitle.lowercased() == projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    func contains(_ preference: BackendStoryMovePreference) -> Bool {
+        matches(projectID: preference.projectId, projectTitle: preference.projectTitle)
+    }
+}
+
+enum StoryPreferenceActionError: LocalizedError {
+    case changed, unavailable, unconfirmed
+
+    var errorDescription: String? {
+        switch self {
+        case .changed: return "These creative preferences changed. Review the latest preferences before trying again."
+        case .unavailable: return "This creative preference is unavailable. Refresh Memories to review the latest preferences."
+        case .unconfirmed: return "Couldn’t confirm this preference change. Refresh Memories to check the saved result before trying again."
+        }
+    }
+}
+
 @MainActor
 final class MemoriesViewModel: ObservableObject {
     enum ScreenState: Equatable {
@@ -218,6 +256,7 @@ final class MemoriesViewModel: ObservableObject {
     typealias CorrectionLoader = @MainActor (MemoryItem, String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
     typealias CardActionLoader = @MainActor (MemoryCardAction, MemoryItem, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
     typealias CanonActionLoader = @MainActor (MemoryCanonAction, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
+    typealias StoryPreferenceLoader = @MainActor (StoryPreferenceScope, String, String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
 
     private let api: BackendMemoryAPI
     private let notificationCenter: NotificationCenter
@@ -231,6 +270,8 @@ final class MemoriesViewModel: ObservableObject {
     private var isPerformingCardAction = false
     private var canonActionLoader: CanonActionLoader?
     private var protectedCanonMemoryID: String?
+    private var storyPreferenceLoader: StoryPreferenceLoader?
+    private var preferenceProjectRevisions: [String: String] = [:]
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
@@ -257,7 +298,8 @@ final class MemoriesViewModel: ObservableObject {
         forgetLoader: ForgetLoader? = nil,
         correctionLoader: CorrectionLoader? = nil,
         cardActionLoader: CardActionLoader? = nil,
-        canonActionLoader: CanonActionLoader? = nil
+        canonActionLoader: CanonActionLoader? = nil,
+        storyPreferenceLoader: StoryPreferenceLoader? = nil
     ) {
         self.api = api
         self.notificationCenter = notificationCenter
@@ -265,6 +307,7 @@ final class MemoriesViewModel: ObservableObject {
         self.correctionLoader = correctionLoader
         self.cardActionLoader = cardActionLoader
         self.canonActionLoader = canonActionLoader
+        self.storyPreferenceLoader = storyPreferenceLoader
         self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
             try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
         }
@@ -362,6 +405,7 @@ final class MemoriesViewModel: ObservableObject {
         displayedCreativeMemoryRevision = payload.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         correctedMemoryStateVersions.removeAll()
         correctedCreativeMemoryRevisions.removeAll()
+        preferenceProjectRevisions.removeAll()
         guard !noChange else { return }
 
         // Changed /memories responses contain the complete bounded snapshot.
@@ -500,6 +544,7 @@ final class MemoriesViewModel: ObservableObject {
         correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         canonActionLoader = { _, _ in throw URLError(.notConnectedToInternet) }
+        storyPreferenceLoader = { _, _, _, _ in throw URLError(.notConnectedToInternet) }
         let pending = pendingScreenplayQuestion
         pendingQuestionLoader = { _ in pending }
         memoriesLoader = { _, _ in
@@ -526,6 +571,10 @@ final class MemoriesViewModel: ObservableObject {
         cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         canonActionLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
+        storyPreferenceLoader = { _, _, _, _ in throw URLError(.notConnectedToInternet) }
+        if arguments.contains("--ui-memories-preferences-fixture") {
+            return installStoryPreferencesUITestFixture(now: now)
+        }
         if arguments.contains("--ui-memories-canon-fixture") {
             return installCanonActionsUITestFixture(now: now)
         }
@@ -638,6 +687,63 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     #if DEBUG
+    private func installStoryPreferencesUITestFixture(now: Date) -> Bool {
+        var rows = [Self.preferenceUITestRow()]
+        var revision = "preferences-v1"
+        var shouldFailUpdate = true
+        var shouldFailReset = true
+        memoriesLoader = { _, _ in
+            try Self.preferencesUITestRead(now: now, rows: rows, revision: revision)
+        }
+        storyPreferenceLoader = { scope, family, action, expectedRevision in
+            guard scope.projectID == "ui-project", expectedRevision == revision else {
+                throw BackendMemoryAPIError.server(status: 409, message: "stale_creative_memory_revision")
+            }
+            if action.hasPrefix("reset") {
+                if shouldFailReset { shouldFailReset = false; throw URLError(.notConnectedToInternet) }
+                rows = []
+            } else {
+                if shouldFailUpdate { shouldFailUpdate = false; throw URLError(.notConnectedToInternet) }
+                rows = [Self.preferenceUITestRow(stance: action)]
+            }
+            revision += "-saved"
+            let body: [String: Any] = [
+                "ok": true, "action": "story_move_preference", "status": action,
+                "projectId": scope.projectID, "projectTitle": scope.projectTitle, "family": family,
+                "creativeMemoryRevision": revision, "storyMovePreferences": rows,
+            ]
+            return BackendReadResult(
+                payload: try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: JSONSerialization.data(withJSONObject: body)),
+                sync: .empty, notModified: false
+            )
+        }
+        do { applyReadSnapshot(try Self.preferencesUITestRead(now: now, rows: rows, revision: revision).payload) }
+        catch { state = .error(message: "The creative preference test fixture could not load.") }
+        return true
+    }
+
+    private static func preferenceUITestRow(stance: String = "") -> [String: Any] {
+        [
+            "projectId": "ui-project", "projectTitle": "The Last Crossing at the Lighthouse",
+            "family": "emotional_reveal", "displayName": "Emotional reveals and difficult choices",
+            "summary": "let emotional revelations change the next choice", "learnedScore": 2,
+            "effectiveScore": stance == "avoid" ? -4 : 4, "evidenceCount": 2, "selectedCount": 2,
+            "passedOverCount": 0, "acceptedPageCount": 0, "blockResolutionCount": 0, "explicitStance": stance,
+        ]
+    }
+
+    private static func preferencesUITestRead(now: Date, rows: [[String: Any]], revision: String) throws -> BackendReadResult<BackendMemoriesResponse> {
+        let body: [String: Any] = [
+            "source": "ui-fixture", "sourceIp": "", "stateVersion": "preferences-v1", "creativeMemoryRevision": revision,
+            "memories": memoriesUITestRows(now: now, refreshed: false, editable: false, correction: nil),
+            "storyMovePreferences": rows, "conversationSamples": [],
+        ]
+        return BackendReadResult(
+            payload: try JSONDecoder().decode(BackendMemoriesResponse.self, from: JSONSerialization.data(withJSONObject: body)),
+            sync: .empty, notModified: false
+        )
+    }
+
     private func installCanonActionsUITestFixture(now: Date) -> Bool {
         var resolved = false
         var undone = false
@@ -1223,70 +1329,103 @@ final class MemoriesViewModel: ObservableObject {
         _ preference: BackendStoryMovePreference,
         action: String
     ) async {
-        let family = preference.family.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !family.isEmpty else {
-            preferenceActionError = "This creative preference is unavailable. Refresh Memories to review the latest preferences."
-            return
-        }
-        guard !hasMemoryMutationInFlight else {
-            preferenceActionError = MemoryCardActionError.inProgress.localizedDescription
-            return
-        }
-        updatingStoryMoveFamily = family
-        preferenceActionError = ""
-        defer { updatingStoryMoveFamily = "" }
-        do {
-            try checkMutationTransport()
-            _ = try? await api.bootstrapSession()
-            let result = try await api.updateStoryMovePreference(
-                projectID: preference.projectId,
-                projectTitle: preference.projectTitle,
-                family: family,
-                action: action
-            )
-            recordMemoryMutation()
-            if let preferences = result.payload.storyMovePreferences {
-                storyMovePreferences = preferences
-            } else {
-                await load(force: true, sinceVersion: nil)
-            }
-        } catch {
-            if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCrossDeviceMemoryConflict {
-                await load(force: true, sinceVersion: nil)
-            }
-            preferenceActionError = error.localizedDescription
-        }
+        await performStoryPreferenceAction(reviewedPreferences: [preference], action: action)
     }
 
     func resetAllStoryMovePreferences(
-        projectID: String,
-        projectTitle: String
+        reviewedPreferences: [BackendStoryMovePreference]
+    ) async {
+        await performStoryPreferenceAction(reviewedPreferences: reviewedPreferences, action: "reset_all")
+    }
+
+    private func performStoryPreferenceAction(
+        reviewedPreferences: [BackendStoryMovePreference],
+        action: String
     ) async {
         guard !hasMemoryMutationInFlight else {
             preferenceActionError = MemoryCardActionError.inProgress.localizedDescription
             return
         }
-        updatingStoryMoveFamily = "reset_all"
         preferenceActionError = ""
+        actionNotice = nil
         defer { updatingStoryMoveFamily = "" }
         do {
-            try checkMutationTransport()
-            _ = try? await api.bootstrapSession()
-            let result = try await api.updateStoryMovePreference(
-                projectID: projectID,
-                projectTitle: projectTitle,
-                family: "",
-                action: "reset_all"
-            )
-            recordMemoryMutation()
-            storyMovePreferences = result.payload.storyMovePreferences ?? []
-        } catch {
-            if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCrossDeviceMemoryConflict {
-                await load(force: true, sinceVersion: nil)
+            guard let first = reviewedPreferences.first,
+                  ["prefer", "avoid", "reset", "reset_all"].contains(action) else { throw StoryPreferenceActionError.unavailable }
+            let scope = StoryPreferenceScope(first)
+            let family = action == "reset_all" ? "" : first.family.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard scope.isValid, action == "reset_all" || !family.isEmpty,
+                  reviewedPreferences.allSatisfy(scope.contains) else { throw StoryPreferenceActionError.unavailable }
+            if scope.projectID.isEmpty, storyMovePreferences.contains(where: {
+                !$0.projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    $0.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == scope.projectTitle.lowercased()
+            }) { throw StoryPreferenceActionError.unavailable }
+            let current = storyMovePreferences.filter(scope.contains)
+            if action == "reset_all" {
+                guard Set(current) == Set(reviewedPreferences) else { throw StoryPreferenceActionError.changed }
+            } else {
+                guard reviewedPreferences.count == 1, current.contains(first) else { throw StoryPreferenceActionError.changed }
             }
-            preferenceActionError = error.localizedDescription
+            let revision = preferenceProjectRevisions[scope.key] ?? displayedCreativeMemoryRevision
+            guard !revision.isEmpty else { throw StoryPreferenceActionError.unconfirmed }
+            let readGeneration = appliedReadGeneration
+            updatingStoryMoveFamily = action == "reset_all" ? "reset_all" : family
+            let result: BackendReadResult<BackendMemoryMutationResponse>
+            if let storyPreferenceLoader {
+                result = try await storyPreferenceLoader(scope, family, action, revision)
+            } else {
+                try checkMutationTransport()
+                result = try await api.updateStoryMovePreference(
+                    projectID: scope.projectID, projectTitle: scope.projectTitle,
+                    family: family, action: action, expectedCreativeMemoryRevision: revision
+                )
+            }
+            let receipt = result.payload
+            guard receipt.ok, receipt.action == "story_move_preference", receipt.status == action,
+                  let receiptID = receipt.projectId, let receiptTitle = receipt.projectTitle,
+                  scope.matches(projectID: receiptID, projectTitle: receiptTitle),
+                  receipt.family == family,
+                  let revision = receipt.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines), !revision.isEmpty,
+                  let preferences = receipt.storyMovePreferences,
+                  preferences.allSatisfy(scope.contains),
+                  Set(preferences.map(\.family)).count == preferences.count else { throw StoryPreferenceActionError.unconfirmed }
+            switch action {
+            case "prefer", "avoid":
+                guard preferences.contains(where: { $0.family == family && $0.explicitStance == action }) else { throw StoryPreferenceActionError.unconfirmed }
+            case "reset":
+                guard !preferences.contains(where: { $0.family == family }) else { throw StoryPreferenceActionError.unconfirmed }
+            default:
+                guard preferences.isEmpty else { throw StoryPreferenceActionError.unconfirmed }
+            }
+            recordMemoryMutation()
+            preferenceActionError = ""
+            guard appliedReadGeneration == readGeneration else {
+                // A later read may include another device's subsequent choice.
+                // Never roll it back with this delayed, project-scoped receipt.
+                let outcome = await load(force: true, sinceVersion: nil)
+                guard outcome == .succeeded else { throw StoryPreferenceActionError.unconfirmed }
+                actionNotice = "Preference change saved. Showing the latest preferences."
+                return
+            }
+            storyMovePreferences = preferences + storyMovePreferences.filter { !scope.contains($0) }
+            preferenceProjectRevisions[scope.key] = revision
+            switch action {
+            case "reset_all": actionNotice = "Creative preferences reset for \(scope.name). Story facts stay intact."
+            case "reset": actionNotice = "\(first.displayName) preference reset. Story facts stay intact."
+            case "prefer": actionNotice = "Clementine will suggest more \(first.displayName.lowercased()) for \(scope.name)."
+            default: actionNotice = "Clementine will suggest less \(first.displayName.lowercased()) for \(scope.name)."
+            }
+        } catch {
+            if case BackendMemoryAPIError.server(409, _) = error {
+                await load(force: true, sinceVersion: nil)
+                preferenceActionError = StoryPreferenceActionError.changed.localizedDescription
+            } else if let backend = error as? BackendMemoryAPIError, backend.requiresUserAuthentication {
+                preferenceActionError = "Sign in to change creative preferences. Return Home, sign in, then open Memories again."
+            } else if let local = error as? StoryPreferenceActionError {
+                preferenceActionError = local.localizedDescription
+            } else {
+                preferenceActionError = "Couldn’t confirm this preference change. Check your connection and refresh Memories before trying again. Your story facts stay intact."
+            }
         }
     }
 
@@ -1739,15 +1878,22 @@ struct MemoriesScreen: View {
                                 )
                             }
                         },
-                        onResetAll: { projectID, projectTitle in
+                        onResetAll: { reviewedPreferences in
                             Task {
                                 await vm.resetAllStoryMovePreferences(
-                                    projectID: projectID,
-                                    projectTitle: projectTitle
+                                    reviewedPreferences: reviewedPreferences
                                 )
                             }
                         }
                     )
+                }
+                if vm.storyMovePreferences.isEmpty, !vm.preferenceActionError.isEmpty {
+                    Label(vm.preferenceActionError, systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MemoriesTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(vm.preferenceActionError)
+                        .accessibilityIdentifier("memories.story-preferences.error")
                 }
                 if let snapshot = vm.qualitySnapshot {
                     MemoryQualityOverviewCard(snapshot: snapshot)
@@ -1805,30 +1951,35 @@ struct MemoriesScreen: View {
     }
 }
 
+struct StoryPreferenceResetConfirmation {
+    let preferences: [BackendStoryMovePreference]
+    let resetsAll: Bool
+
+    var title: String {
+        guard let first = preferences.first else { return "Reset creative preferences?" }
+        return resetsAll ? "Reset preferences for \(StoryPreferenceScope(first).name)?" : "Reset \(first.displayName)?"
+    }
+
+    var message: String {
+        "This clears \(resetsAll ? "this project’s creative preference learning and your more/less choices" : "learning and your more/less choice for this pattern"). There is no undo. Story facts and screenplay canon stay intact."
+    }
+}
+
 private struct CreativeStoryPreferencesCard: View {
     let preferences: [BackendStoryMovePreference]
     let updatingFamily: String
     let errorMessage: String
     let onUpdate: (BackendStoryMovePreference, String) -> Void
-    let onResetAll: (String, String) -> Void
+    let onResetAll: ([BackendStoryMovePreference]) -> Void
 
-    @State private var showsResetConfirmation = false
+    @State private var pendingReset: StoryPreferenceResetConfirmation?
     @State private var isExpanded = false
 
     private var projectPreferences: [BackendStoryMovePreference] {
         guard let first = preferences.first else { return [] }
-        let projectID = first.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let projectTitle = first.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let scope = StoryPreferenceScope(first)
         return preferences
-            .filter { item in
-                let itemID = item.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
-                if !projectID.isEmpty { return itemID == projectID }
-                return item.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() == projectTitle
-            }
+            .filter(scope.contains)
             .sorted { left, right in
                 if left.isExplicitlyCorrected != right.isExplicitlyCorrected {
                     return left.isExplicitlyCorrected
@@ -1848,63 +1999,67 @@ private struct CreativeStoryPreferencesCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 10) {
-                Button {
-                    isExpanded.toggle()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(MemoriesTheme.focusAccent)
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(MemoriesTheme.focusAccent)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Creative Instincts")
-                                .font(.system(size: 14, weight: .semibold, design: .default))
-                                .foregroundStyle(MemoriesTheme.textPrimary)
-                            Text(projectName)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundStyle(MemoriesTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Creative Instincts")
+                            .font(.system(size: 14, weight: .semibold, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary)
+                        Text(projectName)
+                            .font(.system(size: 12, weight: .regular, design: .default))
                             .foregroundStyle(MemoriesTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(
-                    isExpanded ? "Collapse creative instincts" : "Expand creative instincts"
-                )
-                .accessibilityIdentifier("memories.story-preferences.toggle")
 
-                Spacer()
-
-                Button {
-                    showsResetConfirmation = true
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
+                    Spacer(minLength: 0)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MemoriesTheme.textSecondary)
                 }
-                .buttonStyle(.plain)
-                .disabled(!updatingFamily.isEmpty)
-                .help("Reset creative preference learning")
-                .accessibilityLabel("Reset creative preference learning")
-                .accessibilityIdentifier("memories.story-preferences.reset-all")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(
+                isExpanded ? "Collapse creative instincts" : "Expand creative instincts"
+            )
+            .accessibilityIdentifier("memories.story-preferences.toggle")
 
             if isExpanded {
-                ForEach(Array(projectPreferences.prefix(6))) { preference in
+                Text("Guide the patterns Clementine suggests for this screenplay. Your story facts do not change.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(MemoriesTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(projectPreferences) { preference in
                     CreativeStoryPreferenceRow(
                         preference: preference,
                         isUpdating: updatingFamily == preference.family,
                         isDisabled: !updatingFamily.isEmpty,
-                        onUpdate: onUpdate
+                        onUpdate: onUpdate,
+                        onReset: { reviewed in
+                            pendingReset = StoryPreferenceResetConfirmation(preferences: [reviewed], resetsAll: false)
+                        }
                     )
                 }
+                Button {
+                    pendingReset = StoryPreferenceResetConfirmation(preferences: projectPreferences, resetsAll: true)
+                } label: {
+                    Label(updatingFamily == "reset_all" ? "Resetting preferences…" : "Reset project preferences", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!updatingFamily.isEmpty)
+                .accessibilityHint("Reviews a confirmation before clearing creative preference learning for this screenplay.")
+                .accessibilityIdentifier("memories.story-preferences.reset-all")
             } else if let leading = projectPreferences.first {
                 Text(compactSummary(for: leading))
                     .font(.system(size: 12, weight: .medium, design: .default))
@@ -1914,10 +2069,11 @@ private struct CreativeStoryPreferencesCard: View {
             }
 
             if !errorMessage.isEmpty {
-                Text(errorMessage)
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12, weight: .medium, design: .default))
-                    .foregroundStyle(Color.red.opacity(0.82))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(errorMessage)
                     .accessibilityIdentifier("memories.story-preferences.error")
             }
         }
@@ -1932,18 +2088,18 @@ private struct CreativeStoryPreferencesCard: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("memories.story-preferences")
-        .confirmationDialog(
-            "Reset creative preference learning for \(projectName)?",
-            isPresented: $showsResetConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Reset Preferences", role: .destructive) {
-                guard let first = projectPreferences.first else { return }
-                onResetAll(first.projectId, first.projectTitle)
+        .alert(
+            pendingReset?.title ?? "Reset creative preferences?",
+            isPresented: Binding(get: { pendingReset != nil }, set: { if !$0 { pendingReset = nil } }),
+            presenting: pendingReset
+        ) { reviewed in
+            Button(reviewed.resetsAll ? "Reset Project Preferences" : "Reset This Preference", role: .destructive) {
+                if reviewed.resetsAll { onResetAll(reviewed.preferences) }
+                else if let preference = reviewed.preferences.first { onUpdate(preference, "reset") }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Story facts and screenplay canon stay intact.")
+        } message: { reviewed in
+            Text(reviewed.message)
         }
     }
 
@@ -1963,19 +2119,19 @@ private struct CreativeStoryPreferenceRow: View {
     let isUpdating: Bool
     let isDisabled: Bool
     let onUpdate: (BackendStoryMovePreference, String) -> Void
+    let onReset: (BackendStoryMovePreference) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
-                    Text(preference.displayName)
-                        .font(.system(size: 13, weight: .semibold, design: .default))
+                Text(preference.displayName)
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if preference.isExplicitlyCorrected {
+                    Text(preference.explicitStance == "prefer" ? "Your choice: more" : "Your choice: less")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary)
-                    if preference.isExplicitlyCorrected {
-                        Text("Corrected")
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .foregroundStyle(MemoriesTheme.focusAccent)
-                    }
                 }
 
                 Text(preferenceSummary)
@@ -1988,12 +2144,13 @@ private struct CreativeStoryPreferenceRow: View {
                     .foregroundStyle(MemoriesTheme.textSecondary.opacity(0.82))
             }
 
-            Spacer(minLength: 10)
-
             if isUpdating {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 28, height: 28)
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Saving preference…").font(.system(size: 12))
+                }
+                .frame(minHeight: 44)
             } else {
                 Menu {
                     Button {
@@ -2007,19 +2164,21 @@ private struct CreativeStoryPreferenceRow: View {
                         Label("Suggest Less Like This", systemImage: "minus.circle")
                     }
                     Button(role: .destructive) {
-                        onUpdate(preference, "reset")
+                        onReset(preference)
                     } label: {
-                        Label("Forget This Preference", systemImage: "arrow.counterclockwise")
+                        Label("Reset This Preference…", systemImage: "arrow.counterclockwise")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 28, height: 28)
+                    Label("Adjust preference", systemImage: "slider.horizontal.3")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isDisabled)
                 .help("Adjust creative preference")
                 .accessibilityLabel("Adjust \(preference.displayName)")
+                .accessibilityHint("Suggest more, suggest less, or review a reset of this pattern.")
                 .accessibilityIdentifier(
                     "memories.story-preference.\(preference.family).menu"
                 )

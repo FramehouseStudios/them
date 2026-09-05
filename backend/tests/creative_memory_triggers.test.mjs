@@ -2553,6 +2553,8 @@ test("story move preference corrections persist and reset without deleting quest
   });
   assert.equal(corrected.ok, true);
   let ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(corrected.project, ledger.projects[0]);
+  assert.equal(corrected.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
   assert.deepEqual(ledger.projects[0].storyMovePreferenceOverrides, [{
     family: "relationship_pressure",
     stance: "prefer",
@@ -2568,6 +2570,8 @@ test("story move preference corrections persist and reset without deleting quest
   });
   assert.equal(reset.ok, true);
   ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(reset.project, ledger.projects[0]);
+  assert.equal(reset.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
   assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
   assert.equal(ledger.projects[0].questionEffectiveness[0].responseStatus, "answered");
   assert.equal(ledger.projects[0].questionEffectiveness[0].selectedMoveFamily, undefined);
@@ -2576,16 +2580,135 @@ test("story move preference corrections persist and reset without deleting quest
     ["relationship_pressure", "obstacle_pressure"]
   );
 
-  await store.updateStoryMovePreference({
+  const resetAll = await store.updateStoryMovePreference({
     userId,
     projectId: "split-ferries",
     action: "reset_all",
     at: 4_000,
   });
   ledger = await store.getCreativeMemoryLedger({ userId });
+  assert.deepEqual(resetAll.project, ledger.projects[0]);
+  assert.equal(resetAll.creativeMemoryRevision, buildCreativeMemoryRevision(ledger));
+  assert.equal(resetAll.projectId, "split-ferries");
+  assert.equal(resetAll.projectTitle, "Split Ferries");
+  assert.equal(resetAll.family, "");
   assert.equal(ledger.projects[0].questionEffectiveness.length, 1);
   assert.equal(ledger.projects[0].questionEffectiveness[0].offeredMoveFamilies, undefined);
   assert.equal(ledger.projects[0].storyMovePreferenceOverrides, undefined);
+});
+
+test("story preference updates never substitute a same-title project for a supplied project ID", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-project-identity";
+  await store.recordProjectContinuity({
+    userId,
+    continuity: {
+      projectId: "existing-screenplay",
+      projectTitle: "Shared Title",
+      storyMovePreferenceOverrides: [{
+        family: "relationship_pressure",
+        stance: "prefer",
+        updatedAt: 1_000,
+      }],
+    },
+  });
+  const before = await store.getCreativeMemoryLedger({ userId });
+  const revision = buildCreativeMemoryRevision(before);
+  for (const action of ["prefer", "avoid", "reset", "reset_all"]) {
+    const receipt = await store.updateStoryMovePreference({
+      userId,
+      projectId: "different-screenplay",
+      projectTitle: "Shared Title",
+      family: "relationship_pressure",
+      action,
+      expectedRevision: revision,
+    });
+    assert.deepEqual(receipt, { ok: false, reason: "project_not_found" });
+    assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), before);
+  }
+  const legacyTitleReceipt = await store.updateStoryMovePreference({
+    userId,
+    projectTitle: "Shared Title",
+    family: "relationship_pressure",
+    action: "avoid",
+    expectedRevision: revision,
+  });
+  assert.equal(legacyTitleReceipt.ok, true);
+  assert.equal(legacyTitleReceipt.projectId, "existing-screenplay");
+});
+
+test("story preference title-only updates reject duplicate project titles before writing", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-ambiguous-title";
+  for (const projectId of ["screenplay-a", "screenplay-b"]) {
+    await store.recordProjectContinuity({
+      userId,
+      continuity: {
+        projectId,
+        projectTitle: "Shared Title",
+        storyMovePreferenceOverrides: [{
+          family: "relationship_pressure",
+          stance: "prefer",
+          updatedAt: 1_000,
+        }],
+      },
+    });
+  }
+  const before = await store.getCreativeMemoryLedger({ userId });
+  for (const action of ["prefer", "avoid", "reset", "reset_all"]) {
+    const receipt = await store.updateStoryMovePreference({
+      userId,
+      projectTitle: " shared TITLE ",
+      family: "relationship_pressure",
+      action,
+      expectedRevision: buildCreativeMemoryRevision(before),
+    });
+    assert.deepEqual(receipt, { ok: false, reason: "ambiguous_project_identity" });
+    assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), before);
+  }
+});
+
+test("story preference receipts keep the committed project snapshot and account revision across later writes", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const userId = "u-story-preference-committed-snapshot";
+  for (const projectId of ["screenplay-a", "screenplay-b"]) {
+    await store.recordProjectContinuity({
+      userId,
+      continuity: { projectId, projectTitle: "Shared Title" },
+    });
+  }
+  const receipt = await store.updateStoryMovePreference({
+    userId,
+    projectId: "SCREENPLAY-A",
+    projectTitle: "Shared Title",
+    family: "relationship_pressure",
+    action: "prefer",
+  });
+  const committedLedger = await store.getCreativeMemoryLedger({ userId });
+  const committedProject = committedLedger.projects.find((project) => project.projectId === "screenplay-a");
+  assert.equal(receipt.projectId, "screenplay-a");
+  assert.deepEqual(receipt.project, committedProject);
+  assert.equal(receipt.creativeMemoryRevision, buildCreativeMemoryRevision(committedLedger));
+  assert.notEqual(receipt.creativeMemoryRevision, buildCreativeMemoryRevision({ projects: [receipt.project] }));
+
+  await store.updateStoryMovePreference({
+    userId,
+    projectId: "screenplay-b",
+    family: "relationship_pressure",
+    action: "avoid",
+    expectedRevision: receipt.creativeMemoryRevision,
+  });
+  await store.updateStoryMovePreference({
+    userId,
+    projectId: "screenplay-a",
+    action: "reset_all",
+  });
+  const laterLedger = await store.getCreativeMemoryLedger({ userId });
+  assert.notEqual(receipt.creativeMemoryRevision, buildCreativeMemoryRevision(laterLedger));
+  assert.deepEqual(receipt.project, committedProject);
+  assert.equal(receipt.project.storyMovePreferenceOverrides[0].stance, "prefer");
+  receipt.project.storyMovePreferenceOverrides[0].stance = "avoid";
+  assert.deepEqual(await store.getCreativeMemoryLedger({ userId }), laterLedger);
 });
 
 test("creative memory revisions serialize competing device corrections without lost updates", async () => {

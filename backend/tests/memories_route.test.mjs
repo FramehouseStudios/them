@@ -15,6 +15,7 @@ import {
   mountMemoriesRoutes,
   MEMORIES_MUTATION_BODY_LIMIT,
 } from "../lib/memories_route.js";
+import { buildCreativeMemoryRevision } from "../lib/creative_memory_store.js";
 
 function defaultDeps(overrides = {}) {
   const calls = {
@@ -356,7 +357,7 @@ test("[memories] GET exposes project-scoped learned and corrected story preferen
   });
 });
 
-test("[memories] POST story preference update is authenticated and returns refreshed profile", async () => {
+test("[memories] POST story preference update returns its committed snapshot and revision without rereading", async () => {
   const calls = [];
   const canonicalMemory = {
     source: "canonical-account",
@@ -373,6 +374,10 @@ test("[memories] POST story preference update is authenticated and returns refre
       updatedAt: 5_000,
     }],
   };
+  const creativeMemoryRevision = buildCreativeMemoryRevision({
+    projects: [project, { projectId: "other-project", projectTitle: "Other Project" }],
+  });
+  let ledgerReads = 0;
   const creativeMemoryStore = {
     updateStoryMovePreference: async (input) => {
       calls.push(input);
@@ -383,9 +388,14 @@ test("[memories] POST story preference update is authenticated and returns refre
         projectId: input.projectId,
         projectTitle: "Split Ferries",
         updatedAt: 5_000,
+        creativeMemoryRevision,
+        project: structuredClone(project),
       };
     },
-    getCreativeMemoryLedger: async () => ({ projects: [project] }),
+    getCreativeMemoryLedger: async () => {
+      ledgerReads += 1;
+      throw new Error("A later ledger read must not replace the committed snapshot.");
+    },
   };
   const deps = defaultDeps({
     creativeMemoryStore,
@@ -424,12 +434,101 @@ test("[memories] POST story preference update is authenticated and returns refre
     assert.equal(r.status, 200);
     assert.equal(r.body.ok, true);
     assert.equal(r.body.status, "avoid");
+    assert.equal(r.body.project_id, "split-ferries");
+    assert.equal(r.body.project_title, "Split Ferries");
+    assert.equal(r.body.family, "relationship_pressure");
     assert.equal(r.body.story_move_preferences[0].explicit_stance, "avoid");
+    assert.equal(r.body.story_move_preferences[0].project_id, r.body.project_id);
+    assert.equal(r.body.creative_memory_revision, creativeMemoryRevision);
+    assert.equal(r.headers.get("x-creative-memory-revision"), creativeMemoryRevision);
     assert.equal(r.body.state_version, "state_story_preferences_42");
     assert.equal(r.headers.get("x-state-version"), "state_story_preferences_42");
     assert.ok(r.body.memory_updated_at >= 5_000);
     assert.equal(calls[0].userId, "user_memories_test");
     assert.equal(calls[0].projectId, "split-ferries");
+    assert.equal(ledgerReads, 0);
+  });
+});
+
+for (const action of ["reset", "reset_all"]) {
+  test(`[memories] ${action} keeps committed project identity when the preference snapshot is empty`, async () => {
+    const project = {
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      updatedAt: 5_000,
+      questionEffectiveness: [],
+    };
+    const creativeMemoryRevision = buildCreativeMemoryRevision({ projects: [project] });
+    const family = action === "reset" ? "relationship_pressure" : "";
+    const creativeMemoryStore = {
+      updateStoryMovePreference: async () => ({
+        ok: true,
+        action,
+        family,
+        projectId: project.projectId,
+        projectTitle: project.projectTitle,
+        updatedAt: project.updatedAt,
+        creativeMemoryRevision,
+        project,
+      }),
+      getCreativeMemoryLedger: async () => {
+        throw new Error("Creative memory read unavailable after commit.");
+      },
+    };
+    await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+      const r = await postJson(baseURL, "/memories/story-preferences/update", {
+        project_id: "split-ferries",
+        project_title: "Old Project Title",
+        family,
+        action,
+      });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.ok, true);
+      assert.equal(r.body.status, action);
+      assert.equal(r.body.project_id, project.projectId);
+      assert.equal(r.body.project_title, project.projectTitle);
+      assert.equal(r.body.family, family);
+      assert.deepEqual(r.body.story_move_preferences, []);
+      assert.equal(r.body.creative_memory_revision, creativeMemoryRevision);
+      assert.equal(r.headers.get("x-creative-memory-revision"), creativeMemoryRevision);
+    });
+  });
+}
+
+test("[memories] ambiguous title-only preference updates return a scoped failure", async () => {
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async () => ({ ok: false, reason: "ambiguous_project_identity" }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_title: "Shared Title",
+      action: "reset_all",
+    });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.status, "ambiguous_project_identity");
+    assert.match(r.body.message, /More than one screenplay/);
+    assert.equal(r.body.story_move_preferences, undefined);
+  });
+});
+
+test("[memories] an incomplete preference commit receipt cannot masquerade as an empty reset", async () => {
+  const creativeMemoryStore = {
+    updateStoryMovePreference: async () => ({
+      ok: true,
+      action: "reset_all",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+    }),
+  };
+  await withTestServer(defaultDeps({ creativeMemoryStore }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/story-preferences/update", {
+      project_id: "split-ferries",
+      action: "reset_all",
+    });
+    assert.equal(r.status, 500);
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.story_move_preferences, undefined);
   });
 });
 
