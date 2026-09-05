@@ -243,6 +243,91 @@ final class MemoriesResponsiveUITests: XCTestCase {
         #endif
     }
 
+    func testHelpfulRecoveryAndSaveConversationAsMemory() throws {
+        #if os(iOS)
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-reset-state", "--ui-skip-onboarding", "--ui-open-memories",
+            "--ui-memories-fixture", "--ui-memories-card-actions-fixture",
+            "-studio_debug_submit_transport_mode", "stub",
+        ]
+        app.launch()
+        defer { app.terminate() }
+        let theme = app.buttons["memories.card.theme-lighthouse"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 8))
+        theme.tap()
+        let helpful = app.buttons["memories.detail.helpful"]
+        reveal(helpful, in: app)
+        assertMinimumTarget(helpful)
+        helpful.tap()
+        let error = element("memories.card-action.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertTrue(error.label.contains("Couldn’t confirm"))
+        XCTAssertTrue(error.label.contains("refresh Memories"))
+        capture("Memories - Helpful failure stays readable")
+        goBack(in: app)
+        app.buttons["memories.refresh"].tap()
+        XCTAssertTrue(theme.waitForExistence(timeout: 4))
+        theme.tap()
+        reveal(helpful, in: app)
+        helpful.tap()
+        let confirmation = element("memories.card-action.notice", in: app)
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 4))
+        XCTAssertEqual(confirmation.label, "Feedback saved.")
+        let votes = app.staticTexts["1 helpful / 0 fix"]
+        XCTAssertTrue(votes.waitForExistence(timeout: 4))
+        XCTAssertFalse(error.exists)
+        reveal(votes, in: app)
+        capture("Memories - Helpful confirmation")
+        goBack(in: app)
+        XCTAssertEqual(element("memories.action-notice", in: app).label, "Feedback saved.")
+
+        let conversation = app.buttons["memories.card.history-turn-2"]
+        XCTAssertTrue(conversation.waitForExistence(timeout: 4))
+        conversation.tap()
+        let promote = app.buttons["memories.detail.promote"]
+        reveal(promote, in: app)
+        assertMinimumTarget(promote)
+        XCTAssertEqual(promote.label, "Save as memory")
+        XCTAssertFalse(helpful.exists, "Do not offer unsupported Helpful feedback on conversation cards.")
+        capture("Memories - Save a conversation as memory")
+        promote.tap()
+        XCTAssertTrue(app.buttons["memories.detail.correct"].waitForExistence(timeout: 4))
+        XCTAssertEqual(element("memories.detail.title", in: app).label, "The tide cuts off retreat")
+        reveal(helpful, in: app)
+        XCTAssertTrue(helpful.isEnabled)
+        XCTAssertFalse(promote.exists)
+        capture("Memories - Saved conversation becomes editable")
+        goBack(in: app)
+        let saved = app.buttons["memories.card.theme-turn_2"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "The full read must return the saved card.")
+        XCTAssertTrue(conversation.exists, "Saving a memory must not remove the source conversation.")
+        XCTAssertEqual(element("memories.action-notice", in: app).label, "Saved as a memory.")
+        saved.tap()
+        XCTAssertEqual(element("memories.detail.title", in: app).label, "The tide cuts off retreat")
+        XCTAssertTrue(app.buttons["memories.detail.correct"].exists)
+        reveal(helpful, in: app)
+        XCTAssertTrue(helpful.isEnabled)
+        XCTAssertFalse(promote.exists)
+        goBack(in: app)
+        app.buttons["memories.refresh"].tap()
+        XCTAssertTrue(saved.waitForExistence(timeout: 4))
+        theme.tap()
+        XCTAssertTrue(votes.waitForExistence(timeout: 4), "Feedback must survive a full refresh.")
+        goBack(in: app)
+        app.buttons["memories.return"].tap()
+        XCTAssertTrue(element("home.orb", in: app).waitForExistence(timeout: 4))
+        #else
+        throw XCTSkip("The narrow memory card action workflow is iPhone-specific.")
+        #endif
+    }
+
+    private func reveal(_ target: XCUIElement, in app: XCUIApplication) {
+        XCTAssertTrue(target.waitForExistence(timeout: 4))
+        for _ in 0..<5 where !target.isHittable { app.swipeUp() }
+        XCTAssertTrue(target.isHittable, app.debugDescription)
+    }
+
     private func goBack(in app: XCUIApplication) {
         let back = app.navigationBars.buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 3))

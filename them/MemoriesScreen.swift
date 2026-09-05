@@ -43,6 +43,14 @@ struct MemoryItem: Identifiable, Hashable {
 }
 
 private extension MemoryItem {
+    var supportsQualityFeedback: Bool {
+        editable && id.hasPrefix("theme-") && characterBible == nil && storySpine == nil && !hasCanonCorrectionControl
+    }
+
+    var supportsPromotion: Bool {
+        !editable && ["history", "recap"].contains(source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
     var hasCorrectionBible: Bool {
         guard let bible = characterBible else { return false }
         return !bible.corrections.isEmpty ||
@@ -82,6 +90,24 @@ private extension MemoryItem {
         if !projectTitle.isEmpty { return projectTitle }
         if !projectID.isEmpty { return projectID }
         return ""
+    }
+}
+
+enum MemoryCardAction: Equatable {
+    case feedback(String)
+    case promote
+}
+
+enum MemoryCardActionError: LocalizedError {
+    case changed, unavailable, unconfirmed, inProgress
+
+    var errorDescription: String? {
+        switch self {
+        case .changed: return "This memory changed. Review the latest memory before trying this action again."
+        case .unavailable: return "This memory is no longer available for this action. Refresh Memories to check the latest saved version."
+        case .unconfirmed: return "Couldn’t confirm this action completed. Refresh Memories to check the saved result before trying again."
+        case .inProgress: return "A memory change is still finishing. Wait for it to finish before trying again."
+        }
     }
 }
 
@@ -170,6 +196,7 @@ final class MemoriesViewModel: ObservableObject {
     typealias PendingQuestionLoader = @MainActor (Bool) async throws -> BackendPendingScreenplayQuestion?
     typealias ForgetLoader = @MainActor (String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
     typealias CorrectionLoader = @MainActor (MemoryItem, String, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
+    typealias CardActionLoader = @MainActor (MemoryCardAction, MemoryItem, String) async throws -> BackendReadResult<BackendMemoryMutationResponse>
 
     private let api: BackendMemoryAPI
     private let notificationCenter: NotificationCenter
@@ -179,6 +206,8 @@ final class MemoriesViewModel: ObservableObject {
     private var forgettingMemoryID: String?
     private var correctionLoader: CorrectionLoader?
     private var correctingMemoryID: String?
+    private var cardActionLoader: CardActionLoader?
+    private var isPerformingCardAction = false
     private var lastLoadedAt: Date?
     private let reloadCooldownSeconds: TimeInterval = 1.0
     private var lastSync: BackendSyncState = .empty
@@ -203,12 +232,14 @@ final class MemoriesViewModel: ObservableObject {
         memoriesLoader: MemoriesLoader? = nil,
         pendingQuestionLoader: PendingQuestionLoader? = nil,
         forgetLoader: ForgetLoader? = nil,
-        correctionLoader: CorrectionLoader? = nil
+        correctionLoader: CorrectionLoader? = nil,
+        cardActionLoader: CardActionLoader? = nil
     ) {
         self.api = api
         self.notificationCenter = notificationCenter
         self.forgetLoader = forgetLoader
         self.correctionLoader = correctionLoader
+        self.cardActionLoader = cardActionLoader
         self.memoriesLoader = memoriesLoader ?? { force, sinceVersion in
             try await api.fetchMemories(limit: 72, force: force, sinceVersion: sinceVersion)
         }
@@ -338,12 +369,12 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
-    private func adoptMutationSync(_ sync: BackendSyncState, basedOnRead generation: Int? = nil) {
+    private func recordMemoryMutation() {
         mutationRevision += 1
         if isRefreshing { pendingFullRefresh = true }
-        if let generation, generation != appliedReadGeneration { return }
-        lastSync = sync
-        if !sync.stateVersion.isEmpty { latestSeenStateVersion = sync.stateVersion }
+        // A mutation receipt describes only its target, not this entire list.
+        // Advancing the read cursor here could make a later delta say "unchanged"
+        // and authorize writes against cards whose newer content we never read.
     }
 
     func memory(forID id: String) -> MemoryItem? {
@@ -436,6 +467,7 @@ final class MemoriesViewModel: ObservableObject {
         isUITestFixture = true
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
+        cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         let pending = pendingScreenplayQuestion
         pendingQuestionLoader = { _ in pending }
         memoriesLoader = { _, _ in
@@ -459,11 +491,52 @@ final class MemoriesViewModel: ObservableObject {
         isUITestFixture = true
         forgetLoader = { _, _ in throw URLError(.notConnectedToInternet) }
         correctionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
+        cardActionLoader = { _, _, _ in throw URLError(.notConnectedToInternet) }
         pendingQuestionLoader = { _ in nil }
         var shouldFail = arguments.contains("--ui-memories-refresh-failure")
         let editable = arguments.contains("--ui-memories-editable-fixture")
+        let cardActions = arguments.contains("--ui-memories-card-actions-fixture")
+        var helpfulVotes = 0
+        var promoted = false
         var forgottenIDs: Set<String> = []
         var correctedFixtureItem: MemoryItem?
+        if cardActions {
+            var shouldFailFeedback = true
+            cardActionLoader = { action, item, _ in
+                let index: Int
+                let actionName: String
+                let status: String
+                switch action {
+                case .feedback("hit") where item.id == "theme-lighthouse" && item.key == "lighthouse":
+                    if shouldFailFeedback {
+                        shouldFailFeedback = false
+                        throw URLError(.notConnectedToInternet)
+                    }
+                    helpfulVotes += 1
+                    index = 0
+                    actionName = "feedback"
+                    status = "hit"
+                case .promote where item.id == "history-turn-2" && item.key == "turn_2":
+                    promoted = true
+                    index = 1
+                    actionName = "promote"
+                    status = "promoted_created"
+                default: throw MemoryCardActionError.unavailable
+                }
+                let row = Self.memoriesUITestRows(
+                    now: now, refreshed: true, editable: true, correction: nil,
+                    cardActions: true, helpfulVotes: helpfulVotes, promoted: promoted
+                )[index]
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "ok": true, "action": actionName, "status": status, "themeKey": item.key,
+                    "stateVersion": "fixture-v2", "memoryCard": row,
+                ])
+                return BackendReadResult(
+                    payload: try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: data),
+                    sync: .empty, notModified: false
+                )
+            }
+        }
         if editable, arguments.contains("--ui-memories-correction-conflict") {
             var shouldConflict = true
             correctionLoader = { edited, _, _ in
@@ -512,12 +585,13 @@ final class MemoriesViewModel: ObservableObject {
             return BackendReadResult(
                 payload: try Self.memoriesUITestPayload(
                     now: now, refreshed: true, editable: editable,
-                    excluding: forgottenIDs, correction: correctedFixtureItem
+                    excluding: forgottenIDs, correction: correctedFixtureItem,
+                    cardActions: cardActions, helpfulVotes: helpfulVotes, promoted: promoted
                 ), sync: .empty, notModified: false
             )
         }
         do {
-            applyReadSnapshot(try Self.memoriesUITestPayload(now: now, refreshed: false, editable: editable))
+            applyReadSnapshot(try Self.memoriesUITestPayload(now: now, refreshed: false, editable: editable, cardActions: cardActions))
         } catch {
             state = .error(message: "The Memories test fixture could not load.")
         }
@@ -530,9 +604,12 @@ final class MemoriesViewModel: ObservableObject {
     #if DEBUG
     private static func memoriesUITestPayload(
         now: Date, refreshed: Bool, editable: Bool, excluding forgottenIDs: Set<String> = [],
-        correction: MemoryItem? = nil
+        correction: MemoryItem? = nil, cardActions: Bool = false, helpfulVotes: Int = 0, promoted: Bool = false
     ) throws -> BackendMemoriesResponse {
-        let rows = memoriesUITestRows(now: now, refreshed: refreshed, editable: editable, correction: correction)
+        let rows = memoriesUITestRows(
+            now: now, refreshed: refreshed, editable: editable, correction: correction,
+            cardActions: cardActions, helpfulVotes: helpfulVotes, promoted: promoted
+        )
         let data = try JSONSerialization.data(withJSONObject: [
             "source": "ui-fixture", "sourceIp": "", "stateVersion": refreshed ? "fixture-v2" : "fixture-v1",
             "memories": rows.filter { !forgottenIDs.contains($0["id"] as? String ?? "") },
@@ -542,12 +619,13 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     private static func memoriesUITestRows(
-        now: Date, refreshed: Bool, editable: Bool, correction: MemoryItem?
+        now: Date, refreshed: Bool, editable: Bool, correction: MemoryItem?,
+        cardActions: Bool = false, helpfulVotes: Int = 0, promoted: Bool = false
     ) -> [[String: Any]] {
         let summary = refreshed
             ? "Mara returns to the lighthouse to tell June the truth."
             : "Mara keeps returning to the lighthouse when she needs to make a difficult choice."
-        let rows: [[String: Any]] = [
+        var rows: [[String: Any]] = [
             ["id": "ui-lighthouse", "key": "lighthouse", "title": "The lighthouse promise",
              "summary": summary, "reason": "A recurring image in your screenplay.",
              "emotionalTone": "hopeful", "salience": 0.7, "confidence": 0.8,
@@ -559,6 +637,20 @@ final class MemoriesViewModel: ObservableObject {
              "rememberedAt": now.addingTimeInterval(-3_600).timeIntervalSince1970,
              "snippets": [], "referenceHint": "", "source": "creative_memory", "editable": false],
         ]
+        if cardActions {
+            rows[0]["id"] = "theme-lighthouse"
+            rows[0]["editable"] = true
+            rows[0]["qualityHitCount"] = helpfulVotes
+            rows[1]["id"] = "history-turn-2"
+            rows[1]["key"] = "turn_2"
+            rows[1]["source"] = "history"
+            if promoted {
+                rows.append(rows[1]) // Saving a theme does not delete its source conversation.
+                rows[1]["id"] = "theme-turn_2"
+                rows[1]["source"] = "promoted_history"
+                rows[1]["editable"] = true
+            }
+        }
         return rows.map { row in
             guard let correction, row["id"] as? String == correction.id else { return row }
             var updated = row
@@ -597,7 +689,7 @@ final class MemoriesViewModel: ObservableObject {
         storySpine: BackendStorySpineMemory? = nil,
         expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        guard correctingMemoryID == nil, forgettingMemoryID == nil else { throw MemoryEditConflict.inProgress }
+        guard correctingMemoryID == nil, forgettingMemoryID == nil, !isPerformingCardAction else { throw MemoryEditConflict.inProgress }
         guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryEditConflict.removed }
         guard original.id == itemID, original.key == key else { throw MemoryEditConflict.changed }
         try validateMemoryEdit(original)
@@ -675,7 +767,7 @@ final class MemoriesViewModel: ObservableObject {
             // Keep that snapshot and the writer's draft rather than applying an old receipt.
             throw MemoryEditConflict.changed
         }
-        adoptMutationSync(result.sync, basedOnRead: readGeneration)
+        recordMemoryMutation()
         // A returned card proves only this correction's revision, not the contents
         // of other cards or the other memory store. Never advance them implicitly.
         if !snapshotAdvanced, characterBible == nil {
@@ -695,7 +787,7 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func forgetMemory(itemID: String, key: String, expectedItem: MemoryItem? = nil) async throws {
-        guard forgettingMemoryID == nil, correctingMemoryID == nil else { throw MemoryForgetError.inProgress }
+        guard forgettingMemoryID == nil, correctingMemoryID == nil, !isPerformingCardAction else { throw MemoryForgetError.inProgress }
         let requestedID = MemoryForgetPresentation.normalizedID(itemID)
         guard !requestedID.isEmpty else { throw MemoryForgetError.removed }
         guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryForgetError.removed }
@@ -750,7 +842,7 @@ final class MemoriesViewModel: ObservableObject {
         // A changed or newly added same-key card must never be removed by an older receipt.
         let currentScope = Set(memoryItemsMatching(id: itemID, key: key))
         guard currentScope.isSubset(of: originalScope) else { throw MemoryForgetError.changed }
-        adoptMutationSync(result.sync, basedOnRead: readGeneration)
+        recordMemoryMutation()
         let characterKeyPrefix = "character:"
         if key.lowercased().hasPrefix(characterKeyPrefix) {
             ScreenplayLiveDraftBridge.shared.forgetCharacterVoiceMemory(
@@ -775,9 +867,8 @@ final class MemoriesViewModel: ObservableObject {
     func undoCanonCorrection(receiptID: String) async throws {
         try checkMutationTransport()
         _ = try? await api.bootstrapSession()
-        let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await api.undoCanonCorrection(receiptID: receiptID)
+            _ = try await api.undoCanonCorrection(receiptID: receiptID)
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
                backendError.isCrossDeviceMemoryConflict {
@@ -785,7 +876,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        adoptMutationSync(result.sync)
+        recordMemoryMutation()
         selection = nil
         await load(force: true, sinceVersion: nil)
     }
@@ -793,9 +884,8 @@ final class MemoriesViewModel: ObservableObject {
     func resolveCanonCorrection(ambiguityID: String, selectedFacts: [String]) async throws {
         try checkMutationTransport()
         _ = try? await api.bootstrapSession()
-        let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await api.resolveCanonCorrection(
+            _ = try await api.resolveCanonCorrection(
                 ambiguityID: ambiguityID,
                 selectedFacts: selectedFacts
             )
@@ -806,7 +896,7 @@ final class MemoriesViewModel: ObservableObject {
             }
             throw error
         }
-        adoptMutationSync(result.sync)
+        recordMemoryMutation()
         selection = nil
         await load(force: true, sinceVersion: nil)
     }
@@ -814,41 +904,12 @@ final class MemoriesViewModel: ObservableObject {
     func markMemoryQuality(
         itemID: String,
         key: String,
-        signal: String
+        signal: String,
+        expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        try checkMutationTransport()
-        _ = try? await api.bootstrapSession()
-        let result: BackendReadResult<BackendMemoryMutationResponse>
-        do {
-            result = try await api.markMemoryQuality(
-                id: itemID,
-                key: key,
-                signal: signal
-            )
-        } catch {
-            if let backendError = error as? BackendMemoryAPIError,
-               backendError.isCrossDeviceMemoryConflict {
-                await load(force: true, sinceVersion: nil)
-            }
-            throw error
-        }
-        adoptMutationSync(result.sync)
-        if let card = result.payload.memoryCard {
-            let updated = memoryItem(from: card)
-            replaceMemoryItem(updated)
-            if selection?.id == updated.id {
-                selection = updated
-            }
-            return updated
-        }
-        await load(force: true, sinceVersion: nil)
-        if case .loaded(let items) = state,
-           let updated = items.first(where: { $0.id == itemID || $0.key == key }) {
-            return updated
-        }
-        throw NSError(domain: "MemoriesViewModel", code: -2, userInfo: [
-            NSLocalizedDescriptionKey: "Memory quality updated, but the card was not found."
-        ])
+        let original = try validateCardAction(itemID: itemID, key: key, expectedItem: expectedItem)
+        guard original.supportsQualityFeedback, ["hit", "correction"].contains(signal) else { throw MemoryCardActionError.unavailable }
+        return try await performCardAction(.feedback(signal), original: original, request: original)
     }
 
     func promoteMemory(
@@ -856,43 +917,98 @@ final class MemoriesViewModel: ObservableObject {
         key: String,
         title: String,
         summary: String,
-        reason: String
+        reason: String,
+        expectedItem: MemoryItem? = nil
     ) async throws -> MemoryItem {
-        try checkMutationTransport()
-        _ = try? await api.bootstrapSession()
+        let original = try validateCardAction(itemID: itemID, key: key, expectedItem: expectedItem)
+        guard original.supportsPromotion else {
+            throw MemoryCardActionError.unavailable
+        }
+        var requested = original
+        requested.title = title
+        requested.summary = summary
+        requested.reason = reason
+        return try await performCardAction(.promote, original: original, request: requested)
+    }
+
+    private func validateCardAction(itemID: String, key: String, expectedItem: MemoryItem?) throws -> MemoryItem {
+        guard let original = expectedItem ?? memory(forID: itemID), let latest = memory(forID: itemID) else {
+            throw MemoryCardActionError.unavailable
+        }
+        guard original.id == itemID, original.key == key, latest == original else { throw MemoryCardActionError.changed }
+        return original
+    }
+
+    private func performCardAction(_ action: MemoryCardAction, original: MemoryItem, request: MemoryItem) async throws -> MemoryItem {
+        guard !isPerformingCardAction, correctingMemoryID == nil, forgettingMemoryID == nil else {
+            throw MemoryCardActionError.inProgress
+        }
+        let themeKey = original.key.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9_]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        guard !themeKey.isEmpty else { throw MemoryCardActionError.unavailable }
+        isPerformingCardAction = true
+        actionNotice = nil
+        defer { isPerformingCardAction = false }
+        let stateVersion = correctedMemoryStateVersions[original.id] ?? displayedMemoryStateVersion
+        let readGeneration = appliedReadGeneration
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
-            result = try await api.promoteMemoryCard(
-                id: itemID,
-                key: key.isEmpty ? nil : key,
-                title: title,
-                summary: summary,
-                reason: reason
-            )
+            if let cardActionLoader {
+                result = try await cardActionLoader(action, request, stateVersion)
+            } else {
+                try checkMutationTransport()
+                guard !stateVersion.isEmpty else { throw MemoryCardActionError.unconfirmed }
+                _ = try? await api.bootstrapSession()
+                _ = try validateCardAction(itemID: original.id, key: original.key, expectedItem: original)
+                switch action {
+                case .feedback(let signal):
+                    result = try await api.markMemoryQuality(id: original.id, key: original.key, signal: signal, expectedStateVersion: stateVersion)
+                case .promote:
+                    result = try await api.promoteMemoryCard(id: original.id, key: original.key, title: request.title, summary: request.summary, reason: request.reason, expectedStateVersion: stateVersion)
+                }
+            }
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
                backendError.isCrossDeviceMemoryConflict {
                 await load(force: true, sinceVersion: nil)
+                throw MemoryCardActionError.changed
             }
             throw error
         }
-        adoptMutationSync(result.sync)
-        if let card = result.payload.memoryCard {
-            let updated = memoryItem(from: card)
+        let expectedID: String
+        let validReceipt: Bool
+        switch action {
+        case .feedback(let signal):
+            expectedID = original.id
+            validReceipt = result.payload.action == "feedback" && result.payload.status == signal
+        case .promote:
+            expectedID = "theme-\(themeKey)"
+            validReceipt = result.payload.action == "promote" && ["promoted", "promoted_created", "promoted_updated"].contains(result.payload.status)
+        }
+        guard result.payload.ok, validReceipt, result.payload.themeKey == themeKey,
+              let card = result.payload.memoryCard, card.id == expectedID, card.key == themeKey else {
+            throw MemoryCardActionError.unconfirmed
+        }
+        let needsRead = action == .promote || readGeneration != appliedReadGeneration
+        if !needsRead {
+            _ = try validateCardAction(itemID: original.id, key: original.key, expectedItem: original)
+        }
+        recordMemoryMutation()
+        let updated: MemoryItem
+        if needsRead {
+            let outcome = await load(force: true, sinceVersion: nil, refreshPendingQuestion: false)
+            guard outcome == .succeeded else { throw MemoryCardActionError.unconfirmed }
+            guard let latest = memory(forID: expectedID), latest.key == themeKey else { throw MemoryCardActionError.unavailable }
+            updated = latest
+        } else {
+            updated = memoryItem(from: card)
+            correctedMemoryStateVersions[updated.id] = result.payload.stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             replaceMemoryItem(updated)
-            if selection?.id == itemID || selection?.key == key {
-                selection = updated
-            }
-            return updated
         }
-        await load(force: true, sinceVersion: nil)
-        if case .loaded(let items) = state,
-           let updated = items.first(where: { $0.id == itemID || $0.key == key || $0.title == title }) {
-            return updated
-        }
-        throw NSError(domain: "MemoriesViewModel", code: -3, userInfo: [
-            NSLocalizedDescriptionKey: "Memory promoted, but the promoted card was not found."
-        ])
+        if selection?.id == original.id { selection = updated }
+        actionNotice = action == .promote ? "Saved as a memory." : "Feedback saved."
+        return updated
     }
 
     func updateStoryMovePreference(
@@ -913,7 +1029,7 @@ final class MemoriesViewModel: ObservableObject {
                 family: family,
                 action: action
             )
-            adoptMutationSync(result.sync)
+            recordMemoryMutation()
             if let preferences = result.payload.storyMovePreferences {
                 storyMovePreferences = preferences
             } else {
@@ -945,7 +1061,7 @@ final class MemoriesViewModel: ObservableObject {
                 family: "",
                 action: "reset_all"
             )
-            adoptMutationSync(result.sync)
+            recordMemoryMutation()
             storyMovePreferences = result.payload.storyMovePreferences ?? []
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -969,13 +1085,13 @@ final class MemoriesViewModel: ObservableObject {
         do {
             try checkMutationTransport()
             _ = try? await api.bootstrapSession()
-            let result = try await api.correctStoryObligation(
+            _ = try await api.correctStoryObligation(
                 projectID: projectID,
                 projectTitle: projectTitle,
                 change: change,
                 action: action
             )
-            adoptMutationSync(result.sync)
+            recordMemoryMutation()
             await load(force: true, sinceVersion: nil)
         } catch {
             if let backendError = error as? BackendMemoryAPIError,
@@ -1198,7 +1314,8 @@ struct MemoriesScreen: View {
                         try await vm.markMemoryQuality(
                             itemID: target.id,
                             key: target.key,
-                            signal: signal
+                            signal: signal,
+                            expectedItem: target
                         )
                     },
                     onPromote: { target in
@@ -1207,7 +1324,8 @@ struct MemoriesScreen: View {
                             key: target.key,
                             title: target.title,
                             summary: target.summary,
-                            reason: target.reason
+                            reason: target.reason,
+                            expectedItem: target
                         )
                     }
                 )
@@ -2675,10 +2793,10 @@ struct MemoryDetailView: View {
     let onEditingChanged: (Bool) -> Void
     let onSave: @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem
     let onForget: @MainActor (MemoryItem) async throws -> Void
-    let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
-    let onResolveCorrection: (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void
-    let onQualitySignal: (MemoryItem, String) async throws -> MemoryItem
-    let onPromote: (MemoryItem) async throws -> MemoryItem
+    let onUndoCorrection: @MainActor (BackendCanonCorrectionReceipt) async throws -> Void
+    let onResolveCorrection: @MainActor (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void
+    let onQualitySignal: @MainActor (MemoryItem, String) async throws -> MemoryItem
+    let onPromote: @MainActor (MemoryItem) async throws -> MemoryItem
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -2694,6 +2812,7 @@ struct MemoryDetailView: View {
     @State private var isResolvingCorrection = false
     @State private var isSendingQuality = false
     @State private var isPromoting = false
+    @State private var cardActionNotice = ""
     @State private var errorText = ""
 
     init(
@@ -2702,10 +2821,10 @@ struct MemoryDetailView: View {
         onEditingChanged: @escaping (Bool) -> Void = { _ in },
         onSave: @escaping @MainActor (MemoryItem, MemoryItem) async throws -> MemoryItem,
         onForget: @escaping @MainActor (MemoryItem) async throws -> Void,
-        onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
-        onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void,
-        onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
-        onPromote: @escaping (MemoryItem) async throws -> MemoryItem
+        onUndoCorrection: @escaping @MainActor (BackendCanonCorrectionReceipt) async throws -> Void,
+        onResolveCorrection: @escaping @MainActor (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void,
+        onQualitySignal: @escaping @MainActor (MemoryItem, String) async throws -> MemoryItem,
+        onPromote: @escaping @MainActor (MemoryItem) async throws -> MemoryItem
     ) {
         self.item = item
         self.onReturnHome = onReturnHome
@@ -2827,11 +2946,11 @@ struct MemoryDetailView: View {
                         }
                     }
 
-                    memoryLedgerSection
-
                     if !currentItem.hasCanonCorrectionControl {
                         qualityActionsSection
                     }
+
+                    memoryLedgerSection
 
                     Divider()
                         .overlay(Color.white.opacity(0.22))
@@ -2843,7 +2962,7 @@ struct MemoryDetailView: View {
                         }
                     }
 
-                    if !errorText.isEmpty {
+                    if !errorText.isEmpty && currentItem.hasCanonCorrectionControl {
                         Text(errorText)
                             .font(.system(size: 13, weight: .regular, design: .default))
                             .foregroundStyle(.red.opacity(0.9))
@@ -2878,14 +2997,6 @@ struct MemoryDetailView: View {
                     .disabled(isBusy)
                 }
 
-                if canPromoteCurrentItem {
-                    Button {
-                        Task { await promoteCurrentItem() }
-                    } label: {
-                        Text("Promote").frame(minWidth: 44, minHeight: 44)
-                    }
-                    .disabled(isBusy)
-                }
                 if !currentItem.hasCanonCorrectionControl {
                     Button(role: .destructive) {
                         beginForgetting()
@@ -3023,24 +3134,57 @@ struct MemoryDetailView: View {
             Text("Memory Accuracy")
                 .font(.system(size: 14, weight: .semibold, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
-            HStack(spacing: 10) {
+            if !errorText.isEmpty && !showingEdit {
+                Text(errorText)
+                    .font(.system(size: 14))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.card-action.error")
+            }
+            if !cardActionNotice.isEmpty && errorText.isEmpty {
+                Text(cardActionNotice)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(MemoriesTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("memories.card-action.notice")
+            }
+            if canPromoteCurrentItem {
+                Button {
+                    Task { await promoteCurrentItem() }
+                } label: {
+                    Text(isPromoting ? "Saving…" : "Save as memory")
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isBusy)
+                .accessibilityIdentifier("memories.detail.promote")
+                .accessibilityHint("Turns this conversation moment into an editable memory. It does not delete the conversation.")
+            } else if currentItem.supportsQualityFeedback {
                 Button {
                     Task { await sendQualitySignal("hit") }
                 } label: {
-                    Text("Helpful")
+                    Text(isSendingQuality ? "Saving…" : "Helpful")
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!currentItem.editable || isBusy)
+                .disabled(isBusy)
+                .accessibilityIdentifier("memories.detail.helpful")
+                .accessibilityHint("Records that this saved memory was useful.")
 
             }
-            Text(currentItem.editable
-                ? "Correcting a memory updates what Clementine uses next time."
-                : "Quality feedback is available for theme memories.")
+            Text(canPromoteCurrentItem
+                ? "Save this conversation moment so you can review and correct what Clementine remembers. Your conversation stays intact."
+                : currentItem.supportsQualityFeedback
+                    ? "Mark this memory helpful when it reflects what you want Clementine to remember."
+                    : currentItem.editable
+                        ? "Use Correct above to update what Clementine remembers."
+                        : "This memory is read-only. Quality feedback is available for saved theme memories.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(
@@ -3155,37 +3299,52 @@ struct MemoryDetailView: View {
 
     @MainActor
     private func sendQualitySignal(_ signal: String) async {
+        guard !isBusy else { return }
         isSendingQuality = true
+        errorText = ""
+        cardActionNotice = ""
         defer { isSendingQuality = false }
         do {
             let updated = try await onQualitySignal(currentItem, signal)
             currentItem = updated
+            cardActionNotice = "Feedback saved."
             errorText = ""
         } catch {
-            errorText = error.localizedDescription
+            errorText = cardActionErrorMessage(error)
         }
     }
 
     private var canPromoteCurrentItem: Bool {
-        let src = currentItem.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !currentItem.editable && (src == "history" || src == "recap")
+        currentItem.supportsPromotion
     }
 
     @MainActor
     private func promoteCurrentItem() async {
+        guard !isBusy else { return }
         guard canPromoteCurrentItem else {
             errorText = "This memory cannot be promoted."
             return
         }
         isPromoting = true
+        errorText = ""
+        cardActionNotice = ""
         defer { isPromoting = false }
         do {
             let promoted = try await onPromote(currentItem)
             currentItem = promoted
+            cardActionNotice = "Saved as a memory."
             errorText = ""
         } catch {
-            errorText = error.localizedDescription
+            errorText = cardActionErrorMessage(error)
         }
+    }
+
+    private func cardActionErrorMessage(_ error: Error) -> String {
+        if let error = error as? MemoryCardActionError { return error.localizedDescription }
+        if let backend = error as? BackendMemoryAPIError, backend.requiresUserAuthentication {
+            return "Sign in to update this memory. Return Home, sign in, then open Memories again."
+        }
+        return "Couldn’t confirm this action completed. You can still read this memory. Check your connection and refresh Memories before trying again."
     }
 }
 

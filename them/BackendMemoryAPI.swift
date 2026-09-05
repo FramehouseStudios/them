@@ -9220,7 +9220,8 @@ actor BackendMemoryAPI {
         key: String? = nil,
         title: String? = nil,
         summary: String? = nil,
-        reason: String? = nil
+        reason: String? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
@@ -9233,14 +9234,17 @@ actor BackendMemoryAPI {
         if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["reason"] = reason
         }
-        return try await runMemoryMutation(path: "/memories/promote", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/promote", payload: payload, expectedStateVersion: expectedStateVersion
+        )
     }
 
     func markMemoryQuality(
         id: String,
         key: String? = nil,
         signal: String,
-        note: String? = nil
+        note: String? = nil,
+        expectedStateVersion: String? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -9250,7 +9254,9 @@ actor BackendMemoryAPI {
         if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["note"] = note
         }
-        return try await runMemoryMutation(path: "/memories/feedback", payload: payload)
+        return try await runMemoryMutation(
+            path: "/memories/feedback", payload: payload, expectedStateVersion: expectedStateVersion
+        )
     }
 
     func updateTask(
