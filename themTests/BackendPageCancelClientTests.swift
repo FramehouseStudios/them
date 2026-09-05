@@ -4,15 +4,18 @@ import XCTest
 final class BackendPageCancelClientTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.set("client-test-token", forKey: "client_token")
+        BackendAuthClient.clearSharedClientToken()
         let expiry = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
-        UserDefaults.standard.set(expiry, forKey: "client_token_expiry")
-        UserDefaults.standard.set("https://page-cancel.test", forKey: "client_token_base_url")
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "client_token_cached_at")
+        XCTAssertTrue(BackendAuthClient.persistSharedClientToken(
+            "client-test-token",
+            expiryRaw: expiry,
+            baseURLRaw: "https://page-cancel.test"
+        ))
     }
 
     override func tearDown() {
         PageCancelURLProtocolStub.handler = nil
+        BackendAuthClient.clearSharedClientToken()
         UserDefaults.standard.removeObject(forKey: "client_token")
         UserDefaults.standard.removeObject(forKey: "client_token_expiry")
         UserDefaults.standard.removeObject(forKey: "client_token_base_url")
@@ -57,9 +60,9 @@ final class BackendPageCancelClientTests: XCTestCase {
         XCTAssertEqual(recorded.json["reservation_id"] as? String, "res-123")
         XCTAssertEqual(recorded.json["session_id"] as? String, "sess-9")
         XCTAssertEqual(recorded.json["reason"] as? String, "manual_typing")
-        XCTAssertEqual(recorded.headers["Content-Type"], "application/json")
-        XCTAssertEqual(recorded.headers["X-Persona-Key"], "clementine")
-        XCTAssertFalse((recorded.headers["X-Client-Token"] ?? "").isEmpty)
+        XCTAssertEqual(recorded.headers["content-type"], "application/json")
+        XCTAssertEqual(recorded.headers["x-persona-key"], "clementine")
+        XCTAssertFalse((recorded.headers["x-client-token"] ?? "").isEmpty)
         XCTAssertEqual(recorded.headers["x-session-id"], "sess-9")
     }
 
@@ -115,6 +118,23 @@ final class BackendPageCancelClientTests: XCTestCase {
         XCTAssertEqual(result.ok, false)
         XCTAssertEqual(result.cancelled, false)
         XCTAssertEqual(result.status, "reservation_not_found")
+    }
+
+    func testRecorderReadsStreamedBodyAndCaseInsensitiveHeaders() throws {
+        var request = URLRequest(url: URL(string: "https://page-cancel.test/talk/page-cancel")!)
+        request.httpMethod = "POST"
+        request.httpBodyStream = InputStream(data: Data(#"{"session_id":"stream-owner","reason":"barge_in"}"#.utf8))
+        request.setValue("application/json", forHTTPHeaderField: "CONTENT-TYPE")
+        request.setValue("stream-owner", forHTTPHeaderField: "X-Session-Id")
+        let recorder = PageCancelRequestRecorder()
+
+        recorder.record(request)
+
+        let recorded = try XCTUnwrap(recorder.requests.first)
+        XCTAssertEqual(recorded.json["session_id"] as? String, "stream-owner")
+        XCTAssertEqual(recorded.json["reason"] as? String, "barge_in")
+        XCTAssertEqual(recorded.headers["content-type"], "application/json")
+        XCTAssertEqual(recorded.headers["x-session-id"], "stream-owner")
     }
 
     private func makeClient() -> BackendClient {
@@ -179,8 +199,10 @@ private final class PageCancelRequestRecorder {
 
     func record(_ request: URLRequest) {
         let path = request.url?.path ?? ""
-        let headers = request.allHTTPHeaderFields ?? [:]
-        let json = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any] ?? [:]
+        let headers = (request.allHTTPHeaderFields ?? [:]).reduce(into: [String: String]()) {
+            $0[$1.key.lowercased()] = $1.value
+        }
+        let json = (try? JSONSerialization.jsonObject(with: Self.bodyData(from: request) ?? Data())) as? [String: Any] ?? [:]
         requests.append(
             Recorded(
                 method: request.httpMethod ?? "",
@@ -189,6 +211,22 @@ private final class PageCancelRequestRecorder {
                 json: json
             )
         )
+    }
+
+    private static func bodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: 1_024)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 }
 
