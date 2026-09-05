@@ -5576,6 +5576,7 @@ function storeTalkTurnMeta({
   screenplayOutput = null,
   dialogueTimeline = null,
   renderContract = null,
+  nextBeats = [],
   requestId = "",
   now = Date.now(),
 } = {}) {
@@ -5584,6 +5585,9 @@ function storeTalkTurnMeta({
   cleanupTalkTurnMetaStore(now);
   talkTurnMetaById.set(normalizedTurnId, {
     turnId: normalizedTurnId,
+    nextBeats: Array.isArray(nextBeats)
+      ? nextBeats.map((beat) => normalizeSnippet(beat, 180)).filter(Boolean).slice(0, 3)
+      : [],
     sessionId: String(sessionId || "").trim(),
     userId: normalizeScreenplayOwnerValue(userId, "user"),
     stateVersion: String(stateVersion || "").trim(),

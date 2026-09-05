@@ -3077,6 +3077,7 @@ function createTalkHandler(deps) {
           screenplayOutput: talkScreenplayOutput,
           dialogueTimeline: talkDialogueTimeline,
           renderContract: talkRenderContract,
+          nextBeats: req.clementine?.multipass?.nextBeats || [],
           requestId: rid,
         });
         res.setHeader("x-turn-meta-available", "1");
@@ -5023,6 +5024,7 @@ ${directorOutputRule}
           screenplayOutput: talkScreenplayOutput,
           dialogueTimeline: talkDialogueTimeline,
           renderContract: talkRenderContract,
+          nextBeats: req.clementine?.multipass?.nextBeats || [],
           requestId: rid,
         });
       res.setHeader("x-turn-meta-available", "1");

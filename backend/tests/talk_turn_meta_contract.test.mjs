@@ -32,6 +32,7 @@ const SUCCESS_KEYS = [
   "screenplay_cues",
   "screenplay_output",
   "dialogue_timeline",
+  "next_beats",
   "render_contract",
   "request_id",
   "updated_at",
@@ -176,5 +177,25 @@ test("[talk-turn-meta] response includes Cache-Control: no-store", async () => {
     {
       meta: { turnId: "abc" },
     },
+  );
+});
+
+// ---------- next_beats passthrough ----------
+
+test("[talk-turn-meta] next_beats echoes the stored beats, capped at 3, and defaults to []", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const r = await get(baseURL, "/talk/turn/abc");
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body.next_beats, ["A", "B", "C"]);
+    },
+    { meta: { turnId: "abc", nextBeats: ["A", "B", "C", "D"] } },
+  );
+  await withTestServer(
+    async ({ baseURL }) => {
+      const r = await get(baseURL, "/talk/turn/abc");
+      assert.deepEqual(r.body.next_beats, []);
+    },
+    { meta: { turnId: "abc" } },
   );
 });

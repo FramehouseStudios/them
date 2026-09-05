@@ -82,6 +82,16 @@ See also `docs/product/clementine-wallet.md`.
 - Expanding all gold fixtures
 - Rewriting ScreenplayStudioScreen
 
+## Next beats (pills)
+
+When the flag is on, the plan prompt ends with three bullet lines starting
+with `Next:`. `parseNextBeats` lifts them (bullets optional, max 3, 180
+chars each) onto `req.clementine.multipass.nextBeats`; the talk handler
+stores them on the turn-meta record and `GET /talk/turn/:turnId` returns
+them as `next_beats` (see `docs/schemas/talk-turn-meta.md`). They are
+model suggestions for the Studio pills — never written into `req.body`
+(`next_three_turns` there is writer-supplied canon and is persisted).
+
 ## Residuals
 
 - **F4** — memory bible / longitudinal craft memory for Page
@@ -91,3 +101,4 @@ See also `docs/product/clementine-wallet.md`.
 
 - 2026-09-01 — F2 MVP: flag-gated Plan→Draft→Critique→Revise + optional repair; F1 heuristic acceptance seam.
 - 2026-09-02 — F3: per-stage model/effort routing + Muse prefer-OpenAI for plan/critique.
+- 2026-09-05 — Next beats: plan prompt asks for 3 `Next:` lines; parsed onto `req.clementine.multipass.nextBeats` and surfaced as `next_beats` in the turn-meta envelope.

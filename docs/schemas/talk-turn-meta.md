@@ -46,6 +46,7 @@ callers get 403.
 | `screenplay_cues` | array | yes | meta.screenplayCues | per-cue objects; `[]` when not a screenplay turn |
 | `screenplay_output` | object \| null | yes | meta.screenplayOutput | full screenplay-output payload; null when not produced |
 | `dialogue_timeline` | object \| null | yes | meta.dialogueTimeline | per-line timing; null when not produced |
+| `next_beats` | string[] | yes | meta.nextBeats | up to 3 "Next:" beats parsed from the Page multipass plan stage (`CLEMENTINE_PAGE_MULTIPASS=1`); `[]` otherwise. Model suggestions, never writer canon — iOS must not write these back as `next_three_turns` |
 | `render_contract` | object | yes | meta.renderContract | `{ reply_role, authoritative_page_text_available, sync_ready }`; defaults to `{ reply_role: "final", authoritative_page_text_available: false, sync_ready: false }` when not stored |
 | `request_id` | string \| null | yes | meta.requestId | request correlation id |
 | `updated_at` | int \| null | yes | meta.updatedAt / meta.createdAt | epoch ms |
@@ -87,6 +88,7 @@ callers get 403.
   ],
   "screenplay_output": null,
   "dialogue_timeline": null,
+  "next_beats": [],
   "render_contract": {
     "reply_role": "final",
     "authoritative_page_text_available": false,
@@ -110,6 +112,7 @@ callers get 403.
 
 ## Changelog
 
+- 2026-09-05 — Added `next_beats` (additive, v1): Page multipass plan-stage beats for the Studio next-beat pills.
 - 2026-05-14 — Doc created. Reflects shape produced by
   `lib/talk_pipeline.js`'s `GET /talk/turn/:turnId` handler at
   this date.

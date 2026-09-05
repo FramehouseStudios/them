@@ -177,13 +177,31 @@ function critiquePageHeuristic(pageText = "", { scoreFn = scorePageHeuristic } =
 function buildPlanPrompt(utterance = "") {
   return [
     "You are Clementine planning one screenplay page (Fountain).",
-    "Write a SHORT beat/intent outline only (4–8 lines). No full page.",
+    "Write a SHORT beat/intent outline only (6–10 lines). No full page.",
     "Cover: want, obstacle, cost, motif, and voice tactic.",
+    "End with exactly 3 Next Beats as bullet lines starting with 'Next:' so the writer can tap one when blocked (e.g., 'Next: protagonist finds the photo — cost: must lie to ally').",
     "Do not write dialogue blocks or scene text yet.",
     utterance ? `Writer ask: ${utterance}` : "",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// "Next:" lines from the plan stage, with or without a bullet marker.
+// The prompt asks for bullet lines, so "- Next: …", "* Next: …" and
+// "• Next: …" all count. Capped at 3 beats of 180 chars.
+const NEXT_BEAT_LINE = /^(?:[-*•]\s*)?next\s*:\s*(.*)$/i;
+
+function parseNextBeats(planText = "") {
+  const lines = String(planText || "").split("\n");
+  const out = [];
+  for (const line of lines) {
+    const match = NEXT_BEAT_LINE.exec(line.trim());
+    if (!match) continue;
+    const v = match[1].trim();
+    if (v) out.push(v.slice(0, 180));
+  }
+  return out.slice(0, 3);
 }
 
 function buildDraftPrompt({ utterance = "", plan = "" } = {}) {
@@ -771,12 +789,18 @@ async function runTalkGeneratePageMultipass({
     }
   }
 
+  // Model output stays on req.clementine and travels to the writer via the
+  // turn-meta envelope (GET /talk/turn/:turnId -> next_beats). It must never
+  // be written into req.body: next_three_turns there means writer-supplied
+  // canon and is persisted as project memory.
+  const nextBeats = parseNextBeats(result.plan);
   req.clementine = req.clementine || {};
   req.clementine.multipass = {
     stages: result.stages,
     scores: result.scores,
     plan: result.plan,
     critique: result.critique,
+    nextBeats,
     meteredOutputTokens: result.meteredOutputTokens,
     routing: routingLog,
     stageRoutes,
@@ -818,6 +842,7 @@ export {
   multipassWalletReserveTokenMultiplier,
   critiquePageHeuristic,
   buildPlanPrompt,
+  parseNextBeats,
   buildDraftPrompt,
   buildRevisePrompt,
   createChatStageSupplier,

@@ -223,6 +223,7 @@ function mountTalkPipelineRoutes(app, {
       screenplay_cues: Array.isArray(meta.screenplayCues) ? meta.screenplayCues : [],
       screenplay_output: meta.screenplayOutput || null,
       dialogue_timeline: meta.dialogueTimeline || null,
+      next_beats: Array.isArray(meta.nextBeats) ? meta.nextBeats.slice(0, 3) : [],
       render_contract: meta.renderContract || {
         reply_role: "final",
         authoritative_page_text_available: false,

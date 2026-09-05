@@ -647,6 +647,7 @@ private struct BackendTalkTurnMetaPayload: Decodable {
     let knowledgeQueryRaw: String?
     let knowledgeQueryRewrite: String?
     let knowledgeContradictionRisk: Double?
+    let nextBeats: [String]?
 
     enum CodingKeys: String, CodingKey {
         case turnID = "turn_id"
@@ -665,6 +666,27 @@ private struct BackendTalkTurnMetaPayload: Decodable {
         case knowledgeQueryRaw = "knowledge_query_raw"
         case knowledgeQueryRewrite = "knowledge_query_rewrite"
         case knowledgeContradictionRisk = "knowledge_contradiction_risk"
+        case nextBeats = "next_beats"
+    }
+}
+
+/// `next_beats` from the turn-meta envelope: up to three "Next:" beats the Page
+/// multipass plan stage suggested. Model suggestions for the Studio pills only;
+/// never written back to the backend as `next_three_turns` (writer canon).
+enum BackendTalkNextBeats {
+    static let maxCount = 3
+    static let maxLength = 180
+
+    static func normalize(_ raw: [String]?) -> [String] {
+        guard let raw else { return [] }
+        var out: [String] = []
+        for beat in raw {
+            let clean = beat.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            out.append(String(clean.prefix(maxLength)))
+            if out.count == maxCount { break }
+        }
+        return out
     }
 }
 
@@ -1423,6 +1445,8 @@ struct BackendTalkResult {
     let speculativeTrace: BackendTalkSpeculativeTrace
     let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
     let commit: BackendTurnCommitSignal?
+    /// See `BackendTalkNextBeats`. Empty unless Page multipass produced beats.
+    var nextBeats: [String] = []
 }
 
 struct BackendTalkRenderContract: Equatable {
@@ -5106,6 +5130,7 @@ final class BackendClient {
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
         var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
+        var nextBeats: [String] = []
         if shouldFetchTurnMeta, let commitSignal {
             do {
                 let payload = try await fetchTurnMeta(
@@ -5141,6 +5166,7 @@ final class BackendClient {
                 if dialogueTimeline == nil {
                     dialogueTimeline = payload.dialogueTimeline
                 }
+                nextBeats = BackendTalkNextBeats.normalize(payload.nextBeats)
                 renderContract = renderContract.merged(with: payload.renderContract?.renderContract)
                 if knowledgeTopics.isEmpty {
                     knowledgeTopics = payload.knowledgeTopics ?? []
@@ -5333,7 +5359,8 @@ final class BackendClient {
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
             turnMetaRateLimitNotice: turnMetaRateLimitNotice,
-            commit: commitSignal
+            commit: commitSignal,
+            nextBeats: nextBeats
         )
     }
 
