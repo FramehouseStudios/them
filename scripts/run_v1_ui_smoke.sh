@@ -6,6 +6,7 @@ PROJECT="${PROJECT:-$ROOT/them.xcodeproj}"
 SCHEME="${SCHEME:-them}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 ONLY_TESTING="${ONLY_TESTING:-themUITests}"
+SKIP_TESTING="${SKIP_TESTING:-}"
 XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
 
 if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
@@ -29,6 +30,9 @@ fi
 
 echo "run-v1-ui-smoke: destination=${destination}"
 echo "run-v1-ui-smoke: only-testing=${ONLY_TESTING}"
+if [[ -n "$SKIP_TESTING" ]]; then
+  echo "run-v1-ui-smoke: skip-testing=${SKIP_TESTING}"
+fi
 
 build_args=()
 if [[ -n "${THEM_UITEST_RESTORE_XCCONFIG_PATH:-}" ]]; then
@@ -42,6 +46,11 @@ build_args+=(
   -configuration "$CONFIGURATION"
   -destination "$destination"
   "-only-testing:${ONLY_TESTING}"
+)
+if [[ -n "$SKIP_TESTING" ]]; then
+  build_args+=("-skip-testing:${SKIP_TESTING}")
+fi
+build_args+=(
   -parallel-testing-enabled NO
   -maximum-concurrent-test-simulator-destinations 1
   "$@"

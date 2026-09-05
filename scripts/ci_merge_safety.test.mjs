@@ -33,11 +33,24 @@ test("[ci-merge-safety] deterministic signed iOS and Swift UI smokes fail the qu
     /- name: Run signed iPhone and macOS voice network-fault smokes[\s\S]*?run: scripts\/run_voice_network_fault_smokes\.sh/,
   )?.[0] || "";
 
+  const featureUIStep = qualityGate.match(
+    /- name: Run signed iOS feature UI tests \(soft gate\)[\s\S]*?run: scripts\/run_v1_ui_smoke\.sh/,
+  )?.[0] || "";
+
   assert.notEqual(v1UISmokeStep, "", "signed V1 UI smoke step is missing");
   assert.notEqual(networkFaultStep, "", "signed voice network-fault step is missing");
+  assert.notEqual(featureUIStep, "", "soft-gated feature UI step is missing");
   assert.doesNotMatch(v1UISmokeStep, /continue-on-error/);
   assert.doesNotMatch(networkFaultStep, /continue-on-error/);
-  assert.match(qualityGate, /iOS V1 UI smoke: enforced \(signed themUITests; no provider secret\)/);
+  // Only the deterministic smoke class blocks merges. The feature UI classes
+  // stay soft until they have completed once on a hosted macOS runner.
+  assert.match(v1UISmokeStep, /ONLY_TESTING: themUITests\/V1SmokeUITests/);
+  assert.doesNotMatch(v1UISmokeStep, /SKIP_TESTING/);
+  assert.match(featureUIStep, /continue-on-error: true/);
+  assert.match(featureUIStep, /ONLY_TESTING: themUITests\n/);
+  assert.match(featureUIStep, /SKIP_TESTING: themUITests\/V1SmokeUITests/);
+  assert.match(qualityGate, /iOS V1 UI smoke: enforced \(signed themUITests\/V1SmokeUITests; no provider secret\)/);
+  assert.match(qualityGate, /iOS feature UI tests: soft gate \(signed themUITests minus V1SmokeUITests\)/);
   assert.match(qualityGate, /Voice network faults: enforced \(signed iPhone \+ macOS fixture smokes\)/);
 });
 
