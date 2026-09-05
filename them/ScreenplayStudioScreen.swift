@@ -567,6 +567,7 @@ struct ScreenplayStudioScreen: View {
     @State private var didApplyUITestLaunchActions = false
     @State private var didApplyUITestDraftConflictFixture = false
     @State private var didApplyUITestSaveNetworkFault = false
+    @State private var uiTestSaveNetworkFaultStage = "waiting_for_project"
     @State private var didResolveUITestPendingQuestionFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
@@ -657,6 +658,9 @@ struct ScreenplayStudioScreen: View {
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
+            "save_network_fault_applied": didApplyUITestSaveNetworkFault,
+            "save_network_fault_stage": uiTestSaveNetworkFaultStage,
+            "initial_load_settled": studioDebugInitialLoadSettled,
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -1331,6 +1335,16 @@ Replace is best when this file should become the script you edit. Append is safe
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
             }
+            #if DEBUG
+            .onChange(of: vm.isLoading) { _, isLoading in
+                guard !isLoading else { return }
+                Task { await applyUITestSaveNetworkFaultIfNeeded() }
+            }
+            .onChange(of: studioDebugProjectLoadInFlight) { _, isLoading in
+                guard !isLoading else { return }
+                Task { await applyUITestSaveNetworkFaultIfNeeded() }
+            }
+            #endif
             .onReceive(Self.backgroundSyncTimer) { date in
                 scheduleStudioBackgroundSync(
                     trigger: .timer,
@@ -5674,7 +5688,7 @@ private var projectsSidebarContent: some View {
         vm.paginationPages.map { page in
             ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                previewLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                     for: page,
                     draft: vm.fountainDraft
                 ),
@@ -15813,7 +15827,20 @@ Look at the city.
               ) else {
             return
         }
+        // The explicit debug project load can outlive the initial Studio task.
+        // Do not consume this one-shot fixture while the view model has no draft.
+        guard studioDebugInitialLoadSettled,
+              !studioDebugProjectLoadInFlight,
+              vm.selectedProject != nil,
+              !vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+                  selectedProjectID: vm.selectedProjectID,
+                  loadedProjectID: vm.selectedProject?.id,
+                  loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+                  isLoading: vm.isLoading
+              ) else { return }
         didApplyUITestSaveNetworkFault = true
+        uiTestSaveNetworkFaultStage = "saving_offline"
         let offlineBaseURL = uiTestLaunchArgumentValue(
             "--ui-screenplay-save-network-fault-url",
             in: arguments
@@ -15822,6 +15849,7 @@ Look at the city.
             marker: marker,
             offlineBaseURL: offlineBaseURL
         )
+        uiTestSaveNetworkFaultStage = "save_returned"
         publishDebugStudioDiffState()
     }
 

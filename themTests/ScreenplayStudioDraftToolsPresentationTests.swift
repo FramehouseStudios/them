@@ -4,7 +4,7 @@ import ScreenplayStudio
 
 @MainActor
 final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
-    func testPaginationProjectionPreservesPreviewPrecedenceClippingPaddingAndActiveBounds() {
+    func testPaginationProjectionFallsBackToFullPreviewLinesAndPreservesActiveBounds() {
         let longPreviewLine = String(repeating: "x", count: 45)
         let page = BackendScreenplayPaginationPage(
             page: 2,
@@ -15,13 +15,13 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             estMinutes: 1.2
         )
 
-        let lines = ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+        let lines = ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
             for: page,
-            draft: "This fallback must not render.",
+            draft: "",
             maxLines: 4
         )
 
-        XCTAssertEqual(lines, ["First beat", String(repeating: "x", count: 36), "Third beat", ""])
+        XCTAssertEqual(lines, ["First beat", longPreviewLine, "Third beat"])
         XCTAssertFalse(
             ScreenplayStudioDraftToolsPresentationPlanner.isPaginationPageActive(page, cursorLine: 7)
         )
@@ -37,31 +37,31 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
 
         let presentation = ScreenplayStudioPaginationPagePresentation(
             page: page,
-            thumbnailLines: ["", "  First beat  ", "   ", "Second beat"],
+            previewLines: ["", "  First beat  ", "   ", "Second beat"],
             isActive: true
         )
         XCTAssertEqual(presentation.visiblePreviewLines, ["First beat", "Second beat"])
     }
 
-    func testPaginationProjectionFallsBackToDraftAndClampsLineBounds() {
+    func testPaginationProjectionPrefersActualDraftLinesAndClampsLineBounds() {
         let longDraftLine = String(repeating: "y", count: 48)
         let page = BackendScreenplayPaginationPage(
             page: 1,
             startLine: 2,
             endLine: 99,
             lineCount: 3,
-            preview: "  \r\n",
+            preview: "Flattened server excerpt must not replace the page lines.",
             estMinutes: nil
         )
         let draft = "FIRST\r\n\(longDraftLine)\r\n\r\nLAST"
 
         XCTAssertEqual(
-            ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+            ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                 for: page,
                 draft: draft,
                 maxLines: 5
             ),
-            [String(repeating: "y", count: 40), "", "LAST", "", ""]
+            [longDraftLine, "LAST"]
         )
 
         let outOfRangePage = BackendScreenplayPaginationPage(
@@ -73,13 +73,16 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             estMinutes: nil
         )
         XCTAssertEqual(
-            ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+            ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                 for: outOfRangePage,
                 draft: draft,
                 maxLines: 3
             ),
-            ["", "", ""]
+            []
         )
+        XCTAssertTrue(ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
+            for: page, draft: draft, maxLines: 0
+        ).isEmpty)
     }
 
     func testPaginationPresentationProvidesCurrentPreviousNextAndRuntimeContext() throws {
@@ -96,7 +99,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             )
             rows.append(ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ["Page \(pageNumber)"],
+                previewLines: ["Page \(pageNumber)"],
                 isActive: pageNumber == 2
             ))
         }
@@ -120,7 +123,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
             pages: rows.map {
                 ScreenplayStudioPaginationPagePresentation(
                     page: $0.page,
-                    thumbnailLines: $0.thumbnailLines,
+                    previewLines: $0.previewLines,
                     isActive: false
                 )
             }
@@ -139,7 +142,7 @@ final class ScreenplayStudioDraftToolsPresentationTests: XCTestCase {
                     preview: row.page.preview,
                     estMinutes: index == 1 ? nil : row.page.estMinutes
                 ),
-                thumbnailLines: row.thumbnailLines,
+                previewLines: row.previewLines,
                 isActive: row.isActive
             )
         }
