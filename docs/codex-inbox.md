@@ -30,7 +30,36 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T105 — 2026-05-14)
+## Current Snapshot (2026-09-05, support-lane refresh)
+
+The support lane refreshed `docs/coordination.json` and the event lane after a
+week of merges Codex had not recorded. Codex owns the queue; treat this as a
+catch-up, not a takeover.
+
+Merged: #416, #417, #418, #419 (support), #421 (codex). #374 was marked merged
+(landed 2026-08-30). GitHub Actions runs again after the 2026-09-03 billing
+block.
+
+Open: #424 (support, tier 3, human merge after Quality Gate), #425 (stacked on
+#423), #423 (conflicting; carries the unpushed keychain commits), #422 (codex,
+tier 3), #420 (draft). Full rows in `docs/claude-inbox.md`.
+
+What Codex should consume next:
+
+- `docs/claude-inbox.md` now exists. Codex owns it going forward.
+- New blocker `render-app-store-secrets` and pending decision
+  `d011-boot-level-fail-closed` in `docs/coordination.json`; both human-owned.
+- `codex/T-ios-keychain-token-migration` is still unpushed; #423 and #425
+  are stacked behind it.
+- The release Mac's main checkout has ~411 untracked iCloud ` 2.<ext>`
+  conflict copies (TASKS.md T01). The ` 2.swift` files compile under the
+  synchronized folder groups and break the iOS build. Human-owned cleanup.
+
+Verification for this refresh: `node scripts/coordination_state.mjs validate`,
+`node scripts/coordination_state_schema_check.mjs`, focused `node --test` on
+the coordination, event, and agent_next scripts, `git diff --check`.
+
+## Previous Snapshot (T105 — 2026-05-14)
 
 Codex reviewed, patched, and merged Phase 6 memories, then closed the new
 out-of-lane PRs that appeared before the next implementation lane.
