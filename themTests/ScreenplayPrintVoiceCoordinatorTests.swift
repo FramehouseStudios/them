@@ -184,6 +184,22 @@ final class ScreenplayPrintVoiceCoordinatorTests: XCTestCase {
         XCTAssertEqual(feedback.confirmation, "Printing isn't enabled in this build.")
     }
 
+    func testLongScriptNeverSpoolsSilently() async {
+        let fake = FakePrinter()
+        let coordinator = makeCoordinator(fake)
+        coordinator.maxSilentPages = 50
+        let longDraft = Array(repeating: "Maya waits.", count: 55 * 60).joined(separator: "\n")
+
+        let feedback = coordinator.handlePrint(alternate: false, draft: longDraft)
+
+        XCTAssertFalse(feedback.isError)
+        XCTAssertEqual(feedback.confirmation, "That's 61 pages — confirm the printer before I send it.")
+        XCTAssertNil(coordinator.pending, "no silent countdown for a feature-length print")
+        await settle(0.3)
+        XCTAssertTrue(fake.rememberedPrints.isEmpty)
+        XCTAssertEqual(fake.pickerPrints.count, 1)
+    }
+
     func testSecondPrintCommandReplacesPendingOne() async {
         let fake = FakePrinter()
         let coordinator = makeCoordinator(fake, window: 0.1)

@@ -132,6 +132,10 @@ final class ScreenplayPrintVoiceCoordinator: ObservableObject {
 
     var confirmationWindow: TimeInterval = 3.5
     var noticeLifetime: TimeInterval = 4.0
+    /// Above this, a spoken command never spools silently: the system picker (with its
+    /// own confirmation) is shown instead, so a misheard phrase can't dump a feature on
+    /// the floor.
+    var maxSilentPages = 50
     var pipeline: ScreenplayPrintPipeline
 
     private var pendingTask: Task<Void, Never>?
@@ -165,7 +169,8 @@ final class ScreenplayPrintVoiceCoordinator: ObservableObject {
         let pages = pipeline.pageCount(draft)
         let pageWord = pages == 1 ? "page" : "pages"
 
-        guard !alternate, let printerName = pipeline.rememberedPrinterName() else {
+        let tooLongForSilentPrint = pages > maxSilentPages
+        guard !alternate, !tooLongForSilentPrint, let printerName = pipeline.rememberedPrinterName() else {
             setNotice("Choose a printer for \(pages) \(pageWord).", autoClear: false)
             pendingTask = Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -179,8 +184,11 @@ final class ScreenplayPrintVoiceCoordinator: ObservableObject {
                     self.setNotice("Printing cancelled.")
                 }
             }
+            let confirmation = tooLongForSilentPrint
+                ? "That's \(pages) pages — confirm the printer before I send it."
+                : "Pick a printer for \(pages) \(pageWord) — I'll remember it for next time."
             return ScreenplayLocalStudioCommandFeedback(
-                confirmation: "Pick a printer for \(pages) \(pageWord) — I'll remember it for next time.",
+                confirmation: confirmation,
                 shouldSpeakConfirmation: true,
                 isError: false
             )
