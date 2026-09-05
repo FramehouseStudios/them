@@ -15,12 +15,14 @@ yarn-error.log
 .env.*
 !.env.example
 
-# Local dev / legacy JSON stores. Production uses Postgres via DATABASE_URL.
+# Local dev JSON stores (single-process dev only; production uses Postgres).
+# knowledge_cards.json is shipped content (90-card RAG bundle) and must stay
+# in the image; only the embedding cache and per-run stores are ignored.
 screenplay_store.json
 user_memory_store.json
 user_store.json
 outbox_store.json
-knowledge_cards.json
+knowledge_embeddings_cache.json
 data/
 
 # Audio fixtures / large blobs from early prototyping

@@ -90,24 +90,66 @@ test("[clementine] cache policy keeps dynamic junk out of stable prefix", () => 
   assert.equal(parts.prompt_cache_key.startsWith("them-clementine-"), true);
 });
 
+// Default-model assertions must not depend on the developer's shell. A local
+// MUSE_MODEL export (e.g. trialing muse-spark-1.3) is a legitimate override,
+// so these tests clear it and a separate test proves the override is honored.
+function withoutMuseModelEnv(fn) {
+  const prev = process.env.MUSE_MODEL;
+  delete process.env.MUSE_MODEL;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.MUSE_MODEL;
+    else process.env.MUSE_MODEL = prev;
+  }
+}
+
 test("[clementine] muse client builds Standard Responses body with store:false", () => {
-  const { url, body } = buildMuseResponsesRequest({
-    instructions: "PERSONA",
-    input: [{ role: "user", content: "hi" }],
-    maxOutputTokens: 256,
-    reasoningEffort: "minimal",
+  withoutMuseModelEnv(() => {
+    const { url, body } = buildMuseResponsesRequest({
+      instructions: "PERSONA",
+      input: [{ role: "user", content: "hi" }],
+      maxOutputTokens: 256,
+      reasoningEffort: "minimal",
+    });
+    assert.equal(url, "https://api.meta.ai/v1/responses");
+    assert.equal(body.model, "muse-spark-1.2");
+    assert.equal(body.store, false);
+    assert.equal(body.reasoning.effort, "minimal");
+    assert.equal(body.prompt_cache_key, "them-clementine-v0");
+    assert.equal(body.instructions, "PERSONA");
   });
-  assert.equal(url, "https://api.meta.ai/v1/responses");
-  assert.equal(body.model, "muse-spark-1.2");
-  assert.equal(body.store, false);
-  assert.equal(body.reasoning.effort, "minimal");
-  assert.equal(body.prompt_cache_key, "them-clementine-v0");
-  assert.equal(body.instructions, "PERSONA");
+});
+
+test("[clementine] MUSE_MODEL env overrides the default model without a code change", async () => {
+  const prev = process.env.MUSE_MODEL;
+  process.env.MUSE_MODEL = "muse-spark-1.3";
+  try {
+    const { body } = buildMuseResponsesRequest({ input: "hi" });
+    assert.equal(body.model, "muse-spark-1.3");
+    assert.equal(body.store, false, "override must not change store:false");
+    assert.equal(body.prompt_cache_key, "them-clementine-v0", "override must not change cache key");
+
+    const calls = [];
+    const client = createMuseClient({
+      apiKey: "test-not-a-real-key",
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 200, text: async () => JSON.stringify({ id: "resp_env", output_text: "ok" }) };
+      },
+    });
+    const result = await client.createResponse({ input: "hello", maxOutputTokens: 16 });
+    assert.equal(result.ok, true);
+    assert.equal(JSON.parse(calls[0].init.body).model, "muse-spark-1.3");
+  } finally {
+    if (prev === undefined) delete process.env.MUSE_MODEL;
+    else process.env.MUSE_MODEL = prev;
+  }
 });
 
 test("[clementine] muse client works with injected fetch (no real key in tests)", async () => {
   const calls = [];
-  const client = createMuseClient({
+  const client = withoutMuseModelEnv(() => createMuseClient({
     apiKey: "test-not-a-real-key",
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
@@ -117,7 +159,7 @@ test("[clementine] muse client works with injected fetch (no real key in tests)"
         text: async () => JSON.stringify({ id: "resp_test", output_text: "ok" }),
       };
     },
-  });
+  }));
   assert.equal(client.kind, "muse");
   assert.equal(client.hasApiKey, true);
   const result = await client.createResponse({

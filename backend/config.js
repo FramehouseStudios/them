@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { hasCompleteAppStoreVerifyConfig } from "./lib/clementine/iap_app_store_verify.js";
 import { parseBool, parsePositiveInt, resolveStorePath } from "./lib/utils.js";
 
 const MAX_FILE_MB = 25;
@@ -129,6 +130,22 @@ function assertProductionEnv(env = process.env) {
   }
   if (isRequireUserAuthExplicitlyDisabled(env)) {
     missing.push("REQUIRE_USER_AUTH — production must not disable authenticated user routes.");
+  }
+  // D011 — IAP verify+credit is fail-closed. Production must have App Store
+  // Server API secrets or every POST /billing/iap/credit will 503.
+  // Single source of truth for completeness is hasCompleteAppStoreVerifyConfig.
+  if (!hasCompleteAppStoreVerifyConfig(env)) {
+    const appStoreVars = [
+      ["APP_STORE_ISSUER_ID", "App Store Server API issuer (App Store Connect > Users and Access > Keys)"],
+      ["APP_STORE_KEY_ID", "App Store Server API key ID"],
+      ["APP_STORE_PRIVATE_KEY", "App Store Server API private key (p8)"],
+      ["APP_STORE_BUNDLE_ID", "App Store bundle ID for transaction verification (io.them.them)"],
+    ];
+    for (const [key, why] of appStoreVars) {
+      if (!String(env[key] || "").trim()) {
+        missing.push(`${key} — required for IAP verify+credit (D011 fail-closed). ${why}.`);
+      }
+    }
   }
   if (missing.length === 0) return;
   const banner = "Refusing to boot: required production environment variables are missing.";

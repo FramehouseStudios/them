@@ -2,7 +2,7 @@
   "name": "them-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend for them.io voice assistant",
+  "description": "Backend for io.them — voice-first screenwriting companion",
   "main": "index.js",
   "type": "module",
   "scripts": {
