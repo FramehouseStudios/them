@@ -47,7 +47,7 @@ final class ScreenplayDraftGateTests: XCTestCase {
         XCTAssertEqual(ScreenplayDraftGate.firstErrorReason(draft: " \n"), "Draft is empty.")
     }
 
-    func testSceneHeadingWithoutIntOrExtIsRejected() {
+    func testIntExtAndIntExtSlugsPassTheGate() {
         XCTAssertFalse(ScreenplayDraftGate.hasFormatErrors(draft: "EXT. STREET - NIGHT\n\nRain."))
         XCTAssertFalse(ScreenplayDraftGate.hasFormatErrors(draft: "I/E. CAR - CONTINUOUS\n\nRain."))
     }
