@@ -1,32 +1,9 @@
 import AppIntents
 import ScreenplayStudio
 import Foundation
-import AVFoundation
 #if canImport(UIKit)
 import UIKit
 #endif
-
-struct ScreenplayDraftEntity: AppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Screenplay Draft"
-    static var defaultQuery = ScreenplayDraftQuery()
-    var id: String
-    var title: String
-    var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(title)")
-    }
-}
-
-struct ScreenplayDraftQuery: EntityQuery {
-    func entities(for identifiers: [String]) async throws -> [ScreenplayDraftEntity] {
-        identifiers.map { ScreenplayDraftEntity(id: $0, title: $0) }
-    }
-    func suggestedEntities() async throws -> [ScreenplayDraftEntity] {
-        if let t = ScreenplayDraftStore.sharedCurrentTitle(), !t.isEmpty {
-            return [ScreenplayDraftEntity(id: t, title: t)]
-        }
-        return [ScreenplayDraftEntity(id: "Screenplay", title: "Screenplay")]
-    }
-}
 
 // Exposes "print the script" to Siri, Shortcuts, Action Button, Apple Intelligence.
 // No model coupling — intent is the one entry point; Clementine voice controller becomes a caller.
@@ -47,11 +24,9 @@ struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
     @Parameter(title: "Use Alternate Printer", description: "Show printer picker instead of remembered printer.")
     var pickAlternate: Bool?
 
-    @Parameter(title: "Clarification", description: "Answer to yellow pill if draft has TODO, e.g., 'find her mother'")
-    var clarification: String?
-
-    @Parameter(title: "Draft Entity", description: "Pick a draft by name for Apple Intelligence suggestions")
-    var draftEntity: ScreenplayDraftEntity?
+    /// In-app callers (the Notes voice panel) get the same sentence Siri would speak.
+    /// Not an intent parameter; plain stored property, invisible to Shortcuts.
+    var onOutcome: ((String) -> Void)? = nil
 
     static var parameterSummary: some ParameterSummary {
         Summary("Print \(\.$draft) to \(\.$jobTitle)")
@@ -61,22 +36,10 @@ struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard ScreenplayPrintFeature.isEnabled else { throw PrintErrorIntent.disabled }
 
-        var text = draft?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text.isEmpty { text = ScreenplayDraftStore.sharedCurrentDraftText() ?? "" }
+        let requested = draft?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let text = requested.isEmpty ? (ScreenplayDraftStore.sharedCurrentDraftText() ?? "") : requested
         guard !text.isEmpty else { throw PrintErrorIntent.noDraft }
 
-        // Final-draft gate: a draft with an open "TODO: clarify" pill doesn't print until it is answered.
-        if text.contains(Self.clarifyMarker) {
-            let answer = clarification?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !answer.isEmpty else {
-                throw PrintErrorIntent.blockedByGate("Draft needs a quick clarify — \(Self.pendingClarifyTopic(in: text)). Answer with clarification, e.g., “find her mother”, then print again.")
-            }
-            text = Self.applyingClarification(answer, to: text)
-            ScreenplayLiveDraftBridge.shared.draftText = text
-            if text.contains(Self.clarifyMarker) {
-                throw PrintErrorIntent.blockedByGate("Still needs clarify — \(Self.pendingClarifyTopic(in: text)).")
-            }
-        }
         if ScreenplayDraftGate.hasFormatErrors(draft: text) {
             throw PrintErrorIntent.blockedByGate("Draft has format issues — fix character cues and scene headings before final print.")
         }
@@ -100,7 +63,7 @@ struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
             guard !Task.isCancelled else { throw PrintErrorIntent.cancelled }
             if await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url) {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                return .result(dialog: IntentDialog("Printing \(pages) pages to \(printerName)."))
+                return finish("Printing \(pages) pages to \(printerName).")
             }
             // Remembered printer unreachable — fall through to the picker.
         }
@@ -113,30 +76,19 @@ struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
         guard await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: picked.0) else {
             throw PrintErrorIntent.printFailed
         }
-        return .result(dialog: IntentDialog("Printing \(pages) pages to \(picked.1)."))
+        return finish("Printing \(pages) pages to \(picked.1).")
         #elseif os(macOS)
         guard ScreenplayPrintServiceMac.print(pdfData: pdf, jobName: title) else { throw PrintErrorIntent.printFailed }
         ScreenplayPrintSpeech.say("Printing \(pages) pages.")
-        return .result(dialog: IntentDialog("Printing \(pages) pages."))
+        return finish("Printing \(pages) pages.")
         #else
         throw PrintErrorIntent.printFailed
         #endif
     }
 
-    private static let clarifyMarker = "TODO: clarify"
-
-    private static func pendingClarifyTopic(in text: String) -> String {
-        let topic = text.components(separatedBy: clarifyMarker).dropFirst().first?
-            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(48) ?? ""
-        return topic.isEmpty ? "the story" : String(topic)
-    }
-
-    private static func applyingClarification(_ answer: String, to text: String) -> String {
-        var lines = text.components(separatedBy: .newlines)
-        if let index = lines.firstIndex(where: { $0.contains(clarifyMarker) }) {
-            lines[index] = answer
-        }
-        return lines.joined(separator: "\n")
+    private func finish(_ message: String) -> some IntentResult & ProvidesDialog {
+        onOutcome?(message)
+        return .result(dialog: IntentDialog(stringLiteral: message))
     }
 
     enum PrintErrorIntent: Swift.Error, CustomLocalizedStringResourceConvertible {

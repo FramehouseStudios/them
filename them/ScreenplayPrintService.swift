@@ -30,14 +30,16 @@ enum ScreenplayPrintSpeech {
 
 // MARK: - Print feature flag
 enum ScreenplayPrintFeature {
-    static let isEnabled: Bool = {
-        // DEBUG: on. Release: off unless the "io.them.printEnabled" default is set (opt-in, not a kill-switch).
+    static let disabledKey = "io.them.printDisabled"   // hard off, every build
+    static let enabledKey  = "io.them.printEnabled"    // Release opt-in
+    static var isEnabled: Bool {
+        if UserDefaults.standard.bool(forKey: disabledKey) { return false }
         #if DEBUG
         return true
         #else
-        return UserDefaults.standard.bool(forKey: "io.them.printEnabled")
+        return UserDefaults.standard.bool(forKey: enabledKey)
         #endif
-    }()
+    }
 }
 
 // MARK: - Paper
@@ -379,13 +381,16 @@ enum ScreenplayDraftGate {
             let line = lines.indices.contains(i) ? lines[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
             if el == .character && line.isEmpty { return true }
             if el == .sceneHeading && !(line.hasPrefix("INT") || line.hasPrefix("EXT") || line.hasPrefix("INT./EXT") || line.hasPrefix("I/E")) { return true }
-            if (el == .parenthetical || el == .dialogue) && i > 0 {
-                // Orphan: dialogue/parenthetical without preceding character within 3 lines (and no MORE/CONT'D)
-                var hasChar = false
-                for back in max(0, i-3)..<i where els.indices.contains(back) {
-                    if els[back] == .character { hasChar = true; break }
+            if el == .parenthetical || el == .dialogue {
+                // Orphan: a dialogue/parenthetical block whose contiguous run does not start
+                // right after a character cue. Walk back over the whole block (a speech may
+                // be any number of lines) rather than a fixed window.
+                var back = i - 1
+                while back >= 0, els.indices.contains(back), els[back] == .dialogue || els[back] == .parenthetical {
+                    back -= 1
                 }
-                if !hasChar && !line.contains("(CONT'D)") && line != "(MORE)" { return true }
+                let hasCue = back >= 0 && els.indices.contains(back) && els[back] == .character
+                if !hasCue && !line.contains("(CONT'D)") && line != "(MORE)" { return true }
             }
         }
         return false

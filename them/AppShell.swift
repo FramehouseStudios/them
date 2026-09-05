@@ -728,8 +728,29 @@ struct VoiceSettingsScreen: View {
             )
     }
 
+    // Same key as ScreenplayPrintFeature.enabledKey; @AppStorage needs a literal.
+    @AppStorage("io.them.printEnabled") private var printingEnabled = false
+
     private var printSettingsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Printing")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text("Voice and Siri printing. Off by default in release builds; turn on for this device.")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Toggle("Printing", isOn: $printingEnabled)
+                    .labelsHidden()
+                    .tint(.white.opacity(0.35))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            Divider().overlay(Color.white.opacity(0.07))
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Paper size")
