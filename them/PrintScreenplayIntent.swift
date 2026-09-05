@@ -221,57 +221,6 @@ struct PrintScreenplayIntent: AppIntent {
     }
 }
 
-enum ScreenplayDraftGate {
-    static func hasFormatErrors(draft: String) -> Bool {
-        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { return true }
-        // Final Draft parity — block prints that would be rejected in prod: orphan parenthetical/dialogue, slug without INT/EXT, empty character cue.
-        let lines = t.components(separatedBy: .newlines)
-        let els = ScreenplayEditorElement.inferredSequence(for: t)
-        for (i, el) in els.enumerated() {
-            let line = lines.indices.contains(i) ? lines[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-            if el == .character && line.isEmpty { return true }
-            if el == .sceneHeading && !(line.hasPrefix("INT") || line.hasPrefix("EXT") || line.hasPrefix("INT./EXT") || line.hasPrefix("I/E")) { return true }
-            if (el == .parenthetical || el == .dialogue) && i > 0 {
-                // Orphan: dialogue/parenthetical without preceding character within 3 lines (and no MORE/CONT'D)
-                var hasChar = false
-                for back in max(0, i-3)..<i where els.indices.contains(back) {
-                    if els[back] == .character { hasChar = true; break }
-                }
-                if !hasChar && !line.contains("(CONT'D)") && line != "(MORE)" { return true }
-            }
-        }
-        return false
-    }
-    static func firstErrorReason(draft: String) -> String? {
-        if hasFormatErrors(draft: draft) {
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Draft is empty." }
-            return "Format check failed — fix orphan dialogue/parenthetical and scene headings (INT./EXT.) before final print."
-        }
-        return nil
-    }
-}
-
-// MARK: - Shared draft store (single source; avoids ScreenplayStudioScreen coupling)
-enum ScreenplayDraftStore {
-    // Try live draft bridge, then UserDefaults fallback, then clipboard
-    static func sharedCurrentDraftText() -> String? {
-        // Live sync is the phone truth after #421
-        if let live = ScreenplayLiveDraftBridge.shared.draftText.trimmingCharacters(in: .whitespacesAndNewlines) as String?, !live.isEmpty {
-            return live
-        }
-        // Legacy draft persisted by Studio VM
-        if let d = UserDefaults.standard.string(forKey: "screenplay_draft_fountain"), !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return d
-        }
-        return nil
-    }
-    static func sharedCurrentTitle() -> String? {
-        let t = UserDefaults.standard.string(forKey: "screenplay_draft_title")
-        return t?.isEmpty == true ? nil : t
-    }
-}
-
 #if os(macOS)
 import AppKit
 enum ScreenplayPrintServiceMac {
