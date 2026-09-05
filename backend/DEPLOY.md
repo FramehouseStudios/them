@@ -85,6 +85,10 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 | `OPENAI_API_KEY` | Talk + realtime supplier. Required. |
 | `APP_TOKEN` | App-level shared secret sent as `X-APP-TOKEN`. Required. |
 | `AUTH_APPLE_AUDIENCE` | Sign in with Apple Services ID / bundle identifier used for mandatory `aud` validation. Required. |
+| `APP_STORE_ISSUER_ID` | App Store Server API issuer. Required for IAP verify+credit (D011 fail-closed). Set in Render, not in them/Release.local.env. |
+| `APP_STORE_KEY_ID` | App Store Server API key ID. Required for IAP verify+credit (D011 fail-closed). Set in Render, not in them/Release.local.env. |
+| `APP_STORE_PRIVATE_KEY` | App Store Server API private key (p8). Required for IAP verify+credit (D011 fail-closed). Set in Render, not in them/Release.local.env. |
+| `APP_STORE_BUNDLE_ID` | App Store bundle ID for transaction verification (io.them.them). Required for IAP verify+credit (D011 fail-closed). Set in Render, not in them/Release.local.env. |
 | `PORT` | Listen port. Defaults to 3000. |
 
 `AUTH_STORE_EMPTY_INIT_CONFIRMATION` is a first-deploy confirmation, not a
@@ -92,6 +96,8 @@ standing runtime setting. Set it to
 `initialize-empty-canonical-auth-store-v1` only after verifying that the new
 production database contains no users, then remove it after the first healthy
 deploy.
+
+App Store Server API secrets (`APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, `APP_STORE_PRIVATE_KEY`, `APP_STORE_BUNDLE_ID`) are set in the Render dashboard (backend/render.yaml declares them with `sync: false`), not in `them/Release.local.env`. The Xcode `Release.local.env` holds `DEVELOPMENT_TEAM_ID`, `APP_TOKEN_RELEASE`, and `OPENAI_API_KEY` for the client side only.
 
 Optional but commonly set: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`,
 `CORS_ALLOW_ORIGIN`, `API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`,
@@ -137,7 +143,7 @@ The Dockerfile is fly-compatible. Generate a `fly.toml` with:
 
 ```sh
 fly launch --no-deploy --dockerfile Dockerfile --copy-config=false
-fly secrets set DATABASE_URL=... JWT_SECRET=... OPENAI_API_KEY=... APP_TOKEN=... AUTH_APPLE_AUDIENCE=...
+fly secrets set DATABASE_URL=... JWT_SECRET=... OPENAI_API_KEY=... APP_TOKEN=... AUTH_APPLE_AUDIENCE=... APP_STORE_ISSUER_ID=... APP_STORE_KEY_ID=... APP_STORE_PRIVATE_KEY=... APP_STORE_BUNDLE_ID=...
 fly deploy
 ```
 

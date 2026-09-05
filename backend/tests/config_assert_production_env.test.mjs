@@ -10,6 +10,10 @@ const FULL_PROD_ENV = Object.freeze({
   OPENAI_API_KEY: "sk-test",
   APP_TOKEN: "app-token",
   AUTH_APPLE_AUDIENCE: "io.them.them",
+  APP_STORE_ISSUER_ID: "test-issuer-id",
+  APP_STORE_KEY_ID: "test-key-id",
+  APP_STORE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+  APP_STORE_BUNDLE_ID: "io.them.them",
 });
 
 test("[assertProductionEnv] no-op when NODE_ENV is not production", () => {
@@ -98,6 +102,15 @@ test("[assertProductionEnv] lists every missing variable, not just the first", (
 test("[assertProductionEnv] treats whitespace-only values as missing", () => {
   const env = { ...FULL_PROD_ENV, DATABASE_URL: "   " };
   assert.throws(() => assertProductionEnv(env), /DATABASE_URL/);
+});
+
+test("[assertProductionEnv] throws when each APP_STORE_* var is missing", () => {
+  for (const key of ["APP_STORE_ISSUER_ID", "APP_STORE_KEY_ID", "APP_STORE_PRIVATE_KEY", "APP_STORE_BUNDLE_ID"]) {
+    const env = { ...FULL_PROD_ENV, [key]: "" };
+    assert.throws(() => assertProductionEnv(env), new RegExp(key), `expected ${key} to be required`);
+    const { [key]: _omitted, ...withoutKey } = FULL_PROD_ENV;
+    assert.throws(() => assertProductionEnv(withoutKey), new RegExp(key), `expected missing ${key} to be required`);
+  }
 });
 
 test("[resolveRequireUserAuth] production enforces auth when unset or blank", () => {

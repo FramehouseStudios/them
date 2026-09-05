@@ -95,6 +95,29 @@ Each entry is in ADR form ready to paste. The `Status` field is `proposed` here;
 
 ---
 
+## D??? — D001 amendment: them.io is the hosted domain for the io.them product
+
+- **Date:** 2026-05-09 (amendment proposed 2026-09-04)
+- **Status:** proposed
+- **Source:** `DECISIONS.md:D001`, supervisor naming-drift review (claude/pii-safe-request-logs)
+- **Context:** `DECISIONS.md:D001` declares `io.them` as the canonical product name. Audits flagged `them.io` hosts (`api.them.io`, `them.io/privacy`, `support@them.io`, `privacy@them.io`) as competing names. `them` is not a TLD, so `io.them` cannot be a hostname.
+- **Decision:** The canonical hosted domain remains `them.io`. Hostnames, URLs, and emails that use `them.io` are infrastructure for the `io.them` product, not competing product names. User-facing surfaces (README, App Store metadata, display name, onboarding) must still use `io.them`.
+- **Consequences:** No URL, email, or hostname change is required to satisfy `D001`. A domain migration to a different host would require a separate accepted decision and rollout.
+
+---
+
+## D??? — D011 amendment: production boot refuses to start without App Store Server API secrets
+
+- **Date:** 2026-09-01 (amendment proposed 2026-09-04)
+- **Status:** proposed
+- **Source:** `DECISIONS.md:D011`, `backend/config.js:assertProductionEnv`, `backend/lib/clementine/iap_app_store_verify.js:hasCompleteAppStoreVerifyConfig`, `backend/render.yaml` (APP_STORE_* sync: false)
+- **Context:** `D011` requires IAP verification fail-closed before wallet credit. `POST /billing/iap/credit` already 503s when secrets are missing, but a prod server could still boot and serve voice/screenplay without the ability to credit purchases.
+- **Decision:** Production boot (`NODE_ENV=production` with `RUN_SERVER != 0`) refuses to start when any of `APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, `APP_STORE_PRIVATE_KEY`, or `APP_STORE_BUNDLE_ID` is missing or blank. Completeness is defined by `hasCompleteAppStoreVerifyConfig` (single source of truth). Per-variable error text names the missing key and its App Store Connect source so an operator knows which Render env var to set.
+- **Consequences:** Voice, screenplay, and all routes are unavailable until the four App Store secrets are set in Render (not in `them/Release.local.env`). The guard is skipped when `RUN_SERVER=0`, which is intentional for tests (`TEST_SPAWN_BACKEND=1` / config unit tests) that do not need a live IAP verifier.
+- **Trade-off:** Stricter boot means a missing IAP key blocks the entire V1 backend, not just `POST /billing/iap/credit`. This is intentional for launch: revenue integrity outranks partial availability. After launch, a separate decision could relax this to route-level fail-closed only.
+
+---
+
 ## How to apply
 
 Copy each entry above into `DECISIONS.md`, replacing `D???` with the next sequential ID and `Status: proposed` with `Status: accepted` (or `rejected` if you choose not to accept). Keep the `Source:` line so future readers can trace back to the design doc and PR. Reject entries you disagree with by adding them with `Status: rejected` and a one-line `Rejected because:` note.

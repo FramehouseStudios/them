@@ -1,10 +1,13 @@
 # io.them backend image.
 #
-# Targets Node 20 to match the GitHub Actions matrix in .github/workflows.
+# Targets Node 22 to match the GitHub Actions matrix in .github/workflows.
 # Build once, run anywhere that supports OCI images (Render, Fly, ECS, etc.).
 # The image does NOT bake secrets — `assertProductionEnv` enforces that
-# DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, and APP_TOKEN are present at
-# runtime when NODE_ENV=production.
+# DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, APP_TOKEN, AUTH_APPLE_AUDIENCE,
+# APP_STORE_ISSUER_ID, APP_STORE_KEY_ID, APP_STORE_PRIVATE_KEY, and
+# APP_STORE_BUNDLE_ID are present at runtime when NODE_ENV=production.
+# App Store secrets are set in Render (render.yaml sync: false), not in
+# them/Release.local.env.
 
 # ----- Stage 1: install production dependencies in isolation -----
 FROM node:20-alpine AS deps
