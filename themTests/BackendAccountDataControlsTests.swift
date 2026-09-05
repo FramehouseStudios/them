@@ -1441,24 +1441,28 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride(defaults: defaults))
     }
 
-    func testStudioDebugProjectLoadUsesStandardMirroredClientTokenOverride() {
+    func testStudioDebugProjectLoadRejectsStandardMirroredClientTokenOutsideAutomation() {
+        XCTAssertFalse(IOThemRuntime.isStudioAutomationSession)
         let standard = UserDefaults.standard
+        let keys = [
+            "client_token", "studio_debug_load_project_id",
+            "studio_debug_load_project_token", "studio_debug_load_project_ack_token",
+        ]
+        let originalValues = keys.map { standard.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, originalValues) {
+                if let value { standard.set(value, forKey: key) }
+                else { standard.removeObject(forKey: key) }
+            }
+        }
         standard.set(" standard-studio-smoke-project ", forKey: "client_token")
         standard.set("project-456", forKey: "studio_debug_load_project_id")
         standard.set(202, forKey: "studio_debug_load_project_token")
         standard.set(201, forKey: "studio_debug_load_project_ack_token")
-        defer {
-            standard.removeObject(forKey: "client_token")
-            standard.removeObject(forKey: "studio_debug_load_project_id")
-            standard.removeObject(forKey: "studio_debug_load_project_token")
-            standard.removeObject(forKey: "studio_debug_load_project_ack_token")
-        }
 
-        XCTAssertTrue(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
-        XCTAssertEqual(
-            BackendAuthClient.studioDebugClientTokenOverride(),
-            "standard-studio-smoke-project"
-        )
+        // Pending debug defaults cannot opt an ordinary app process into automation.
+        XCTAssertFalse(BackendAuthClient.isStudioDebugClientTokenOverrideActive())
+        XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride())
     }
 
     func testUITestStudioFixtureHydrationBypassIsExplicit() {
