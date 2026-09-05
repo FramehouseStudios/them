@@ -228,6 +228,25 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         guard !looksLikeSceneHeadingStart(trimmed), !looksLikeTransition(trimmed) else { return false }
         guard !trimmed.contains(".") && !trimmed.contains(":") else { return false }
         guard trimmed.count <= 32 else { return false }
-        return trimmed.range(of: #"^[A-Z0-9 '\-()]+$"#, options: .regularExpression) != nil
+        // A trailing caret is Fountain's dual-dialogue marker ("MARCUS ^"):
+        // the cue still names a speaker, it just shares the page with the one above.
+        return trimmed.range(of: #"^[A-Z0-9 '\-()]+(?:\s*\^)?$"#, options: .regularExpression) != nil
+    }
+
+    /// True when a character cue carries Fountain's dual-dialogue marker (a trailing `^`).
+    public static func isDualDialogueCue(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasSuffix("^") && looksLikeCharacterCue(trimmed)
+    }
+
+    /// The cue with the dual-dialogue marker removed, for renderers that carry
+    /// the marker as an attribute instead (Final Draft, PDF).
+    public static func characterCueName(_ line: String) -> String {
+        var trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasSuffix("^") {
+            trimmed.removeLast()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
     }
 }

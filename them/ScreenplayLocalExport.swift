@@ -115,16 +115,32 @@ enum ScreenplayLocalExport {
         let inferred = ScreenplayEditorElement.inferredSequence(for: draft)
         var paragraphs: [String] = []
         var previousType: String?
+        var inDualBlock = false
 
         for (index, rawLine) in lines.enumerated() {
             let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 previousType = nil
+                inDualBlock = false
                 continue
             }
             let element = inferred.indices.contains(index) ? inferred[index] : nil
             let type = finalDraftParagraphType(for: trimmed, element: element, previousType: previousType)
-            paragraphs.append("    <Paragraph Type=\"\(type)\"><Text>\(escapeXML(rawLine))</Text></Paragraph>")
+            // Fountain marks the second speaker of a dual-dialogue pair with a
+            // trailing caret. Final Draft carries that as an attribute on the
+            // cue and on every paragraph of its dialogue block, so strip the
+            // caret from the text and flag the block instead.
+            var text = rawLine
+            if type == "Character" {
+                inDualBlock = ScreenplayEditorElement.isDualDialogueCue(trimmed)
+                if inDualBlock {
+                    text = ScreenplayEditorElement.characterCueName(rawLine)
+                }
+            } else if type != "Parenthetical" && type != "Dialogue" {
+                inDualBlock = false
+            }
+            let attributes = inDualBlock ? " DualDialogue=\"Yes\"" : ""
+            paragraphs.append("    <Paragraph Type=\"\(type)\"\(attributes)><Text>\(escapeXML(text))</Text></Paragraph>")
             previousType = type
         }
 
