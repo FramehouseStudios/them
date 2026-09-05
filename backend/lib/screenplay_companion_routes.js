@@ -194,8 +194,10 @@ function mountScreenplayCompanionRoutes(app, deps = {}) {
   });
 
   app.post("/screenplay/paginate", express.json({ limit: "2mb" }), (req, res) => {
-    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n").trim();
-    if (!draft) {
+    // Page ranges address the editor's original lines. Trimming would shift
+    // every leading-blank-line anchor and leave trailing editor lines unmapped.
+    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n");
+    if (!draft.trim()) {
       return res.status(400).json({ stage: "screenplay_paginate", error: "draft_required" });
     }
     const title = normalizeSnippet(req.body?.title, 160);

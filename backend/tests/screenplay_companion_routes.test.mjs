@@ -1,12 +1,19 @@
 // T-decompose-phase3-screenplay-companion — integration tests for
-// the 4 routes in `mountScreenplayCompanionRoutes`. Pin byte-
-// identical behavior + required-deps guard.
+// the 4 routes in `mountScreenplayCompanionRoutes`. Pin response
+// contracts, editor line addressing, and the required-deps guard.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import express from "express";
 
 import { mountScreenplayCompanionRoutes } from "../lib/screenplay_companion_routes.js";
+import { createScreenplayModelServices } from "../services/screenplay_model.js";
+import { apiRequest, startBackend } from "./helpers/backend_test_server.mjs";
+
+const screenplayModel = createScreenplayModelServices();
 
 function defaultOwner() {
   return {
@@ -60,7 +67,7 @@ function defaultDeps(overrides = {}) {
       const n = Number(v);
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
     },
-    splitScreenplayLines: (draft) => draft.split("\n").filter((l) => l.length > 0),
+    splitScreenplayLines: screenplayModel.splitScreenplayLines,
     buildDraftExcerpt: (text, len) => String(text).slice(0, len),
     buildScreenplayRevisionPayload: (baseDraft, newDraft, color) => ({
       stage: "screenplay_revision",
@@ -336,6 +343,118 @@ test("[screenplay-companion-routes] POST /paginate rejects empty draft with 400"
     const r = await postJson(baseURL, "/screenplay/paginate", { draft: "" });
     assert.equal(r.status, 400);
     assert.equal(r.body.error, "draft_required");
+  });
+});
+
+const paginationLineFixtures = [
+  {
+    name: "leading blank lines",
+    lines: ["", "", ...Array.from({ length: 60 }, (_, i) => `line ${i + 1}`)],
+    newline: "\n",
+  },
+  {
+    name: "trailing blank lines and an empty final page",
+    lines: [...Array.from({ length: 55 }, (_, i) => `line ${i + 1}`), "", ""],
+    newline: "\n",
+  },
+  {
+    name: "CRLF, internal blank lines, indentation, and Unicode",
+    lines: [
+      "", "", "  INT. CAFÉ — DAY",
+      ...Array.from({ length: 55 }, (_, i) => i % 3 === 0 ? "" : `ÉLODIE ${i + 1} 👩🏽‍🚀 e\u0301`),
+      "  Fin — 終わり  ", "", "",
+    ],
+    newline: "\r\n",
+  },
+];
+
+for (const fixture of paginationLineFixtures) {
+  test(`[screenplay-companion-routes] POST /paginate preserves editor coordinates for ${fixture.name}`, async () => {
+    const draft = fixture.lines.join(fixture.newline);
+    let splitInput;
+    const deps = defaultDeps({
+      splitScreenplayLines: (value) => {
+        splitInput = value;
+        return screenplayModel.splitScreenplayLines(value);
+      },
+      buildDraftExcerpt: screenplayModel.buildDraftExcerpt,
+    });
+    await withTestServer(deps, async (baseURL) => {
+      const response = await postJson(baseURL, "/screenplay/paginate", {
+        draft,
+        lines_per_page: 55,
+      });
+      assert.equal(response.status, 200);
+      const { pages, page_count: pageCount, line_count: lineCount } = response.body;
+      assert.equal(lineCount, fixture.lines.length, "Every editor line, including blank lines, must be addressable");
+      assert.equal(pageCount, Math.ceil(fixture.lines.length / 55));
+      assert.equal(pages.length, pageCount);
+      assert.equal(splitInput, draft.replace(/\r\n/g, "\n"), "Pagination must not trim writer text");
+
+      const addressedLines = [];
+      for (const [index, page] of pages.entries()) {
+        const startIndex = index * 55;
+        const expectedLines = fixture.lines.slice(startIndex, startIndex + 55);
+        assert.equal(page.page, index + 1);
+        assert.equal(page.start_line, startIndex + 1);
+        assert.equal(page.end_line, startIndex + expectedLines.length);
+        assert.equal(page.line_count, expectedLines.length);
+        const editorLines = fixture.lines.slice(page.start_line - 1, page.end_line);
+        assert.deepEqual(editorLines, expectedLines, "Jump ranges must select the matching raw editor text");
+        assert.equal(page.preview, screenplayModel.buildDraftExcerpt(editorLines.join(" "), 140));
+        addressedLines.push(...editorLines);
+      }
+      assert.deepEqual(addressedLines, fixture.lines, "Page ranges must cover all lines exactly once");
+    });
+  });
+}
+
+test("[screenplay-companion-routes] real backend pagination preserves the complete editor line map", async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "them-pagination-lines-"));
+  let server;
+  t.after(async () => {
+    await server?.stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  server = await startBackend({ dataDir });
+  const signup = await apiRequest(server, "/auth/signup", {
+    method: "POST",
+    json: { email: "pagination-lines@example.test", password: "pagination-fixture-password-123" },
+  });
+  assert.equal(signup.status, 201);
+  assert.ok(signup.json.access_token);
+  for (const fixture of paginationLineFixtures) {
+    const response = await apiRequest(server, "/screenplay/paginate", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${signup.json.access_token}` },
+      json: { draft: fixture.lines.join(fixture.newline), lines_per_page: 55 },
+    });
+    assert.equal(response.status, 200, fixture.name);
+    assert.equal(response.json.stage, "screenplay_paginate");
+    assert.equal(response.json.line_count, fixture.lines.length, fixture.name);
+    assert.equal(response.json.page_count, Math.ceil(fixture.lines.length / 55));
+    let nextLine = 1;
+    const addressedLines = [];
+    for (const page of response.json.pages) {
+      assert.equal(page.start_line, nextLine, "No editor lines may be skipped or repeated");
+      assert.equal(page.end_line, Math.min(nextLine + 54, fixture.lines.length));
+      const editorLines = fixture.lines.slice(page.start_line - 1, page.end_line);
+      assert.equal(page.line_count, editorLines.length);
+      assert.equal(page.preview, screenplayModel.buildDraftExcerpt(editorLines.join(" "), 140));
+      addressedLines.push(...editorLines);
+      nextLine = page.end_line + 1;
+    }
+    assert.deepEqual(addressedLines, fixture.lines, fixture.name);
+  }
+});
+
+test("[screenplay-companion-routes] POST /paginate still rejects whitespace-only drafts", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    for (const draft of [" \n\n\t", "\r\n \r\n", "\u00a0\n"]) {
+      const response = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(response.status, 400);
+      assert.equal(response.body.error, "draft_required");
+    }
   });
 });
 
