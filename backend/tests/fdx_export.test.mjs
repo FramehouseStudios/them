@@ -136,7 +136,7 @@ test("[fdx] sanitizeFilenameBase replaces unsafe characters", () => {
 async function withTestServer(fn) {
   const app = express();
   mountFDXExportRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -210,7 +210,7 @@ test("[fdx] route parses its own JSON body (no app-level express.json required)"
   // Build a bare Express app — no body parser middleware at all.
   const app = express();
   mountFDXExportRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
@@ -235,7 +235,7 @@ test("[fdx] route parses its own JSON body (no app-level express.json required)"
 test("[fdx] route returns 400 when body is empty (route-local parser sees no fields)", async () => {
   const app = express();
   mountFDXExportRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

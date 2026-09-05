@@ -36,7 +36,8 @@ async function hit(server, opts) {
 
 test("[idempotency] handler runs once across replayed key", async () => {
   const { app, handler } = makeApp();
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const a = await hit(server, { headers: { [HEADER_NAME]: "abc" }, body: { x: 1 } });
     const b = await hit(server, { headers: { [HEADER_NAME]: "abc" }, body: { x: 1 } });
@@ -52,7 +53,8 @@ test("[idempotency] handler runs once across replayed key", async () => {
 
 test("[idempotency] no key → handler runs every time", async () => {
   const { app, handler } = makeApp();
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     await hit(server, { body: { x: 1 } });
     await hit(server, { body: { x: 1 } });
@@ -64,7 +66,8 @@ test("[idempotency] no key → handler runs every time", async () => {
 
 test("[idempotency] different keys → handler runs for each", async () => {
   const { app, handler } = makeApp();
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     await hit(server, { headers: { [HEADER_NAME]: "k1" }, body: { x: 1 } });
     await hit(server, { headers: { [HEADER_NAME]: "k2" }, body: { x: 1 } });
@@ -76,7 +79,8 @@ test("[idempotency] different keys → handler runs for each", async () => {
 
 test("[idempotency] reusing key with different body → 409", async () => {
   const { app } = makeApp();
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const a = await hit(server, { headers: { [HEADER_NAME]: "abc" }, body: { x: 1 } });
     const b = await hit(server, { headers: { [HEADER_NAME]: "abc" }, body: { x: 2 } });
@@ -90,7 +94,8 @@ test("[idempotency] reusing key with different body → 409", async () => {
 
 test("[idempotency] cache is user-id scoped", async () => {
   const { app, handler } = makeApp();
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     await hit(server, { headers: { [HEADER_NAME]: "abc", "x-user-id": "alice" }, body: { x: 1 } });
     await hit(server, { headers: { [HEADER_NAME]: "abc", "x-user-id": "bob" }, body: { x: 1 } });
@@ -108,7 +113,8 @@ test("[idempotency] 5xx responses are not cached", async () => {
     n++;
     res.status(503).json({ error: "down" });
   }, { resolveUserId: () => "x" }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     await fetch(`http://127.0.0.1:${port}/fail`, {
@@ -135,7 +141,8 @@ test("[idempotency] 4xx (non-409) responses ARE cached", async () => {
     n++;
     res.status(400).json({ error: "bad_input" });
   }, { resolveUserId: () => "x" }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     await fetch(`http://127.0.0.1:${port}/bad`, {
@@ -163,7 +170,8 @@ test("[idempotency] expired key re-executes handler", async () => {
     n++;
     res.json({ n });
   }, { cache, resolveUserId: () => "x" }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     await fetch(`http://127.0.0.1:${port}/ttl`, {

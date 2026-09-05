@@ -132,7 +132,7 @@ async function withTestServer(fn, { fileContents = null, missing = false } = {})
   }
   const app = express();
   mountDecisionsQueueRoute(app, { filePath: missing ? path.join(tmp, "missing.md") : filePath });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;

@@ -84,10 +84,11 @@ function defaultDeps(overrides = {}) {
 async function withTestServer(deps, fn) {
   const app = express();
   mountRealtimeStudioRenderRoutes(app, deps);
-  const server = app.listen(0);
+  // A wildcard IPv6 bind can share a port with another IPv4 listener on macOS.
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
-  try { await fn(`http://127.0.0.1:${port}`); }
+  try { await fn(`http://127.0.0.1:${port}`, server.address()); }
   finally { await new Promise((r) => server.close(r)); }
 }
 
@@ -111,6 +112,13 @@ async function postSse(baseURL, path, body) {
 }
 
 // ---------- factory + mount guards ----------
+
+test("[studio-render] fixture binds the same IPv4 loopback address used by its client", async () => {
+  await withTestServer(defaultDeps(), async (baseURL, address) => {
+    assert.equal(address.family, "IPv4");
+    assert.equal(address.address, new URL(baseURL).hostname);
+  });
+});
 
 test("[studio-render] STUDIO_RENDER_BODY_LIMIT exported as 512kb", () => {
   assert.equal(STUDIO_RENDER_BODY_LIMIT, "512kb");

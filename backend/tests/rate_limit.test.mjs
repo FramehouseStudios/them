@@ -82,7 +82,8 @@ test("[rate_limit] middleware returns 429 with Retry-After header", async () => 
     isProduction: () => true,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     const r1 = await fetch(`http://127.0.0.1:${port}/login`, { method: "POST" });
@@ -105,7 +106,8 @@ test("[rate_limit] bypass header honored in non-production", async () => {
     isProduction: () => false,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     for (let i = 0; i < 5; i++) {
@@ -127,7 +129,8 @@ test("[rate_limit] bypass header IGNORED in production", async () => {
     isProduction: () => true,
   });
   app.post("/login", limiter.middleware("auth"), (req, res) => res.json({ ok: true }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     await fetch(`http://127.0.0.1:${port}/login`, {

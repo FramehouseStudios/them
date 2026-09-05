@@ -32,7 +32,7 @@ async function withServer(fn, { userId = "u-export", store } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountCreativeMemoryExportRoute(app, { creativeMemoryStore });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const port = server.address().port;
   try {

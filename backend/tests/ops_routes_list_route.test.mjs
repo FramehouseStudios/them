@@ -71,7 +71,7 @@ test("[ops-routes] scope rule: manifest INCLUDES the canonical app-facing groups
 async function withTestServer(fn) {
   const app = express();
   mountOpsRoutesListRoute(app);
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const baseURL = `http://127.0.0.1:${server.address().port}`;
   try {

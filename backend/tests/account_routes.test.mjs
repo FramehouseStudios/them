@@ -61,7 +61,8 @@ function makeApp({
 }
 
 async function hit(app, method, path, body, headers) {
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
   try {
     const port = server.address().port;
     const res = await fetch(`http://127.0.0.1:${port}${path}`, {

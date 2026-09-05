@@ -158,7 +158,7 @@ async function withTestServer(fn, { userId = "u-test" } = {}) {
     app.use((req, _res, next) => { req.user = { id: userId }; next(); });
   }
   mountArchetypeRoute(app, { creativeMemoryStore: store });
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
