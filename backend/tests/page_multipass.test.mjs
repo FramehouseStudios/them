@@ -12,6 +12,8 @@ import {
   shouldRunPageMultipass,
   multipassWalletReserveTokenMultiplier,
   critiquePageHeuristic,
+  buildPlanPrompt,
+  parseNextBeats,
   runPageMultipass,
   runTalkGeneratePageMultipass,
 } from "../lib/clementine/page_multipass.js";
@@ -655,4 +657,39 @@ test("[F3-routing] Muse preferProvider openai on plan when Muse enabled", async 
       assert.equal(draftReq.effort, "medium");
     }
   );
+});
+
+test("[pills] parseNextBeats with 0, 1, 3, and 5 Next lines", () => {
+  assert.deepEqual(parseNextBeats("no beats"), []);
+  assert.deepEqual(parseNextBeats("Next: one beat here"), ["one beat here"]);
+  assert.deepEqual(parseNextBeats("Next: A\nNext: B\nNext: C"), ["A", "B", "C"]);
+  const five = ["Next: 1", "Next: 2", "Next: 3", "Next: 4", "Next: 5"].join("\n");
+  assert.deepEqual(parseNextBeats(five), ["1", "2", "3"]);
+});
+
+test("[pills] parseNextBeats truncates each beat at 180 chars", () => {
+  const long = "Next: " + "x".repeat(250);
+  const out = parseNextBeats(long);
+  assert.equal(out[0].length, 180);
+  assert.equal(out[0], "x".repeat(180));
+});
+
+test("[pills] plan prompt contains Next: and no proper name other than Clementine", () => {
+  const prompt = buildPlanPrompt("write a beat where she leaves");
+  assert.match(prompt, /Next:/);
+  assert.equal(/Jess|Marcus|JESS|MARCUS/.test(prompt), false);
+  const caps = [...prompt.matchAll(/\b[A-Z][a-z]{2,}\b/g)].map((m) => m[0]);
+  const nonClementine = caps.filter((w) => w !== "Clementine");
+  for (const w of nonClementine) {
+    assert.ok(["Next", "Cover", "Write", "End", "Do", "Writer"].includes(w), `unexpected proper name ${w}`);
+  }
+});
+
+test("[pills] when flag is off, screenplay_next_three_turns is unset", async () => {
+  await withEnv({ [FLAG_MULTIPASS]: null }, async () => {
+    const req = { body: {}, clementine: { lane: LANE.PAGE, pageMultipass: false } };
+    const beats = isPageMultipassEnabled(process.env) ? parseNextBeats("Next: A\nNext: B\nNext: C") : [];
+    if (beats.length) req.body.screenplay_next_three_turns = beats;
+    assert.equal(req.body.screenplay_next_three_turns, undefined);
+  });
 });
