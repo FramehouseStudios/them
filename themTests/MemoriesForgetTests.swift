@@ -305,6 +305,104 @@ final class MemoriesForgetTests: XCTestCase {
         }
     }
 
+    func testDelayedForgetPreservesChangedRecreatedAndNewSameKeyCards() async throws {
+        for scenario in 0..<4 {
+            let pending = SuspendedMemoryForget()
+            var reads = 0
+            let vm = MemoriesViewModel(
+                notificationCenter: NotificationCenter(),
+                memoriesLoader: { _, _ in
+                    reads += 1
+                    if reads == 1 { return try Self.memories(ids: ["memory-a"]) }
+                    switch scenario {
+                    case 0: return try Self.memories(ids: ["memory-a"], summary: "A newer correction.")
+                    case 1: return try Self.memories(ids: ["memory-a", "memory-b"], keys: ["memory-b": "theme-memory-a"])
+                    case 2: return try Self.memories(ids: ["memory-b"], keys: ["memory-b": "theme-memory-a"])
+                    default: return try Self.memories(ids: ["memory-a"])
+                    }
+                }, pendingQuestionLoader: { _ in nil },
+                forgetLoader: { _, _ in try await pending.wait() }
+            )
+            _ = await vm.load()
+            let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+            let forgetting = Task { try await vm.forgetMemory(itemID: original.id, key: original.key, expectedItem: original) }
+            await eventually { pending.isWaiting }
+            _ = await vm.retry()
+            let newer = vm.state
+            pending.complete(.success(try Self.receipt(forgottenID: original.id)))
+            do {
+                try await forgetting.value
+                XCTFail("A delayed receipt must not hide scenario \(scenario)'s newer memory.")
+            } catch MemoryForgetError.changed {}
+            XCTAssertEqual(reads, 3, "Reconcile after receipt before trusting a newer snapshot.")
+            XCTAssertEqual(vm.state, newer)
+            XCTAssertNil(vm.actionNotice)
+        }
+    }
+
+    func testDelayedForgetReconcilesAbsencePreservesOtherSelectionAndLatestCursor() async throws {
+        for alreadyAbsent in [false, true] {
+            let pending = SuspendedMemoryForget()
+            var cursors: [String?] = []
+            let vm = MemoriesViewModel(
+                notificationCenter: NotificationCenter(),
+                memoriesLoader: { _, since in
+                    cursors.append(since)
+                    if cursors.count == 1 { return try Self.memories(ids: ["memory-a"], version: "v1") }
+                    if cursors.count == 2 {
+                        return try Self.memories(ids: alreadyAbsent ? ["memory-b"] : ["memory-a", "memory-b"], version: "v3")
+                    }
+                    return try Self.memories(ids: ["memory-b"], version: "v4")
+                }, pendingQuestionLoader: { _ in nil },
+                forgetLoader: { _, _ in try await pending.wait() }
+            )
+            _ = await vm.load()
+            let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+            let forgetting = Task { try await vm.forgetMemory(itemID: original.id, key: original.key, expectedItem: original) }
+            await eventually { pending.isWaiting }
+            _ = await vm.retry()
+            let other = try XCTUnwrap(vm.memory(forID: "memory-b"))
+            vm.selection = other
+            var oldSync = BackendSyncState.empty
+            oldSync.stateVersion = "v2"
+            pending.complete(.success(try Self.receipt(forgottenID: original.id, sync: oldSync)))
+            try await forgetting.value
+            XCTAssertNil(vm.memory(forID: original.id))
+            XCTAssertEqual(vm.selection, other)
+            XCTAssertNotNil(vm.actionNotice)
+            _ = await vm.refreshCrossDeviceMemoriesIfNeeded()
+            XCTAssertEqual(cursors.count, 4)
+            XCTAssertEqual(cursors.last!, "v4", "An old receipt must not rewind the applied read cursor.")
+        }
+    }
+
+    func testDelayedForgetWithFailedReconciliationKeepsLastReadableSnapshot() async throws {
+        let pending = SuspendedMemoryForget()
+        var reads = 0
+        let vm = MemoriesViewModel(
+            notificationCenter: NotificationCenter(),
+            memoriesLoader: { _, _ in
+                reads += 1
+                if reads > 2 { throw URLError(.networkConnectionLost) }
+                return try Self.memories(ids: ["memory-a"], version: reads == 1 ? "v1" : "v3")
+            }, pendingQuestionLoader: { _ in nil },
+            forgetLoader: { _, _ in try await pending.wait() }
+        )
+        _ = await vm.load()
+        let original = try XCTUnwrap(vm.memory(forID: "memory-a"))
+        let forgetting = Task { try await vm.forgetMemory(itemID: original.id, key: original.key, expectedItem: original) }
+        await eventually { pending.isWaiting }
+        _ = await vm.retry()
+        pending.complete(.success(try Self.receipt(forgottenID: original.id)))
+        do {
+            try await forgetting.value
+            XCTFail("An unverified reconciliation must retain readable data.")
+        } catch MemoryForgetError.invalidReceipt {}
+        XCTAssertEqual(vm.memory(forID: original.id), original)
+        XCTAssertNil(vm.actionNotice)
+        XCTAssertNotNil(vm.refreshError)
+    }
+
     func testErrorCopyDoesNotClaimAFailedResponseMeansNothingWasDeleted() {
         let uncertain = MemoryForgetPresentation.errorMessage(for: URLError(.timedOut))
         XCTAssertTrue(uncertain.contains("Couldn’t confirm"))
@@ -322,7 +420,8 @@ final class MemoriesForgetTests: XCTestCase {
     private static func memories(
         ids: [String],
         summary: String = "The original memory.",
-        keys: [String: String] = [:]
+        keys: [String: String] = [:],
+        version: String = "snapshot"
     ) throws -> BackendReadResult<BackendMemoriesResponse> {
         let cards: [[String: Any]] = ids.map { id in
             [
@@ -332,7 +431,7 @@ final class MemoriesForgetTests: XCTestCase {
             ]
         }
         let data = try JSONSerialization.data(withJSONObject: [
-            "source": "test", "sourceIp": "", "stateVersion": "snapshot",
+            "source": "test", "sourceIp": "", "stateVersion": version,
             "memories": cards, "conversationSamples": [],
         ])
         let payload = try JSONDecoder().decode(BackendMemoriesResponse.self, from: data)
@@ -344,14 +443,15 @@ final class MemoriesForgetTests: XCTestCase {
         action: String = "forget",
         status: String = "forgotten",
         forgottenID: String?,
-        durableMemoryDeleted: Bool? = nil
+        durableMemoryDeleted: Bool? = nil,
+        sync: BackendSyncState = .empty
     ) throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var body: [String: Any] = ["ok": ok, "action": action, "status": status, "stateVersion": "forgotten-v2"]
         if let forgottenID { body["forgottenId"] = forgottenID }
         if let durableMemoryDeleted { body["durableMemoryDeleted"] = durableMemoryDeleted }
         let data = try JSONSerialization.data(withJSONObject: body)
         let payload = try JSONDecoder().decode(BackendMemoryMutationResponse.self, from: data)
-        return BackendReadResult(payload: payload, sync: .empty, notModified: false)
+        return BackendReadResult(payload: payload, sync: sync, notModified: false)
     }
 
     private func eventually(

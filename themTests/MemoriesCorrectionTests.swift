@@ -276,6 +276,65 @@ final class MemoriesCorrectionTests: XCTestCase {
         XCTAssertEqual(vm.selection, original, "Keep the editor and its draft open for review.")
     }
 
+    func testDelayedReceiptCannotOverwriteNewSnapshotEvenWhenTextMatchesOriginal() async throws {
+        let pending = PendingCorrection()
+        var reads = 0
+        let vm = MemoriesViewModel(
+            notificationCenter: NotificationCenter(),
+            memoriesLoader: { _, _ in
+                reads += 1
+                return try Self.read(stateVersion: reads == 1 ? "v1" : "v3")
+            }, pendingQuestionLoader: { _ in nil },
+            correctionLoader: { _, _, _ in try await pending.wait() }
+        )
+        _ = await vm.load()
+        let original = try XCTUnwrap(vm.memory(forID: "theme-a"))
+        let saving = Task { try await save(vm, original) }
+        for _ in 0..<100 where !pending.isWaiting { await Task.yield() }
+        XCTAssertTrue(pending.isWaiting)
+        _ = await vm.retry()
+        pending.complete(.success(try Self.receipt()))
+        do {
+            _ = try await saving.value
+            XCTFail("A newer snapshot can restore the original text; a delayed receipt must not overwrite it.")
+        } catch MemoriesViewModel.MemoryEditConflict.changed {}
+        XCTAssertEqual(reads, 3)
+        XCTAssertEqual(vm.memory(forID: original.id), original)
+    }
+
+    func testSaveReconcilesAnInterveningReadAndUsesFreshRevisionForNextSave() async throws {
+        let pending = PendingCorrection()
+        var reads = 0
+        var sentVersions: [String] = []
+        let vm = MemoriesViewModel(
+            notificationCenter: NotificationCenter(),
+            memoriesLoader: { _, _ in
+                reads += 1
+                return try Self.read(
+                    summary: reads < 3 ? "Original." : "The confirmed correction.",
+                    stateVersion: reads < 3 ? "v1" : "v4"
+                )
+            }, pendingQuestionLoader: { _ in nil },
+            correctionLoader: { _, version, _ in
+                sentVersions.append(version)
+                if sentVersions.count == 1 { return try await pending.wait() }
+                return try Self.receipt(overrides: ["stateVersion": "v5"])
+            }
+        )
+        _ = await vm.load()
+        let original = try XCTUnwrap(vm.memory(forID: "theme-a"))
+        let saving = Task { try await save(vm, original) }
+        for _ in 0..<100 where !pending.isWaiting { await Task.yield() }
+        XCTAssertTrue(pending.isWaiting)
+        _ = await vm.retry()
+        pending.complete(.success(try Self.receipt()))
+        let updated = try await saving.value
+        XCTAssertEqual(updated.summary, "The confirmed correction.")
+        XCTAssertEqual(reads, 3)
+        _ = try await save(vm, updated)
+        XCTAssertEqual(sentVersions, ["v1", "v4"])
+    }
+
     func testConflictRefreshesLatestCardButRequiresAReopenedBaseline() async throws {
         var reads = 0
         var writes = 0

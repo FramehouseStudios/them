@@ -191,6 +191,7 @@ final class MemoriesViewModel: ObservableObject {
     private var pendingEventVersions: Set<String> = []
     private var pendingFullRefresh = false
     private var mutationRevision = 0
+    private var appliedReadGeneration = 0
     private var editingMemoryID: String?
     #if DEBUG
     private var isUITestFixture = false
@@ -283,6 +284,7 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     private func applyReadSnapshot(_ payload: BackendMemoriesResponse) {
+        appliedReadGeneration += 1
         let noChange = payload.deltaNoChange == true
         if !noChange || payload.memoryQuality != nil { qualitySnapshot = payload.memoryQuality }
         if !noChange || payload.actionReceipts != nil { recentActionReceipts = payload.actionReceipts?.items ?? [] }
@@ -336,9 +338,10 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
-    private func adoptMutationSync(_ sync: BackendSyncState) {
+    private func adoptMutationSync(_ sync: BackendSyncState, basedOnRead generation: Int? = nil) {
         mutationRevision += 1
         if isRefreshing { pendingFullRefresh = true }
+        if let generation, generation != appliedReadGeneration { return }
         lastSync = sync
         if !sync.stateVersion.isEmpty { latestSeenStateVersion = sync.stateVersion }
     }
@@ -604,6 +607,7 @@ final class MemoriesViewModel: ObservableObject {
         // Keep the revision associated with the validated visible snapshot across awaits.
         let stateVersion = correctedMemoryStateVersions[itemID] ?? displayedMemoryStateVersion
         let creativeRevision = correctedCreativeMemoryRevisions[itemID] ?? displayedCreativeMemoryRevision
+        let readGeneration = appliedReadGeneration
         let result: BackendReadResult<BackendMemoryMutationResponse>
         do {
             if let correctionLoader {
@@ -658,18 +662,25 @@ final class MemoriesViewModel: ObservableObject {
             throw MemoryEditConflict.invalidReceipt
         }
         let updated = memoryItem(from: card)
+        let snapshotAdvanced = readGeneration != appliedReadGeneration
+        if snapshotAdvanced {
+            // Reconcile after the response: an intervening read may be either
+            // before this write or after a subsequent write on another device.
+            let outcome = await load(force: true, sinceVersion: nil, refreshPendingQuestion: false)
+            guard outcome == .succeeded else { throw MemoryEditConflict.needsRefresh }
+        }
         guard let latest = memory(forID: itemID) else { throw MemoryEditConflict.removed }
-        guard latest == original || latest == updated else {
+        guard latest == updated || (!snapshotAdvanced && latest == original) else {
             // A newer read may have arrived while this save response was in flight.
             // Keep that snapshot and the writer's draft rather than applying an old receipt.
             throw MemoryEditConflict.changed
         }
-        adoptMutationSync(result.sync)
+        adoptMutationSync(result.sync, basedOnRead: readGeneration)
         // A returned card proves only this correction's revision, not the contents
         // of other cards or the other memory store. Never advance them implicitly.
-        if characterBible == nil {
+        if !snapshotAdvanced, characterBible == nil {
             correctedMemoryStateVersions[itemID] = result.payload.stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        } else {
+        } else if !snapshotAdvanced {
             correctedCreativeMemoryRevisions[itemID] = result.payload.creativeMemoryRevision?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
         replaceMemoryItem(updated)
@@ -687,11 +698,14 @@ final class MemoriesViewModel: ObservableObject {
         guard forgettingMemoryID == nil, correctingMemoryID == nil else { throw MemoryForgetError.inProgress }
         let requestedID = MemoryForgetPresentation.normalizedID(itemID)
         guard !requestedID.isEmpty else { throw MemoryForgetError.removed }
-        if let expectedItem { try validateMemoryForget(expectedItem, itemID: itemID, key: key) }
+        guard let original = expectedItem ?? memory(forID: itemID) else { throw MemoryForgetError.removed }
+        try validateMemoryForget(original, itemID: itemID, key: key)
+        let originalScope = Set(memoryItemsMatching(id: itemID, key: key))
+        let readGeneration = appliedReadGeneration
         forgettingMemoryID = requestedID
         actionNotice = nil
         defer { forgettingMemoryID = nil }
-        let title = expectedItem?.title ?? memory(forID: itemID)?.title ?? "Memory"
+        let title = original.title
         // Pin this action to the snapshot shown here, not another API request's newer state.
         let expectedStateVersion = correctedMemoryStateVersions[itemID] ?? displayedMemoryStateVersion
         let expectedCreativeMemoryRevision = correctedCreativeMemoryRevisions[itemID] ?? displayedCreativeMemoryRevision
@@ -705,7 +719,7 @@ final class MemoriesViewModel: ObservableObject {
                     throw MemoryForgetError.invalidReceipt
                 }
                 _ = try? await api.bootstrapSession()
-                if let expectedItem { try validateMemoryForget(expectedItem, itemID: itemID, key: key) }
+                try validateMemoryForget(original, itemID: itemID, key: key)
                 result = try await api.forgetMemoryCard(
                     id: itemID, key: key,
                     expectedStateVersion: expectedStateVersion,
@@ -726,7 +740,17 @@ final class MemoriesViewModel: ObservableObject {
               MemoryForgetPresentation.normalizedID(forgottenID) == requestedID else {
             throw MemoryForgetError.invalidReceipt
         }
-        adoptMutationSync(result.sync)
+        if readGeneration != appliedReadGeneration {
+            let outcome = await load(force: true, sinceVersion: nil, refreshPendingQuestion: false)
+            guard outcome == .succeeded else { throw MemoryForgetError.invalidReceipt }
+            // Even identical text can be a recreated memory. A post-response read
+            // must establish absence before hiding anything from a newer snapshot.
+            guard memoryItemsMatching(id: itemID, key: key).isEmpty else { throw MemoryForgetError.changed }
+        }
+        // A changed or newly added same-key card must never be removed by an older receipt.
+        let currentScope = Set(memoryItemsMatching(id: itemID, key: key))
+        guard currentScope.isSubset(of: originalScope) else { throw MemoryForgetError.changed }
+        adoptMutationSync(result.sync, basedOnRead: readGeneration)
         let characterKeyPrefix = "character:"
         if key.lowercased().hasPrefix(characterKeyPrefix) {
             ScreenplayLiveDraftBridge.shared.forgetCharacterVoiceMemory(
@@ -735,7 +759,7 @@ final class MemoriesViewModel: ObservableObject {
         }
         removeMemoryItem(id: itemID, key: key)
         if let selected = selection,
-           MemoryForgetPresentation.normalizedID(selected.id) == requestedID || selected.key == key {
+           matchesMemoryScope(selected, id: itemID, key: key) {
             selection = nil
         }
         actionNotice = "Forgot “\(title)”."
@@ -1051,16 +1075,21 @@ final class MemoriesViewModel: ObservableObject {
 
     private func removeMemoryItem(id: String, key: String) {
         guard case .loaded(let current) = state else { return }
-        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = current.filter { item in
-            let itemID = item.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let itemKey = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !normalizedID.isEmpty && itemID == normalizedID { return false }
-            if !normalizedKey.isEmpty && itemKey == normalizedKey { return false }
-            return true
-        }
+        let filtered = current.filter { !matchesMemoryScope($0, id: id, key: key) }
         state = filtered.isEmpty ? .empty : .loaded(filtered)
+    }
+
+    private func memoryItemsMatching(id: String, key: String) -> [MemoryItem] {
+        guard case .loaded(let current) = state else { return [] }
+        return current.filter { matchesMemoryScope($0, id: id, key: key) }
+    }
+
+    private func matchesMemoryScope(_ item: MemoryItem, id: String, key: String) -> Bool {
+        let normalizedID = MemoryForgetPresentation.normalizedID(id)
+        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let itemID = MemoryForgetPresentation.normalizedID(item.id)
+        let itemKey = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return (!normalizedID.isEmpty && itemID == normalizedID) || (!normalizedKey.isEmpty && itemKey == normalizedKey)
     }
 }
 
