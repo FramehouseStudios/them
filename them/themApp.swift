@@ -26,6 +26,7 @@ struct themApp: App {
         #endif
         #endif
         configureAudioSession()
+        ClementinePackStore.startLaunchRecoveryIfNeeded()
     }
 
     var body: some Scene {
