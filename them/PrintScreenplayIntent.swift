@@ -30,12 +30,13 @@ struct ScreenplayDraftQuery: EntityQuery {
 
 // Exposes "print the script" to Siri, Shortcuts, Action Button, Apple Intelligence.
 // No model coupling — intent is the one entry point; Clementine voice controller becomes a caller.
-struct PrintScreenplayIntent: AppIntent {
+struct PrintScreenplayIntent: AppIntent, ForegroundContinuableIntent {
     static var title: LocalizedStringResource = "Print the Script"
     static var description = IntentDescription("Prints the current draft to your AirPrint printer. Picks a printer on first use, then reprints silently.")
     static var openAppWhenRun: Bool = false
     static var isDiscoverable: Bool = true
-    static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+    // Printing spools paper; require the device to be unlocked.
+    static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
     @Parameter(title: "Draft", description: "Screenplay text to print. Defaults to current draft if empty.")
     var draft: String?
@@ -58,147 +59,84 @@ struct PrintScreenplayIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard ScreenplayPrintFeature.isEnabled else {
-            throw PrintErrorIntent.disabled
-        }
-        let text = (draft?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? draft! :
-                    ScreenplayDraftStore.sharedCurrentDraftText() ?? "")
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw PrintErrorIntent.noDraft
-        }
-        // FinalDraftGate: block TODO drafts — if clarification provided, apply it inline (Siri needsValue path)
-        if text.contains("TODO: clarify") {
-            if let ans = clarification?.trimmingCharacters(in: .whitespacesAndNewlines), !ans.isEmpty {
-                // Apply clarification directly and continue to print (Siri follow-up)
-                var lines = text.components(separatedBy: .newlines)
-                for i in 0..<lines.count where lines[i].contains("TODO: clarify") {
-                    lines[i] = ans
-                    break
-                }
-                let fixed = lines.joined(separator: "\n")
-                ScreenplayLiveDraftBridge.shared.draftText = fixed
-                // Use fixed for this print run
-                // Re-check gate after fix
-                if fixed.contains("TODO: clarify") {
-                    let todo = fixed.components(separatedBy: "TODO: clarify").dropFirst().first?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(48) ?? "the story"
-                    throw PrintErrorIntent.blockedByGate("Still needs clarify — \(todo).")
-                }
-                // Proceed with fixed text
-                // Fall through to title/pdf below with fixed text
-                // To avoid double, set text to fixed for rest of method
-                // (shadow)
-                let text = fixed
-                // Re-enter gate for format after fix
-                if ScreenplayDraftGate.hasFormatErrors(draft: text) {
-                    throw PrintErrorIntent.blockedByGate("Draft has format issues — fix character cues and scene headings before final print.")
-                }
-                let title = (jobTitle?.isEmpty == false ? jobTitle! : (ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"))
-                let pdf: Data
-                do {
-                    pdf = try ScreenplayPrintService.makePDF(draft: text, title: title)
-                } catch {
-                    throw PrintErrorIntent.pdfFailed(error.localizedDescription)
-                }
-                let pages = ScreenplayPrintService.pageCountEstimate(for: text)
-                let printerName = ScreenplayPrintMemory.rememberedPrinterName ?? "your printer"
-                #if canImport(UIKit)
-                if pickAlternate == true {
-                    guard let (url, name) = await ScreenplayPrintUI.pickPrinter() else { throw PrintErrorIntent.cancelled }
-                    let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-                    if !ok { throw PrintErrorIntent.printFailed }
-                    return .result(dialog: IntentDialog("Printing \(pages) pages to \(name) — clarified."))
-                }
-                if let url = ScreenplayPrintMemory.rememberedPrinterURL {
-                    let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-                    if ok {
-                        #if canImport(AVFoundation)
-                        ScreenplayPrintSpeech.say("Printing \(pages) pages to \(printerName).")
-                        #endif
-                        #if canImport(UIKit)
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        #endif
-                        return .result(dialog: IntentDialog("Printing \(pages) pages to \(printerName) — clarified."))
-                    }
-                }
-                guard let (url, name) = await ScreenplayPrintUI.pickPrinter() else { throw PrintErrorIntent.cancelled }
-                let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-                if !ok { throw PrintErrorIntent.printFailed }
-                return .result(dialog: IntentDialog("Printing \(pages) pages to \(name) — clarified."))
-                #else
-                #if os(macOS)
-                let ok = ScreenplayPrintServiceMac.print(pdfData: pdf, jobName: title)
-                if ok {
-                    ScreenplayPrintSpeech.say("Printing \(pages) pages.")
-                    return .result(dialog: IntentDialog("Printing \(pages) pages — clarified."))
-                }
-                throw PrintErrorIntent.printFailed
-                #else
-                throw PrintErrorIntent.printFailed
-                #endif
-                #endif
+        guard ScreenplayPrintFeature.isEnabled else { throw PrintErrorIntent.disabled }
+
+        var text = draft?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if text.isEmpty { text = ScreenplayDraftStore.sharedCurrentDraftText() ?? "" }
+        guard !text.isEmpty else { throw PrintErrorIntent.noDraft }
+
+        // Final-draft gate: a draft with an open "TODO: clarify" pill doesn't print until it is answered.
+        if text.contains(Self.clarifyMarker) {
+            let answer = clarification?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !answer.isEmpty else {
+                throw PrintErrorIntent.blockedByGate("Draft needs a quick clarify — \(Self.pendingClarifyTopic(in: text)). Answer with clarification, e.g., “find her mother”, then print again.")
             }
-            let todo = text.components(separatedBy: "TODO: clarify").dropFirst().first?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(48) ?? "the story"
-            throw PrintErrorIntent.blockedByGate("Draft needs a quick clarify — \(todo). Answer with clarification, e.g., “find her mother”, then print again.")
+            text = Self.applyingClarification(answer, to: text)
+            ScreenplayLiveDraftBridge.shared.draftText = text
+            if text.contains(Self.clarifyMarker) {
+                throw PrintErrorIntent.blockedByGate("Still needs clarify — \(Self.pendingClarifyTopic(in: text)).")
+            }
         }
-        // Format gate: basic linter (no empty character cues, no orphan)
         if ScreenplayDraftGate.hasFormatErrors(draft: text) {
             throw PrintErrorIntent.blockedByGate("Draft has format issues — fix character cues and scene headings before final print.")
         }
-        let title = (jobTitle?.isEmpty == false ? jobTitle! : (ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"))
+
+        let requestedTitle = jobTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = requestedTitle.isEmpty ? (ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay") : requestedTitle
         let pdf: Data
         do {
             pdf = try ScreenplayPrintService.makePDF(draft: text, title: title)
         } catch {
             throw PrintErrorIntent.pdfFailed(error.localizedDescription)
         }
-
-        let pages = ScreenplayPrintService.pageCountEstimate(for: text)
-        let printerName = ScreenplayPrintMemory.rememberedPrinterName ?? "your printer"
+        let pages = ScreenplayPrintService.pageCount(of: pdf) ?? ScreenplayPrintService.pageCountEstimate(for: text)
 
         #if canImport(UIKit)
-        if pickAlternate == true {
-            guard let (url, name) = await ScreenplayPrintUI.pickPrinter() else {
-                throw PrintErrorIntent.cancelled
-            }
-            let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-            if !ok { throw PrintErrorIntent.printFailed }
-            return .result(dialog: IntentDialog("Printing \(pages) pages to \(name)."))
-        }
-
-        if let url = ScreenplayPrintMemory.rememberedPrinterURL {
-            // 3-sec spoken cancel guard: “Printing X pages to Y — say cancel” before spooling, so first silent print isn’t a surprise.
-            #if canImport(AVFoundation)
+        if pickAlternate != true, let url = ScreenplayPrintMemory.rememberedPrinterURL {
+            let printerName = ScreenplayPrintMemory.rememberedPrinterName ?? "your printer"
+            // Spoken cancel window before spooling, so a silent reprint is never a surprise.
             ScreenplayPrintSpeech.say("Printing \(pages) pages to \(printerName) — say cancel to stop, or say print somewhere else to pick another printer.")
-            #endif
-            // Give user 3s to say “cancel” / “somewhere else” (Siri can re-invoke with pickAlternate), then spool
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            // A caller cancelling this Task during the guard window must not spool.
             guard !Task.isCancelled else { throw PrintErrorIntent.cancelled }
-            let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-            if ok {
-                #if canImport(UIKit)
+            if await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url) {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                #endif
                 return .result(dialog: IntentDialog("Printing \(pages) pages to \(printerName)."))
             }
-            // fell through to picker if printer offline
+            // Remembered printer unreachable — fall through to the picker.
         }
-        guard let (url, name) = await ScreenplayPrintUI.pickPrinter() else {
-            throw PrintErrorIntent.cancelled
+        // The printer picker needs a window. From Siri or Shortcuts the app may be in the
+        // background; ask to continue in the foreground instead of failing silently.
+        if UIApplication.shared.applicationState != .active {
+            try await requestToContinueInForeground(IntentDialog("Choose a printer in io.them."))
         }
-        let ok = await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: url)
-        if !ok { throw PrintErrorIntent.printFailed }
-        return .result(dialog: IntentDialog("Printing \(pages) pages to \(name)."))
-        #else
-        // macOS path
-        #if os(macOS)
-        let ok = ScreenplayPrintServiceMac.print(pdfData: pdf, jobName: title)
-        if ok { return .result(dialog: IntentDialog("Printing \(pages) pages.")) }
-        throw PrintErrorIntent.printFailed
+        guard let picked = await ScreenplayPrintUI.pickPrinter() else { throw PrintErrorIntent.cancelled }
+        guard await ScreenplayPrintUI.printSilently(pdfData: pdf, jobName: title, printerURL: picked.0) else {
+            throw PrintErrorIntent.printFailed
+        }
+        return .result(dialog: IntentDialog("Printing \(pages) pages to \(picked.1)."))
+        #elseif os(macOS)
+        guard ScreenplayPrintServiceMac.print(pdfData: pdf, jobName: title) else { throw PrintErrorIntent.printFailed }
+        ScreenplayPrintSpeech.say("Printing \(pages) pages.")
+        return .result(dialog: IntentDialog("Printing \(pages) pages."))
         #else
         throw PrintErrorIntent.printFailed
         #endif
-        #endif
+    }
+
+    private static let clarifyMarker = "TODO: clarify"
+
+    private static func pendingClarifyTopic(in text: String) -> String {
+        let topic = text.components(separatedBy: clarifyMarker).dropFirst().first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(48) ?? ""
+        return topic.isEmpty ? "the story" : String(topic)
+    }
+
+    private static func applyingClarification(_ answer: String, to text: String) -> String {
+        var lines = text.components(separatedBy: .newlines)
+        if let index = lines.firstIndex(where: { $0.contains(clarifyMarker) }) {
+            lines[index] = answer
+        }
+        return lines.joined(separator: "\n")
     }
 
     enum PrintErrorIntent: Swift.Error, CustomLocalizedStringResourceConvertible {
@@ -265,8 +203,7 @@ struct ScreenplayShortcuts: AppShortcutsProvider {
                 "Print draft in \(.applicationName)",
                 "Print my draft in \(.applicationName)",
                 "Print screenplay in \(.applicationName)",
-                "Print current draft in \(.applicationName)",
-                "Print Jess's Search in \(.applicationName)"
+                "Print current draft in \(.applicationName)"
             ]
         )
     }

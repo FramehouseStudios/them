@@ -14015,9 +14015,8 @@ I'm choosing between "\(ambiguity.primary.note.title)" and "\(ambiguity.secondar
         isPrintPendingConfirmation = false
 
         // Resolve draft: current note draft or current screenplay draft via shared store
-        let draft = ScreenplayDraftStore.sharedCurrentDraftText() ?? draftNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else {
-            statusText = "No current draft to print. Open a screenplay draft or write a note first."
+        guard let draft = ScreenplayDraftStore.sharedCurrentDraftText() else {
+            statusText = "No screenplay draft to print. Open a draft in Studio first."
             return
         }
         let title = ScreenplayDraftStore.sharedCurrentTitle() ?? "Screenplay"
