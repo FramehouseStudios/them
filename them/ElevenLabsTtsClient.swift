@@ -137,7 +137,7 @@ final class ElevenLabsTtsClient: CompanionTtsProviding, @unchecked Sendable {
         var text = value
         let patterns = [
             #"xi-api-key["'\s:=]+[A-Za-z0-9_\-]{8,}"#,
-            #"sk_[A-Za-z0-9]{16,}"#,
+            #"sk_[A-Za-z0-9_\-]{16,}"#,
             #"(api[_-]?key["'\s:=]+)([A-Za-z0-9_\-]{20,})"#,
         ]
         for pattern in patterns {

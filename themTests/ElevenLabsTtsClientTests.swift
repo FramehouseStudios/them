@@ -42,6 +42,45 @@ final class ElevenLabsTtsClientTests: XCTestCase {
         XCTAssertTrue(redacted.contains("[redacted]"))
     }
 
+    func testRedactSecretsRemovesWholeKeysWithEmbeddedSeparators() {
+        let keys = [
+            "sk_abcdefghijklmnop",
+            "sk_live_abcdefghijklmnop",
+            "sk_test_abcdefgh-ijklmnop",
+        ]
+        for key in keys {
+            XCTAssertEqual(
+                ElevenLabsTtsClient.redactSecrets("provider rejected [\(key)]."),
+                "provider rejected [xi-api-key=[redacted]]."
+            )
+        }
+        XCTAssertEqual(ElevenLabsTtsClient.redactSecrets("No voices found."), "No voices found.")
+    }
+
+    func testProviderErrorDetailsRedactKeysForListAndSpeak() async throws {
+        let key = "sk_live_abcdefghijklmnop"
+        let client = ElevenLabsTtsClient(dependencies: .init(dataForRequest: { request in
+            let body = Data("Provider rejected \(key)".utf8)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (body, response)
+        }))
+
+        for operation in ["list", "speak"] {
+            do {
+                if operation == "list" {
+                    _ = try await client.listVoices(apiKey: key)
+                } else {
+                    _ = try await client.speak(text: "Hello", voiceId: "abcdefghijkl", apiKey: key)
+                }
+                XCTFail("expected provider error")
+            } catch let ElevenLabsTtsClient.ClientError.http(status, detail) {
+                XCTAssertEqual(status, 401)
+                XCTAssertFalse(detail.contains(key))
+                XCTAssertTrue(detail.contains("[redacted]"))
+            }
+        }
+    }
+
     func testAbortCancelsInFlightSpeak() async throws {
         let started = expectation(description: "fetch started")
         let client = ElevenLabsTtsClient(
